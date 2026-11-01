@@ -178,10 +178,11 @@ class EquationOfStateImpl {
   }
   void push_mark_(int i, torch::Tensor t) { pending_marks_[i].push_back(t); }
 
-  //! While on (a MeshBlock stage, and check_redo's conversion), the CUDA vapor
-  //! repair adds its failures to vapor_failures() instead of reading them
-  //! back; check_redo raises on a nonzero count and zeroes it, and stage 0
-  //! zeroes it. Off (any other call), a failure raises at once, as on the CPU.
+  //! While on (a MeshBlock stage, and check_redo's conversion), the vapor
+  //! repair adds its failures to vapor_failures() instead of raising (on CUDA,
+  //! without reading them back); check_redo redoes the step on a nonzero count
+  //! and zeroes it, and stage 0 zeroes it. Off (any other call), a failure
+  //! raises at once.
   void defer_vapor_check(bool on) { defer_vapor_check_ = on; }
   //! this instance's deferred failure count (0-d int32), undefined until used
   torch::Tensor const& vapor_failures() const { return vapor_failures_; }

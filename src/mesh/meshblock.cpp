@@ -1402,7 +1402,7 @@ torch::Tensor MeshBlockImpl::local_redo_flag_tensor(Variables const &vars) {
   // the VIC failure latch, read in the one copy below
   auto solve =
       phydro->picorr ? phydro->picorr->solve_failed_tensor(opts) : zero;
-  // 7th: the step's deferred vapor-repair failures, raised by read_redo_flags
+  // 7th: the step's deferred vapor-repair failures, a limiter cause
   auto const &nfv = phydro->peos->vapor_failures();
   auto vapor = nfv.defined() ? (nfv > 0).to(opts) : zero;
   auto out = torch::stack(
@@ -1414,12 +1414,15 @@ torch::Tensor MeshBlockImpl::local_redo_flag_tensor(Variables const &vars) {
 std::array<bool, 6> MeshBlockImpl::read_redo_flags(torch::Tensor const &flags) {
   auto c = flags.to(torch::kCPU);  // the one device-to-host read
   auto a = c.accessor<double, 1>();
-  TORCH_CHECK(c.size(0) <= 6 || !(a[6] > 0.),
-              "[EquationOfState] apply_conserved_limiter_: "
-              "Failed to fix vapor mass fractions (counted on the device in "
-              "the step, reported at check_redo).");
   std::array<bool, 6> out;
   for (size_t i = 0; i < out.size(); ++i) out[i] = a[i] > 0.;
+  // a vapor column the limiter could not repair: redo at a smaller dt (#317)
+  if (c.size(0) > 6 && a[6] > 0.) {
+    std::cerr << "[MeshBlock] rank=" << get_rank()
+              << " vapor repair failed; check_redo will redo the step."
+              << std::endl;
+    out[2] = true;
+  }
   return out;
 }
 

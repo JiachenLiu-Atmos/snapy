@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """A vapour-repair failure must be reported once and never resurface in a later check_redo.
 
-On CUDA the repairs inside a MeshBlock stage count their failures on the device and
+The repairs inside a MeshBlock stage count their failures (on CUDA, on the device) and
 check_redo reports them. Three arms, each ending with a check_redo on a healthy state
 that must return 0 without raising:
   direct: eos.compute("U->W") on an unrepairable column raises at once;
-  check:  check_redo on an unrepairable state raises, then the healthy state passes;
+  check:  check_redo on an unrepairable state redoes the step (#317), then the
+          healthy state passes;
   stage:  a step whose stages hit an unrepairable column is abandoned before its
           check_redo (as when a driver stops on an error); the next step's
           stages and check_redo are healthy.
@@ -76,11 +77,11 @@ def check_arm(device, yaml_file):
     u0 = block_vars["hydro_u"].clone()
     block_vars["hydro_u"].copy_(unrepairable(u0))
     try:
-        block.check_redo(block_vars)
-        return "check_redo on an unrepairable state did not raise"
+        err = block.check_redo(block_vars)
     except RuntimeError as e:
-        if "Failed to fix vapor" not in str(e):
-            return "unexpected error: " + str(e).splitlines()[0]
+        return "check_redo on an unrepairable state raised: " + str(e).splitlines()[0]
+    if err != 1:
+        return "check_redo on an unrepairable state returned %d, not a redo" % err
     block_vars["hydro_u"].copy_(u0)
     return healthy_check(block, block_vars, "a reported failure")
 

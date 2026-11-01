@@ -1,0 +1,45 @@
+# Fixture for tests/test_check_redo_vapor_deficit.cpp. One uniform cartesian
+# column of six cells at rest: vapor with a nucleation cloud, so the conserved
+# limiter runs the vapor column repair (fix_vapor) inside check_redo.
+reference-state:
+  Tref: 300.
+  Pref: 1.e5
+
+species:
+  - name: dry
+    composition: {O: 0.42, N: 1.56, Ar: 0.01}
+    cv_R: 2.5
+
+  - name: vapor
+    composition: {H: 2, O: 1}
+    cv_R: 2.5
+    u0_R: 0.
+
+  - name: cloud
+    composition: {H: 2, O: 1}
+    cv_R: 9.0
+    u0_R: -3430.
+
+reactions:
+  - equation: vapor <=> cloud
+    type: nucleation
+    rate-constant: {formula: h2o_ideal}
+
+geometry:
+  type: cartesian
+  bounds: {x1min: 0., x1max: 6., x2min: 0., x2max: 1., x3min: 0., x3max: 1.}
+  cells: {nx1: 6, nx2: 1, nx3: 1, nghost: 2}
+
+dynamics:
+  equation-of-state:
+    type: ideal-moist
+    limiter: true
+
+boundary-condition:
+  external:
+    x1-inner: reflecting
+    x1-outer: reflecting
+
+integration:
+  type: rk3
+  cfl: 0.9
