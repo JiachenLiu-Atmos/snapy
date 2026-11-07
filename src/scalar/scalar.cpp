@@ -33,6 +33,13 @@ void ScalarImpl::reset() {
 
   pcoord = pmb->pcoord;
   precon = ReconstructImpl::create(options->recon(), this);
+
+  if (pcoord && pcoord->options->stretched_x1()) {
+    precon1 = ReconstructImpl::create(options->recon(), this, "recon1");
+    precon1->set_x1_faces(pcoord->x1f);
+  } else {
+    precon1 = precon;
+  }
   priemann = RiemannSolverImpl::create(options->riemann(), this);
 
   if (options->thermo()) {
@@ -72,7 +79,7 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
   auto r = u / rho;
 
   if (_flux1.defined()) {
-    auto rlr = precon->forward(r, DIM1);
+    auto rlr = precon1->forward(r, DIM1);
     _flux1.set_(
         priemann->forward(rlr[ILT], rlr[IRT], DIM1, pmb->phydro->flux1()[IDN]));
   }
