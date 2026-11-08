@@ -1020,6 +1020,12 @@ void MeshBlockImpl::exchange_ghost_zones(Variables &vars) {
     auto physical = [&](int face) {
       if (face < 0 || face >= static_cast<int>(fns.size()) || !fns[face])
         return false;
+      // Cubed-sphere horizontal custom callbacks are built-in no-ops:
+      // exchange owns these faces and their radial wall intersections.
+      // Check callback identity, not its name, to retain genuine custom BCs.
+      if (options->layout()->type() == "cubed-sphere" && face >= 2 &&
+          is_custom_noop(fns[face]))
+        return false;
       return !(static_cast<size_t>(face) < names.size() &&
                names[face].compare(0, 8, "periodic") == 0);
     };
