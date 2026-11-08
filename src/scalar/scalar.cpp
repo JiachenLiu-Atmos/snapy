@@ -32,11 +32,17 @@ void ScalarImpl::reset() {
       "side alone leaves the other unbounded");
 
   pcoord = pmb->pcoord;
-  precon = ReconstructImpl::create(options->recon(), this);
-
-  if (pcoord && pcoord->options->stretched_x1()) {
-    precon1 = ReconstructImpl::create(options->recon(), this, "recon1");
-    precon1->set_x1_faces(pcoord->x1f);
+  // q and rho get the same scale-invariant weights: a uniform r stays uniform
+  TORCH_CHECK(options->recon(), "[Scalar] Reconstruct options are null");
+  auto recon = std::make_shared<ReconstructOptionsImpl>(*options->recon());
+  recon->interp() = std::make_shared<InterpOptionsImpl>(*recon->interp());
+  recon->interp()->scale() = true;
+  precon = ReconstructImpl::create(recon, this);
+  auto x1f =
+      pcoord ? pcoord->x1_row_faces(recon->interp()->type()) : torch::Tensor();
+  if (x1f.defined()) {
+    precon1 = ReconstructImpl::create(recon, this, "recon1");
+    precon1->set_x1_faces(x1f);
   } else {
     precon1 = precon;
   }
@@ -76,10 +82,16 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
               "[Scalar] hydro_u is required for passive scalar transport");
 
   auto rho = other.at("hydro_u")[IDN].unsqueeze(0);
-  auto r = u / rho;
+  // r = q_face / rho_face; q / rho of cell averages is second order (S177)
+  auto face_r = [&](int dim) {
+    auto recon = dim == DIM1 ? precon1 : precon;
+    auto rf = recon->forward(rho, dim), r = u / rho;  // donor r if rf <= 0
+    return torch::where(rf > 0., recon->forward(u, dim) / rf,
+                        torch::stack({r.roll(1, dim), r}));
+  };
 
   if (_flux1.defined()) {
-    auto rlr = precon1->forward(r, DIM1);
+    auto rlr = face_r(DIM1);
     _flux1.set_(
         priemann->forward(rlr[ILT], rlr[IRT], DIM1, pmb->phydro->flux1()[IDN]));
   }
@@ -92,7 +104,7 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
   std::vector<CommWorkPtr> works2, works3;
 
   if (_flux2.defined()) {
-    rtmp2 = precon->forward(r, DIM2);
+    rtmp2 = face_r(DIM2);
     if (playout->options->type() == "cubed-sphere") {
       // Ship the two reconstructed states under DIRECTION-SUFFIXED keys, as the
       // hydro does (hydro_forward.cpp). The ':' suffix selects the directional
@@ -107,7 +119,7 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
   }
 
   if (_flux3.defined()) {
-    rtmp3 = precon->forward(r, DIM3);
+    rtmp3 = face_r(DIM3);
     if (playout->options->type() == "cubed-sphere") {
       // See the DIM2 comment above.
       send_vars3["scalar_wl:+"] = rtmp3[ILT];
@@ -178,23 +190,12 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
   };
 
   auto cells = pmb->part({0, 0, 0}, PartOptions().exterior(false));
-  if (pmb->phydro->options->eos()->limiter() || cov) {
-    auto theta = flux_positivity_theta(u, _flux1, _flux2, _flux3, pcoord, dt);
-    _positivity_hits += (theta.index(cells) < 1.).sum();
-    flux_positivity_scale_(sync_theta(theta), _flux1, _flux2, _flux3, pcoord);
-  }
-
   // r <= b is positivity of the complement b*rho - s, whose flux is b*F_mass -
   // F_s, so the same limiter applies to it -- a SECOND theta, not the one
-  // above. Scaling the complement blends F_s toward b*F_mass, the donor-cell
+  // below. Scaling the complement blends F_s toward b*F_mass, the donor-cell
   // flux of a tracer at the bound; scaling F_s toward zero would bound it too
   // but stop a plateau advecting.
-  //
-  // ⚠ This weakens the lower bound above from unconditional to conditional on
-  // the mass Courant number staying below 1: past that, theta can leave a cell
-  // exporting tracer it does not have. The premise also assumes rho moves by
-  // -dt*div(F_mass) alone, which the implicit vertical correction and any
-  // forcing writing du[IDN] both break.
+  // r <= b assumes rho moves by -dt*div(F_mass) alone (not so if implicit)
   if (options->upper_bound() > 0.) {
     auto b = options->upper_bound();
     auto mf = [&](int dim) {
@@ -220,6 +221,14 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
     if (_flux1.defined()) _flux1.add_(h1 - g1);
     if (_flux2.defined()) _flux2.add_(h2 - g2);
     if (_flux3.defined()) _flux3.add_(h3 - g3);
+  }
+
+  // positivity last: the blend above can export tracer a donor lacks
+  // by design: Courant>1 can make explicit rho<0; no scaling keeps both, so r>b
+  if (pmb->phydro->options->eos()->limiter() || cov) {
+    auto theta = flux_positivity_theta(u, _flux1, _flux2, _flux3, pcoord, dt);
+    _positivity_hits += (theta.index(cells) < 1.).sum();
+    flux_positivity_scale_(sync_theta(theta), _flux1, _flux2, _flux3, pcoord);
   }
 
   _div.set_(pcoord->divergence(_flux1, _flux2, _flux3));

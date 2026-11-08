@@ -12,6 +12,7 @@
 #include <snap/coord/coord_utils.hpp>
 #include <snap/hydro/flux_positivity.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
+#include <snap/implicit/implicit_dispatch.hpp>
 #include <snap/input/read_restart_file.hpp>
 #include <snap/output/output_formats.hpp>
 #include <snap/utils/log.hpp>
@@ -256,6 +257,17 @@ void MeshBlockImpl::reset() {
 
   //// -------- (7) set up scalar model ------- ////
   pscalar = ScalarImpl::create(options->scalar(), this);
+
+  // an s-point stencil reads s / 2 + 1 ghosts on each axis it runs on (S184)
+  auto co = options->coord();
+  for (auto [r, nc] : {std::pair{phydro->precon1, co->nc1()},
+                       {phydro->precon23, co->nc2() * co->nc3()},
+                       {pscalar->precon, co->nc1() * co->nc2() * co->nc3()}})
+    TORCH_CHECK(
+        !r || nc == 1 || r->pinterp1->stencils() / 2 + 1 <= co->nghost(),
+        "[MeshBlock] ", r->pinterp1->options->type(),
+        " reconstruction needs nghost >= ", r->pinterp1->stencils() / 2 + 1,
+        ", got ", co->nghost());
 
   //// ------ (8) set up internal boundary ---- ////
   pib = InternalBoundaryImpl::create(options->ib(), this);
@@ -699,6 +711,11 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
       auto r_below = torch::zeros_like(r);
       r_below.slice(-1, 1, nc1) = r.slice(-1, 0, nc1 - 1);
       auto P = torch::where(M > 0., r_below, r) * M;
+      // cap each donor at held + inflow below, as in vic_constituent_column
+      auto held =
+          (scalar_s + fut_scalar_ds).clamp_min(0.) * pcoord->cell_volume();
+      at::native::donor_cap(P.device().type(), P, held, pcoord->il(),
+                            pcoord->iu());
       auto P_above = torch::zeros_like(P);
       P_above.slice(-1, 0, nc1 - 1) = P.slice(-1, 1, nc1);
       fut_scalar_ds.add_((P - P_above) / pcoord->cell_volume());
