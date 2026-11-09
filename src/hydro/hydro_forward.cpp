@@ -501,9 +501,11 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       }
     }
 
-    // sedimentation flux; skipped when x1 flux is off (_flux1 not rewritten)
+    // sedimentation flux; skipped when x1 flux is off (_flux1 not rewritten).
+    // Its settling part is kept wherever step 4.C can limit species: with the
+    // eos limiter, or with the covariance rows that switch it on (cov2, cov3)
     if (psed && !options->disable_flux_x1()) {
-      bool carry = options->eos()->limiter() && ny > 0;
+      bool carry = (options->eos()->limiter() || flux_covariance()) && ny > 0;
       auto fadv = carry ? _flux1.narrow(0, ICY, ny).clone() : torch::Tensor();
       psed->forward(w, _flux1);
       if (carry) fsed1 = _flux1.narrow(0, ICY, ny) - fadv;
@@ -793,6 +795,29 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
 
     torch::Tensor drain;
     auto theta = flux_positivity_theta(uy, f1, f2, f3, pmb->pcoord, dt, &drain);
+    // the eos limiter does not limit the mass flux either: where it drains
+    // the dry air too (Courant>1), the neighbours (implicit x1 refill, inflow
+    // along x2, x3) bring their q back, so a species may drain past its
+    // content only as far as the poorer neighbour repays: all of it at a
+    // uniform q, none beside an empty cell
+    {
+      auto m = [&](torch::Tensor const& f) {
+        return f.defined() ? f.narrow(0, IDN, 1) : torch::Tensor();
+      };
+      auto rho = u.narrow(0, IDN, 1);
+      auto td = flux_positivity_theta(rho, m(_flux1), m(_flux2), m(_flux3),
+                                      pmb->pcoord, dt);
+      auto phi = flux_positivity_share(uy / rho);
+      // settling mass is not dry air: nothing refills it, so a cell it drains
+      // keeps the plain theta
+      if (fsed1.defined()) {
+        auto out = fsed1.clamp_min(0.).roll(-1, DIM1) + (-fsed1).clamp_min(0.);
+        phi.masked_fill_(out > 0., 0.);
+      }
+      theta = torch::where((td < 1.) & (td > 0.),
+                           theta + phi * ((theta / td).clamp_max(1.) - theta),
+                           theta);
+    }
     // census of interior (cell, species) entries, before the ghost fill
     auto cells = pmb->part({0, 0, 0}, PartOptions().exterior(false));
     auto ti = theta.index(cells).to(torch::kFloat64);

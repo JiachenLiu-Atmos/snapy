@@ -427,6 +427,8 @@ snapy_add_python_test(test_scalar_flux_covariance TIMEOUT 300 LABELS "python;hyd
 snapy_add_python_test(test_scalar_stratified TIMEOUT 300 LABELS "python;scalar")
 # upper-bound must not drive a donor negative
 snapy_add_python_test(test_scalar_upper_bound_donor TIMEOUT 300 LABELS "python;scalar")
+# tracer and species ratios under the species positivity limiter (#338)
+snapy_add_python_test(test_tracer_ratio TIMEOUT 120 LABELS "python;hydro;scalar;positivity")
 # #289: the same, on a column split in x1, four blocks in one process vs one
 snapy_add_python_test(test_scalar_cov_x1_split TIMEOUT 300 LABELS "python;hydro;scalar")
 set_tests_properties(test_scalar_cov_x1_split_python
@@ -484,6 +486,9 @@ if(CUDA)
   snapy_add_python_test(test_scalar_upper_bound_donor_cuda
     SCRIPT test_scalar_upper_bound_donor.py ARGS --device cuda
     TIMEOUT 300 LABELS "python;scalar;cuda")
+  snapy_add_python_test(test_tracer_ratio_cuda
+    SCRIPT test_tracer_ratio.py ARGS --device cuda
+    TIMEOUT 120 LABELS "python;hydro;scalar;positivity;cuda")
   snapy_add_python_test(test_tracer_dry_convention_cuda
     SCRIPT test_tracer_dry_convention.py ARGS --device cuda
     TIMEOUT 120 LABELS "python;scalar;implicit;forcing;cuda")
@@ -501,6 +506,7 @@ if(CUDA)
     test_gravity_work_radial_exact_cuda_python
     test_scalar_flux_covariance_cuda_python
     test_scalar_upper_bound_donor_cuda_python
+    test_tracer_ratio_cuda_python
     test_tracer_dry_convention_cuda_python
     PROPERTIES SKIP_RETURN_CODE 125)
 endif()
