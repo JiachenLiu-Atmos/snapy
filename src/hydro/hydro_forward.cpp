@@ -84,7 +84,7 @@ torch::Tensor HydroImpl::_flux_covariance(torch::Tensor const& wl,
   // the face-normal velocity in the face-local orthonormal frame -- the
   // component the energy flux actually carries. Projected on our own copy:
   // whether the Riemann solver projects its inputs in place is the solver's
-  // business (roe does not), so do not read that side effect.
+  // business (plume_roe does not), so do not read that side effect.
   if (dim == 2) {
     pcoord->prim2local2_(wbar);
   } else {

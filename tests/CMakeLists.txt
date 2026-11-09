@@ -393,6 +393,8 @@ set_tests_properties(test_flux_positivity_cubedsphere_flux_covariance_python
                      PROPERTIES ENVIRONMENT "SNAP_FLUX_COVARIANCE=1")
 snapy_add_python_test(test_flux_positivity_cubedsphere_moist TIMEOUT 300
                       LABELS "python;positivity;cubed-sphere")
+snapy_add_python_test(test_roe_cubed_sphere_rest TIMEOUT 120
+                      LABELS "python;riemann;cubed-sphere")
 snapy_add_python_test(test_cubed_sphere_cell_volume TIMEOUT 120
                       LABELS "python;coordinate;cubed-sphere")
 snapy_add_python_test(test_stage2_cubed_stretched ARGS --device cpu TIMEOUT 3600
