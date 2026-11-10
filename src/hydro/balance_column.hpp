@@ -9,6 +9,8 @@
 
 namespace snap {
 
+class EquationOfStateImpl;
+
 //! \brief Project a ghost-free x1 column onto the well-balanced scheme's own
 //!        discrete hydrostatic balance, at fixed temperature.
 //!
@@ -107,9 +109,18 @@ namespace snap {
 //! plain means converted from its r^2 means, which this column does not model:
 //! the caller then passes geometry "cartesian", and anything else (unknown, or
 //! spherical-polar, whose rest state is the solver's own) is refused.
+//!
+//! `conversion_order` is the run's dynamics/conversion-order. At 4 the solver
+//! applies the reference to w4 = W(u - L u) + L W(u), not to W(u), so where W
+//! is not linear in u (mass fractions varying in x1) a column balanced at 2 is
+//! not at rest under key 4. Order 4 balances w4 instead: each pass projects
+//! w4 at order 2 and moves w by the same dp and drho, until w4 needs no sweep;
+//! `eos` (the run's) gives W -> U -> W, and the return counts passes. The x1
+//! ends are reflecting walls, as above.
 std::tuple<torch::Tensor, double, int> balance_column(
     torch::Tensor const& w, torch::Tensor const& dx1f, double grav,
     bool wall_clamp = true, double rtol = 1.e-10, int max_iter = 120,
-    std::string const& geometry = "", bool stretched = false);
+    std::string const& geometry = "", bool stretched = false,
+    int conversion_order = 2, EquationOfStateImpl* eos = nullptr);
 
 }  // namespace snap

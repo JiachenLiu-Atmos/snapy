@@ -50,7 +50,8 @@ void bind_hydro(py::module& m) {
   m.def("balance_column", &snap::balance_column, py::arg("w"), py::arg("dx1f"),
         py::arg("grav"), py::arg("wall_clamp") = true, py::arg("rtol") = 1.e-10,
         py::arg("max_iter") = 120, py::arg("geometry") = "",
-        py::arg("stretched") = false,
+        py::arg("stretched") = false, py::arg("conversion_order") = 2,
+        py::arg("eos") = nullptr,
         R"(Project a ghost-free x1 column onto the well-balanced scheme's own
 discrete hydrostatic balance, holding p/rho -- the temperature -- fixed per
 cell. Returns (w, residual, sweeps); the residual is max|p'-C|/(rho*g*dz), the
@@ -65,5 +66,7 @@ src/hydro/balance_column.hpp for the caller's two obligations (physical x1
 boundaries; >= 5 x1 cells per block). Under SNAP_X1_CENTROID_EXACT pass
 geometry='cartesian'; any other geometry is refused. On a stretched x1 grid
 key (#280) pass stretched=True (the coordinate's stretched_x1()), so the
-column is classified as the solver classifies its blocks.)");
+column is classified as the solver classifies its blocks. conversion_order=4
+balances the state the key-4 solver applies the reference to, W(u - L u) +
+L W(u); it needs `eos` (block.module("hydro.eos")) and returns passes.)");
 }
