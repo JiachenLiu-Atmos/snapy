@@ -4,25 +4,33 @@
 (u - L u has negative vapour there, where the solver keeps W(u)). The column it returns needs no
 further pass: a second call takes 0 passes and changes nothing beyond 1e-12. It is at rest under
 key 4: 10 explicit steps leave max|v1|/c below 1e-13. With v1 = 25 m/s (odd at the walls) the
-solver's own converted state, after one stage, is balanced to 1e-12. Order 4 without the run's eos
-raises."""
+solver's own converted state, after one stage, is balanced to 1e-12. Order 4 without the run's eos,
+or with the eos of an nx2 = 8 block (either w shape), raises."""
 import os
 import tempfile
 
+import pytest
 import torch
 import yaml
 from snapy import MeshBlock, MeshBlockOptions, balance_column, kICY, kIDN, kIPR, kIV1
 
 g, nx, ng = 10.44, 64, 3
-for x1rat, qtop, v1 in ((1., 1.e9, 0.), (1.05, 1.e9, 0.), (1.05, 5.e3, 0.), (1., 1.e9, 25.)):
+
+
+def make_block(x1rat, nx2=1):
     cfg = yaml.safe_load(open("test_balance_column_moist.yaml"))
-    cfg["geometry"]["cells"].update({"nx1": nx, **({"x1rat": x1rat} if x1rat != 1. else {})})
+    cfg["geometry"]["cells"].update({"nx1": nx, "nx2": nx2, **({"x1rat": x1rat} if x1rat != 1. else {})})
     cfg["dynamics"]["conversion-order"] = 4
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=os.getcwd()) as f:
         yaml.safe_dump(cfg, f)
     block = MeshBlock(MeshBlockOptions.from_yaml(f.name))
     os.unlink(f.name)
     block.to(torch.device("cpu"), torch.float64)
+    return block
+
+
+for x1rat, qtop, v1 in ((1., 1.e9, 0.), (1.05, 1.e9, 0.), (1.05, 5.e3, 0.), (1., 1.e9, 25.)):
+    block = make_block(x1rat)
     eos, xf = block.module("hydro.eos"), block.buffer("coord.x1f")[ng:-ng]
     dx1f, z = (xf[1:] - xf[:-1]).contiguous(), (xf[1:] + xf[:-1]) / 2.
     w = torch.zeros(eos.nvar(), 1, 1, nx, dtype=torch.float64)
@@ -55,4 +63,9 @@ try:
     raise AssertionError("conversion_order 4 without eos did not raise")
 except RuntimeError as e:
     assert "needs the run's eos" in str(e), e
+block8 = make_block(1., nx2=8)  # kept alive: the eos reads its block
+eos8 = block8.module("hydro.eos")
+for nc2 in (1, 8 + 2 * ng):  # a single column, or the nx2 = 8 block's nc2
+    with pytest.raises(RuntimeError, match=r"eos of a block with nx2 = nx3 = 1 \(a single column\)"):
+        balance_column(w.expand(-1, 1, nc2, -1).contiguous(), *args, eos=eos8)
 print("balance_column order 4: OK")

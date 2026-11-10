@@ -6,8 +6,10 @@
 
 #include <snap/coord/x1_centroid.hpp>
 #include <snap/eos/equation_of_state.hpp>
+#include <snap/mesh/meshblock.hpp>
 
 #include "balance_column.hpp"
+#include "hydro.hpp"
 #include "hydro_reference.hpp"
 
 namespace snap {
@@ -53,7 +55,14 @@ std::tuple<torch::Tensor, double, int> balance_column(
   TORCH_CHECK((w[IPR].min() > 0. & w[IDN].min() > 0.).item<bool>(),
               "balance_column: p and rho must be positive everywhere");
   if (conversion_order == 4) {
-    TORCH_CHECK(eos, "balance_column: conversion_order 4 needs the run's eos");
+    TORCH_CHECK(eos && eos->phydro && eos->phydro->pmb,
+                "balance_column: conversion_order 4 needs the run's eos");
+    // its W <-> U applies its block's x2/x3 metric, (nc3, nc2) with ghosts
+    auto const& co = eos->phydro->pmb->pcoord->options;
+    TORCH_CHECK(co->nc2() == 1 && co->nc3() == 1,
+                "balance_column: conversion_order 4 needs the eos of a block "
+                "with nx2 = nx3 = 1 (a single column), got nx2 = ",
+                co->nx2(), ", nx3 = ", co->nx3());
     int n = w.size(-1);
     // a reflecting wall mirrors the end cell and its width, and v1 with odd
     // parity (src/bc/bc_func.cpp, reflecting_inner and reflecting_outer)
@@ -70,8 +79,8 @@ std::tuple<torch::Tensor, double, int> balance_column(
       auto a0 = a.narrow(-1, 1, n);
       return kp * (a.narrow(-1, 2, n) - a0) - km * (a0 - a.narrow(-1, 0, n));
     };
-    // the limiter works on a block's interior, not on this column; a state at
-    // rest needs no repair (hydro_forward.cpp keeps such a cell's w4)
+    // the limiter works on a block's interior, not on this column, so a cell
+    // the solver's limiter would repair keeps w4 here (balance_column.hpp)
     bool lim = eos->options->limiter();
     eos->options->limiter(false);
     std::shared_ptr<void> restore(nullptr,

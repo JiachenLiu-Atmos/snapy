@@ -51,7 +51,8 @@ class EquationOfStateImpl;
 //! \param rtol     bound on the residual below, dimensionless. Its floor is
 //!                 about eps (p/rho) / (g dz_min), ~10x that at order 4: pass
 //!                 a larger rtol when the thinnest cells are millimetres.
-//! \param max_iter sweeps before giving up.
+//! \param max_iter sweeps before giving up; at conversion_order 4 it bounds
+//!                 both the outer passes and each pass's inner sweeps.
 //!
 //! \return (balanced w, residual, sweeps). The residual is
 //!         max |p' - C| / (rho g dz), which bounds what the leftover imbalance
@@ -123,7 +124,7 @@ class EquationOfStateImpl;
 //! where conv4_admissible() fails keep W(u), as in the solver (its
 //! limiter-repair fallback is not modelled). The eos limiter flag is cleared
 //! for the call and restored on return and on error. `eos` must come from a
-//! block with nx2 = nx3 = 1, or w must carry that block's nc3 and nc2.
+//! block with nx2 = nx3 = 1.
 std::tuple<torch::Tensor, double, int> balance_column(
     torch::Tensor const& w, torch::Tensor const& dx1f, double grav,
     bool wall_clamp = true, double rtol = 1.e-10, int max_iter = 120,
