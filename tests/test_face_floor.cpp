@@ -77,19 +77,12 @@ void face_floor_uses_adjacent_density(torch::Device device) {
   // The column is not in balance, so a face away from the dip still carries
   // an O(1) mass flux. A run that dropped every flux would not pass.
   EXPECT_NEAR(lower_mass, 4.07888, 1.e-3);
-  if (!HydroImpl::wb_ref4()) {
-    EXPECT_LT(std::abs(dipped_mass), 1.e-9);
-    EXPECT_GT(dipped_mom, 0.03042);
-  } else {
-    // #289, SNAP_WB_REF4 (ctest test_face_floor_wb_ref4): the fourth-order
-    // density reference follows the dip (the kernel's binomial-smoothed one
-    // does not), so rho' stays small, the reconstructed face densities either
-    // side of the dipped cell stay positive and the floor does not fire here.
-    // The face then carries its reconstructed mass flux, not the floor's
-    // ~1e-11: these are the switched values, not a floor check.
-    EXPECT_NEAR(dipped_mass, -1.19257e-7, 1.e-3 * 1.19257e-7);
-    EXPECT_NEAR(dipped_mom, 0.0303502, 1.e-6);
-  }
+  // #289, in every arm (ctest test_face_floor_wb_ref4): the switch replaces
+  // only the FACE density reference, so the cell reference still does not
+  // follow the dip, rho' there stays large and the floor fires on the same
+  // face. The values below are the switched arms' too, to every digit.
+  EXPECT_LT(std::abs(dipped_mass), 1.e-9);
+  EXPECT_GT(dipped_mom, 0.03042);
 }
 
 // #289, with or without SNAP_WB_REF4: at p = 10 e^{-x/2} a cell's scan

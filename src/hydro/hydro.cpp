@@ -25,6 +25,10 @@ HydroImpl::HydroImpl(const HydroOptions& options_, torch::nn::Module* p)
 
 void HydroImpl::reset() {
   TORCH_CHECK(pmb, "[Hydro] Parent MeshBlock is null");
+  TORCH_CHECK(
+      options->conversion_order() == 2 || options->conversion_order() == 4,
+      "[Hydro] dynamics/conversion-order must be 2 or 4, got ",
+      options->conversion_order());
 
   //// ---- (1) set up equation-of-state model ---- ////
   peos = EquationOfStateImpl::create(options->eos(), this);
@@ -118,13 +122,13 @@ void HydroImpl::reset() {
     }
     // the wb4 resolution flag is computed per block from scan pressures up to
     // three cells away, so x1 seam sides agree only with nghost >= 3
-    if (wb_ref4_enabled() && options->grav()->grav1() != 0. && pmb &&
-        pmb->pcoord) {
+    if ((wb_ref4_enabled() || options->conversion_order() == 4) &&
+        options->grav()->grav1() != 0. && pmb && pmb->pcoord) {
       int ng = pmb->pcoord->options->nghost();
       TORCH_CHECK(ng >= 3,
                   "SNAP_WB_REF4 (or SNAP_X1_CENTROID_EXACT, which implies "
-                  "it) needs nghost >= 3, got ",
-                  ng, "; unset it");
+                  "it, or dynamics/conversion-order 4) needs nghost >= 3, got ",
+                  ng);
     }
     // the one-sided rho_1 at a wall spans three cells: fewer reads the ghost
     if (x1_mass_covariance() && options->grav()->grav1() != 0. && pmb &&
@@ -215,6 +219,9 @@ void HydroImpl::reset() {
       register_buffer("positivity_severe", torch::zeros({1}, torch::kInt64));
   _positivity_min =
       register_buffer("positivity_min", torch::ones({1}, torch::kFloat64));
+  if (options->conversion_order() == 4)
+    _conv4_trips =
+        register_buffer("conversion_trips", torch::zeros({1}, torch::kInt64));
   _lim_cut = register_buffer("lim_cut", torch::zeros({1}, torch::kFloat64));
   _lim_flux = register_buffer("lim_flux", torch::zeros({1}, torch::kFloat64));
   _gwfix_d = register_buffer("gwfix_d", torch::zeros({1}, torch::kFloat64));
@@ -609,22 +616,23 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w) const {
       w.device().type(), w, dx1f, anchor, psf_lo, psf_hi, pref, dsf, dref, iu,
       g, x1_grid, phys_in, phys_out, options->wb_wall_clamp(), rows);
 
-  // #289 (SNAP_WB_REF4): the cell part of the fourth-order density reference,
-  // before the seam exchange below
-  // so that the exchanged ghost rows carry it; the face part follows the
-  // exchange. psf is never changed, so the rest balance is the kernel's.
-  // SNAP_X1_CENTROID_EXACT implies the switch (wb_ref4_enabled()): on
-  // spherical-polar the cells read here are then plain means, for which it is
-  // fourth order (docs/derivations/x1-centroid-spherical.md)
+  // #289 (SNAP_WB_REF4), and conversion-order 4, which needs it: the only
+  // fourth-order part is the face density below, the face value of the
+  // kernel's own cell dref -- that is what makes the O(dz^2) face offset
+  // vanish, whatever dref's own accuracy (wb-ref4.md section 2), and
+  // replacing dref broke the theta bound of a density current at a wall. psf
+  // is never changed, so the rest balance is the kernel's. Only the
+  // resolution flag is wanted here; the face part follows the seam exchange,
+  // so a column split along x1 gets one block's faces.
   torch::Tensor wb4_flag;
-  if (wb_ref4()) {
+  if (wb_ref4() || options->conversion_order() == 4) {
     if (!wb_ref4_ || wb_ref4_->stale(w)) {
       bool clamp = options->wb_wall_clamp();
       wb_ref4_ = std::make_shared<WbRef4Stencils>(
           wb_ref4_stencils(pcoord->x1f, is, iu, clamp && phys_in,
                            clamp && phys_out, w.options()));
     }
-    wb4_flag = wb_ref4_cells(*wb_ref4_, w, psf_lo, psf_hi, pref, dref);
+    wb4_flag = wb_ref4_flag(*wb_ref4_, psf_lo, psf_hi);
   }
 
   if (below >= 0) {

@@ -16,7 +16,13 @@ For this column the exact cell-average tendencies of rho and E vanish at linear 
 scheme error. The kernel's density reference leaves an O(dz^2) face-density offset: N2_eff nz^2 tends to a
 constant (observed order ~2). With SNAP_WB_REF4 it is O(dz^4), and what is left is a wall-band term of
 order ~3. Asserted, at 1 and 3 e-folds, nz 32/64/128:
-  switch on:  observed order of |N2_eff| >= ORDER_ON over both doublings;
+  switch on:  observed order of |N2_eff| >= ORDER_ON at the LAST doubling, where the asymptotic term
+              dominates. Not over every doubling: the switched error can cross zero between the two
+              coarsest grids (3 e-folds, face reference: +8.6e-7, -1.5e-6, -1.7e-7, -1.4e-8 at
+              nz 32/64/128/256), and an order read across that crossing is meaningless, while the
+              doublings after it read 3.12 then 3.63 and keep rising towards 4;
+  switch on:  and |N2_eff| on the coarsest grid at least COARSE_GAIN below the switch-off arm's, so a
+              reference that only converges, from a coarse level no better than the kernel's, fails;
   switch off: below ORDER_OFF at the last doubling, so an ignored or misspelled switch fails.
 The switch is read once per process, so each arm runs in its own process.
 
@@ -37,6 +43,7 @@ NZS = (32, 64, 128)
 EFOLDS = (1.0, 3.0)
 ORDER_ON = 2.75
 ORDER_OFF = 2.5
+COARSE_GAIN = 10.0
 AMP = 1.0e-4
 GAMMA = 5.0 / 3.0
 M = 1.0 / (GAMMA - 1.0)
@@ -156,9 +163,10 @@ def main():
         json.dump(child(a.device), open(a.out, "w"))
         return 0
     failures = []
+    arms = {}
     with tempfile.TemporaryDirectory(dir=os.getcwd()) as tmp:
         for switch in (None, "1"):
-            res = run(switch, a.device, tmp)
+            arms[switch] = res = run(switch, a.device, tmp)
             for n in EFOLDS:
                 v = res[str(n)]
                 order = [math.log2(abs(v[i]) / abs(v[i + 1])) for i in range(len(v) - 1)]
@@ -166,11 +174,19 @@ def main():
                       + " / ".join(f"{x * nz * nz:+.4f}" for x, nz in zip(v, NZS))
                       + "  (nz " + "/".join(map(str, NZS)) + "), order "
                       + ", ".join(f"{o:.2f}" for o in order), flush=True)
-                if switch and min(order) < ORDER_ON:
-                    failures.append(f"{n:g} e-folds, switch on: order {min(order):.2f} < {ORDER_ON}")
+                if switch and order[-1] < ORDER_ON:
+                    failures.append(f"{n:g} e-folds, switch on: order {order[-1]:.2f} < {ORDER_ON} at the "
+                                    f"last doubling (nz {NZS[-2]} -> {NZS[-1]})")
                 if not switch and not order[-1] < ORDER_OFF:
                     failures.append(f"{n:g} e-folds, switch off: order {order[-1]:.2f} >= {ORDER_OFF}, "
                                     "the oracle does not tell the references apart")
+    for n in EFOLDS:
+        off, on = (abs(arms[s][str(n)][0]) for s in (None, "1"))
+        print(f"SNAP_WB_REF4 1 vs unset, {n:g} e-folds, nz {NZS[0]}: |N2_eff| {on:.3e} vs {off:.3e}, "
+              f"gain {off / on:.1f}x (needs {COARSE_GAIN:g}x)", flush=True)
+        if on * COARSE_GAIN > off:
+            failures.append(f"{n:g} e-folds, switch on: coarse |N2_eff| {on:.3e} is not {COARSE_GAIN:g}x "
+                            f"below the switch-off {off:.3e}")
     for f in failures:
         print("FAIL:", f)
     if failures:

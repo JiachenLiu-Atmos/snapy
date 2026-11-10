@@ -53,6 +53,10 @@ struct HydroOptionsImpl {
   //! Keep the well-balanced x1 reference's stencils off the wall ghosts
   ADD_ARG(bool, wb_wall_clamp) = true;
 
+  //! order of the x1 cell-average <-> point conversion of the primitives: 2
+  //! (W of the averages) or 4 (hydro_forward.cpp); x2/x3 stay second order
+  ADD_ARG(int, conversion_order) = 2;
+
   //! forcing options
   ADD_ARG(ConstGravityOptions, grav) = nullptr;
   ADD_ARG(CoriolisOptions, coriolis) = nullptr;
@@ -279,6 +283,10 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   mutable std::shared_ptr<X1PlainMeanStencils> x1pm_;
   //! and its pressure-force stencils, for the hydrostatic correction
   mutable std::shared_ptr<X1PressureSourceStencils> x1src_;
+  //! conversion-order 4 x1 weights {kp, km}, built on first use, and the x1f
+  //! (storage, version) they were built from
+  mutable torch::Tensor conv4_x1_[2];
+  mutable std::pair<void*, int64_t> conv4_x1_at_;
   //! SNAP_GRAVITY_WORK_RADIAL_EXACT grid-only work factors, built on first use
   CorrectedPEFactors _pe_work;
   //! face_moment2_x1() for this block's x1 grid, built on first use. Holds
@@ -299,6 +307,9 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
 
   torch::Tensor _flux1, _flux2, _flux3, _face_pressure1, _div, _forcing_dry;
   torch::Tensor _positivity_hits, _positivity_severe, _positivity_min;
+  //! conversion-order 4 cells that kept the second-order w (buffer
+  //! "conversion_trips", registered only with the key at 4)
+  torch::Tensor _conv4_trips;
   torch::Tensor _lim_cut, _lim_flux;
   //! this stage's x2 [0] / x3 [1] face states the covariance was built from
   //! and the dry-mass row it added (undefined when the switch is off)

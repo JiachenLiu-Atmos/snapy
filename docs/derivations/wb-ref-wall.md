@@ -123,10 +123,8 @@ plus their ghost rows. $p_{\rm sf}$, $p_{\rm ref}$ and every other face and cell
 `wb-ref4.md`), so `balance_column` and the discrete rest state are unchanged.
 
 **Why not the `SNAP_WB_REF4` closure.**
-- `SNAP_WB_REF4`'s wall closure (`wb_ref4.cpp`) is a post-pass that replaces $\rho_{\rm ref}$ with
-  $p_{\rm ref}F(r)$ and $\rho_{\rm sf}$ with a fourth-order face value on *every* face, so applying it would change
-  every interior face. Its cubic continuation is tied to $F$: $F$ with the cubic values returns $r$ at the end
-  cells exactly. It also needs four owned cells.
+- `SNAP_WB_REF4` (`wb_ref4.cpp`) is a post-pass that replaces $\rho_{\rm sf}$ with a fourth-order face value on
+  *every* face, so applying it would change every interior face. It also needs four owned cells.
 - A cubic (or quadratic) continuation inside $B$ would also restore second order, with weights of 10–20 against
   $1+k$; it was not chosen.
 

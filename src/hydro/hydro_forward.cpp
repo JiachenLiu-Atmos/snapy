@@ -283,6 +283,21 @@ torch::Tensor HydroImpl::scalar_flux_covariance(torch::Tensor const& rl,
   return dflx;
 }
 
+// dynamics/conversion-order 4: the x1 weights of L a = h^2/24 q''(x_i), with q
+// the quadratic whose averages over cells i-1, i, i+1 are a. k = {kp, km}.
+static void conv4_x1_weights(torch::Tensor x1f, int n,
+                             torch::TensorOptions opts, torch::Tensor* k) {
+  TORCH_CHECK(n >= 4 && x1f.size(0) == n + 1,
+              "dynamics/conversion-order 4 needs nc1 >= 4 cells and nc1 + 1 "
+              "x1 faces, got ",
+              n, " and ", x1f.size(0));
+  x1f = x1f.to(torch::kCPU, torch::kFloat64);
+  auto f = [&](int s) { return x1f.narrow(0, s, n - 2); };
+  auto c = (f(2) - f(1)).square() / 4. / (f(3) - f(0));
+  k[0] = (c / (f(3) - f(1))).to(opts);
+  k[1] = (c / (f(2) - f(0))).to(opts);
+}
+
 torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
                                  Variables const& other) {
   enum { DIM1 = 3, DIM2 = 2, DIM3 = 1 };
@@ -299,6 +314,83 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   auto const& w = other.at("hydro_w");
 
   peos->forward(u, w);
+  // x1 point values u - L u, the primitives there, and back to cell averages:
+  // w = W(u - L u) + L W(u), fourth order where W(u) is second
+  if (options->conversion_order() == 4 && u.size(DIM1) > 1) {
+    auto const& mo = pmb->options;
+    int ng = pmb->pcoord->options->nghost();
+    auto* k = conv4_x1_;
+    auto const& x1f = pmb->pcoord->x1f;  // rebuilt on a new or rewritten grid
+    std::pair<void*, int64_t> at{x1f.data_ptr(), x1f._version()};
+    if (!k[0].defined() || at != conv4_x1_at_ || k[0].device() != u.device() ||
+        k[0].scalar_type() != u.scalar_type())
+      conv4_x1_weights(x1f, u.size(DIM1), u.options(), k), conv4_x1_at_ = at;
+    int n = u.size(DIM1) - 2;
+    // centred everywhere, reading the u ghosts the boundary condition or the
+    // exchange filled; the converted ghosts are refilled below
+    auto lap = [&](torch::Tensor const& a) {
+      auto out = torch::zeros_like(a);
+      auto am = a.narrow(-1, 0, n), a0 = a.narrow(-1, 1, n);
+      out.narrow(-1, 1, n) =
+          k[0] * (a.narrow(-1, 2, n) - a0) - k[1] * (a0 - am);
+      return out;
+    };
+    // per cell, keep the second-order w where u - L u or its primitives are
+    // not admissible: non-finite, rho or p not above the floor (zero with the
+    // limiter off), or repaired by the limiter. Those cells hand u to the
+    // EOS; this call's redo marks and vapor failures are dropped. Trips count
+    // cells per stage, ghosts included
+    bool lim = peos->options->limiter();
+    double df = lim ? peos->options->density_floor() : 0.;
+    double pf = lim ? peos->options->pressure_floor() : 0.;
+    auto ok = [&](torch::Tensor const& a, bool p) {
+      auto good = torch::isfinite(a).all(0) & (a[IDN] > df);
+      if (lim && a.size(0) > ICY)
+        good &= (a.narrow(0, ICY, a.size(0) - ICY) >= 0.).all(0);
+      return p && a.size(0) > IPR ? good & (a[IPR] > pf) : good;
+    };
+    auto w0 = w.clone();
+    auto up = u - lap(u);
+    auto good = ok(up, false);
+    auto tmp = torch::where(good, up, u);
+    auto keep = [](torch::Tensor const& a) {
+      return a.defined() ? a.clone() : a;
+    };
+    auto marks = keep(peos->limiter_marks());
+    auto fails = keep(peos->vapor_failures());
+    auto tmp0 = lim ? tmp.clone() : torch::Tensor();
+    peos->forward(tmp, w);
+    if (lim) {
+      good &= (tmp == tmp0).all(0);
+      if (marks.defined()) peos->limiter_marks().copy_(marks);
+      if (peos->vapor_failures().defined())
+        fails.defined() ? peos->vapor_failures().copy_(fails)
+                        : peos->vapor_failures().zero_();
+    }
+    good &= ok(w, true);
+    w.add_(lap(w0));
+    w.copy_(torch::where(good, w, w0));
+    _conv4_trips += good.logical_not().sum();
+    // every ghost from the converted owned cells: the block's exchange, the
+    // x1 rows again across all x2/x3 columns (the corners past a seam), then
+    // the boundary conditions on every ghost layer (outflow from the saved
+    // background, as the block's own outflow)
+    Variables gv{{"hydro_w", w}};
+    pmb->exchange(gv, SyncOptions().interpolate(true).type(kPrimitive));
+    _x1_ghost_rows(w, ng, false, 0x772a);
+    BoundaryFuncOptions bop;
+    bop.nghost(ng);
+    bop.type(kPrimitive);
+    if (other.count("boundary_reference_w")) {
+      bop.reference = other.at("boundary_reference_w");
+      bop.eos = peos.get();
+      bop.coord = pmb->pcoord.get();
+    }
+    for (int f = 0; f < mo->bfuncs().size(); ++f)
+      if (mo->bfuncs()[f] &&
+          (bop.reference.defined() || !is_outflow(mo->bfuncs()[f])))
+        mo->bfuncs()[f](w, 3 - f / 2, bop);
+  }
   if (options->verbose()) {
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;

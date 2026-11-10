@@ -1,6 +1,5 @@
 // C/C++
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <vector>
 
@@ -107,52 +106,7 @@ WbRef4Stencils wb_ref4_stencils(torch::Tensor const& x1f, int is, int iu,
     return std::max(lo, std::min(hi, j));
   };
 
-  // 1. filter rows: F in cell-index units; past a clamped wall the two
-  //    values are cubic extrapolations of the four owned cells nearest it
-  //    (exact for a cubic), elsewhere the array's own values, and past the
-  //    array the edge value
-  constexpr std::array<double, 5> F = {-1. / 16., 4. / 16., 10. / 16., 4. / 16.,
-                                       -1. / 16.};
-  constexpr std::array<std::array<double, 4>, 2> E = {
-      {{4., -6., 4., -1.}, {10., -20., 15., -4.}}};
-  std::vector<std::vector<int64_t>> fi, ni;
-  std::vector<std::vector<double>> fw;
-  int kf = 0;
-  for (int i = is; i <= iu; ++i) {
-    std::vector<double> row(nc1, 0.);
-    for (int m = -2; m <= 2; ++m) {
-      int j = i + m;
-      double wm = F[m + 2];
-      if (clamp_in && j < is) {
-        for (int q = 0; q < 4; ++q) row[is + q] += wm * E[is - j - 1][q];
-      } else if (clamp_out && j > iu) {
-        for (int q = 0; q < 4; ++q) row[iu - q] += wm * E[j - iu - 1][q];
-      } else {
-        row[clampi(j, 0, nc1 - 1)] += wm;
-      }
-    }
-    std::vector<int64_t> c;
-    std::vector<double> v;
-    for (int j = 0; j < nc1; ++j) {
-      if (row[j] != 0.) {
-        c.push_back(j);
-        v.push_back(row[j]);
-      }
-    }
-    kf = std::max(kf, (int)c.size());
-    fi.push_back(c);
-    fw.push_back(v);
-    // range-guard neighbours, inside the owned cells at a clamped wall
-    int lo = clamp_in ? is : 0, hi = clamp_out ? iu : nc1 - 1;
-    ni.push_back({clampi(i - 1, lo, hi), i, clampi(i + 1, lo, hi)});
-  }
-  for (auto& c : fi) c.resize(kf, c.empty() ? 0 : c.back());
-  for (auto& v : fw) v.resize(kf, 0.);
-  st.fidx = to_index(fi, kf).to(options.device());
-  st.fwt = to_weight(fw, kf).to(options);
-  st.nidx = to_index(ni, 3).to(options.device());
-
-  // 2. face density at faces is..iu+1: P'(x_f), P the quartic through the
+  // 1. face density at faces is..iu+1: P'(x_f), P the quartic through the
   //    primitive P(x_{s+j}) = sum_{k<j} d_{s+k} dz_{s+k}, j = 0..4, window
   //    s = f-2 kept inside the owned cells at a clamped wall. The weight of
   //    cell s+k is dz_{s+k} sum_{j>k} L_j'(x_f). Uniform interior:
@@ -180,7 +134,7 @@ WbRef4Stencils wb_ref4_stencils(torch::Tensor const& x1f, int is, int iu,
   st.aidx = to_index(ai, 4).to(options.device());
   st.awt = to_weight(aw, 4).to(options);
 
-  // 4. ghost cells past a clamped wall do not count for the resolution flag:
+  // 2. ghost cells past a clamped wall do not count for the resolution flag:
   //    the stencils there never read them, and the scan pressure falls
   //    steeply past a top wall
   auto counted = torch::ones({nc1}, torch::kBool);
@@ -190,34 +144,16 @@ WbRef4Stencils wb_ref4_stencils(torch::Tensor const& x1f, int is, int iu,
   return st;
 }
 
-torch::Tensor wb_ref4_cells(WbRef4Stencils const& st, torch::Tensor const& w,
-                            torch::Tensor const& psf_lo,
-                            torch::Tensor const& psf_hi, torch::Tensor pref,
-                            torch::Tensor dref) {
+torch::Tensor wb_ref4_flag(WbRef4Stencils const& st,
+                           torch::Tensor const& psf_lo,
+                           torch::Tensor const& psf_hi) {
   if (!st.usable) return torch::ones_like(psf_lo, torch::kBool);
   // resolution flag, dilated by two cells
   auto bad = ((psf_lo / psf_hi).log().abs() > kMaxLogDrop) & st.counted;
   auto sizes = bad.sizes();
-  auto flag =
-      torch::max_pool1d(bad.to(w.dtype()).reshape({-1, 1, st.nc1}), 5, 1, 2)
-          .reshape(sizes) > 0.;
-
-  int nown = st.iu - st.is + 1;
-  auto fl = flag.narrow(-1, st.is, nown);
-  auto d_old = dref.narrow(-1, st.is, nown).clone();
-
-  auto p_new = pref.narrow(-1, st.is, nown);
-
-  // dref = pref * F(rho/p); outside the range of rho/p over cells i-1..i+1
-  // the kernel's smoothed ratio stays
-  auto r = w[IDN] / w[IPR];
-  auto fr = apply(r, st.fidx, st.fwt);
-  auto nb = r.index_select(-1, st.nidx.flatten())
-                .view({r.size(0), r.size(1), nown, 3});
-  auto ok = in_range(fr, std::get<0>(nb.min(-1)), std::get<0>(nb.max(-1)));
-  dref.narrow(-1, st.is, nown)
-      .copy_(torch::where(fl, d_old, torch::where(ok, p_new * fr, d_old)));
-  return flag;
+  return torch::max_pool1d(bad.to(psf_lo.dtype()).reshape({-1, 1, st.nc1}), 5,
+                           1, 2)
+             .reshape(sizes) > 0.;
 }
 
 void wb_ref4_faces(WbRef4Stencils const& st, torch::Tensor const& dref,

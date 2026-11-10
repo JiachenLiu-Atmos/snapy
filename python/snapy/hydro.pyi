@@ -172,6 +172,17 @@ class HydroOptions:
     @overload
     def wb_wall_clamp(self, value: bool) -> "HydroOptions": ...
 
+    @overload
+    def conversion_order(self) -> int:
+        """Order of the x1 cell-average <-> point conversion: 2 (default) or 4.
+
+        4 is fourth order on uniform and smoothly stretched x1 grids and falls to second order where adjacent
+        cell widths jump."""
+        ...
+
+    @overload
+    def conversion_order(self, value: int) -> "HydroOptions": ...
+
 class Hydro:
     """
     Hydrodynamics implementation.

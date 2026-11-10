@@ -422,6 +422,7 @@ snapy_add_python_test(test_flux_covariance_rowset TIMEOUT 300 LABELS "python;hyd
 snapy_add_python_test(test_wb_ref4_order TIMEOUT 300 LABELS "python;hydro")
 snapy_add_python_test(test_x1_centroid_rest TIMEOUT 300 LABELS "python;hydro")
 snapy_add_python_test(test_radial_order TIMEOUT 300 LABELS "python;hydro")
+snapy_add_python_test(test_conversion_order TIMEOUT 600 LABELS "python;hydro")
 snapy_add_python_test(test_radial_order_x1_centroid SCRIPT test_radial_order.py
                       ARGS --x1-centroid TIMEOUT 300 LABELS "python;hydro")
 # #289: a passive scalar and the same tracer as a hydro species, covariance on and off
@@ -459,6 +460,8 @@ if(CUDA)
   snapy_add_python_test(test_check_redo_saturation_cuda
     SCRIPT test_check_redo_saturation.py ARGS --device cuda
     TIMEOUT 60 LABELS "python;mesh;redo;eos;cuda")
+  snapy_add_python_test(test_conversion_order_cuda SCRIPT test_conversion_order.py
+    ARGS --device cuda TIMEOUT 600 LABELS "python;hydro;cuda")
   snapy_add_python_test(test_flux_positivity_cubedsphere_cuda
     SCRIPT test_flux_positivity_cubedsphere.py ARGS --device cuda
     TIMEOUT 300 LABELS "python;positivity;cubed-sphere;cuda")
@@ -501,6 +504,7 @@ if(CUDA)
     test_flux_positivity_cubedsphere_cuda_python
     test_flux_positivity_cubedsphere_moist_cuda_python
     test_vic_moist_device_python
+    test_conversion_order_cuda_python
     test_wb_ref4_order_cuda_python
     test_x1_centroid_rest_cuda_python
     test_radial_order_cuda_python

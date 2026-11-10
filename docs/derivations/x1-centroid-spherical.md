@@ -78,8 +78,8 @@ $$
 
 ## 3. The reference: Leg W on plain means is $r^2$-exact
 
-On plain means the Leg W reference (`wb-ref4.md`: the filter $F = (-1,4,10,4,-1)/16$ on $\rho/p$ with cubic
-wall extrapolation, the quartic-primitive face value, the range and resolution guards) is exactly the
+On plain means the Leg W reference (`wb-ref4.md`: the quartic-primitive face
+value and the range and resolution guards) is exactly the
 Cartesian algorithm, whose $O(\Delta z^4)$ face-density error is derived there. The switch implies
 `SNAP_WB_REF4`: `wb_ref4_enabled()` is true with either, and the solver (`hydro.cpp`), `balance_column` and the
 tests read that one predicate, so a Cartesian column balanced outside the solver is at the solver's fixed point

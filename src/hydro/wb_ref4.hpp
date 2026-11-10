@@ -5,13 +5,13 @@
 
 namespace snap {
 
-//! #289 (SNAP_WB_REF4): fourth-order x1 reference DENSITY for the
-//! well-balanced reconstruction, consistent between cell and face. The face
-//! pressures (the hydrostatic scan) are never changed. Applied after the
-//! kernel (hydro_ref_x1_impl.h); a guarded cell or face keeps the kernel's
-//! value. See docs/derivations/wb-ref4.md.
-//! Read once per process from SNAP_WB_REF4; off unless it or
-//! SNAP_X1_CENTROID_EXACT (which implies it) is set.
+//! #289 (SNAP_WB_REF4): fourth-order x1 reference FACE DENSITY for the
+//! well-balanced reconstruction -- the face value of the kernel's own cell
+//! density reference, which is what makes the face offset of
+//! docs/derivations/wb-ref4.md section 2 vanish. The cell reference and the
+//! face pressures (the hydrostatic scan) are never changed; a guarded face
+//! keeps the kernel's value. Read once per process from SNAP_WB_REF4; off
+//! unless it or SNAP_X1_CENTROID_EXACT (which implies it) is set.
 bool wb_ref4_enabled();
 
 //! the per-grid stencils, built once on the CPU in double and moved to the
@@ -22,11 +22,6 @@ struct WbRef4Stencils {
   bool usable = false;
   //! a physical x1 wall whose stencils stay inside the owned cells
   bool clamp_in = false, clamp_out = false;
-  //! filter F = (-1, 4, 10, 4, -1)/16 of rho/p on owned cells, with cubic
-  //! extrapolation past a clamped wall: (nown, K) cell indices and weights
-  torch::Tensor fidx, fwt;
-  //! range-guard neighbours i-1, i, i+1 of each owned cell: (nown, 3)
-  torch::Tensor nidx;
   //! face density: derivative at the face of the quartic primitive through
   //! five faces (four cells), (nown + 1, 4) cell indices and weights
   torch::Tensor aidx, awt;
@@ -35,8 +30,8 @@ struct WbRef4Stencils {
   //! rebuild for a reference of another device or dtype; an unusable cache
   //! has no weights to move and is never stale (#298)
   bool stale(torch::Tensor const& ref) const {
-    return usable && (fwt.device() != ref.device() ||
-                      fwt.scalar_type() != ref.scalar_type());
+    return usable && (awt.device() != ref.device() ||
+                      awt.scalar_type() != ref.scalar_type());
   }
 };
 
@@ -45,14 +40,12 @@ WbRef4Stencils wb_ref4_stencils(torch::Tensor const& x1f, int is, int iu,
                                 bool clamp_in, bool clamp_out,
                                 torch::TensorOptions const& options);
 
-//! cell part, before any x1 seam exchange of (pref, dref): dref of the owned
-//! cells, in place. Returns the resolution
-//! flag (nc3, nc2, nc1): cells (dilated by two) where the column has fewer
-//! than two cells per pressure scale height and the kernel's values stay.
-torch::Tensor wb_ref4_cells(WbRef4Stencils const& st, torch::Tensor const& w,
-                            torch::Tensor const& psf_lo,
-                            torch::Tensor const& psf_hi, torch::Tensor pref,
-                            torch::Tensor dref);
+//! the resolution flag (nc3, nc2, nc1): cells (dilated by two) where the
+//! column has fewer than two cells per pressure scale height and the kernel's
+//! face value stays. Needs no seam exchange, the scan pressures being local.
+torch::Tensor wb_ref4_flag(WbRef4Stencils const& st,
+                           torch::Tensor const& psf_lo,
+                           torch::Tensor const& psf_hi);
 
 //! face part, after the x1 seam exchange: dsf on the owned faces is..iu+1 is
 //! the fourth-order face value of dref itself. Needs is >= 1 (a ghost cell).
