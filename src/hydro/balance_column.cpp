@@ -55,7 +55,8 @@ std::tuple<torch::Tensor, double, int> balance_column(
   if (conversion_order == 4) {
     TORCH_CHECK(eos, "balance_column: conversion_order 4 needs the run's eos");
     int n = w.size(-1);
-    // a reflecting wall mirrors the end cell and its width
+    // a reflecting wall mirrors the end cell and its width, and v1 with odd
+    // parity (src/bc/bc_func.cpp, reflecting_inner and reflecting_outer)
     auto pad = [](torch::Tensor const& a) {
       return torch::cat({a.narrow(-1, 0, 1), a, a.narrow(-1, -1, 1)}, -1);
     };
@@ -77,7 +78,9 @@ std::tuple<torch::Tensor, double, int> balance_column(
                                   [&](void*) { eos->options->limiter(lim); });
     auto wb = w.contiguous().clone();
     for (int pass = 0; pass <= max_iter; ++pass) {
-      auto u = eos->compute("W->U", {pad(wb)});
+      auto wp = pad(wb);
+      wp[IVX].narrow(-1, 0, 1).neg_(), wp[IVX].narrow(-1, -1, 1).neg_();
+      auto u = eos->compute("W->U", {wp});
       auto up = (u.narrow(-1, 1, n) - lap(u)).contiguous();
       // the solver's fallback: W(u) where u - L u or its W is not admissible
       auto good = conv4_admissible(up, false, eos, lim);
