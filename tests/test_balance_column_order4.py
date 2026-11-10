@@ -9,7 +9,6 @@ or with the eos of an nx2 = 8 block (either w shape), raises."""
 import os
 import tempfile
 
-import pytest
 import torch
 import yaml
 from snapy import MeshBlock, MeshBlockOptions, balance_column, kICY, kIDN, kIPR, kIV1
@@ -66,6 +65,9 @@ except RuntimeError as e:
 block8 = make_block(1., nx2=8)  # kept alive: the eos reads its block
 eos8 = block8.module("hydro.eos")
 for nc2 in (1, 8 + 2 * ng):  # a single column, or the nx2 = 8 block's nc2
-    with pytest.raises(RuntimeError, match=r"eos of a block with nx2 = nx3 = 1 \(a single column\)"):
+    try:
         balance_column(w.expand(-1, 1, nc2, -1).contiguous(), *args, eos=eos8)
+        raise AssertionError(f"an nx2 = 8 block's eos did not raise (nc2 {nc2})")
+    except RuntimeError as e:
+        assert "eos of a block with nx2 = nx3 = 1 (a single column)" in str(e), e
 print("balance_column order 4: OK")

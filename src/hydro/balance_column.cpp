@@ -86,7 +86,7 @@ std::tuple<torch::Tensor, double, int> balance_column(
     std::shared_ptr<void> restore(nullptr,
                                   [&](void*) { eos->options->limiter(lim); });
     auto wb = w.contiguous().clone();
-    for (int pass = 0; pass <= max_iter; ++pass) {
+    for (int pass = 0; pass < max_iter; ++pass) {
       auto wp = pad(wb);
       wp[IVX].narrow(-1, 0, 1).neg_(), wp[IVX].narrow(-1, -1, 1).neg_();
       auto u = eos->compute("W->U", {wp});
