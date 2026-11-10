@@ -28,7 +28,8 @@ class EquationOfStateImpl;
 //! column moves least where it is thinnest; anchoring it at the bottom
 //! diverges on a deep column. p/rho is held fixed per cell, which for
 //! `ideal-gas` and `ideal-moist` at fixed mass fractions holds the TEMPERATURE
-//! fixed exactly -- only p and rho move, together.
+//! fixed exactly -- only p and rho move, together. That is conversion_order 2;
+//! at 4 the temperature is held only per pass, see below.
 //!
 //! \param w        (nvar, nc3, nc2, nx1) primitive state, nvar > IPR. The last
 //!                 dimension is the WHOLE column with NO ghost cells: every
@@ -116,7 +117,14 @@ class EquationOfStateImpl;
 //! not at rest under key 4. Order 4 balances w4 instead: each pass projects
 //! w4 at order 2 and moves w by the same dp and drho, until w4 needs no sweep;
 //! `eos` (the run's) gives W -> U -> W, and the return counts passes. The x1
-//! ends are reflecting walls, as above.
+//! ends are reflecting walls, as above. Each pass holds w4's p/rho fixed, but
+//! neither w's nor w4's p/rho is fixed over the call: w moves by w4's dp and
+//! drho, and w4 is rebuilt from w. The drift shrinks at least as dz^2: 2.7e-9
+//! relative (both) on the 32-cell moist column of
+//! tests/test_balance_column_order4.py, 1.6e-8 at 16 cells, 5.6e-11 at 128; a
+//! review probe measured 1.275e-8. The eos's limiter flag is cleared for the
+//! call (the column is not a block interior) and restored on return and on
+//! error.
 std::tuple<torch::Tensor, double, int> balance_column(
     torch::Tensor const& w, torch::Tensor const& dx1f, double grav,
     bool wall_clamp = true, double rtol = 1.e-10, int max_iter = 120,
