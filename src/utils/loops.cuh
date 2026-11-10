@@ -6,6 +6,7 @@
 #include <c10/cuda/CUDAException.h>
 
 #include <array>
+#include <limits>
 
 #include <cuda_runtime.h>
 
@@ -67,9 +68,27 @@ void gpu_kernel(at::TensorIterator& iter, const func_t& f) {
   });
 }
 
+// Variables one stencil_kernel launch can hold: every variable's whole line
+// plus `buffers` scalars must fit the default 48 KB of shared memory.
+inline int stencil_vars_per_launch(int64_t nline, int64_t buffers,
+                                   size_t scalar_size) {
+  if (nline <= 0) {  // empty input: stencil_kernel returns before launching
+    return std::numeric_limits<int>::max();
+  }
+  constexpr int64_t kSharedLimit = 48 * 1024;
+  int64_t n =
+      (kSharedLimit / static_cast<int64_t>(scalar_size) - buffers) / nline;
+  TORCH_CHECK(n >= 1, "stencil line does not fit in shared memory: nline=",
+              nline, " buffers=", buffers);
+  return static_cast<int>(n);
+}
+
+// nvar_shared: variables held in shared memory per line; -1 means all of
+// them (dim 0 of the output). A caller that splits the variables over
+// several launches passes the size of one part.
 template <typename scalar_t, int Arity, typename func_t>
 void stencil_kernel(at::TensorIterator& iter, int dim, int buffers,
-                    const func_t& f) {
+                    const func_t& f, int nvar_shared = -1) {
   TORCH_CHECK(iter.ninputs() + iter.noutputs() == Arity);
 
   std::array<char*, Arity> data;
@@ -108,7 +127,9 @@ void stencil_kernel(at::TensorIterator& iter, int dim, int buffers,
   dim3 grid(len[2] / block.x, len[1] / block.y, len[0] / block.z);
 
   // number of variables
-  int nvar = at::native::ensure_nonempty_size(iter.output(), 0);
+  int nvar = nvar_shared >= 0
+                 ? nvar_shared
+                 : at::native::ensure_nonempty_size(iter.output(), 0);
   size_t shared = (block.x * nvar + buffers) * sizeof(scalar_t);
 
   auto stream = at::cuda::getCurrentCUDAStream();
