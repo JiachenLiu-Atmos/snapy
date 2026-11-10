@@ -49,7 +49,14 @@ class EquationOfStateImpl;
 //!                 faces BELOW the wall -- ghost faces, which a ghost-free
 //!                 column does not have -- so the fixed point found here would
 //!                 not be the one the solver later enforces.
-//! \param rtol     bound on the residual below, dimensionless.
+//! \param rtol     bound on the residual below, dimensionless. Its floor is
+//!                 the roundoff of p over rho g dz in the thinnest cell, about
+//!                 eps (p/rho) / (g dz_min), up to ~10x that at
+//!                 conversion_order 4 (the W -> U -> W round trip). On the
+//!                 moist test card (10 km) the default 1e-10 throws only for
+//!                 dz_min of millimetres: x1rat 1.1 at 128 cells (5 mm, 1e-9
+//!                 converges), x1rat 1.05 at 256 (2 mm, order 2 as well); pass
+//!                 a larger rtol there.
 //! \param max_iter sweeps before giving up.
 //!
 //! \return (balanced w, residual, sweeps). The residual is
@@ -117,14 +124,18 @@ class EquationOfStateImpl;
 //! not at rest under key 4. Order 4 balances w4 instead: each pass projects
 //! w4 at order 2 and moves w by the same dp and drho, until w4 needs no sweep;
 //! `eos` (the run's) gives W -> U -> W, and the return counts passes. The x1
-//! ends are reflecting walls, as above. Each pass holds w4's p/rho fixed, but
-//! neither w's nor w4's p/rho is fixed over the call: w moves by w4's dp and
-//! drho, and w4 is rebuilt from w. The drift shrinks at least as dz^2: 2.7e-9
-//! relative (both) on the 32-cell moist column of
-//! tests/test_balance_column_order4.py, 1.6e-8 at 16 cells, 5.6e-11 at 128; a
-//! review probe measured 1.275e-8. The eos's limiter flag is cleared for the
-//! call (the column is not a block interior) and restored on return and on
-//! error.
+//! ends are reflecting walls, as above. A cell where the solver keeps W(u) --
+//! u - L u or its primitives not admissible, conv4_admissible() with the run's
+//! limiter flag, e.g. vapour that is 0 aloft -- keeps W(u) here too; a cell
+//! the limiter would repair is not modelled. Each pass holds w4's p/rho fixed,
+//! but neither w's nor w4's p/rho is fixed over the call: w moves by w4's dp
+//! and drho, and w4 is rebuilt from w. The drift shrinks at least as dz^2:
+//! 2.7e-9 relative (both) on the moist test column at 32 cells, 1.6e-8 at 16,
+//! 5.6e-11 at 128; a review probe measured 1.275e-8. The eos's limiter flag is
+//! cleared for the call (the column is not a block interior) and restored on
+//! return and on error. The eos's W <-> U applies its block's x2/x3 metric
+//! (cosine_cell_kj, ghosts included), so `eos` must come from a block with
+//! nx2 = nx3 = 1, or w must carry that block's nc3 and nc2.
 std::tuple<torch::Tensor, double, int> balance_column(
     torch::Tensor const& w, torch::Tensor const& dx1f, double grav,
     bool wall_clamp = true, double rtol = 1.e-10, int max_iter = 120,

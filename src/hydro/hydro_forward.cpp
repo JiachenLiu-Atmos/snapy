@@ -12,6 +12,7 @@
 #include "gravity_work.hpp"
 #include "gravity_work_radial.hpp"
 #include "hydro.hpp"
+#include "hydro_dispatch.hpp"
 #include "x1_mass_covariance.hpp"
 
 namespace snap {
@@ -299,6 +300,16 @@ static void conv4_x1_weights(torch::Tensor x1f, int n,
   k[1] = (c / (f(2) - f(0))).to(opts);
 }
 
+torch::Tensor conv4_admissible(torch::Tensor const& a, bool prim,
+                               EquationOfStateImpl* eos, bool limiter) {
+  double df = limiter ? eos->options->density_floor() : 0.;
+  double pf = limiter ? eos->options->pressure_floor() : 0.;
+  auto good = torch::isfinite(a).all(0) & (a[IDN] > df);
+  if (limiter && a.size(0) > ICY)
+    good &= (a.narrow(0, ICY, a.size(0) - ICY) >= 0.).all(0);
+  return prim && a.size(0) > IPR ? good & (a[IPR] > pf) : good;
+}
+
 torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
                                  Variables const& other) {
   enum { DIM1 = 3, DIM2 = 2, DIM3 = 1 };
@@ -342,13 +353,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // EOS; this call's redo marks and vapor failures are dropped. Trips count
     // cells per stage, ghosts included
     bool lim = peos->options->limiter();
-    double df = lim ? peos->options->density_floor() : 0.;
-    double pf = lim ? peos->options->pressure_floor() : 0.;
     auto ok = [&](torch::Tensor const& a, bool p) {
-      auto good = torch::isfinite(a).all(0) & (a[IDN] > df);
-      if (lim && a.size(0) > ICY)
-        good &= (a.narrow(0, ICY, a.size(0) - ICY) >= 0.).all(0);
-      return p && a.size(0) > IPR ? good & (a[IPR] > pf) : good;
+      return conv4_admissible(a, p, peos.get(), lim);
     };
     auto w0 = w.clone();
     // Conversion acts on total cell averages, including the static background.
