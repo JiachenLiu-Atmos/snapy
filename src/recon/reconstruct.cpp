@@ -101,14 +101,17 @@ torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
     return result;
   }
 
+  // the species faces are floored at 0 with the eos limiter. clamp_min keeps
+  // -0., so non-negative faces are unchanged bit for bit
+  auto floor_species = [&](bool on) {
+    if (on && nvar > ICY) result.narrow(1, ICY, nvar - ICY).clamp_min_(0.);
+  };
+
   if (options->shock()) {
     _apply_inplace(dim, il, iu, w, pinterp1, result);
     // the species faces get the floor of the non-shock path below: a WENO
-    // undershoot would otherwise carry vapor up the gradient. clamp_min keeps
-    // -0., so non-negative faces are unchanged bit for bit
-    if (phydro->options->eos()->limiter() && nvar > ICY) {
-      result.narrow(1, ICY, nvar - ICY).clamp_min_(0.);
-    }
+    // undershoot would otherwise carry vapor up the gradient
+    floor_species(phydro->options->eos()->limiter());
     return result;
   }
 
@@ -161,9 +164,7 @@ torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
   // others
   _apply_inplace(dim, il, iu, w.narrow(0, ICY, ny), pinterp1,
                  result.narrow(1, ICY, ny));
-  if (eos->limiter()) {
-    result.narrow(1, ICY, ny).clamp_min_(0.);
-  }
+  floor_species(eos->limiter());
 
   return result;
 }

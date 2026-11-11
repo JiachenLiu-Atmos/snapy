@@ -916,9 +916,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         auto out = fsed1.clamp_min(0.).roll(-1, DIM1) + (-fsed1).clamp_min(0.);
         phi.masked_fill_(out > 0., 0.);
       }
-      theta = torch::where((td < 1.) & (td > 0.),
-                           theta + phi * ((theta / td).clamp_max(1.) - theta),
-                           theta);
+      theta = flux_positivity_relax(theta, td, phi);
     }
     // census of interior (cell, species) entries, before the ghost fill
     auto cells = pmb->part({0, 0, 0}, PartOptions().exterior(false));
@@ -951,24 +949,10 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     _positivity_severe += ((ti < 0.9) & above).sum();
     torch::minimum_out(_positivity_min, _positivity_min, ti.min());
 
-    // Raw copy, never interpolated: the donor of a panel-seam face is the
-    // neighbour's edge cell, and an interpolated ghost is not its factor.
-    Variables tvars;
-    tvars["hydro_theta"] = theta;
     // the energy each species carries, from w, ghosts included: exchanging it
     // with theta changed no bit, so it is not exchanged (#238)
     auto hspec = peos->species_enthalpy(w);
-    SyncOptions topts;
-    topts.interpolate(false).type(kScalar);
-    pmb->exchange(tvars, topts);
-
-    BoundaryFuncOptions bops;
-    bops.nghost(pmb->pcoord->options->nghost());
-    bops.type(kScalar);
-    for (int i = 0; i < pmb->options->bfuncs().size(); ++i) {
-      if (pmb->options->bfuncs()[i] == nullptr) continue;
-      pmb->options->bfuncs()[i](theta, 3 - i / 2, bops);
-    }
+    flux_positivity_sync_theta_(pmb, theta, "hydro_theta");
 
     // theta's depth is not its consequence: measure the flux it removes
     auto f1_pre = f1.defined() ? f1.abs() : torch::Tensor();
