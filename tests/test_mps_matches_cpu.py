@@ -76,7 +76,7 @@ def bubble_ic(block, dT):
     """Straka's cold bubble on an adiabatic rest state (dT = 0: rest)."""
     from snapy import kIDN, kIPR
 
-    w = dict(block.named_buffers())["hydro.D"].cpu().double().zero_()
+    w = dict(block.named_buffers())["hydro.D"].cpu().double().clone().zero_()
     x1 = block.coord.buffer("x1v").cpu().double().view(1, 1, -1)
     x2 = block.coord.buffer("x2v").cpu().double().view(1, -1, 1)
     Rd, cp, Ts = 8.314462618 / 29.0e-3, 3.5 * 8.314462618 / 29.0e-3, 300.0
@@ -92,7 +92,7 @@ def column_ic(block, cfg):
     """The moist tracer column, with one vapor-negative cell for fix_vapor."""
     from snapy import kICY, kIDN, kIPR, kIV1
 
-    w = dict(block.named_buffers())["hydro.D"].cpu().double().zero_()
+    w = dict(block.named_buffers())["hydro.D"].cpu().double().clone().zero_()
     x1max = float(cfg["geometry"]["bounds"]["x1max"])
     z = block.coord.buffer("x1v").cpu().double()
     p = 1.0e5 * torch.exp(-z * 10.0 / (3900.0 * 320.0))
