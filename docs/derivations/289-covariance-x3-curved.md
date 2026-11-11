@@ -1089,27 +1089,21 @@ on `0.5*(wl+wr)` and projects that copy itself; the result is added to the flux
 after the call. `_set_face2_metric()` is idempotent, so the extra call does not
 disturb the solver.
 
-### 5.1 The environment switch
+### 5.1 The deck key
 
-```cpp
-bool HydroImpl::flux_covariance() {              // src/hydro/hydro.cpp
-  static const bool on = [] {
-    auto v = get_env("SNAP_FLUX_COVARIANCE", "1");
-    std::transform(v.begin(), v.end(), v.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-    return !(v.empty() || v == "0" || v == "false" || v == "off" || v == "no");
-  }();
-  return on;
-}
+```yaml
+dynamics:
+  flux-covariance: false   # default true
 ```
 
-* **Name:** `SNAP_FLUX_COVARIANCE`. **Default: ON** (it was OFF when this note
-  was written). Any of `0`, `false`, `off`, `no`, or empty (case-insensitive)
-  leaves the term out, and that path is bit-identical to `117e449`.
-* Read **once** into a function-local `static`, for the reason in §3.1: every
-  block of every rank must make the same choice or a shared face stops being
-  single-valued. `get_env` is the tree's existing helper
-  (`src/layout/layout.hpp:38-41`).
+* **Name:** `dynamics/flux-covariance` (`HydroOptions::flux_covariance`, read
+  in `src/hydro/hydro_options.cpp`). **Default: ON** (it was OFF when this note
+  was written). `false` leaves the term out, and that path is bit-identical to
+  `117e449`. It replaced the environment switch `SNAP_FLUX_COVARIANCE`, which
+  was read once per process.
+* It is read per block. For the reason in §3.1, every block of every rank must
+  make the same choice or a shared face stops being single-valued; blocks built
+  from one deck do.
 
 ### 5.2 Stencil and ghost-cell requirements
 
@@ -1752,7 +1746,7 @@ This is the independent symbolic and quadrature derivation in
 ## 4B.2 The rows as coded
 
 All rows are in `src/hydro/hydro_forward.cpp`, `_flux_covariance()`, behind
-`SNAP_FLUX_COVARIANCE`. $D_1$ is the centred $x_1$ difference, and
+`dynamics/flux-covariance`. $D_1$ is the centred $x_1$ difference, and
 $\delta=$ `face_centroid_shift_x1()`.
 
 | row | covariance part | centroid part |

@@ -146,10 +146,19 @@ Simulations are configured using YAML files that specify:
 
 Example configuration files (`.yaml`) are provided alongside the examples.
 
-Run-wide scheme switches are read once from the environment. The x2/x3
-face-flux covariance correction (`SNAP_FLUX_COVARIANCE`, #289;
-`docs/derivations/289-covariance-x3-curved.md`) is on by default; set
-`SNAP_FLUX_COVARIANCE=0` (or `false`, `off`, `no`) to turn it off.
+Scheme choices are deck keys under `dynamics:`, read per block; every block
+of a run must make the same choice, which blocks built from one deck do:
+
+| key | default | what it does |
+|---|---|---|
+| `flux-covariance` | `true` | the x2/x3 face-flux covariance correction (#289, `docs/derivations/289-covariance-x3-curved.md`) |
+| `x1-mass-covariance` | `false` | subtract the x1 rho-w covariance from the reconstructed cell velocity; needs at least 3 x1 cells per block |
+
+They replace the environment switches `SNAP_FLUX_COVARIANCE` and
+`SNAP_X1_MASS_COVARIANCE`, which are no longer read. Defaults are the same
+whether options come from a deck without the key or are built in code: EOS
+floors `density-floor: 1.e-6`, `pressure-floor: 1.e-3`,
+`temperature-floor: 20.`; a `riemann-solver` without `type` is `hllc`.
 
 ## Development
 

@@ -514,7 +514,7 @@ is first order in the two x1 wall cells (§8) while F is $O(h^4)$ there and in t
 exact discrete energy $E + P$ to round-off (§7), and that with F on the cp3/cp5/weno5 curvature flux has nothing
 left to correct (F already removes the $F''$ term; F + H is $O(h^2)$ again, §7), so that flux and the wall-cell
 variant `face-wallc` are removed. The first-order wall error of plain face work shows:
-- in the dry Cartesian onset box with `SNAP_FLUX_COVARIANCE` and `SNAP_WB_REF4` on (cell-average initial state),
+- in the dry Cartesian onset box with `dynamics/flux-covariance` and `SNAP_WB_REF4` on (cell-average initial state),
   the one-step $\varepsilon_{\rm eff}\,n_z^2$ at $n_z$ 16, 32, 64 is $+0.0306$, $+0.0158$, $+0.0080$ without F and
   $-0.00092$, $-0.00020$, $-0.00004$ with F;
 - on a coarse polytrope the kinetic energy runs away to $3.1\times10^{-4}$ without F, $5.4\times10^{-5}$ with F, and
@@ -535,8 +535,9 @@ so $\Delta z = H/n_z$. The runs used 37dce4e plus the x1 covariance code that th
 same hunks). All of them have `SNAP_WB_REF4` on, where the default-reference wall closure of §11.1 is a bitwise
 no-op, and all are explicit, where f256ab5 (the implicit path) changes nothing. So the numbers hold at this head,
 but they do not exercise the default-reference wall closure; its own order test is `test_hydro_ref_x1`
-(`wb-ref-wall.md`). The switches are named per column: cov = `SNAP_FLUX_COVARIANCE`, W = `SNAP_WB_REF4`, F, and
-x1 = `SNAP_X1_MASS_COVARIANCE`.
+(`wb-ref-wall.md`). The switches are named per column: cov = `dynamics/flux-covariance`, W = `SNAP_WB_REF4`, F,
+and x1 = `dynamics/x1-mass-covariance` (cov and x1 were the environment switches `SNAP_FLUX_COVARIANCE` and
+`SNAP_X1_MASS_COVARIANCE` when these runs were made).
 The runs are jobs 644220 (nz 16, and every column without x1), 644132 (nz 32 with x1) and 644133 (nz 64 with x1):
 
 | $n_z$ | face cov+W+F+x1 | face cov+W+F | cell cov+W+x1 | cell cov+W |
@@ -552,7 +553,7 @@ the error: at nz 64 it is 1.16 times the measured value. With three points, $c_3
 The observed orders are 1.61 and 1.92 for cell cov+W+x1, and 1.92 and 1.98 for face cov+W+F+x1.
 So a second-order truncation error remains with either form. nz 128 is not in this table.
 
-### 11.4 The x1 mass-flux covariance (`SNAP_X1_MASS_COVARIANCE`, default off)
+### 11.4 The x1 mass-flux covariance (`dynamics/x1-mass-covariance`, default off)
 
 The x1 reconstruction takes the cell velocity $w_c = \overline{m_1}/\bar\rho$ as if it were the cell average
 $\bar w$. Expanding the product over a cell of width $\Delta z$,
@@ -562,7 +563,7 @@ $$
 w_c = \bar w + \frac{\Delta z^2}{12}\,\frac{\rho_z w_z}{\bar\rho} + O(\Delta z^4),
 $$
 so in a stratified column the face mass flux carries an extra $\frac{\Delta z^2}{12}\rho_z w_z$, the x1 analogue of
-the horizontal term that `SNAP_FLUX_COVARIANCE` removes. With the switch on, the cell velocity handed to the
+the horizontal term that `dynamics/flux-covariance` removes. With the key on, the cell velocity handed to the
 reconstruction is $w_c - \frac{\Delta z^2}{12}\rho_1 w_1/\bar\rho$, with $\rho_1$ and $w_1$ centred differences in
 $x_1$, and the full cell velocity is restored after the reconstruction. Two details at a reflecting wall:
 - the even ghost density is not the stratified column, so $\rho_1$ in the first and last interior cells is the
