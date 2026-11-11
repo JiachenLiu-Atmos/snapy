@@ -593,6 +593,14 @@ void LayoutImpl::exchange_remote(MeshBlockImpl const* pmb,
                             remote_local_block, r, send_id, recv_id, offset,
                             peer_offset});
     } else if (nb == rank) {  // self-send
+      // the reversed direction is the receiving slot only on a flat layout;
+      // across a cubed-sphere seam the peer's offset is rotated
+      // (_peer_exchange_offset), so this copy would fill the wrong ghosts
+      TORCH_CHECK(dynamic_cast<CubedSphereLayoutImpl const*>(this) == nullptr,
+                  "exchange_remote: cubed-sphere block ", rank,
+                  " is its own neighbour in direction (", dy, ",", dx, ",", dz,
+                  "); a self-send across a panel seam is unsupported, since "
+                  "its receiving slot is not the reversed direction");
       int r1 = get_buffer_id(std::tuple<int, int, int>(-dy, -dx, -dz));
       for (int n = 0; n < pmb->recv_bufs[r].size(); ++n)
         pmb->recv_bufs[r1][n].copy_(pmb->send_bufs[r][n]);

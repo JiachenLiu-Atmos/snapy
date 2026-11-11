@@ -325,3 +325,36 @@ TEST(CubedSphereSeams, slab_corner_ghosts_are_the_boundary_images) {
         }
   EXPECT_EQ(bad, 0);
 }
+
+namespace {
+
+//! a cubed-sphere layout whose every neighbour is the block itself, which no
+//! real cube produces: it reaches the self-send branch of exchange_remote
+class SelfNeighbourLayout : public CubedSphereLayoutImpl {
+ public:
+  using CubedSphereLayoutImpl::CubedSphereLayoutImpl;
+  int neighbor_rank(std::tuple<int, int, int>,
+                    std::tuple<int, int, int>) const override {
+    return options->rank();
+  }
+};
+
+}  // namespace
+
+// A block that is its own neighbour across a seam would receive into the
+// reversed direction's slot, which is not where the rotated peer offset
+// points; the exchange refuses it instead of filling the wrong ghosts.
+TEST(CubedSphereSeams, self_send_across_a_seam_is_refused) {
+  auto mesh = make_sphere(1, 8);
+  auto pmb = mesh->blocks[0].get();
+  SelfNeighbourLayout layout(pmb->options->layout(), pmb);
+  std::vector<CommWorkPtr> works;
+  try {
+    layout.exchange_remote(pmb, SyncOptions(), works);
+    FAIL() << "a cubed-sphere self-send was not refused";
+  } catch (c10::Error const& e) {
+    EXPECT_NE(std::string(e.what()).find("is its own neighbour"),
+              std::string::npos)
+        << e.what_without_backtrace();
+  }
+}
