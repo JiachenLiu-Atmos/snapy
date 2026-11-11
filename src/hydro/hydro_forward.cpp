@@ -1150,10 +1150,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
           if (!is_x1_wall(f)) continue;
           int i = f == 0 ? is : ie;
           auto m = area1.select(-1, i) * total_mass_flux1.select(-1, i).abs();
-          _gwfix_wall += dt * m.slice(-1, js, je)
-                                  .slice(-2, ks, ke)
-                                  .sum()
-                                  .to(_gwfix_wall.device(), torch::kFloat64);
+          _gwfix_wall +=
+              dt * m.slice(-1, js, je).slice(-2, ks, ke).sum().to(wide);
         }
       }
     } else {

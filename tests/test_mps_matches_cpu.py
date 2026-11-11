@@ -187,6 +187,8 @@ def deck_arms():
             "type": "weno3", "scale": True, "shock": False}), -15.0),
         "bubble vic 1": (with_(DRY, integration__implicit_scheme=1), -15.0),
         "bubble vic 9": (with_(DRY, integration__implicit_scheme=9), -15.0),
+        "bubble cell work fixer": (with_(DRY, forcing__const_gravity__gravity_work="cell",
+                                         forcing__const_gravity__gravity_work_fixer=True), -15.0),
     }
     for name, (cfg, dT) in dry.items():
         yield compare(name, lambda d, t, c=cfg, dT=dT: evolve(

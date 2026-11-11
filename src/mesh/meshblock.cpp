@@ -987,10 +987,10 @@ torch::Tensor MeshBlockImpl::gravity_work_fixer_sums(
                   ? phydro->picorr->solve_failed_tensor(mwall.options())
                   : torch::zeros_like(mwall);
   if (marks.defined()) redo = torch::maximum(redo, marks.any().to(redo));
-  return torch::stack({phydro->gravity_work_defect()[0],
-                       mv.sum().to(torch::kFloat64),
-                       phydro->gravity_work_wall_mass()[0],
-                       mwall.to(torch::kFloat64), redo.to(torch::kFloat64)})
+  auto wide = mv.is_mps() ? torch::kFloat32 : torch::kFloat64;  // MPS: no f64
+  return torch::stack({phydro->gravity_work_defect()[0], mv.sum().to(wide),
+                       phydro->gravity_work_wall_mass()[0], mwall.to(wide),
+                       redo.to(wide)})
       .cpu();
 }
 
