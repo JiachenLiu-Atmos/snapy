@@ -47,6 +47,7 @@ set_tests_properties(
 setup_test(test_radial_face_moments)
 setup_test(test_hydrostatic)
 setup_test(test_hydro_options)
+setup_test(test_options_defaults)
 setup_test(test_cycle_diagnostics)
 setup_test(test_flux_positivity_carry)
 # its limiter-off arm must run without the step 4.C donor limiter, which the
