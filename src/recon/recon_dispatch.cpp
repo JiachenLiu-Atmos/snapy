@@ -99,8 +99,8 @@ void call_weno3_mps(at::TensorIterator& iter, torch::Tensor coeff, int dim,
   auto wu = w.unfold(dim, 3, 1);
   torch::Tensor wscale;
   if (scale) {
-    wscale = wu.abs().mean(-1) + 1.e-10;
-    wu /= wscale.unsqueeze(-1);
+    wscale = wu.abs().mean(-1).clamp_min(1.e-30);  // 0 maps to 0, as on CPU
+    wu = wu / wscale.unsqueeze(-1);
   }
 
   auto alpha1 = 2. / 3. / (wu.matmul(c3).square() + 1e-6).square();
@@ -132,8 +132,8 @@ void call_weno5_mps(at::TensorIterator& iter, torch::Tensor coeff, int dim,
   auto wu = w.unfold(dim, 5, 1);
   torch::Tensor wscale;
   if (scale) {
-    wscale = wu.abs().mean(-1) + 1.e-10;
-    wu /= wscale.unsqueeze(-1);
+    wscale = wu.abs().mean(-1).clamp_min(1.e-30);  // 0 maps to 0, as on CPU
+    wu = wu / wscale.unsqueeze(-1);
   }
 
   auto beta1 =
