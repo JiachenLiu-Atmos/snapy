@@ -428,6 +428,15 @@ EquationOfState EquationOfStateImpl::create(EquationOfStateOptions const& opts,
   TORCH_CHECK(opts, "[EquationOfState] Options pointer is null.");
 
   if (opts->type() == "ideal-gas") {
+    // an ideal gas has no species rows and no "U->K": a moist card would fail
+    // in the first limiter or saturation adjustment instead of here
+    TORCH_CHECK(!opts->thermo() || (thermo_species_rows(opts->thermo()) == 0 &&
+                                    opts->thermo()->reactions().empty()),
+                "[EquationOfState] ideal-gas has no vapor, cloud or reaction "
+                "support; use ideal-moist or moist-mixture for a card with ",
+                thermo_species_rows(opts->thermo()), " species and ",
+                opts->thermo() ? opts->thermo()->reactions().size() : 0,
+                " reactions");
     return p->register_module(name, IdealGas(opts, p));
   } else if (opts->type() == "ideal-moist") {
     return p->register_module(name, IdealMoist(opts, p));
