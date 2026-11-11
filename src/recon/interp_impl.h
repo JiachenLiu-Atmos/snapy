@@ -10,7 +10,7 @@
 namespace snap {
 
 template <int N, typename T>
-DISPATCH_MACRO inline T _vvdot(T* v1, T* v2) {
+DISPATCH_MACRO inline T _vvdot(T const* v1, T const* v2) {
   T out = 0.;
   for (int i = 0; i < N; ++i) {
     out += v1[i] * v2[i];
@@ -18,10 +18,11 @@ DISPATCH_MACRO inline T _vvdot(T* v1, T* v2) {
   return out;
 }
 
-// polynomial
+// polynomial; coeff is one table, or one face's row of a per-face x1 table
 template <typename T, int N>
-DISPATCH_MACRO void interp_poly_impl(T* out, T* inp, T* coeff, int stride1,
-                                     int stride2, int stride_out, int nvar) {
+DISPATCH_MACRO void interp_poly_impl(T* out, T const* inp, T const* coeff,
+                                     int stride1, int stride2, int stride_out,
+                                     int nvar) {
   for (int j = 0; j < nvar; ++j) {
     OUT(j) = 0.;
     for (int i = 0; i < N; ++i) {
@@ -69,20 +70,22 @@ DISPATCH_MACRO void interp_weno3_impl(T* out, T* inp, T* coeff, int stride1,
   }
 };
 
-// WENO 5 interpolation
-template <typename T>
-DISPATCH_MACRO void interp_weno5_impl(T* out, T* inp, T* coeff, int stride1,
-                                      int stride2, int stride_out, int nvar,
-                                      double scale) {
-  T* c1 = coeff;
-  T* c2 = c1 + 5;
-  T* c3 = c2 + 5;
-  T* c4 = c3 + 5;
-  T* c5 = c4 + 5;
-  T* c6 = c5 + 5;
-  T* c7 = c6 + 5;
-  T* c8 = c7 + 5;
-  T* c9 = c8 + 5;
+// WENO 5 interpolation. Nu: coeff is one face's row of a per-face x1 table
+// (kWeno5NuCoeff values), its three linear weights d after the nine stencils;
+// otherwise the uniform table with the weights .3, .6, .1
+template <typename T, bool Nu = false>
+DISPATCH_MACRO void interp_weno5_impl(T* out, T const* inp, T const* coeff,
+                                      int stride1, int stride2, int stride_out,
+                                      int nvar, double scale) {
+  T const* c1 = coeff;
+  T const* c2 = c1 + 5;
+  T const* c3 = c2 + 5;
+  T const* c4 = c3 + 5;
+  T const* c5 = c4 + 5;
+  T const* c6 = c5 + 5;
+  T const* c7 = c6 + 5;
+  T const* c8 = c7 + 5;
+  T const* c9 = c8 + 5;
 
   T phi[5];
 
@@ -112,9 +115,17 @@ DISPATCH_MACRO void interp_weno5_impl(T* out, T* inp, T* coeff, int stride1,
     T beta2 =
         13. / 12. * SQR(_vvdot<5>(phi, c8)) + .25 * SQR(_vvdot<5>(phi, c9));
 
-    T alpha0 = .3 / SQR(beta0 + 1e-6);
-    T alpha1 = .6 / SQR(beta1 + 1e-6);
-    T alpha2 = .1 / SQR(beta2 + 1e-6);
+    T alpha0, alpha1, alpha2;
+    if constexpr (Nu) {
+      T const* d = c9 + 5;
+      alpha0 = d[0] / SQR(beta0 + 1e-6);
+      alpha1 = d[1] / SQR(beta1 + 1e-6);
+      alpha2 = d[2] / SQR(beta2 + 1e-6);
+    } else {
+      alpha0 = .3 / SQR(beta0 + 1e-6);
+      alpha1 = .6 / SQR(beta1 + 1e-6);
+      alpha2 = .1 / SQR(beta2 + 1e-6);
+    }
 
     OUT(j) = vscale * (alpha0 * p0 + alpha1 * p1 + alpha2 * p2) /
              (alpha0 + alpha1 + alpha2);
