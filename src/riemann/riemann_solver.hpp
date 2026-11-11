@@ -38,6 +38,18 @@ struct RiemannSolverOptionsImpl {
 using RiemannSolverOptions = std::shared_ptr<RiemannSolverOptionsImpl>;
 
 class HydroImpl;
+class CoordinateImpl;
+
+//! rotate the left/right primitive states at an x<dim> face into the
+//! face-local orthonormal frame, in place (dim 1 -> prim2local3_, 2 -> 2, 3 ->
+//! 1), left before right
+void to_face_frame_(CoordinateImpl const& coord, int dim,
+                    torch::Tensor const& wl, torch::Tensor const& wr);
+
+//! rotate an x<dim> face flux from the face-local frame back to the global
+//! frame, in place (dim 1 -> flux2global3_, 2 -> 2, 3 -> 1)
+void to_global_frame_(CoordinateImpl const& coord, int dim,
+                      torch::Tensor const& flx);
 
 class RiemannSolverImpl {
  public:
