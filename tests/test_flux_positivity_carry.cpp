@@ -49,6 +49,9 @@ Arm forward_once(bool limiter, std::function<void(YAML::Node&)> const& edit,
                  torch::Device device = torch::kCPU, bool uniform = false) {
   auto card = YAML::LoadFile(kCard);
   card["dynamics"]["equation-of-state"]["limiter"] = limiter;
+  // the limiter-off arm must run without the step 4.C donor limiter, which the
+  // face-flux covariance (on by default, #289) also switches on
+  card["dynamics"]["flux-covariance"] = false;
   edit(card);
   std::string name = std::string("test_flux_positivity_carry_") +
                      (limiter ? "on" : "off") + ".yaml";

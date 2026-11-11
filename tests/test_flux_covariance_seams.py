@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""#289 face-flux covariance (switch SNAP_FLUX_COVARIANCE): conservation across cubed-sphere seams, and the
+"""#289 face-flux covariance (key dynamics/flux-covariance): conservation across cubed-sphere seams, and the
 per-direction gating of the p* geometric source.
 
   1. conservation: six cubed-sphere panels in one process, closed x1 walls, moist (vapor/cloud), the term on,
@@ -10,9 +10,8 @@ per-direction gating of the p* geometric source.
      term on stays at rest: the x2 faces carry p* in their flux, so the x2 geometric source must carry p*
      too, even though the x3 faces are not corrected.
 
-The switch is read once per process, so each arm runs in its own process (as in test_flux_covariance_rows).
-Each case also asserts that the switch-on and switch-off arms differ (by more than DIFF_TOL, relative), so a
-renamed or ignored switch cannot pass trivially: case 1 compares the final conserved state, case 2 the x2 face
+Each arm runs in its own process (as in test_flux_covariance_rows). Each case also asserts that the key-on
+and key-off arms differ (by more than DIFF_TOL, relative), so a renamed or ignored key cannot pass trivially: case 1 compares the final conserved state, case 2 the x2 face
 momentum flux, which carries the p* shift even at rest.
 
   python test_flux_covariance_seams.py [--device cpu]
@@ -109,13 +108,11 @@ def arm_gating(device):
 
 
 def run(task, switch, device, tmpdir):
-    env = dict(os.environ)
-    env.pop("SNAP_FLUX_COVARIANCE", None)
-    if switch is not None:
-        env["SNAP_FLUX_COVARIANCE"] = switch
     out = os.path.join(tmpdir, f"{task}_{switch}.json")
-    subprocess.run([sys.executable, __file__, "--child", task, "--out", out, "--device", device],
-                   env=env, check=True)
+    cmd = [sys.executable, __file__, "--child", task, "--out", out, "--device", device]
+    if switch is not None:
+        cmd += ["--flux-covariance", switch]
+    subprocess.run(cmd, check=True)
     return json.load(open(out))
 
 
@@ -124,8 +121,11 @@ def main():
     ap.add_argument("--device", default="cpu", choices=("cpu", "cuda"))
     ap.add_argument("--child")
     ap.add_argument("--out")
+    ap.add_argument("--flux-covariance", choices=("0", "1"))
     a = ap.parse_args()
     if a.child:
+        if a.flux_covariance is not None:
+            rows.COV = a.flux_covariance == "1"
         res = arm_conservation(a.device) if a.child == "conservation" else arm_gating(a.device)
         json.dump(res, open(a.out, "w"))
         return 0

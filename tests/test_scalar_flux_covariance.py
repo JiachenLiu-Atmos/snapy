@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """A passive scalar and the same tracer carried as a hydro species agree to round-off, with and
-without the x2/x3 face-flux covariance (SNAP_FLUX_COVARIANCE, #289).
+without the x2/x3 face-flux covariance (dynamics/flux-covariance, #289).
 
 One run carries the tracer twice: as a hydro vapour of density rho_n, kept far below saturation
 so it never condenses (its cloud stays 0), and as a passive scalar initialised to the same density (r = q / (1 - q), s = rho_dry r = rho q). Both
@@ -9,9 +9,9 @@ are the same flux to round-off. With the covariance on, the species row carries
 sigma1^2 rho D1[u_n] D1[q] plus the centroid part -delta d1(rho u_n q), while the dry mass flux
 the scalar rides on carries the dry row; the scalar must carry the species row, not r times the
 dry one. Checked after NSTEP explicit rk3 steps:
-  max |s - rho_n| / max |rho_n| <= TOL, switch on and off,
+  max |s - rho_n| / max |rho_n| <= TOL, key on and off,
 on a sheared Cartesian x1-x2 column and on one cubed-sphere face block (where the centroid part is
-nonzero). The switch is read once per process, so each arm runs in a child process.
+nonzero). Each arm runs in a child process (kintera's species table is per process).
 
   python test_scalar_flux_covariance.py [--device cpu|cuda] [--save DIR]
 """
@@ -66,9 +66,12 @@ def config(geometry):
     }
 
 
-def run(geometry, device, save):
+def run(geometry, device, save, switch=None):
+    """switch "0"/"1" sets dynamics/flux-covariance; None leaves the key out"""
     from snapy import MeshBlock, MeshBlockOptions, kICY, kIDN, kIPR, kIV1
     cfg = config(geometry)
+    if switch is not None:
+        cfg["dynamics"]["flux-covariance"] = switch == "1"
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=os.getcwd()) as f:
         yaml.safe_dump(cfg, f)
         tmp = f.name
@@ -102,7 +105,7 @@ def run(geometry, device, save):
     nx2, nx3 = cfg["geometry"]["cells"]["nx2"], cfg["geometry"]["cells"]["nx3"]
     sl = (slice(ng, ng + nx3) if nx3 > 1 else slice(None), slice(ng, ng + nx2), slice(ng, -ng))
     out = {"geometry": geometry, "device": device,
-           "switch": os.environ.get("SNAP_FLUX_COVARIANCE", "unset")}
+           "switch": switch or "unset"}
     stages = len(block.module("intg").stages)
     for n in range(1, NSTEP + 1):
         dt = block.max_time_step(v)
@@ -126,32 +129,30 @@ def main():
     ap.add_argument("--device", default="cpu", choices=("cpu", "cuda"))
     ap.add_argument("--child", default=None, choices=CASES)
     ap.add_argument("--save", default=None, help="also save the final states to this directory")
+    ap.add_argument("--flux-covariance", choices=("0", "1"))
     a = ap.parse_args()
     if a.device == "cuda" and not torch.cuda.is_available():
         print("CUDA is not available")
         sys.exit(125)
     torch.set_default_dtype(torch.float64)
     if a.child:
-        print(json.dumps(run(a.child, a.device, a.save)), flush=True)
+        print(json.dumps(run(a.child, a.device, a.save, a.flux_covariance)), flush=True)
         return
     failures = []
     for geometry in CASES:
         for switch in ("1", "0"):
-            env = dict(os.environ)
-            env.pop("SNAP_FLUX_COVARIANCE", None)
-            if switch:
-                env["SNAP_FLUX_COVARIANCE"] = switch
-            cmd = [sys.executable, os.path.abspath(__file__), "--device", a.device, "--child", geometry]
+            cmd = [sys.executable, os.path.abspath(__file__), "--device", a.device, "--child", geometry,
+                   "--flux-covariance", switch]
             if a.save:
                 cmd += ["--save", a.save]
-            out = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            out = subprocess.run(cmd, capture_output=True, text=True)
             rows = [l for l in out.stdout.splitlines() if l.startswith("{")]
             if out.returncode or not rows:
                 print(out.stderr[-2000:], flush=True)
                 failures.append(f"{geometry} switch {switch}: child exit {out.returncode}")
                 continue
             res = json.loads(rows[-1])
-            print(f"{geometry:18s} SNAP_FLUX_COVARIANCE={res['switch']:5s}: max|s - rho_n|/max|rho_n| "
+            print(f"{geometry:18s} flux-covariance={res['switch']:5s}: max|s - rho_n|/max|rho_n| "
                   f"step 1 {res['step1']:.3e}, step {NSTEP} {res['final']:.3e}", flush=True)
             if not (res["finite"] and res["final"] <= TOL and res["step1"] <= TOL and res["cloud"] == 0.):
                 failures.append(f"{geometry} switch {res['switch']}: scalar and species differ "

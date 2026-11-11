@@ -2,7 +2,6 @@
 
 // C/C++
 #include <algorithm>
-#include <cctype>
 
 // snap
 #include <snap/snap.h>
@@ -132,9 +131,9 @@ void HydroImpl::reset() {
         pmb->pcoord) {
       int nx1 = pmb->pcoord->options->nx1();
       TORCH_CHECK(nx1 >= 3,
-                  "SNAP_X1_MASS_COVARIANCE needs at least 3 x1 cells per "
-                  "block, got ",
-                  nx1, "; unset it");
+                  "dynamics/x1-mass-covariance needs at least 3 x1 cells "
+                  "per block, got ",
+                  nx1, "; set it to false");
     }
   }
 
@@ -277,29 +276,6 @@ bool HydroImpl::gravity_work_fixer() const {
   auto g = options->grav();
   return g && g->grav1() != 0. && g->gravity_work() == "cell" &&
          g->gravity_work_fixer();
-}
-
-bool HydroImpl::flux_covariance() {
-  // read once: the term is a scheme choice for the whole run, and every block
-  // must make the same one or the shared faces stop being single-valued; on
-  // unless SNAP_FLUX_COVARIANCE is set to 0/false/off/no or empty
-  static const bool on = [] {
-    auto v = get_env("SNAP_FLUX_COVARIANCE", "1");
-    std::transform(v.begin(), v.end(), v.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-    return !(v.empty() || v == "0" || v == "false" || v == "off" || v == "no");
-  }();
-  return on;
-}
-
-bool HydroImpl::x1_mass_covariance() {
-  static const bool on = [] {
-    auto v = get_env("SNAP_X1_MASS_COVARIANCE", "0");
-    std::transform(v.begin(), v.end(), v.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-    return !(v.empty() || v == "0" || v == "false" || v == "off" || v == "no");
-  }();
-  return on;
 }
 
 bool HydroImpl::radial_exact_work() const {

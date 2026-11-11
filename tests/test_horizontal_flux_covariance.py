@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The x1 covariance of the x2 face energy flux (study switch SNAP_FLUX_COVARIANCE).
+"""The x1 covariance of the x2 face energy flux (key dynamics/flux-covariance).
 
 The x2/x3 face energy flux is formed from x1-averaged face states. On an isentropic
 background (T0 = 1 - z/Cp, R = g = 1, gamma = 1.4) a convective roll
@@ -12,19 +12,16 @@ The physical value is 0 here. Face gravity work keeps the cell form's own O(dz^2
 (-0.05 / nz^2 at nz 16 with the term on) out of the number. Checked (Cartesian, nz = 16, 32):
   1. term off: eps_eff nz^2 in [-0.32, -0.20] (the defect is there);
   2. term on:  |eps_eff nz^2| < 0.04;
-  3. switch unset and SNAP_FLUX_COVARIANCE=1 give the same step bit for bit (the default is on), and
-     SNAP_FLUX_COVARIANCE=0 differs from it;
+  3. key unset and flux-covariance: true give the same step bit for bit (the default is on), and
+     flux-covariance: false differs from it;
   4. E+PE = sum (E + rho g z) dV of the seeded box, term on, closes over NSTEP steps.
-The switch is read once per process, so each arm runs in a child process (ARMS); with a
-YAML key in its place, the arms can run in one process.
+The key is read per block, so the three arms (ARMS) run in one process.
 
   python test_horizontal_flux_covariance.py [--device cpu]
 """
 import argparse
-import json
 import math
 import os
-import subprocess
 import sys
 import tempfile
 
@@ -38,11 +35,12 @@ BASE = (-0.32, -0.20)
 FIXED = 0.04
 NSTEP = 50
 EPE_TOL = 1.e-12
-ARMS = {"unset": None, "zero": "0", "on": "1"}
+ARMS = {"unset": None, "zero": False, "on": True}
 
 
-def config(nz):
-    return {
+def config(nz, cov=None):
+    """the deck; cov sets dynamics/flux-covariance (None: the key is absent)"""
+    cfg = {
         "geometry": {"type": "cartesian",
                      "bounds": {"x1min": 0.0, "x1max": 1.0, "x2min": 0.0, "x2max": LX,
                                 "x3min": 0.0, "x3max": 1.0},
@@ -60,14 +58,17 @@ def config(nz):
         "integration": {"type": "rk3", "cfl": 0.4, "implicit-scheme": 0, "nlim": -1, "tlim": 1.e9},
         "forcing": {"const-gravity": {"grav1": -1.0, "gravity-work": "face"}},
     }
+    if cov is not None:
+        cfg["dynamics"]["flux-covariance"] = cov
+    return cfg
 
 
-def build(nz, seed, device):
+def build(nz, seed, device, cov=None):
     import snapy
     from snapy import MeshBlock, MeshBlockOptions, kIDN, kIPR
 
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=os.getcwd()) as f:
-        yaml.safe_dump(config(nz), f)
+        yaml.safe_dump(config(nz, cov), f)
         tmp = f.name
     try:
         options = MeshBlockOptions.from_yaml(tmp)
@@ -106,12 +107,12 @@ def step(block, bv, dt):
     assert block.check_redo(bv) == 0
 
 
-def eps_eff_nz2(nz, device):
+def eps_eff_nz2(nz, device, cov=None):
     """eps_eff nz^2 of one step, and the seeded box's conserved state after it."""
     from snapy import kIDN, kIPR
 
-    b0, bv0, eos, _, x = build(nz, False, device)
-    b1, bv1, _, _, _ = build(nz, True, device)
+    b0, bv0, eos, _, x = build(nz, False, device, cov)
+    b1, bv1, _, _, _ = build(nz, True, device, cov)
     dt = float(b1.max_time_step(bv1))
     I = slice(NG, -NG)
 
@@ -137,11 +138,11 @@ def eps_eff_nz2(nz, device):
     return float(num / den) * nz ** 2, bv1["hydro_u"].clone()
 
 
-def epe_drift(nz, device):
+def epe_drift(nz, device, cov=None):
     """|d(E+PE)| / |E+PE| of the seeded Cartesian box, term on, over NSTEP steps."""
     from snapy import kIDN, kIPR
 
-    block, bv, _, coord, _ = build(nz, True, device)
+    block, bv, _, coord, _ = build(nz, True, device, cov)
     I = slice(NG, -NG)
     phi = coord.buffer("x1v")[I].to(bv["hydro_u"])
 
@@ -155,37 +156,22 @@ def epe_drift(nz, device):
     return abs(epe() - e0) / abs(e0)
 
 
-def child(out, device):
+def arm(cov, device):
     """One arm: eps_eff nz^2 at nz 16 and 32, the stepped states, E+PE drift."""
-    res = {}
+    res, u = {}, {}
     for nz in (16, 32):
-        res[nz], u = eps_eff_nz2(nz, device)
-        torch.save(u.cpu(), os.path.join(out, f"u{nz}.pt"))
-    res["drift"] = epe_drift(16, device)
-    json.dump(res, open(os.path.join(out, "res.json"), "w"))
+        res[str(nz)], u[nz] = eps_eff_nz2(nz, device, cov)
+    res["drift"] = epe_drift(16, device, cov)
+    res["u"] = {nz: v.cpu() for nz, v in u.items()}
+    return res
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
-    ap.add_argument("--child", default=None)
     a = ap.parse_args()
-    if a.child:
-        child(a.child, a.device)
-        return
-    failures, res = [], {}
-    with tempfile.TemporaryDirectory(dir=os.getcwd()) as tmp:
-        for arm, value in ARMS.items():
-            env = dict(os.environ)
-            env.pop("SNAP_FLUX_COVARIANCE", None)
-            if value is not None:
-                env["SNAP_FLUX_COVARIANCE"] = value
-            out = os.path.join(tmp, arm)
-            os.makedirs(out)
-            subprocess.run([sys.executable, os.path.abspath(__file__), "--device", a.device,
-                            "--child", out], env=env, check=True)
-            res[arm] = json.load(open(os.path.join(out, "res.json")))
-            res[arm]["u"] = {nz: torch.load(os.path.join(out, f"u{nz}.pt")) for nz in (16, 32)}
+    failures = []
+    res = {name: arm(cov, a.device) for name, cov in ARMS.items()}
     for nz in (16, 32):
         base, fixed = res["zero"][str(nz)], res["on"][str(nz)]
         print(f"nz {nz:3d}  eps_eff nz^2: off {base:+.5f}  on {fixed:+.5f}", flush=True)
@@ -194,9 +180,9 @@ def main():
         if not abs(fixed) < FIXED:
             failures.append(f"nz {nz}: on {fixed:+.5f}, |.| >= {FIXED}")
         if not torch.equal(res["unset"]["u"][nz], res["on"]["u"][nz]):
-            failures.append(f"nz {nz}: switch unset and 1 differ (the default is on)")
+            failures.append(f"nz {nz}: key unset and true differ (the default is on)")
         if torch.equal(res["on"]["u"][nz], res["zero"]["u"][nz]):
-            failures.append(f"nz {nz}: the switch changed nothing")
+            failures.append(f"nz {nz}: the key changed nothing")
     drift = res["on"]["drift"]
     print(f"nz  16  E+PE drift over {NSTEP} steps, term on: {drift:.2e}", flush=True)
     if not drift <= EPE_TOL:

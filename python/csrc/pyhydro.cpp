@@ -33,6 +33,8 @@ void bind_hydro(py::module& m) {
       .ADD_OPTION(bool, snap::HydroOptionsImpl, disable_flux_x3)
       .ADD_OPTION(bool, snap::HydroOptionsImpl, wb_wall_clamp)
       .ADD_OPTION(int, snap::HydroOptionsImpl, conversion_order)
+      .ADD_OPTION(bool, snap::HydroOptionsImpl, flux_covariance)
+      .ADD_OPTION(bool, snap::HydroOptionsImpl, x1_mass_covariance)
       .ADD_OPTION(snap::ConstGravityOptions, snap::HydroOptionsImpl, grav)
       .ADD_OPTION(snap::CoriolisOptions, snap::HydroOptionsImpl, coriolis)
       .ADD_OPTION(snap::DiffusionOptions, snap::HydroOptionsImpl, diffusion)

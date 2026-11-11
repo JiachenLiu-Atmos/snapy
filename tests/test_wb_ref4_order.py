@@ -20,7 +20,7 @@ Asserted, at 1 and 3 e-folds, nz 32/64/128: observed order of |N2_eff| >= ORDER_
 where the asymptotic term dominates. Not over every doubling: the error can cross zero between the two
 coarsest grids, and an order read across that crossing is meaningless.
 (Before the face density used the linear rows, the kernel's face density gave order ~2.)
-The column runs in a child process with SNAP_FLUX_COVARIANCE set.
+The column runs in a child process with dynamics/flux-covariance set in its deck.
 
   python test_wb_ref4_order.py [--device cpu|cuda]
 """
@@ -56,7 +56,8 @@ def config(nz, lz):
                                                "temperature-floor": 1.e-12, "limiter": True},
                          "reconstruct": {"vertical": {"type": "weno5", "scale": True, "shock": False},
                                          "horizontal": {"type": "weno5", "scale": True, "shock": False}},
-                         "riemann-solver": {"type": "lmars"}},
+                         "riemann-solver": {"type": "lmars"},
+                         "flux-covariance": True},
             "boundary-condition": {"external": {"x1-inner": "reflecting", "x1-outer": "reflecting",
                                                 "x2-inner": "periodic", "x2-outer": "periodic",
                                                 "x3-inner": "periodic", "x3-outer": "periodic"}},
@@ -133,11 +134,9 @@ def child(device):
 
 
 def run(device, tmpdir):
-    env = dict(os.environ)
-    env["SNAP_FLUX_COVARIANCE"] = "1"
     out = os.path.join(tmpdir, "order.json")
     subprocess.run([sys.executable, __file__, "--child", "--out", out, "--device", device],
-                   env=env, check=True)
+                   check=True)
     return json.load(open(out))
 
 

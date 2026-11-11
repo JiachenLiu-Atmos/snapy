@@ -47,11 +47,11 @@ HydroOptions HydroOptionsImpl::from_yaml(std::string const& filename,
     TORCH_CHECK(dyn.IsMap() || dyn.IsNull(),
                 "HydroOptions: dynamics must be a map.");
     if (!dyn.IsNull()) {
-      check_keys(
-          dyn, "dynamics",
-          {"equation-of-state", "reconstruct", "riemann-solver", "verbose",
-           "disable-flux-x1", "disable-flux-x2", "disable-flux-x3",
-           "wb-wall-clamp", "conversion-order", "anomaly"});
+      check_keys(dyn, "dynamics",
+                 {"equation-of-state", "reconstruct", "riemann-solver",
+                  "verbose", "disable-flux-x1", "disable-flux-x2",
+                  "disable-flux-x3", "wb-wall-clamp", "conversion-order",
+                  "anomaly", "flux-covariance", "x1-mass-covariance"});
       op->verbose() = dyn["verbose"].as<bool>(verbose);
       op->disable_flux_x1() = dyn["disable-flux-x1"].as<bool>(false);
       op->disable_flux_x2() = dyn["disable-flux-x2"].as<bool>(false);
@@ -59,6 +59,8 @@ HydroOptions HydroOptionsImpl::from_yaml(std::string const& filename,
       op->wb_wall_clamp() = dyn["wb-wall-clamp"].as<bool>(true);
       op->conversion_order() = dyn["conversion-order"].as<int>(2);
       op->anomaly() = dyn["anomaly"].as<bool>(false);
+      op->flux_covariance() = dyn["flux-covariance"].as<bool>(true);
+      op->x1_mass_covariance() = dyn["x1-mass-covariance"].as<bool>(false);
     }
   }
 
@@ -150,6 +152,8 @@ HydroOptions HydroOptionsImpl::clone() const {
   op->disable_flux_x3() = disable_flux_x3();
   op->conversion_order() = conversion_order();
   op->anomaly() = anomaly();
+  op->flux_covariance() = flux_covariance();
+  op->x1_mass_covariance() = x1_mass_covariance();
   if (grav()) op->grav() = grav()->clone();
   if (coriolis()) op->coriolis() = coriolis()->clone();
   if (diffusion()) op->diffusion() = diffusion()->clone();

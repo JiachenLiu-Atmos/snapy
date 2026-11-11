@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A passive scalar under the face-flux covariance (SNAP_FLUX_COVARIANCE, #289) on a column
+"""A passive scalar under the face-flux covariance (dynamics/flux-covariance, #289) on a column
 split in x1: four blocks in one process match one block to round-off.
 
 The tracer is carried twice, as a hydro vapour of density rho_n that never condenses and as a
@@ -48,7 +48,9 @@ def config(nb1):
             "equation-of-state": {"type": "ideal-moist", "density-floor": 1.e-10,
                                   "pressure-floor": 1.e-10, "limiter": False},
             "reconstruct": {"vertical": {"type": "dc"}, "horizontal": {"type": "dc"}},
-            "riemann-solver": {"type": "lmars"}},
+            "riemann-solver": {"type": "lmars"},
+            # the default; set so the test keeps the term if the default moves
+            "flux-covariance": True},
         "boundary-condition": {"external": {
             "x1-inner": "reflecting", "x1-outer": "reflecting",
             "x2-inner": "periodic", "x2-outer": "periodic",
@@ -145,7 +147,6 @@ def main():
         sys.exit(125)
     torch.set_default_dtype(torch.float64)
     torch.set_num_threads(1)
-    switch = os.environ.get("SNAP_FLUX_COVARIANCE", "unset")
     failures = []
     for profile in PROFILES:
         one, four = run(1, profile, a.device), run(NB1, profile, a.device)
@@ -156,7 +157,7 @@ def main():
             "(c) scalar mass drift, 1 block": one["c"],
             f"(c) scalar mass drift, {NB1} blocks": four["c"],
         }
-        print(f"{profile} (SNAP_FLUX_COVARIANCE={switch}), {NSTEP} rk3 steps:", flush=True)
+        print(f"{profile} (flux-covariance on), {NSTEP} rk3 steps:", flush=True)
         for name, val in checks.items():
             print(f"  {name:42s} {val:.3e}", flush=True)
             if not val <= TOL:

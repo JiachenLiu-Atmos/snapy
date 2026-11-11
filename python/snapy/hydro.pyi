@@ -183,6 +183,26 @@ class HydroOptions:
     @overload
     def conversion_order(self, value: int) -> "HydroOptions": ...
 
+    @overload
+    def flux_covariance(self) -> bool:
+        """The O(dx1^2) x1 covariance term of the x2/x3 face fluxes. Default True;
+        `dynamics: {flux-covariance: false}` turns it off. Every block of a run must
+        make the same choice."""
+        ...
+
+    @overload
+    def flux_covariance(self, value: bool) -> "HydroOptions": ...
+
+    @overload
+    def x1_mass_covariance(self) -> bool:
+        """Subtract the x1 rho-w covariance from the reconstructed cell velocity.
+        Default False; `dynamics: {x1-mass-covariance: true}` turns it on (needs at
+        least 3 x1 cells per block)."""
+        ...
+
+    @overload
+    def x1_mass_covariance(self, value: bool) -> "HydroOptions": ...
+
 class Hydro:
     """
     Hydrodynamics implementation.
