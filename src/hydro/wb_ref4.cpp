@@ -7,6 +7,7 @@
 #include <snap/snap.h>
 
 #include <snap/coord/x1_centroid.hpp>
+#include <snap/coord/x1_stencil.hpp>
 #include <snap/layout/layout.hpp>
 
 #include "wb_ref4.hpp"
@@ -36,31 +37,6 @@ double lagrange_deriv(std::vector<double> const& X, int j, double x) {
     sum += prod;
   }
   return sum;
-}
-
-torch::Tensor to_index(std::vector<std::vector<int64_t>> const& rows, int k) {
-  auto t = torch::zeros({(int64_t)rows.size(), k}, torch::kInt64);
-  auto a = t.accessor<int64_t, 2>();
-  for (size_t i = 0; i < rows.size(); ++i)
-    for (size_t j = 0; j < rows[i].size(); ++j) a[i][j] = rows[i][j];
-  return t;
-}
-
-torch::Tensor to_weight(std::vector<std::vector<double>> const& rows, int k) {
-  auto t = torch::zeros({(int64_t)rows.size(), k}, torch::kFloat64);
-  auto a = t.accessor<double, 2>();
-  for (size_t i = 0; i < rows.size(); ++i)
-    for (size_t j = 0; j < rows[i].size(); ++j) a[i][j] = rows[i][j];
-  return t;
-}
-
-// sum_k v[..., idx[n, k]] * wt[n, k] over k: (..., n)
-torch::Tensor apply(torch::Tensor const& v, torch::Tensor const& idx,
-                    torch::Tensor const& wt) {
-  auto sizes = v.sizes().vec();
-  sizes.back() = idx.size(0);
-  sizes.push_back(idx.size(1));
-  return (v.index_select(-1, idx.flatten()).view(sizes) * wt).sum(-1);
 }
 
 torch::Tensor in_range(torch::Tensor const& v, torch::Tensor const& lo,
@@ -131,8 +107,8 @@ WbRef4Stencils wb_ref4_stencils(torch::Tensor const& x1f, int is, int iu,
     ai.push_back(idx);
     aw.push_back(wt);
   }
-  st.aidx = to_index(ai, 4).to(options.device());
-  st.awt = to_weight(aw, 4).to(options);
+  st.aidx = x1_stencil_index(ai, 4).to(options.device());
+  st.awt = x1_stencil_weight(aw, 4).to(options);
 
   // 2. ghost cells past a clamped wall do not count for the resolution flag:
   //    the stencils there never read them, and the scan pressure falls
@@ -160,7 +136,7 @@ void wb_ref4_faces(WbRef4Stencils const& st, torch::Tensor const& dref,
                    torch::Tensor dsf, torch::Tensor const& flag) {
   if (!st.usable) return;
   int nf = st.iu - st.is + 2;
-  auto face = apply(dref, st.aidx, st.awt);
+  auto face = x1_stencil_apply(dref, st.aidx, st.awt);
   auto dl = dref.narrow(-1, st.is - 1, nf), dr = dref.narrow(-1, st.is, nf);
   auto ok = in_range(face, torch::minimum(dl, dr), torch::maximum(dl, dr)) &
             ~flag.narrow(-1, st.is - 1, nf) & ~flag.narrow(-1, st.is, nf);
