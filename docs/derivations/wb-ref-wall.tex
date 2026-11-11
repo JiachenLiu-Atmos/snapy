@@ -16,7 +16,8 @@
 \maketitle
 \section*{The default well-balanced x1 reference at a physical wall}
 
-This is the default reference, with \texttt{SNAP\_WB\_REF4} off and \texttt{dynamics/wb-wall-clamp} on (the default). With the
+This is the default reference (conversion-order 2, without the face density of \texttt{wb-ref4.md}), with
+\texttt{dynamics/wb-wall-clamp} on (the default). With the
 repeated wall cell, the face density reference has an $O(\Delta z)$ error at the first three faces next to each
 wall, against $O(\Delta z^2)$ elsewhere. Continuing $\rho/p$ past the wall, linearly or ln-linearly, restores the
 interior order there and leaves every other face bit for bit. The code is \texttt{src/hydro/hydro\_ref\_x1\_impl.h}
@@ -156,9 +157,10 @@ plus their ghost rows. $p_{\rm sf}$, $p_{\rm ref}$ and every other face and cell
 (compared at nz 16–128). The rest balance does not involve $\rho_{\rm sf}$ or $\rho_{\rm ref}$ (§1 of
 \texttt{wb-ref4.md}), so \texttt{balance\_column} and the discrete rest state are unchanged.
 
-\textbf{Why not the \texttt{SNAP\_WB\_REF4} closure.}
+\textbf{Why not the \texttt{wb\_ref4.cpp} closure.}
 \begin{itemize}
-\item \texttt{SNAP\_WB\_REF4} (\texttt{wb\_ref4.cpp}) is a post-pass that replaces $\rho_{\rm sf}$ with a fourth-order face value on
+\item The face density of \texttt{wb\_ref4.cpp} (run by \texttt{dynamics/conversion-order: 4}; also by the switch \texttt{SNAP\_WB\_REF4}
+  until that switch was removed) is a post-pass that replaces $\rho_{\rm sf}$ with a fourth-order face value on
   *every* face, so applying it would change every interior face. It also needs four owned cells.
 \item A cubic (or quadratic) continuation inside $B$ would also restore second order, with weights of 10–20 against
   $1+k$; it was not chosen.
@@ -184,7 +186,7 @@ this closure & pass & 10/10 & 18/20 \\
 
 With $\epsilon = 10^{-12}$ the runs of this closure stay on one trajectory, ending within $10^{-4}$ in kinetic
 energy, so that column says little beyond the test deck itself. The $\epsilon = 10^{-4}$ column does not separate
-the four references. With \texttt{SNAP\_WB\_REF4} on, the $10^{-12}$ ensemble gives 8/10 on the clamp-only reference and
+the four references. With \texttt{SNAP\_WB\_REF4} on (when that switch existed), the $10^{-12}$ ensemble gave 8/10 on the clamp-only reference and
 9/10 on the linear one.
 
 Resolution scan with the test deck (nx2 = 4 nx1):

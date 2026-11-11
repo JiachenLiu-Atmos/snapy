@@ -56,6 +56,8 @@ constexpr double kR0 = 5.0, kLz = 2.0, kGamma = 1.4, kSeed = 0.05;
 
 // implicit-scheme of the columns: 0 explicit, 9 the full VIC solve
 int g_scheme = 0;
+// dynamics/conversion-order of the next make_column
+int g_conv_order = 2;
 
 std::string column_yaml(int nx1, double nh, char const* gw, int ng = 3) {
   char buf[2048];
@@ -109,6 +111,7 @@ Mesh make_column(int nb1, int nx1, double nh, char const* gw, int ng = 3,
   auto block_opts = MeshBlockOptionsImpl::from_yaml(fname);
   std::remove(fname);
   block_opts->hydro()->grav()->grav1(g1);
+  block_opts->hydro()->conversion_order(g_conv_order);
   if (g1 == 0. || ng < 3) {  // donor cell: weno5 needs nghost >= 3 (S184)
     block_opts->hydro()->recon1()->interp()->type("dc");
     block_opts->hydro()->recon23()->interp()->type("dc");
@@ -279,6 +282,31 @@ TEST(X1SeamSplit, centroid_exact_split_matches_one_block) {
 
 TEST(X1SeamSplit, radial_exact_split_gap) {
   radial_exact_split_gap(torch::kCPU);
+}
+
+// the nghost >= 3 check of SNAP_X1_CENTROID_EXACT and of conversion-order 4
+// with gravity: one ctest entry each
+// (test_x1_seam_split_nghost_check_x1_centroid with the switch set,
+// _conversion_order_4 without it). Fewer ghosts is an error naming the setting;
+// nghost 3, or no gravity, sets up
+TEST(X1SeamSplit, nghost_check_refuses_fewer_than_3_ghosts) {
+  bool centroid = std::getenv("SNAP_X1_CENTROID_EXACT") != nullptr;
+  ASSERT_EQ(x1_centroid_exact_enabled(), centroid);
+  g_conv_order = centroid ? 2 : 4;
+  char const* setting =
+      centroid ? "SNAP_X1_CENTROID_EXACT" : "dynamics/conversion-order 4";
+  for (int ng : {1, 2}) try {
+      make_column(1, 16, 1., "cell", ng);
+      ADD_FAILURE() << setting << ": nghost " << ng << " accepted";
+    } catch (c10::Error const& e) {
+      std::string what = e.what();
+      EXPECT_NE(what.find("needs nghost >= 3"), std::string::npos) << what;
+      EXPECT_NE(what.find(setting), std::string::npos) << what;
+    }
+  EXPECT_NO_THROW(make_column(1, 16, 1., "cell", 3));
+  // no gravity, no reference: the check stays off
+  EXPECT_NO_THROW(make_column(1, 16, 1., "cell", 1, torch::kCPU, 0.));
+  g_conv_order = 2;
 }
 
 // the VIC row's slope is per block (implicit_hydro.cpp); that is the one-block

@@ -4,7 +4,8 @@
 > (`src/hydro/wb_ref4.cpp`). Elsewhere the x1 face density is the x1 reconstruction's own linear rows on the cell
 > density reference (weno5/cp5), with the kernel's face value as the fallback and for every other reconstruction.
 
-This file derives the switch `SNAP_WB_REF4` (off unless set, read once per process) step by step and states
+This file derives the face density that `dynamics/conversion-order: 4` runs (until its removal it was also the switch
+`SNAP_WB_REF4`, off unless set) step by step and states
 the oracle it is tested against. The method is the face part of Jiheng's specification `wbref_exact_spec.md`
 (taken from his derivation at c5b810d, which was not
 available on any GitHub fork when this was written). The exact weights and identities used below are checked
@@ -115,8 +116,8 @@ widths (#280 (iv)). There the switch keeps it, so REF4 contributes only the face
 and `balance_column` does not run REF4: the stretched rest state is the
 same with the switch on or off. On a keyed
 stretched family the measured order of $N^2_{\rm eff}$ is 4.06/4.04 (1 e-fold) and 3.78/3.89 (3 e-folds) at
-$h_{\max}/h_{\min} = 4$. On a Cartesian x1 `SNAP_X1_CENTROID_EXACT` has no content of its own and runs as
-`SNAP_WB_REF4`.
+$h_{\max}/h_{\min} = 4$. On a Cartesian x1 `SNAP_X1_CENTROID_EXACT` has no content of its own (it no longer turns this face
+density on).
 
 ## 6. Exact discrete balance is kept
 
@@ -206,13 +207,15 @@ finds it mostly present with the covariance off and in the base too).
 
 Linearity: at $2A$, 1 e-fold, $n_z$ 64 / 128, on: -0.070748 / -0.035790 against -0.070749 / -0.035792 at $A$.
 
-The ctest `test_wb_ref4_order` runs this oracle at 1 and 3 e-folds, $n_z$ 32 / 64 / 128, and asserts, at the last
+The ctest `test_wb_ref4_order` ran this oracle at 1 and 3 e-folds, $n_z$ 32 / 64 / 128, and asserted, at the last
 doubling, order $\ge 2.75$ with the switch and $< 2.5$ without it, and a switched $\lvert N^2_{\rm eff}\rvert$
-at $n_z$ 32 at least 10 times below the unswitched one.
+at $n_z$ 32 at least 10 times below the unswitched one. With the switch gone it runs the default only (the face
+density from the reconstruction's linear rows) and asserts order $\ge 2.75$ at the last doubling.
 
 ## 10. Tests that pin the kernel's reference
 
-Both run unchanged with the switch off and a second time with it set (`*_wb_ref4` ctests):
+Both ran unchanged with the switch off and a second time with it set (the `*_wb_ref4` ctests, removed with
+the switch):
 
 - `test_balance_column`: the switch changes no cell pressure, so the balanced columns are the kernel's.
 - `test_face_floor`: the kernel's cell density does not follow the dipped cell, with or without the switch,

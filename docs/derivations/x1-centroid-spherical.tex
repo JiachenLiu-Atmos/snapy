@@ -17,8 +17,9 @@
 \section*{289: $r^2$-exact x1 cell-to-face maps on spherical-polar grids (\texttt{SNAP\_X1\_CENTROID\_EXACT})}
 
 This file derives the switch \texttt{SNAP\_X1\_CENTROID\_EXACT} (off unless set, read once per process; it acts on
-spherical-polar blocks only) and states the oracle it is tested against. It extends the fourth-order
-well-balanced reference of \texttt{wb-ref4.md} (\texttt{SNAP\_WB\_REF4}) to the $r^2$ cell measure. The exact identities used
+spherical-polar blocks only) and states the oracle it is tested against. It was written as an extension of
+the fourth-order well-balanced reference of \texttt{wb-ref4.md} to the $r^2$ cell measure; that face density now runs
+only with \texttt{dynamics/conversion-order: 4} (the switch \texttt{SNAP\_WB\_REF4} is gone). The exact identities used
 below are checked by \texttt{docs/derivations/verify\_x1\_centroid.py} (sympy, exact rational arithmetic). The code is
 \texttt{src/coord/x1\_centroid.cpp}, called from \texttt{HydroImpl::forward} (\texttt{src/hydro/hydro\_forward.cpp}, the x1 block),
 \texttt{HydroImpl::\_hydro\_ref\_x1} (\texttt{src/hydro/hydro.cpp}) and \texttt{SphericalPolarImpl::forward}
@@ -102,10 +103,11 @@ with weights fixed by exactness for the monomials $x^n$, $n = 0..4$ (in cell $i$
 
 On plain means the Leg W reference (\texttt{wb-ref4.md}: the quartic-primitive face
 value and the range and resolution guards) is exactly the
-Cartesian algorithm, whose $O(\Delta z^4)$ face-density error is derived there. The switch implies
-\texttt{SNAP\_WB\_REF4}: \texttt{wb\_ref4\_enabled()} is true with either, and the solver (\texttt{hydro.cpp}), \texttt{balance\_column} and the
-tests read that one predicate, so a Cartesian column balanced outside the solver is at the solver's fixed point
-(ctest \texttt{test\_balance\_column\_x1\_centroid}, \texttt{test\_face\_floor\_x1\_centroid}); the one switch gives the whole design.
+Cartesian algorithm, whose $O(\Delta z^4)$ face-density error is derived there. The switch
+implied \texttt{SNAP\_WB\_REF4} until that switch was removed; it no longer turns on the \texttt{wb-ref4.md} face density and keeps
+only its nghost >= 3 requirement (ctest \texttt{test\_x1\_seam\_split\_nghost\_check\_x1\_centroid}). A Cartesian column
+balanced outside the solver is at the solver's fixed point (ctest \texttt{test\_balance\_column\_x1\_centroid},
+\texttt{test\_face\_floor\_x1\_centroid}).
 \texttt{balance\_column} has no $r^2$-to-plain-mean conversion, so under the switch it balances only a column declared
 \texttt{geometry='cartesian'} and refuses any other: a spherical-polar column's rest state is the solver's own reference. Its face density is then fourth order in the interior. At the three faces
 next to a wall the error is $O(h^3)$, Leg W's own property, the same in Cartesian: the anchor's $O(h^2)$
@@ -214,8 +216,8 @@ $-0.004 \ldots -0.012$, in the replica as in the code: the volume weight carries
   switch is read once per process.
 \item \textbf{Cubed sphere.} Not implemented: the gnomonic grids store $x_{1v}$ at the mid-radius, and their x1 maps
   would need the same conversion with the panel's own radial measure. The switch does nothing there.
-\item \textbf{Cartesian.} No conversion and the base source; since the switch implies \texttt{SNAP\_WB\_REF4}, a Cartesian block
-  runs exactly as with \texttt{SNAP\_WB\_REF4} alone.
+\item \textbf{Cartesian.} No conversion and the base source: a Cartesian block runs as with the switch off, apart from
+  the nghost >= 3 check.
 \item \textbf{Off.} With the switch off every line of the base runs as before.
 \item \textbf{Small blocks.} With fewer than five cells to fit (the plain means) or six faces (the pressure source) the
   stencils are not usable and the base maps stay. Such a cache holds no weights, and its device/dtype check

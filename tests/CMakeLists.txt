@@ -116,6 +116,11 @@ seam_arm("" "" switches_off_nghost_1_sets_up)
 seam_arm(_x1_centroid "SNAP_X1_CENTROID_EXACT=1"
          centroid_exact_split_matches_one_block)
 seam_arm(_radial_exact "" radial_exact_split_gap)
+# the nghost >= 3 check of SNAP_X1_CENTROID_EXACT and of conversion-order 4
+seam_arm(_nghost_check_conversion_order_4 ""
+         nghost_check_refuses_fewer_than_3_ghosts)
+seam_arm(_nghost_check_x1_centroid "SNAP_X1_CENTROID_EXACT=1"
+         nghost_check_refuses_fewer_than_3_ghosts)
 # the VIC row's per-block slope relies on an implicit scheme refusing an x1 split
 seam_arm(_vic_refuses_split "" vic_refuses_x1_split)
 # SNAP_X1_MASS_COVARIANCE refuses a block with fewer than 3 x1 cells

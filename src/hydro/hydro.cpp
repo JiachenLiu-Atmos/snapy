@@ -115,9 +115,10 @@ void HydroImpl::reset() {
             "the corrected-PE work of gravity-work: face has no form on a '",
             type, "' grid: it books the plain face work there");
     }
-    // kept from the removed SNAP_WB_REF4 resolution flag, which read scan
-    // pressures three cells away: the two settings that switched it on keep
-    // their nghost >= 3 requirement
+    // the conversion-order 4 resolution flag (wb_ref4.cpp) reads scan pressures
+    // three cells away, so x1 seam sides agree only with nghost >= 3;
+    // SNAP_X1_CENTROID_EXACT keeps the requirement it had while it switched
+    // that flag on
     if ((x1_centroid_exact_enabled() || options->conversion_order() == 4) &&
         options->grav()->grav1() != 0. && pmb && pmb->pcoord) {
       int ng = pmb->pcoord->options->nghost();
