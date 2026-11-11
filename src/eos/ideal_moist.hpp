@@ -1,7 +1,7 @@
 #pragma once
 
 // snap
-#include "equation_of_state.hpp"
+#include "moist_base.hpp"
 
 namespace snap {
 
@@ -11,31 +11,22 @@ struct IdealMoistPerturbations {
 };
 
 class IdealMoistImpl final : public torch::nn::Cloneable<IdealMoistImpl>,
-                             public EquationOfStateImpl {
+                             public MoistEOSImpl {
  public:
   //! data
   torch::Tensor inv_mu_ratio_m1, cv_ratio_m1, u0;
-
-  //! submodules
-  kintera::ThermoY pthermo = nullptr;
 
   // Constructor to initialize the layers
   IdealMoistImpl() = default;
   explicit IdealMoistImpl(EquationOfStateOptions const& options_,
                           torch::nn::Module* p = nullptr)
-      : EquationOfStateImpl(options_, p) {
+      : MoistEOSImpl(options_, p) {
     reset();
   }
   void reset() override;
   // void pretty_print(std::ostream& os) const override;
   using EquationOfStateImpl::forward;
 
-  int nvar() const override {
-    return 4 + pthermo->options->vapor_ids().size() +
-           pthermo->options->cloud_ids().size();
-  }
-  double species_weight(int n = 0) const override;
-  double species_cv_ref(int n = 0) const override;
   torch::Tensor specific_heat_cv(torch::Tensor prim,
                                  torch::Tensor temp) override;
   torch::Tensor internal_energy_offset(torch::Tensor hydro_like) const override;
@@ -71,49 +62,42 @@ class IdealMoistImpl final : public torch::nn::Cloneable<IdealMoistImpl>,
   torch::Tensor f_sig(torch::Tensor const& yfrac) const;
 
  private:
-  //! \brief Convert primitive variables to conserved variables.
-  /*
-   * \param[in] prim  primitive variables
-   * \param[out] out  conserved variables
-   */
-  void _prim2cons(torch::Tensor prim, torch::Tensor& out);
-
   //! \brief Convert conserved variables to primitive variables.
   /*
    * \param[in] cons  conserved variables
    * \param[ou] out   primitive variables
    */
+  void _cons2prim(torch::Tensor cons, torch::Tensor& out) override {
+    _cons2prim(cons, out, /*limit=*/true);
+  }
   //! `cons` holds totals; `limit` false skips the conserved limiter (the
   //! anomaly key "U'->W" has already limited the stored anomalies)
-  void _cons2prim(torch::Tensor cons, torch::Tensor& out, bool limit = true);
+  void _cons2prim(torch::Tensor cons, torch::Tensor& out, bool limit);
+  //! the layout code's conserved limiter: its `cons` holds totals
+  void limit_totals_(torch::Tensor const& cons) override {
+    apply_conserved_limiter_(cons, /*whole_column=*/false, /*totals=*/true);
+  }
 
   //! \brief calculate internal energy
   /*
    * \param[in] prim  primitive variables
    * \return          total internal energy [J/m^3]
    */
-  torch::Tensor _prim2intEng(torch::Tensor prim);
+  torch::Tensor _prim2intEng(torch::Tensor prim) override;
 
   //! \brief calculate temperature.
   /*
    * \param[in] prim  primitive variables
    * \return          temperature
    */
-  torch::Tensor _prim2temp(torch::Tensor prim);
+  torch::Tensor _prim2temp(torch::Tensor prim) override;
 
   //! \brief calculate species energy (internal + kinetic)
   /*
    * \param[in] prim  primitive variables
    * \return          individual species energy (ie + ke)
    */
-  torch::Tensor _prim2speciesEng(torch::Tensor prim);
-
-  //! \brief Convert conserved variables to kinetic energy.
-  /*
-   * \param[in] cons    conserved variables
-   * \return            kinetic energy
-   */
-  torch::Tensor _cons2ke(torch::Tensor cons);
+  torch::Tensor _prim2speciesEng(torch::Tensor prim) override;
 
   //! \brief Convert temperature to kinetic energy.
   /*
@@ -121,7 +105,7 @@ class IdealMoistImpl final : public torch::nn::Cloneable<IdealMoistImpl>,
    * \param[in] temp    temperature
    * \return            internal energy
    */
-  torch::Tensor _temp2intEng(torch::Tensor cons, torch::Tensor temp);
+  torch::Tensor _temp2intEng(torch::Tensor cons, torch::Tensor temp) override;
 };
 TORCH_MODULE(IdealMoist);
 
