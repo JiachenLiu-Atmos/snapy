@@ -127,7 +127,7 @@ torch::Tensor check_faces(torch::Tensor const& x1f) {
               "[x1_coeffs] a WENO5/cp5 window needs at least 6 faces, got ",
               x1f.numel());
 
-  auto f = x1f.to(torch::kCPU, torch::kFloat64).contiguous();
+  auto f = x1f.cpu().to(torch::kFloat64).contiguous();  // MPS has no float64
   TORCH_CHECK(torch::isfinite(f).all().item<bool>(),
               "[x1_coeffs] face vector has a non-finite entry");
 
