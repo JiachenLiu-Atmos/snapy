@@ -366,6 +366,11 @@ class CoordinateImpl {
   //! cell-centered vector curl
   virtual torch::Tensor curl(torch::Tensor velocity) const;
 
+  //! metric source terms that carry rho v1 (-u w / r), evaluated by Hydro
+  //! with m1 = rho v1 from the stage's x1 mass transfers; none by default
+  virtual void x1_mass_source_(torch::Tensor du, torch::Tensor const& prim,
+                               torch::Tensor const& m1, double dt) const {}
+
   virtual torch::Tensor forward(torch::Tensor prim, torch::Tensor flux1,
                                 torch::Tensor flux2, torch::Tensor flux3,
                                 torch::Tensor face_pressure1 = torch::Tensor());

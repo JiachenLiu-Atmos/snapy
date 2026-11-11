@@ -244,6 +244,37 @@ TEST(forcing, cubed_sphere_shallow_water_uses_traditional_coriolis) {
   check_cubed_sphere_coriolis("shallow-water", false, true);
 }
 
+// Coriolis and the u w / r metric take rho w from the x1 mass transfer: with w
+// alternating in sign every x1 face (a wall face too) moves no mass, so w must
+// exert no torque on the horizontal momenta, whatever the cell-centre w.
+TEST(forcing, coriolis_and_metric_take_w_from_the_x1_mass_flux) {
+  auto options =
+      MeshBlockOptionsImpl::from_yaml("test_forcing_cubed_sphere.yaml");
+  options->layout()->type() = "slab";  // one panel, no exchange
+  options->hydro()->coriolis() = CoriolisOptionsImpl::from_yaml(YAML::Load(
+      "coriolis: {type: xyz, omega1: 0.7e-4, omega2: -0.4e-4, omega3: 1.e-4}"));
+  auto block = std::make_shared<MeshBlockImpl>(options);
+  auto coord = block->pcoord;
+  auto w = torch::zeros({block->phydro->peos->nvar(), coord->options->nc3(),
+                         coord->options->nc2(), coord->options->nc1()},
+                        torch::kFloat64);
+  w[IDN] = 1.;
+  w[IVY] = 30.;
+  w[IVZ] = -20.;
+  w[IPR] = 1.e5;
+  auto run = [&](double w1) {
+    w[IVX] = w1 * (1. - 2. * (torch::arange(w.size(-1)) % 2));
+    Variables vars;
+    vars["hydro_w"] = torch::empty_like(w);
+    auto u = block->phydro->peos->compute("W->U", {w});
+    return block->phydro->forward(10., u, vars)
+        .narrow(0, IVY, 2)
+        .slice(-1, coord->il(), coord->iu() + 1);
+  };
+  double torque = (run(5.) - run(0.)).abs().max().item<double>();
+  EXPECT_LT(torque, 1.e-12) << "torque from a w that moves no mass";
+}
+
 TEST(forcing, relax_bottom_temperature) {
   auto block = make_block();
   auto w = make_primitive(block);

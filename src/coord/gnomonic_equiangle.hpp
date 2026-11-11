@@ -66,6 +66,8 @@ class GnomonicEquiangleImpl
       torch::Tensor prim, torch::Tensor flux1, torch::Tensor flux2,
       torch::Tensor flux3,
       torch::Tensor face_pressure1 = torch::Tensor()) override;
+  void x1_mass_source_(torch::Tensor du, torch::Tensor const& prim,
+                       torch::Tensor const& m1, double dt) const override;
 
  private:
   torch::Tensor _interp_ghost_LR(torch::Tensor buf, bool flip) const;

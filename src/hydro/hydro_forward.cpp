@@ -1,5 +1,6 @@
 // C/C++
 #include <chrono>
+#include <typeinfo>
 
 // snap
 #include <snap/snap.h>
@@ -1029,7 +1030,20 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   bool track_dry =
       pmb->pscalar && pmb->pscalar->nvar() > 0 && !forcings.empty();
   auto dry_before = track_dry ? du[IDN].clone() : torch::Tensor();
-  for (auto& f : forcings) f.forward(du, w, temp, dt);
+  // x1 mass-flux w (step 8): the Coriolis rows that read rho w wait for the
+  // stage's final x1 mass transfer, so Coriolis sees w = 0 here
+  auto ptype = pmb->pcoord->options->type();
+  bool mass_w = peos->options->type() != "shallow-water" &&
+                pmb->pcoord->options->nc1() > 1 &&
+                (ptype == "gnomonic-equiangle" ||
+                 (ptype == "spherical-polar" && options->coriolis()));
+  auto coriolis = [](torch::nn::AnyModule& f) {
+    return f.type_info() == typeid(CoriolisXYZImpl) ||
+           f.type_info() == typeid(Coriolis123Impl);
+  };
+  auto w0 = mass_w ? w.clone() : w;
+  if (mass_w) w0[IVX].zero_();
+  for (auto& f : forcings) f.forward(du, coriolis(f) ? w0 : w, temp, dt);
   _forcing_dry = track_dry ? du[IDN] - dry_before : torch::Tensor();
 
   // Face work uses the x1 mass flux after positivity limiting and
@@ -1241,6 +1255,38 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     int is = pmb->pcoord->il();
     int ie = pmb->pcoord->iu() + 1;
     du[IPR].slice(-1, is, ie) += gravity_energy_correction;
+  }
+
+  //// ------------ (8) x1 mass-flux w in Coriolis and metric sources -------
+  // -2 Omega w cos(lat) and -u w / r take rho w from the stage's final x1
+  // face mass transfers Phi (explicit flux + implicit transfer), split as
+  //   m1 = [Phi_lo (r^2 - r_lo^2) + Phi_hi (r_hi^2 - r^2)] / (2 r V dt),
+  // so a column's Coriolis torque equals the planetary angular momentum
+  // its x1 transfers move, and a wall face that moves no mass exerts none
+  // (the cell-centre w of a wall cell moves no mass but did exert a torque)
+  if (mass_w) {
+    auto pc = pmb->pcoord;
+    int is = pc->il(), ie = pc->iu() + 1;
+    auto phi = torch::zeros_like(w[IDN]);  // transfer through face i (below i)
+    if (_flux1.defined() && !options->disable_flux_x1()) {
+      auto f1 = _flux1[IDN] + _flux1.narrow(0, ICY, ny).sum(0);
+      phi += dt * pc->face_area1().narrow(-1, 0, f1.size(-1)) * f1;
+    }
+    auto mc = implicit_mass_correction();
+    if (mc.defined() && mc.numel() > 0) phi += mc[IVZ];
+    auto r = pc->x1v.slice(0, is, ie);
+    auto lo = r.square() - pc->x1f.slice(0, is, ie).square();
+    auto hi = pc->x1f.slice(0, is + 1, ie + 1).square() - r.square();
+    auto m1 = torch::zeros_like(w[IDN]);
+    m1.slice(-1, is, ie) =
+        (phi.slice(-1, is, ie) * lo + phi.slice(-1, is + 1, ie + 1) * hi) /
+        (2. * dt * r * pc->cell_volume().slice(-1, is, ie));
+    w0.zero_();
+    w0[IDN].fill_(1.);
+    w0[IVX].copy_(m1);
+    for (auto& f : forcings)
+      if (coriolis(f)) f.forward(du, w0, temp, dt);
+    pc->x1_mass_source_(du, w, m1, dt);
   }
 
   if (gwfix_stage.defined()) {
