@@ -9,6 +9,8 @@
 #include <torch/torch.h>
 
 // snap
+#include <snap/utils/on_host.hpp>
+
 #include "bc_dispatch.hpp"
 #include "flip_zero_impl.h"
 
@@ -63,5 +65,6 @@ namespace at::native {
 DEFINE_DISPATCH(flip_zero);
 
 REGISTER_ALL_CPU_DISPATCH(flip_zero, &snap::flip_zero_cpu);
+REGISTER_MPS_DISPATCH(flip_zero, &snap::OnHost<&snap::flip_zero_cpu>::run);
 
 }  // namespace at::native

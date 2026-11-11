@@ -10,6 +10,7 @@
 
 // snap
 #include <snap/coord/coord_utils.hpp>
+#include <snap/utils/on_host.hpp>
 
 #include "eos_dispatch.hpp"
 #include "fix_vapor_impl.h"
@@ -112,5 +113,7 @@ REGISTER_ALL_CPU_DISPATCH(ideal_gas_cons2prim, &snap::ideal_gas_cons2prim_cpu);
 REGISTER_ALL_CPU_DISPATCH(call_fix_vapor, &snap::call_fix_vapor_cpu);
 
 REGISTER_MPS_DISPATCH(ideal_gas_cons2prim, &snap::ideal_gas_cons2prim_mps);
+REGISTER_MPS_DISPATCH(call_fix_vapor,
+                      &snap::OnHost<&snap::call_fix_vapor_cpu>::run);
 
 }  // namespace at::native

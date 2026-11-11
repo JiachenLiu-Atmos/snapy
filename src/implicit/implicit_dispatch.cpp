@@ -11,6 +11,8 @@
 #include <torch/torch.h>
 
 // snap
+#include <snap/utils/on_host.hpp>
+
 #include "forward_sweep_impl.h"
 #include "implicit_dispatch.hpp"
 #include "vic_assemble_full_impl.h"
@@ -293,5 +295,23 @@ REGISTER_ALL_CPU_DISPATCH(vic_redistribute_partial,
 REGISTER_ALL_CPU_DISPATCH(vic_redistribute_full,
                           &snap::vic_redistribute_cpu<5>);
 REGISTER_ALL_CPU_DISPATCH(donor_cap, &snap::donor_cap_cpu);
+
+REGISTER_MPS_DISPATCH(vic_assemble_partial,
+                      &snap::OnHost<&snap::vic_assemble_partial_cpu>::run);
+REGISTER_MPS_DISPATCH(vic_assemble_full,
+                      &snap::OnHost<&snap::vic_assemble_full_cpu>::run);
+REGISTER_MPS_DISPATCH(vic_solve_partial,
+                      (&snap::OnHost<&snap::vic_solve_cpu<3, 0>>::run));
+REGISTER_MPS_DISPATCH(vic_solve_full,
+                      (&snap::OnHost<&snap::vic_solve_cpu<5, 0>>::run));
+REGISTER_MPS_DISPATCH(vic_solve_woodbury_partial,
+                      (&snap::OnHost<&snap::vic_solve_cpu<3, 2>>::run));
+REGISTER_MPS_DISPATCH(vic_solve_woodbury_full,
+                      (&snap::OnHost<&snap::vic_solve_cpu<5, 2>>::run));
+REGISTER_MPS_DISPATCH(vic_redistribute_partial,
+                      &snap::OnHost<&snap::vic_redistribute_cpu<3>>::run);
+REGISTER_MPS_DISPATCH(vic_redistribute_full,
+                      &snap::OnHost<&snap::vic_redistribute_cpu<5>>::run);
+REGISTER_MPS_DISPATCH(donor_cap, &snap::donor_cap_cpu);  // plain torch ops
 
 }  // namespace at::native
