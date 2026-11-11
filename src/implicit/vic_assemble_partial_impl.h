@@ -9,6 +9,7 @@
 // snap
 #include "flux_decomposition_impl.h"
 #include "implicit_dispatch.hpp"
+#include "vic_gravity_work_impl.h"
 
 #define GAMMA(n) gamma[(n) * stride2]
 #define AREA(n) area[(n) * stride2]
@@ -147,25 +148,9 @@ void DISPATCH_MACRO vic_assemble_partial_impl(
   b[i] = -(Am2 + dfdq_prev) * area_i * half_inv_vol;
   c[i] = -(Ap2 - dfdq_next) * area_ip1 * half_inv_vol;
 
-  if (face_work && cartesian_face) {
-    Eigen::Matrix<T, 1, 3> em;
-    em << 0., 1., 0.;
-    a[i](2, 1) += grav;
-    a[i].row(2) -= 0.5 * grav * (em + 0.5 * (Ap2.row(0) - Am2.row(0)));
-    b[i].row(2) -= 0.5 * grav * (0.5 * em + 0.5 * Am2.row(0));
-    c[i].row(2) -= 0.5 * grav * (0.5 * em - 0.5 * Ap2.row(0));
-  } else if (face_work || diffusive_cell) {
-    // The same face-to-centre potential weights as the mass update.
-    T lower = work_lo[i * stride2], upper = work_hi[i * stride2];
-    a[i].row(2) -= grav * (upper * Ap2.row(0) - lower * Am2.row(0));
-    b[i].row(2) -= grav * lower * Am2.row(0);
-    c[i].row(2) += grav * upper * Ap2.row(0);
-    if (face_work) {
-      a[i](2, 1) += grav * (1. - lower - upper);
-      b[i](2, 1) -= grav * lower;
-      c[i](2, 1) -= grav * upper;
-    }
-  }
+  vic_gravity_work_rows<T, 3>(a[i], b[i], c[i], Am2.row(0), Ap2.row(0), 2, 1,
+                              grav, face_work, diffusive_cell, cartesian_face,
+                              work_lo[i * stride2], work_hi[i * stride2]);
 
   // ---- boundary condition. Bnd = diag(1, -1, 1). ----
   if ((i == is || solid_lower) && first_block) a[i] += b[i] * Bnd.asDiagonal();
