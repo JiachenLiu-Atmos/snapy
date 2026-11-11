@@ -8,8 +8,9 @@
 // (tests/CMakeLists.txt): switches off checks the cross-rank split against
 // the in-process split only; X1_SEAM_ARM=face (gravity-work: face with its
 // corrected-PE work, whose seam slope is centred across ranks, #303),
-// SNAP_X1_CENTROID_EXACT checks it against the in-process split and against
-// one block.
+// SNAP_X1_CENTROID_EXACT and X1_SEAM_ARM=co4 (plm at conversion-order 4 on
+// the cold column, its face-density flag switching on above the seam) check it
+// against the in-process split and against one block.
 // The face arm also checks the split E + P summed over the two ranks.
 //
 // Run: torchrun --no-python --nproc-per-node=2 test_x1_seam_split_mp.<build>
@@ -87,6 +88,9 @@ boundary-condition:
 
 // nb1 x1 blocks; split: one block per process (the 2 ranks), else all blocks
 // in this process alone, with no process group
+// X1_SEAM_ARM=co4: conversion-order 4 with plm
+bool g_co4 = false;
+
 Mesh make_column(int nb1, bool split, int nx1, double nh, char const* gw) {
   char fname[] = "/tmp/x1-seam-split-mp-XXXXXX";
   int fd = mkstemp(fname);
@@ -98,6 +102,11 @@ Mesh make_column(int nb1, bool split, int nx1, double nh, char const* gw) {
   auto block_opts = MeshBlockOptionsImpl::from_yaml(fname);
   std::remove(fname);
   block_opts->hydro()->grav()->grav1(-1.);
+  if (g_co4) {
+    block_opts->hydro()->conversion_order(4);
+    block_opts->hydro()->recon1()->interp()->type("plm");
+    block_opts->hydro()->recon23()->interp()->type("plm");
+  }
   if (nb1 > 1) {
     block_opts->layout()->type() = "cubed";
     block_opts->layout()->pz(nb1);
@@ -254,7 +263,9 @@ TEST(X1SeamSplitMp, split_across_two_ranks_matches_one_process) {
   bool centroid = std::getenv("SNAP_X1_CENTROID_EXACT") != nullptr;
   char const* seam_arm = std::getenv("X1_SEAM_ARM");
   bool radial = seam_arm && std::string(seam_arm) == "face";
-  ASSERT_LE(centroid + radial, 1) << "one switch per arm";
+  bool co4 = seam_arm && std::string(seam_arm) == "co4";
+  ASSERT_LE(centroid + radial + co4, 1) << "one switch per arm";
+  g_co4 = co4;
   ASSERT_EQ(x1_centroid_exact_enabled(), centroid);
   torch::set_num_threads(1);
 
@@ -267,6 +278,7 @@ TEST(X1SeamSplitMp, split_across_two_ranks_matches_one_process) {
   int rank = layout->options->process_rank();
   char const* arm = centroid ? "SNAP_X1_CENTROID_EXACT"
                     : radial ? "X1_SEAM_ARM=face"
+                    : co4    ? "X1_SEAM_ARM=co4"
                              : "switches off";
 
   // EXPECT, not ASSERT, below: both ranks must reach every collective
@@ -287,15 +299,16 @@ TEST(X1SeamSplitMp, split_across_two_ranks_matches_one_process) {
     }
     return;
   }
-  int nx1 = 32;
+  // co4: the cold column, its face-density flag switching on above the seam
+  int nx1 = co4 ? 16 : 32;
   for (double nh : {1., 0.}) {
-    auto g = split_gaps(rank, nx1, nh, "cell", 20, false);
+    auto g = split_gaps(rank, nx1, nh, "cell", 20, co4);
     if (rank != 0) continue;
     std::printf(
         "%s, non-hydrostatic %g: 2 ranks vs 2 blocks %.3e, vs 1 block %.3e\n",
         arm, nh, g.two, g.one);
     // round-off: 20 steps of the column, as test_x1_seam_split
     EXPECT_LE(g.two, 1e-13) << "non-hydrostatic " << nh;
-    if (centroid) EXPECT_LE(g.one, 1e-13) << "non-hydrostatic " << nh;
+    if (centroid || co4) EXPECT_LE(g.one, 1e-13) << "non-hydrostatic " << nh;
   }
 }

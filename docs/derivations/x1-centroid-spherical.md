@@ -81,13 +81,17 @@ $$
 
 On plain means the Leg W reference (`wb-ref4.md`: the quartic-primitive face
 value and the range and resolution guards) is exactly the
-Cartesian algorithm, whose $O(\Delta z^4)$ face-density error is derived there. The switch
-implied `SNAP_WB_REF4` until that switch was removed; it no longer turns on the `wb-ref4.md` face density and keeps
-only its nghost >= 3 requirement (ctest `test_x1_seam_split_nghost_check_x1_centroid`). A Cartesian column
+Cartesian algorithm, whose $O(\Delta z^4)$ face-density error is derived there. That face density now runs only
+with `dynamics/conversion-order: 4`. The switch implied `SNAP_WB_REF4` until that switch was removed: on its own
+it no longer turns the `wb-ref4.md` face density on (its face density is then the x1 reconstruction's own
+linear rows on the plain-mean reference), and it keeps only its nghost >= 3 requirement (ctest
+`test_x1_seam_split_nghost_check_x1_centroid`). A Cartesian column
 balanced outside the solver is at the solver's fixed point (ctest `test_balance_column_x1_centroid`,
 `test_face_floor_x1_centroid`).
 `balance_column` has no $r^2$-to-plain-mean conversion, so under the switch it balances only a column declared
-`geometry='cartesian'` and refuses any other: a spherical-polar column's rest state is the solver's own reference. Its face density is then fourth order in the interior. At the three faces
+`geometry='cartesian'` and refuses any other: a spherical-polar column's rest state is the solver's own reference. With the `wb-ref4.md`
+face density on (conversion-order 4; the numbers below were measured when the switch implied it), the face
+density is fourth order in the interior. At the three faces
 next to a wall the error is $O(h^3)$, Leg W's own property, the same in Cartesian: the anchor's $O(h^2)$
 constant $c$ enters $\rho' = \rho - p_{\rm ref} F[\rho/p]$ as $-c\,F[\rho/p]$, and the even-parity ghosts of
 $\rho'$ turn its slope into an $O(h c)$ face value. The base clamped binomial is $O(h)$ there; in a Python replica of the x1

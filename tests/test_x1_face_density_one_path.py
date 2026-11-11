@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""The x1 face density reference has one path: SNAP_WB_REF4 is not read.
+"""The x1 face density reference does not read SNAP_WB_REF4.
 
 A stratified Cartesian column (32 x1 cells, reflecting walls, gravity-work: face, rk3, explicit) with a
 seeded vertical wind is stepped three times at a fixed dt in a child process, once with SNAP_WB_REF4
 unset and once with SNAP_WB_REF4=1. hydro_u must be bitwise equal between the two, for
-  plm,   dynamics/conversion-order 2 and 4 (no x1 linear rows: the kernel's face density everywhere);
-  weno5, dynamics/conversion-order 4 (the x1 linear rows, the kernel's value at a guarded face).
-RED while the switch (or conversion-order 4) replaced the face density by a fourth-order post-pass.
+  plm,   dynamics/conversion-order 2 (no x1 linear rows: the kernel's face density everywhere);
+  plm,   dynamics/conversion-order 4 (the fourth-order face density of wb_ref4.cpp on every face, in both runs);
+  weno5, dynamics/conversion-order 4 (the x1 linear rows; the fourth-order face density at a guarded face).
+The fourth-order face density runs with conversion-order 4 only. RED while SNAP_WB_REF4 also switched it on
+at conversion-order 2 (on 53d99726 the plm conversion-order 2 case differs by max |du| 1.6e-6).
 
   python test_x1_face_density_one_path.py [--device cpu|cuda]
 """

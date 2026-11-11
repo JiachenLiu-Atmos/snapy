@@ -1,4 +1,4 @@
-# #289: a fourth-order x1 well-balanced face density (`SNAP_WB_REF4`)
+# #289: the fourth-order x1 well-balanced face density of `dynamics/conversion-order: 4`
 
 > `SNAP_WB_REF4` is gone: the face density below runs only with `dynamics/conversion-order: 4`
 > (`src/hydro/wb_ref4.cpp`). Elsewhere the x1 face density is the x1 reconstruction's own linear rows on the cell
@@ -106,7 +106,8 @@ density the solver uses is $\mathcal I[\bar\rho]_f + O(\Delta z^4)$.
 
 The resolution flag (section 7) is built right after the kernel. The face part runs after the x1 seam
 ghost-row exchange of $(p_{\rm ref}, \rho_{\rm ref})$, so a column split along x1 gets the same faces as one
-block (`test_x1_seam_split_wb_ref4`).
+block (`test_x1_seam_split_co4_face_density`, and across two ranks `test_x1_seam_split_mp_co4_face_density`:
+plm at conversion-order 4 on a cold column).
 
 ## 5. Non-uniform x1 grids: the cell pressure
 
@@ -146,7 +147,7 @@ A guarded face keeps the kernel's value. None fires on a resolved smooth column.
   exchanged. The flag of a cell or a seam face reads $p_{\rm sf}$ at most three cells away, so with nghost
   $\ge 3$ (checked at setup) the two sides of an x1 seam agree, except at an exact tie
   $\lvert\ln(p_{{\rm sf},i-1/2}/p_{{\rm sf},i+1/2})\rvert = 0.5$, where the two scans' last-ulp difference can
-  put the cell on either side (`test_x1_seam_split_wb_ref4`: the flag switching on next to a seam).
+  put the cell on either side (`test_x1_seam_split_co4_face_density`: the flag switching on next to a seam).
 - A block with a clamped wall and fewer than four owned cells keeps the kernel's reference. Its stencil cache
   is then "not usable" and holds no weights, so the check that rebuilds the cache for another device or dtype
   (`WbRef4Stencils::stale`) never reads them; before #298 it read the device of the undefined weight tensor and

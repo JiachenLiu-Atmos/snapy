@@ -17,6 +17,13 @@
 // (docs/derivations/curved-gravity-work-weight.md sec 7). An implicit scheme
 // refuses an x1 split, so the VIC row has no seam (vic_refuses_x1_split).
 //
+// conversion-order 4 (ctest test_x1_seam_split_co4_face_density): the
+// fourth-order face density (wb_ref4.cpp) computes its resolution flag per
+// block from its own scan pressures, ghosts included, and only (pref, dref)
+// are exchanged; on a column cold enough that the flag switches on one cell
+// above the seam, the split column must still keep the one-block state
+// (docs/derivations/wb-ref4.md sec 7).
+//
 // Each ctest entry (tests/CMakeLists.txt) runs one test with its switch set,
 // and passes only if that test ran and passed: a missing switch is a failure.
 // The _cuda tests are the same checks on the GPU; their entries report a skip
@@ -58,6 +65,8 @@ constexpr double kR0 = 5.0, kLz = 2.0, kGamma = 1.4, kSeed = 0.05;
 int g_scheme = 0;
 // dynamics/conversion-order of the next make_column
 int g_conv_order = 2;
+// x1 and x2/x3 reconstruction of the next make_column (nullptr: the card's)
+char const* g_recon = nullptr;
 
 std::string column_yaml(int nx1, double nh, char const* gw, int ng = 3) {
   char buf[2048];
@@ -112,6 +121,10 @@ Mesh make_column(int nb1, int nx1, double nh, char const* gw, int ng = 3,
   std::remove(fname);
   block_opts->hydro()->grav()->grav1(g1);
   block_opts->hydro()->conversion_order(g_conv_order);
+  if (g_recon) {
+    block_opts->hydro()->recon1()->interp()->type(g_recon);
+    block_opts->hydro()->recon23()->interp()->type(g_recon);
+  }
   if (g1 == 0. || ng < 3) {  // donor cell: weno5 needs nghost >= 3 (S184)
     block_opts->hydro()->recon1()->interp()->type("dc");
     block_opts->hydro()->recon23()->interp()->type("dc");
@@ -267,6 +280,39 @@ void radial_exact_split_gap(torch::Device device) {
   }
 }
 
+// plm at conversion-order 4: the face density post-pass decides every x1 face
+// (with weno5 it decides only the guard-fallback faces, and this column has
+// none), so the one-block state also pins it being applied: m1 max after 20
+// steps, recorded with it; without it the value moves by 3e-5 relative
+void co4_face_density_at_the_seam_split_matches_one_block(
+    torch::Device device) {
+  ASSERT_FALSE(std::getenv("SNAP_X1_CENTROID_EXACT"));
+  torch::set_num_threads(1);
+  g_conv_order = 4;
+  g_recon = "plm";
+  double const pinned[2] = {0.017118506058974511, 0.03667996579309097};
+  int k = 0;
+  for (double nh : {1., 0.}) {
+    auto one = make_column(1, 16, nh, "cell", 3, device);
+    MeshVariables v1(1);
+    fill_column(one, v1, /*cold=*/true);
+    one->initialize(v1);
+    double dt = 0.3 * (kLz / 16) / std::sqrt(kGamma);
+    for (int n = 0; n < 20; ++n) step(one, v1, dt);
+    double m1 = column_state(one, v1)[IVX].abs().max().item<double>();
+    double gap = split_gap(16, nh, "cell", 20, nullptr, /*cold=*/true, device);
+    std::printf(
+        "conversion-order 4, plm, cold, non-hydrostatic %g: 2 blocks vs 1, "
+        "max rel gap %.3e; one block max|m1| %.17g\n",
+        nh, gap, m1);
+    EXPECT_LE(gap, 1e-13) << "non-hydrostatic " << nh;
+    EXPECT_NEAR(m1, pinned[k], 1e-9 * pinned[k]) << "non-hydrostatic " << nh;
+    ++k;
+  }
+  g_conv_order = 2;
+  g_recon = nullptr;
+}
+
 }  // namespace
 
 TEST(X1SeamSplit, switches_off_nghost_1_sets_up) {
@@ -340,6 +386,16 @@ TEST(X1SeamSplit, centroid_exact_split_matches_one_block_cuda) {
 TEST(X1SeamSplit, radial_exact_split_gap_cuda) {
   if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
   radial_exact_split_gap(torch::Device(torch::kCUDA, 0));
+}
+
+TEST(X1SeamSplit, co4_face_density_at_the_seam_split_matches_one_block) {
+  co4_face_density_at_the_seam_split_matches_one_block(torch::kCPU);
+}
+
+TEST(X1SeamSplit, co4_face_density_at_the_seam_split_matches_one_block_cuda) {
+  if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
+  co4_face_density_at_the_seam_split_matches_one_block(
+      torch::Device(torch::kCUDA, 0));
 }
 
 // SNAP_X1_MASS_COVARIANCE: the one-sided wall rho_1 spans three cells, so a

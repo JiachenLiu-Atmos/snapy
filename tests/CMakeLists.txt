@@ -116,6 +116,8 @@ seam_arm("" "" switches_off_nghost_1_sets_up)
 seam_arm(_x1_centroid "SNAP_X1_CENTROID_EXACT=1"
          centroid_exact_split_matches_one_block)
 seam_arm(_radial_exact "" radial_exact_split_gap)
+# conversion-order 4: its face-density flag switching on next to the seam
+seam_arm(_co4_face_density "" co4_face_density_at_the_seam_split_matches_one_block)
 # the nghost >= 3 check of SNAP_X1_CENTROID_EXACT and of conversion-order 4
 seam_arm(_nghost_check_conversion_order_4 ""
          nghost_check_refuses_fewer_than_3_ghosts)
@@ -131,7 +133,9 @@ if(CUDA)
   seam_arm(_x1_centroid_cuda "SNAP_X1_CENTROID_EXACT=1"
            centroid_exact_split_matches_one_block_cuda)
   seam_arm(_radial_exact_cuda "" radial_exact_split_gap_cuda)
-  foreach(_a _x1_centroid_cuda _radial_exact_cuda)
+  seam_arm(_co4_face_density_cuda ""
+           co4_face_density_at_the_seam_split_matches_one_block_cuda)
+  foreach(_a _x1_centroid_cuda _radial_exact_cuda _co4_face_density_cuda)
     set_tests_properties(
       test_x1_seam_split${_a}.${buildl}
       PROPERTIES SKIP_REGULAR_EXPRESSION "\\[  SKIPPED \\] 1 test")
@@ -147,6 +151,7 @@ function(seam_arm_mp name env)
 endfunction()
 seam_arm_mp(_x1_centroid "SNAP_X1_CENTROID_EXACT=1")
 seam_arm_mp(_radial_exact "X1_SEAM_ARM=face")
+seam_arm_mp(_co4_face_density "X1_SEAM_ARM=co4")
 setup_test(test_wb_wall_corner)
 setup_test(test_face_floor)
 setup_test(test_wb_ref_wall)
