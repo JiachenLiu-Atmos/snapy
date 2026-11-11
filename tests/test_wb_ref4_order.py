@@ -13,17 +13,17 @@ The oracle of the fourth-order well-balanced reference (docs/derivations/wb-ref4
   N2_eff = (g/gamma) sum (-ds) w / sum w^2,  w = v1 at t = 0.
 
 For this column the exact cell-average tendencies of rho and E vanish at linear order, so every N2_eff is
-scheme error. The kernel's density reference leaves an O(dz^2) face-density offset: N2_eff nz^2 tends to a
-constant (observed order ~2). With SNAP_WB_REF4 it is O(dz^4), and what is left is a wall-band term of
-order ~3. Asserted, at 1 and 3 e-folds, nz 32/64/128:
-  switch on:  observed order of |N2_eff| >= ORDER_ON at the LAST doubling, where the asymptotic term
-              dominates. Not over every doubling: the switched error can cross zero between the two
-              coarsest grids (3 e-folds, face reference: +8.6e-7, -1.5e-6, -1.7e-7, -1.4e-8 at
-              nz 32/64/128/256), and an order read across that crossing is meaningless, while the
-              doublings after it read 3.12 then 3.63 and keep rising towards 4;
-  switch on:  and |N2_eff| on the coarsest grid at least COARSE_GAIN below the switch-off arm's, so a
-              reference that only converges, from a coarse level no better than the kernel's, fails;
-  switch off: below ORDER_OFF at the last doubling, so an ignored or misspelled switch fails.
+scheme error. A face density reference with an O(dz^2) offset makes N2_eff nz^2 tend to a constant (observed
+order ~2). The face density is the x1 reconstruction's linear rows applied to the cell density reference,
+with or without SNAP_WB_REF4 (the switch only supplies the fallback of a face whose value leaves the range of
+its two cells), so both arms converge at order ~4 (measured: 4.01, 4.01 at 1 e-fold; 3.59, 3.88 at 3).
+Asserted, at 1 and 3 e-folds, nz 32/64/128:
+  either arm: observed order of |N2_eff| >= ORDER_ON at the LAST doubling, where the asymptotic term
+              dominates. Not over every doubling: the error can cross zero between the two coarsest grids,
+              and an order read across that crossing is meaningless;
+  the arms:   the same N2_eff to AGREE relative, since neither falls back on this column.
+(Before the face density used the linear rows, the kernel's face density gave order ~2 with the switch off;
+the switch-on face reference gave +8.6e-7, -1.5e-6, -1.7e-7, -1.4e-8 at 3 e-folds, nz 32/64/128/256.)
 The switch is read once per process, so each arm runs in its own process.
 
   python test_wb_ref4_order.py [--device cpu|cuda]
@@ -42,8 +42,7 @@ import torch
 NZS = (32, 64, 128)
 EFOLDS = (1.0, 3.0)
 ORDER_ON = 2.75
-ORDER_OFF = 2.5
-COARSE_GAIN = 10.0
+AGREE = 1.0e-10
 AMP = 1.0e-4
 GAMMA = 5.0 / 3.0
 M = 1.0 / (GAMMA - 1.0)
@@ -174,19 +173,16 @@ def main():
                       + " / ".join(f"{x * nz * nz:+.4f}" for x, nz in zip(v, NZS))
                       + "  (nz " + "/".join(map(str, NZS)) + "), order "
                       + ", ".join(f"{o:.2f}" for o in order), flush=True)
-                if switch and order[-1] < ORDER_ON:
-                    failures.append(f"{n:g} e-folds, switch on: order {order[-1]:.2f} < {ORDER_ON} at the "
-                                    f"last doubling (nz {NZS[-2]} -> {NZS[-1]})")
-                if not switch and not order[-1] < ORDER_OFF:
-                    failures.append(f"{n:g} e-folds, switch off: order {order[-1]:.2f} >= {ORDER_OFF}, "
-                                    "the oracle does not tell the references apart")
+                if order[-1] < ORDER_ON:
+                    failures.append(f"{n:g} e-folds, switch {switch or 'unset'}: order {order[-1]:.2f} < "
+                                    f"{ORDER_ON} at the last doubling (nz {NZS[-2]} -> {NZS[-1]})")
     for n in EFOLDS:
-        off, on = (abs(arms[s][str(n)][0]) for s in (None, "1"))
-        print(f"SNAP_WB_REF4 1 vs unset, {n:g} e-folds, nz {NZS[0]}: |N2_eff| {on:.3e} vs {off:.3e}, "
-              f"gain {off / on:.1f}x (needs {COARSE_GAIN:g}x)", flush=True)
-        if on * COARSE_GAIN > off:
-            failures.append(f"{n:g} e-folds, switch on: coarse |N2_eff| {on:.3e} is not {COARSE_GAIN:g}x "
-                            f"below the switch-off {off:.3e}")
+        off, on = (arms[s][str(n)] for s in (None, "1"))
+        rel = max(abs(a - b) / abs(b) for a, b in zip(on, off))
+        print(f"SNAP_WB_REF4 1 vs unset, {n:g} e-folds: max relative difference of N2_eff {rel:.1e} "
+              f"(needs <= {AGREE:g})", flush=True)
+        if not rel <= AGREE:
+            failures.append(f"{n:g} e-folds: the arms differ by {rel:.1e} > {AGREE:g}")
     for f in failures:
         print("FAIL:", f)
     if failures:
