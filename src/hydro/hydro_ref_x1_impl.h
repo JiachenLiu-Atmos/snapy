@@ -86,11 +86,12 @@ inline DISPATCH_MACRO T hydro_ref_x1_wall_steps(T const* dx1f, int jw, int dir,
   return d / (T(0.5) * (dx1f[jw] + dx1f[jw - dir]));
 }
 
-//! rho/p smoothed by a 5-point binomial along x1: the reference must
-//! track the column profile at LARGE scales only. An unsmoothed local rho/p
-//! makes rho' degenerate with the pressure perturbation, so entropy/buoyancy
-//! anomalies bypass the high-order reconstruction; a bottom-anchored
-//! isentrope reference errs by orders of magnitude on a stratified column.
+//! rho/p for the cell density reference. In the interior it is the cell's
+//! own rho/p: an index-space binomial preserves functions linear in index,
+//! not in x, so at a width change it leaves an O(dz) kink in rho - dref that
+//! no face density can undo (the face density is now the x1 reconstruction's
+//! own linear rows applied to dref, hydro.cpp). A cell whose 5-point stencil
+//! reaches past a clamped wall keeps the 5-point binomial below, unchanged.
 //! Past a clamped wall (ext_lo/ext_hi: the wall side owns at least two cells)
 //! the stencil continues rho/p from the two cells next to the wall instead of
 //! repeating the wall cell (hydro_ref_x1_wall_rop). Either continuation is
@@ -105,6 +106,8 @@ inline DISPATCH_MACRO T hydro_ref_x1_rop_smooth(
   auto rop = [&](int j) {
     return w[IDN * ncells + flat + j] / w[IPR * ncells + flat + j];
   };
+  if (!(ext_lo && i - 2 < jlo) && !(ext_hi && i + 2 > jhi))
+    return rop(i < jlo ? jlo : (i > jhi ? jhi : i));
   T v[5];
   for (int m = -2; m <= 2; ++m) {
     int j = i + m;
