@@ -6,6 +6,11 @@ enable_testing()
 
 setup_test(test_eos)
 setup_test(test_fp32_storage)
+# the shared moist-EOS base, the ideal-gas card check, the array container's
+# dtype, and the jupiter_gcm deck's EOS type
+setup_test(test_eos_io_core)
+set_tests_properties(test_eos_io_core.${buildl} PROPERTIES ENVIRONMENT
+                     "SNAPY_EXAMPLES_DIR=${CMAKE_SOURCE_DIR}/examples")
 setup_test(test_implicit_cfl)
 setup_test(test_implicit_face_work_jacobian)
 setup_test(test_vic_partial_tangential)
