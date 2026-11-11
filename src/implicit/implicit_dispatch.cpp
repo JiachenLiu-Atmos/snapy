@@ -134,7 +134,9 @@ void vic_assemble_full_cpu(at::TensorIterator& iter, double dt, double grav,
   });
 }
 
-template <int N>
+// K = 2 (Woodbury, operands 13 and 14): the same factorisation also solves the
+// unit E rows at the column's two wall cells
+template <int N, int K>
 void vic_solve_cpu(at::TensorIterator& iter, double dt, double grav, int dir) {
   int grain_size = iter.numel() / at::get_num_threads();
 
@@ -159,21 +161,32 @@ void vic_solve_cpu(at::TensorIterator& iter, double dt, double grav, int dir) {
             auto b = reinterpret_cast<Matrix*>(data[7] + col * strides[7]);
             auto c = reinterpret_cast<Matrix*>(data[8] + col * strides[8]);
             auto delta = reinterpret_cast<Vector*>(data[9] + col * strides[9]);
+            Vector *z0 = nullptr, *z1 = nullptr;
+            if constexpr (K == 2) {
+              z0 = reinterpret_cast<Vector*>(data[13] + col * strides[13]);
+              z1 = reinterpret_cast<Vector*>(data[14] + col * strides[14]);
+            }
 
             // partial: delta holds the assembly's m_t right-hand-side term
-            if (!ForwardSweep(a, b, c, delta, du, dt, 0, nlayer - 1, dir, ny,
-                              stride1, stride2, first_block, last_block,
-                              N == 3))
+            if (!ForwardSweep<K>(a, b, c, delta, du, dt, 0, nlayer - 1, dir, ny,
+                                 stride1, stride2, first_block, last_block,
+                                 N == 3, z0, z1, 0, nlayer - 1))
               continue;
             vic_backward_substitute(a, delta, 0, nlayer - 1);
+            if constexpr (K == 2) {
+              vic_backward_substitute(a, z0, 0, nlayer - 1);
+              vic_backward_substitute(a, z1, 0, nlayer - 1);
+            }
           }
         },
         grain_size);
   });
 }
 
-template void vic_solve_cpu<3>(at::TensorIterator&, double, double, int);
-template void vic_solve_cpu<5>(at::TensorIterator&, double, double, int);
+template void vic_solve_cpu<3, 0>(at::TensorIterator&, double, double, int);
+template void vic_solve_cpu<5, 0>(at::TensorIterator&, double, double, int);
+template void vic_solve_cpu<3, 2>(at::TensorIterator&, double, double, int);
+template void vic_solve_cpu<5, 2>(at::TensorIterator&, double, double, int);
 
 template <int N>
 void vic_redistribute_cpu(at::TensorIterator& iter, double /*dt*/,
@@ -260,6 +273,8 @@ DEFINE_DISPATCH(vic_assemble_partial);
 DEFINE_DISPATCH(vic_assemble_full);
 DEFINE_DISPATCH(vic_solve_partial);
 DEFINE_DISPATCH(vic_solve_full);
+DEFINE_DISPATCH(vic_solve_woodbury_partial);
+DEFINE_DISPATCH(vic_solve_woodbury_full);
 DEFINE_DISPATCH(vic_redistribute_partial);
 DEFINE_DISPATCH(vic_redistribute_full);
 DEFINE_DISPATCH(donor_cap);
@@ -267,8 +282,12 @@ DEFINE_DISPATCH(donor_cap);
 REGISTER_ALL_CPU_DISPATCH(vic_assemble_partial,
                           &snap::vic_assemble_partial_cpu);
 REGISTER_ALL_CPU_DISPATCH(vic_assemble_full, &snap::vic_assemble_full_cpu);
-REGISTER_ALL_CPU_DISPATCH(vic_solve_partial, &snap::vic_solve_cpu<3>);
-REGISTER_ALL_CPU_DISPATCH(vic_solve_full, &snap::vic_solve_cpu<5>);
+REGISTER_ALL_CPU_DISPATCH(vic_solve_partial, (&snap::vic_solve_cpu<3, 0>));
+REGISTER_ALL_CPU_DISPATCH(vic_solve_full, (&snap::vic_solve_cpu<5, 0>));
+REGISTER_ALL_CPU_DISPATCH(vic_solve_woodbury_partial,
+                          (&snap::vic_solve_cpu<3, 2>));
+REGISTER_ALL_CPU_DISPATCH(vic_solve_woodbury_full,
+                          (&snap::vic_solve_cpu<5, 2>));
 REGISTER_ALL_CPU_DISPATCH(vic_redistribute_partial,
                           &snap::vic_redistribute_cpu<3>);
 REGISTER_ALL_CPU_DISPATCH(vic_redistribute_full,

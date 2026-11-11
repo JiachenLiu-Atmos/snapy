@@ -22,15 +22,23 @@
 
 namespace snap {
 
-template <typename T, int N>
-bool DISPATCH_MACRO ForwardSweep(Eigen::Matrix<T, N, N>* a,
-                                 Eigen::Matrix<T, N, N>* b,
-                                 Eigen::Matrix<T, N, N>* c,
-                                 Eigen::Matrix<T, N, 1>* delta, T* du,
-                                 double dt, int il, int iu, int dir, int ny,
-                                 int stride1, int stride2, bool first_block,
-                                 bool last_block, bool rhs_in_delta = false) {
+// K = 2 (Woodbury): the same factorisation also sweeps two unit right-hand
+// sides, e_E at cells k0 and k1, into z0 and z1 (forward-eliminated; the
+// caller back-substitutes them with a, as for delta)
+template <int K = 0, typename T, int N>
+bool DISPATCH_MACRO
+ForwardSweep(Eigen::Matrix<T, N, N>* a, Eigen::Matrix<T, N, N>* b,
+             Eigen::Matrix<T, N, N>* c, Eigen::Matrix<T, N, 1>* delta, T* du,
+             double dt, int il, int iu, int dir, int ny, int stride1,
+             int stride2, bool first_block, bool last_block,
+             bool rhs_in_delta = false, Eigen::Matrix<T, N, 1>* z0 = nullptr,
+             Eigen::Matrix<T, N, 1>* z1 = nullptr, int k0 = 0, int k1 = 0) {
   Eigen::Matrix<T, N, 1> rhs;
+  auto unit = [&](int i, int k) {
+    Eigen::Matrix<T, N, 1> e = Eigen::Matrix<T, N, 1>::Zero();
+    if (i == k) e(N - 1) = 1;
+    return e;
+  };
   // partial matrix: the assembly left the m_t right-hand-side correction in
   // delta[i] (vic_assemble_partial_impl); read it before delta[i] is solved
   auto correct = [&](int i) {
@@ -58,7 +66,7 @@ bool DISPATCH_MACRO ForwardSweep(Eigen::Matrix<T, N, N>* a,
 
   int indx[N];
   Eigen::Matrix<T, N, N, Eigen::RowMajor> A;
-  Eigen::Matrix<T, N, N + 1, Eigen::RowMajor> solved;
+  Eigen::Matrix<T, N, N + 1 + K, Eigen::RowMajor> solved;
 
   // if (!first_block) {
   // RecvBuffer(a[il - 1], delta[il - 1], bblock);
@@ -72,18 +80,26 @@ bool DISPATCH_MACRO ForwardSweep(Eigen::Matrix<T, N, N>* a,
     if (ludcmp(A, indx) == 0) return vic_fail_column(delta, il, iu);
     solved.template leftCols<N>() = c[il];
     solved.col(N) = rhs;
+    if constexpr (K == 2) {
+      solved.col(N + 1) = unit(il, k0);
+      solved.col(N + 2) = unit(il, k1);
+    }
     lubksb(A, indx, solved);
     for (int row = 0; row < N; ++row)
-      for (int col = 0; col < N + 1; ++col)
+      for (int col = 0; col < N + 1 + K; ++col)
         if (!std::isfinite(solved(row, col)))
           return vic_fail_column(delta, il, iu);
     a[il] = solved.template leftCols<N>();
     delta[il] = solved.col(N);
+    if constexpr (K == 2)
+      z0[il] = solved.col(N + 1), z1[il] = solved.col(N + 2);
   } else {  // retain the nonsingular small-matrix arithmetic
     A = a[il];
     if (ludcmp(A, indx) == 0) return vic_fail_column(delta, il, iu);
     a[il] = a[il].inverse().eval();
     delta[il] = a[il] * rhs;
+    if constexpr (K == 2)
+      z0[il] = a[il] * unit(il, k0), z1[il] = a[il] * unit(il, k1);
     a[il] = a[il] * c[il];
   }
   for (int row = 0; row < N; ++row) {
@@ -120,18 +136,28 @@ bool DISPATCH_MACRO ForwardSweep(Eigen::Matrix<T, N, N>* a,
       if (ludcmp(A, indx) == 0) return vic_fail_column(delta, il, iu);
       solved.template leftCols<N>() = c[i];
       solved.col(N) = rhs - b[i] * delta[i - 1];
+      if constexpr (K == 2) {
+        solved.col(N + 1) = unit(i, k0) - b[i] * z0[i - 1];
+        solved.col(N + 2) = unit(i, k1) - b[i] * z1[i - 1];
+      }
       lubksb(A, indx, solved);
       for (int row = 0; row < N; ++row)
-        for (int col = 0; col < N + 1; ++col)
+        for (int col = 0; col < N + 1 + K; ++col)
           if (!std::isfinite(solved(row, col)))
             return vic_fail_column(delta, il, iu);
       a[i] = solved.template leftCols<N>();
       delta[i] = solved.col(N);
+      if constexpr (K == 2)
+        z0[i] = solved.col(N + 1), z1[i] = solved.col(N + 2);
     } else {  // checked bypass path, retaining its original inverse
       A = a[i];
       if (ludcmp(A, indx) == 0) return vic_fail_column(delta, il, iu);
       a[i] = a[i].inverse().eval();
       delta[i] = a[i] * (rhs - b[i] * delta[i - 1]);
+      if constexpr (K == 2) {
+        z0[i] = a[i] * (unit(i, k0) - b[i] * z0[i - 1]);
+        z1[i] = a[i] * (unit(i, k1) - b[i] * z1[i - 1]);
+      }
       a[i] = a[i] * c[i];
     }
     for (int row = 0; row < N; ++row) {
