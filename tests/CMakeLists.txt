@@ -32,6 +32,7 @@ setup_test(test_flip_zero_count)
 setup_test(test_cubed_sphere_exchange)
 setup_test(test_coordinate)
 # cubed-sphere seams and the shared neighbour iterator
+setup_test(test_cubed_sphere_seams)
 setup_test(test_layout_directions)
 setup_test(test_cp5_nghost)
 setup_test(test_stretched_x1)
