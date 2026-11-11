@@ -49,7 +49,7 @@ void ideal_gas_cons2prim_mps(at::TensorIterator& iter, double gammad) {
   // mom -> vel
   prim.narrow(0, IVX, 3) = cons.narrow(0, IVX, 3) / prim[IDN];
 
-  coord_vec_raise_(prim.narrow(0, IVX, 3), cos_theta);
+  coord_vec_raise_(prim.narrow(0, IVX, 3), cos_theta[0]);
 
   auto ke = 0.5 * (prim.narrow(0, IVX, 3) * cons.narrow(0, IVX, 3)).sum(0);
 
