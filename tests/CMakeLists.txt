@@ -384,6 +384,8 @@ endif()
 snapy_add_python_test(test_outflow_stale_ghosts TIMEOUT 120
                       LABELS "python;boundary;implicit;cubed-sphere")
 snapy_add_python_test(test_tracer_dry_convention TIMEOUT 120 LABELS "python;scalar;implicit;forcing")
+snapy_add_python_test(test_mps_matches_cpu TIMEOUT 300 LABELS "python;mps")
+set_tests_properties(test_mps_matches_cpu_python PROPERTIES SKIP_RETURN_CODE 125)
 snapy_add_python_test(test_eos_species_registry TIMEOUT 120 LABELS "python;eos")
 snapy_add_python_test(test_stage_forcing_dry_tracer TIMEOUT 60 LABELS "python;forcing;scalar")
 snapy_add_python_test(test_forcing_species_clip TIMEOUT 120 LABELS "python;forcing;positivity")
