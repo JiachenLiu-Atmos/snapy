@@ -198,10 +198,17 @@ void hydro_ref_x1_mps(torch::Tensor const& w, torch::Tensor const& dx1f,
       pad.narrow(-1, j + 2, 1).copy_(v);
     }
   }
-  auto rs = (pad.narrow(-1, 0, nc1) + 4. * pad.narrow(-1, 1, nc1) +
-             6. * pad.narrow(-1, 2, nc1) + 4. * pad.narrow(-1, 3, nc1) +
-             pad.narrow(-1, 4, nc1)) /
-            16.;
+  // a cell takes its own rho/p; the binomial stays only where the 5-point
+  // stencil reaches past a clamped wall (hydro_ref_x1_rop_smooth)
+  auto bin = (pad.narrow(-1, 0, nc1) + 4. * pad.narrow(-1, 1, nc1) +
+              6. * pad.narrow(-1, 2, nc1) + 4. * pad.narrow(-1, 3, nc1) +
+              pad.narrow(-1, 4, nc1)) /
+             16.;
+  auto rs = pad.narrow(-1, 2, nc1);
+  int nlo = wall_clamp && phys_in && il + 1 <= iu ? il + 2 : 0;
+  int nhi = wall_clamp && phys_out && iu - 1 >= il ? nc1 + 1 - iu : 0;
+  rs.narrow(-1, 0, nlo).copy_(bin.narrow(-1, 0, nlo));
+  rs.narrow(-1, nc1 - nhi, nhi).copy_(bin.narrow(-1, nc1 - nhi, nhi));
   auto rf = rs.clone();
   rf.narrow(-1, 1, nc1 - 1)
       .copy_(0.5 * (rs.narrow(-1, 0, nc1 - 1) + rs.narrow(-1, 1, nc1 - 1)));
