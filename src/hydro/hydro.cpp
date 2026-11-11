@@ -2,6 +2,7 @@
 
 // C/C++
 #include <algorithm>
+#include <cstdlib>
 
 // snap
 #include <snap/snap.h>
@@ -29,6 +30,15 @@ void HydroImpl::reset() {
       options->conversion_order() == 2 || options->conversion_order() == 4,
       "[Hydro] dynamics/conversion-order must be 2 or 4, got ",
       options->conversion_order());
+  // the environment switches these deck keys replaced are not read any more
+  if (std::getenv("SNAP_FLUX_COVARIANCE"))
+    TORCH_WARN_ONCE(
+        "SNAP_FLUX_COVARIANCE is ignored; set the deck key "
+        "dynamics/flux-covariance instead");
+  if (std::getenv("SNAP_X1_MASS_COVARIANCE"))
+    TORCH_WARN_ONCE(
+        "SNAP_X1_MASS_COVARIANCE is ignored; set the deck key "
+        "dynamics/x1-mass-covariance instead");
 
   //// ---- (1) set up equation-of-state model ---- ////
   peos = EquationOfStateImpl::create(options->eos(), this);

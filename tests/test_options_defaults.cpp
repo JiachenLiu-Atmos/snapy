@@ -6,7 +6,9 @@
 //    RiemannSolverOptionsImpl::create() (hllc), as a deck with no block does;
 //  - dynamics/flux-covariance (default on) and dynamics/x1-mass-covariance
 //    (default off) are read per block: blocks with different values live in
-//    one process and keep them.
+//    one process and keep them;
+//  - a run that still sets one of the replaced environment variables gets
+//    one warning per process naming the deck key, and nothing else changes.
 #include <gtest/gtest.h>
 #include <snap/snap.h>
 #include <unistd.h>
@@ -21,6 +23,7 @@
 #include <snap/mesh/meshblock.hpp>
 #include <snap/riemann/riemann_solver.hpp>
 #include <string>
+#include <vector>
 
 using namespace snap;
 
@@ -175,4 +178,40 @@ TEST(OptionsDefaults, x1_mass_covariance_is_a_per_block_key) {
   EXPECT_NO_THROW(std::make_shared<MeshBlockImpl>(options_of(two(""))));
   EXPECT_NO_THROW(std::make_shared<MeshBlockImpl>(
       options_of(two("  x1-mass-covariance: false\n"))));
+}
+
+namespace {
+//! collects the c10 warnings raised while it is installed
+struct WarningCapture : c10::WarningHandler {
+  std::vector<std::string> msgs;
+  void process(c10::Warning const& w) override { msgs.push_back(w.msg()); }
+  int count(std::string const& s) const {
+    int n = 0;
+    for (auto const& m : msgs) n += m.find(s) != std::string::npos;
+    return n;
+  }
+};
+}  // namespace
+
+TEST(OptionsDefaults, legacy_env_variables_warn_once_and_change_nothing) {
+  auto plain = x2_flux(deck());
+  setenv("SNAP_FLUX_COVARIANCE", "0", 1);
+  setenv("SNAP_X1_MASS_COVARIANCE", "1", 1);
+  WarningCapture cap;
+  torch::Tensor first, second;
+  {
+    c10::WarningUtils::WarningHandlerGuard guard(&cap);
+    first = x2_flux(deck());
+    second = x2_flux(deck());
+  }
+  unsetenv("SNAP_FLUX_COVARIANCE");
+  unsetenv("SNAP_X1_MASS_COVARIANCE");
+  // one warning per variable per process, naming the key that replaced it
+  EXPECT_EQ(cap.count("SNAP_FLUX_COVARIANCE"), 1);
+  EXPECT_EQ(cap.count("dynamics/flux-covariance"), 1);
+  EXPECT_EQ(cap.count("SNAP_X1_MASS_COVARIANCE"), 1);
+  EXPECT_EQ(cap.count("dynamics/x1-mass-covariance"), 1);
+  // and the variables still change nothing: the deck decides
+  EXPECT_TRUE(torch::equal(first, plain));
+  EXPECT_TRUE(torch::equal(second, plain));
 }
