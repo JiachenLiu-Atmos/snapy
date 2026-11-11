@@ -14,10 +14,7 @@ extern const char CS_FACE_NAMES[6][3];
 extern const CSEdge CS_FACE_EDGES[6][4];
 extern const CSVel CS_CART_TO_LOCAL_VEL[6][3];
 extern const CSVel CS_LOCAL_TO_CART_VEL[6][3];
-extern const CSVel CS_G2L_VEL[6][3];
-extern const CSVel CS_L2G_VEL[6][3];
-
-//! Given CS_G2L_VEL, populate CS_L2G_VEL
+//! Given CS_CART_TO_LOCAL_VEL, populate its inverse (CS_LOCAL_TO_CART_VEL)
 void populate_cs_l2g_vel(CSVel l2g[6][3]);
 
 class CubedSphereLayoutImpl : public LayoutImpl {
@@ -48,8 +45,6 @@ class CubedSphereLayoutImpl : public LayoutImpl {
   void deserialize(MeshBlockImpl const* pmb, Variables& vars,
                    SyncOptions const& opts) const override;
 
-  void exchange_remote(MeshBlockImpl const* pmb, SyncOptions const& opts,
-                       std::vector<CommWorkPtr>& works) override;
   int num_exchange_buffers() const override { return 9; }
 
  private:
@@ -61,6 +56,8 @@ class CubedSphereLayoutImpl : public LayoutImpl {
   std::tuple<int, int, int> _peer_exchange_offset(
       int peer_rank, int target_rank, SyncOptions const& opts,
       std::tuple<int, int, int> offset) const override;
+  bool _skips_direction(MeshBlockImpl const* pmb,
+                        std::tuple<int, int, int> offset) const override;
 
   //! \brief Interpolate transmitted variable to local ghost zones
   void _interpolate_to_local(MeshBlockImpl const* pmb,
