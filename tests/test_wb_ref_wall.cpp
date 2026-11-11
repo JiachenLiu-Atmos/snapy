@@ -27,7 +27,7 @@
 
 using namespace snap;
 
-// The default (SNAP_WB_REF4 off) well-balanced x1 reference at a physical
+// The well-balanced x1 reference at a physical
 // wall. A hydrostatic polytrope T = 1 - beta z (g = R = 1, rho = p / T) one
 // pressure scale height deep, reflecting x1 walls, held as exact cell
 // averages. Reported per face f, relative to the exact rho(z_f):

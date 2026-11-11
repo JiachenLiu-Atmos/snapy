@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""#289, SNAP_WB_REF4: the order of the one-step spurious stratification of a neutral column.
+"""#289: the order of the one-step spurious stratification of a neutral column.
 
 The oracle of the fourth-order well-balanced reference (docs/derivations/wb-ref4.md, section 6), Cartesian:
 
@@ -14,17 +14,13 @@ The oracle of the fourth-order well-balanced reference (docs/derivations/wb-ref4
 
 For this column the exact cell-average tendencies of rho and E vanish at linear order, so every N2_eff is
 scheme error. A face density reference with an O(dz^2) offset makes N2_eff nz^2 tend to a constant (observed
-order ~2). The face density is the x1 reconstruction's linear rows applied to the cell density reference,
-with or without SNAP_WB_REF4 (the switch only supplies the fallback of a face whose value leaves the range of
-its two cells), so both arms converge at order ~4 (measured: 4.01, 4.01 at 1 e-fold; 3.59, 3.88 at 3).
-Asserted, at 1 and 3 e-folds, nz 32/64/128:
-  either arm: observed order of |N2_eff| >= ORDER_ON at the LAST doubling, where the asymptotic term
-              dominates. Not over every doubling: the error can cross zero between the two coarsest grids,
-              and an order read across that crossing is meaningless;
-  the arms:   the same N2_eff to AGREE relative, since neither falls back on this column.
-(Before the face density used the linear rows, the kernel's face density gave order ~2 with the switch off;
-the switch-on face reference gave +8.6e-7, -1.5e-6, -1.7e-7, -1.4e-8 at 3 e-folds, nz 32/64/128/256.)
-The switch is read once per process, so each arm runs in its own process.
+order ~2). The face density is the x1 reconstruction's linear rows applied to the cell density reference, so it
+converges at order ~4 (measured: 4.01 at 1 e-fold; 3.59 at 3).
+Asserted, at 1 and 3 e-folds, nz 32/64/128: observed order of |N2_eff| >= ORDER_ON at the LAST doubling,
+where the asymptotic term dominates. Not over every doubling: the error can cross zero between the two
+coarsest grids, and an order read across that crossing is meaningless.
+(Before the face density used the linear rows, the kernel's face density gave order ~2.)
+The column runs in a child process with SNAP_FLUX_COVARIANCE set.
 
   python test_wb_ref4_order.py [--device cpu|cuda]
 """
@@ -42,7 +38,6 @@ import torch
 NZS = (32, 64, 128)
 EFOLDS = (1.0, 3.0)
 ORDER_ON = 2.75
-AGREE = 1.0e-10
 AMP = 1.0e-4
 GAMMA = 5.0 / 3.0
 M = 1.0 / (GAMMA - 1.0)
@@ -137,13 +132,10 @@ def child(device):
     return {str(n): [n2_eff(nz, n, device) for nz in NZS] for n in EFOLDS}
 
 
-def run(switch, device, tmpdir):
+def run(device, tmpdir):
     env = dict(os.environ)
-    env.pop("SNAP_WB_REF4", None)
     env["SNAP_FLUX_COVARIANCE"] = "1"
-    if switch is not None:
-        env["SNAP_WB_REF4"] = switch
-    out = os.path.join(tmpdir, f"order_{switch}.json")
+    out = os.path.join(tmpdir, "order.json")
     subprocess.run([sys.executable, __file__, "--child", "--out", out, "--device", device],
                    env=env, check=True)
     return json.load(open(out))
@@ -162,32 +154,23 @@ def main():
         json.dump(child(a.device), open(a.out, "w"))
         return 0
     failures = []
-    arms = {}
     with tempfile.TemporaryDirectory(dir=os.getcwd()) as tmp:
-        for switch in (None, "1"):
-            arms[switch] = res = run(switch, a.device, tmp)
-            for n in EFOLDS:
-                v = res[str(n)]
-                order = [math.log2(abs(v[i]) / abs(v[i + 1])) for i in range(len(v) - 1)]
-                print(f"SNAP_WB_REF4 {switch or 'unset'}, {n:g} e-folds: N2_eff nz^2 "
-                      + " / ".join(f"{x * nz * nz:+.4f}" for x, nz in zip(v, NZS))
-                      + "  (nz " + "/".join(map(str, NZS)) + "), order "
-                      + ", ".join(f"{o:.2f}" for o in order), flush=True)
-                if order[-1] < ORDER_ON:
-                    failures.append(f"{n:g} e-folds, switch {switch or 'unset'}: order {order[-1]:.2f} < "
-                                    f"{ORDER_ON} at the last doubling (nz {NZS[-2]} -> {NZS[-1]})")
-    for n in EFOLDS:
-        off, on = (arms[s][str(n)] for s in (None, "1"))
-        rel = max(abs(a - b) / abs(b) for a, b in zip(on, off))
-        print(f"SNAP_WB_REF4 1 vs unset, {n:g} e-folds: max relative difference of N2_eff {rel:.1e} "
-              f"(needs <= {AGREE:g})", flush=True)
-        if not rel <= AGREE:
-            failures.append(f"{n:g} e-folds: the arms differ by {rel:.1e} > {AGREE:g}")
+        res = run(a.device, tmp)
+        for n in EFOLDS:
+            v = res[str(n)]
+            order = [math.log2(abs(v[i]) / abs(v[i + 1])) for i in range(len(v) - 1)]
+            print(f"{n:g} e-folds: N2_eff nz^2 "
+                  + " / ".join(f"{x * nz * nz:+.4f}" for x, nz in zip(v, NZS))
+                  + "  (nz " + "/".join(map(str, NZS)) + "), order "
+                  + ", ".join(f"{o:.2f}" for o in order), flush=True)
+            if order[-1] < ORDER_ON:
+                failures.append(f"{n:g} e-folds: order {order[-1]:.2f} < "
+                                f"{ORDER_ON} at the last doubling (nz {NZS[-2]} -> {NZS[-1]})")
     for f in failures:
         print("FAIL:", f)
     if failures:
         return 1
-    print("### wb_ref4 order test passed. ###")
+    print("### face density order test passed. ###")
     return 0
 
 

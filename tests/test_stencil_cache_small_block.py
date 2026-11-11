@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""SNAP_WB_REF4 and SNAP_X1_CENTROID_EXACT on blocks with few x1 cells (#298).
+"""SNAP_X1_CENTROID_EXACT on blocks with few x1 cells (#298).
 
-The x1 stencil caches (wb_ref4_stencils, x1_plain_mean_stencils, x1_pressure_source_stencils)
+The x1 stencil caches (x1_plain_mean_stencils, x1_pressure_source_stencils)
 are not usable when a block has too few owned x1 cells; they then leave their weights undefined
 and the kernel's values stand. The cache-validity check must not read the device of those
 undefined weights: before the fix the second RK stage threw "tensor does not have a device".
@@ -10,9 +10,8 @@ Each case runs two RK3 steps of a resting isothermal column in one block of nx1 
 x1 walls, weno5, explicit, gravity-work: face) in its own process, since the switches are read
 once per process. A case passes when every stage runs and the state stays finite, or when the
 block is refused at setup with a clean error; an exception during a step fails it.
-  SNAP_WB_REF4=1, Cartesian, nx1 = 2..5;
   SNAP_X1_CENTROID_EXACT=1, spherical-polar, nx1 = 2..6;
-  the switch-off controls at nx1 = 2 and 3.
+  the switch-off controls: Cartesian at nx1 = 2..5, spherical-polar at nx1 = 2 and 3.
 
   python test_stencil_cache_small_block.py [--device cpu|cuda]
 """
@@ -28,11 +27,10 @@ import yaml
 
 GRAV, RD, T0, PS, DZ, R0 = 9.8, 287.0, 300.0, 1.0e5, 500.0, 6.4e6
 NSTEP = 2
-CASES = ([("SNAP_WB_REF4", "1", "cartesian", n) for n in (2, 3, 4, 5)]
-         + [("SNAP_X1_CENTROID_EXACT", "1", "spherical-polar", n) for n in (2, 3, 4, 5, 6)]
-         + [("SNAP_WB_REF4", "0", "cartesian", n) for n in (2, 3)]
+CASES = ([("SNAP_X1_CENTROID_EXACT", "1", "spherical-polar", n) for n in (2, 3, 4, 5, 6)]
+         + [("SNAP_X1_CENTROID_EXACT", "0", "cartesian", n) for n in (2, 3, 4, 5)]
          + [("SNAP_X1_CENTROID_EXACT", "0", "spherical-polar", n) for n in (2, 3)])
-SWITCHES = ("SNAP_WB_REF4", "SNAP_X1_CENTROID_EXACT")
+SWITCHES = ("SNAP_X1_CENTROID_EXACT",)
 
 
 def config(nx1, geometry):

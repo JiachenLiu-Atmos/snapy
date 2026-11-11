@@ -1,6 +1,5 @@
 // C/C++
 #include <algorithm>
-#include <cctype>
 #include <vector>
 
 // snap
@@ -45,20 +44,6 @@ torch::Tensor in_range(torch::Tensor const& v, torch::Tensor const& lo,
 }
 
 }  // namespace
-
-bool wb_ref4_enabled() {
-  // read once, like the flux-covariance switch: every block must build the
-  // same reference or the x1 seam faces stop agreeing
-  static const bool on = [] {
-    auto v = get_env("SNAP_WB_REF4", "0");
-    std::transform(v.begin(), v.end(), v.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-    return !(v.empty() || v == "0" || v == "false" || v == "off" || v == "no");
-  }();
-  // SNAP_X1_CENTROID_EXACT implies it: one predicate for the solver,
-  // balance_column and the tests
-  return on || x1_centroid_exact_enabled();
-}
 
 WbRef4Stencils wb_ref4_stencils(torch::Tensor const& x1f, int is, int iu,
                                 bool clamp_in, bool clamp_out,

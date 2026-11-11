@@ -77,28 +77,24 @@ void face_floor_uses_adjacent_density(torch::Device device) {
   // The column is not in balance, so a face away from the dip still carries
   // an O(1) mass flux. A run that dropped every flux would not pass.
   EXPECT_NEAR(lower_mass, 4.07888, 1.e-3);
-  // #289, in every arm (ctest test_face_floor_wb_ref4): the switch replaces
-  // only the FACE density reference, so the cell reference still does not
-  // follow the dip, rho' there stays large and the floor fires on the same
-  // face. The values below are the switched arms' too, to every digit.
+  // The cell reference does not follow the dip, rho' there stays large and
+  // the floor fires on this face, in every arm (ctest test_face_floor and
+  // test_face_floor_x1_centroid), to every digit.
   EXPECT_LT(std::abs(dipped_mass), 1.e-9);
   EXPECT_GT(dipped_mom, 0.03042);
 }
 
-// #289, with or without SNAP_WB_REF4: at p = 10 e^{-x/2} a cell's scan
-// pressure drops by e^{g dz rho/p} = e^1 > e^{0.5}, so every cell is flagged
-// and keeps the kernel's reference, which does not follow the dip; the
-// overshoot is then floored to the adjacent density, as with the switch off:
-// the same flux in every arm (with the linear/ln wall continuation of rho/p,
-// and the face density from the x1 linear rows on dref, which sets the flux
-// of the floored face: 2.83191e-8 with the earlier face density)
+// at p = 10 e^{-x/2} the kernel's reference does not follow the dip; the
+// overshoot is floored to the adjacent density: the same flux in every arm
+// (with the linear/ln wall continuation of rho/p, and the face density from
+// the x1 linear rows on dref, which sets the flux of the floored face:
+// 2.83191e-8 with the earlier face density)
 void face_floor_fires_on_an_unresolved_column(torch::Device device) {
   auto block = dipped_column(device, 10.);
   int dipped = block->pcoord->iu() - 1;
   double dipped_mass =
       block->phydro->flux1()[IDN].select(-1, dipped).item<double>();
-  std::printf("wb_ref4 %d, p = 10 e^{-x/2}: dipped face mass flux %.4e\n",
-              static_cast<int>(HydroImpl::wb_ref4()), dipped_mass);
+  std::printf("p = 10 e^{-x/2}: dipped face mass flux %.4e\n", dipped_mass);
   EXPECT_NEAR(dipped_mass, 1.28524e-8, 1.e-5 * 1.28524e-8);
 }
 
@@ -129,8 +125,7 @@ TEST(hydro, face_floor_fires_on_an_unresolved_column_cuda) {
   double cpu = dipped_mass(torch::kCPU);
   double cuda = dipped_mass(torch::Device(torch::kCUDA, 0));
   std::printf(
-      "wb_ref4 %d, p = 10 e^{-x/2}: dipped face mass flux %.4e (CUDA)"
-      ", %.4e (CPU)\n",
-      static_cast<int>(HydroImpl::wb_ref4()), cuda, cpu);
+      "p = 10 e^{-x/2}: dipped face mass flux %.4e (CUDA), %.4e (CPU)\n", cuda,
+      cpu);
   EXPECT_NEAR(cuda, cpu, 1.e-5 * std::abs(cpu));
 }

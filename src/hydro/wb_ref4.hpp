@@ -5,14 +5,12 @@
 
 namespace snap {
 
-//! #289 (SNAP_WB_REF4): fourth-order x1 reference FACE DENSITY for the
-//! well-balanced reconstruction -- the face value of the kernel's own cell
-//! density reference, which is what makes the face offset of
+//! #289, dynamics/conversion-order 4: fourth-order x1 reference FACE DENSITY
+//! for the well-balanced reconstruction -- the face value of the kernel's own
+//! cell density reference, which is what makes the face offset of
 //! docs/derivations/wb-ref4.md section 2 vanish. The cell reference and the
 //! face pressures (the hydrostatic scan) are never changed; a guarded face
-//! keeps the kernel's value. Read once per process from SNAP_WB_REF4; off
-//! unless it or SNAP_X1_CENTROID_EXACT (which implies it) is set.
-bool wb_ref4_enabled();
+//! keeps the kernel's value.
 
 //! the per-grid stencils, built once on the CPU in double and moved to the
 //! reference's device and dtype

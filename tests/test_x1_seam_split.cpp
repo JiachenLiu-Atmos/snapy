@@ -17,12 +17,6 @@
 // (docs/derivations/curved-gravity-work-weight.md sec 7). An implicit scheme
 // refuses an x1 split, so the VIC row has no seam (vic_refuses_x1_split).
 //
-// SNAP_WB_REF4 alone (ctest test_x1_seam_split_wb_ref4): each block computes
-// the resolution flag from its own scan pressures, ghosts included, and only
-// (pref, dref) are exchanged; on a column cold enough that the flag switches
-// on one cell above the seam, the split column must still keep the one-block
-// state (docs/derivations/wb-ref4.md sec 7).
-//
 // Each ctest entry (tests/CMakeLists.txt) runs one test with its switch set,
 // and passes only if that test ran and passed: a missing switch is a failure.
 // The _cuda tests are the same checks on the GPU; their entries report a skip
@@ -52,7 +46,6 @@
 #include <snap/coord/x1_centroid.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/hydro/hydro.hpp>
-#include <snap/hydro/wb_ref4.hpp>
 #include <snap/mesh/mesh.hpp>
 
 using namespace snap;
@@ -241,7 +234,6 @@ double split_gap(int nx1, double nh, char const* gw, int nstep,
 
 void centroid_exact_split_matches_one_block(torch::Device device) {
   ASSERT_TRUE(std::getenv("SNAP_X1_CENTROID_EXACT"));
-  ASSERT_FALSE(std::getenv("SNAP_WB_REF4"));
   torch::set_num_threads(1);
   ASSERT_TRUE(x1_centroid_exact_enabled());
   for (double nh : {1., 0.}) {
@@ -272,36 +264,10 @@ void radial_exact_split_gap(torch::Device device) {
   }
 }
 
-void wb_ref4_flag_at_the_seam_split_matches_one_block(torch::Device device) {
-  ASSERT_TRUE(std::getenv("SNAP_WB_REF4"));
-  ASSERT_FALSE(std::getenv("SNAP_X1_CENTROID_EXACT"));
-  ASSERT_TRUE(wb_ref4_enabled());
-  ASSERT_FALSE(x1_centroid_exact_enabled());
-  torch::set_num_threads(1);
-  for (double nh : {1., 0.}) {
-    double gap = split_gap(16, nh, "cell", 20, nullptr, /*cold=*/true, device);
-    std::printf(
-        "SNAP_WB_REF4, cold, non-hydrostatic %g: 2 blocks vs 1, max rel gap "
-        "%.3e\n",
-        nh, gap);
-    EXPECT_LE(gap, 1e-13) << "non-hydrostatic " << nh;
-  }
-  // the flag reads scan pressures three cells away: fewer ghosts is an error
-  for (int ng : {1, 2}) try {
-      make_column(2, 16, 1., "cell", ng, device);
-      ADD_FAILURE() << "nghost " << ng << " accepted";
-    } catch (c10::Error const& e) {
-      EXPECT_NE(std::string(e.what()).find("needs nghost >= 3"),
-                std::string::npos)
-          << e.what();
-    }
-}
-
 }  // namespace
 
 TEST(X1SeamSplit, switches_off_nghost_1_sets_up) {
-  ASSERT_FALSE(std::getenv("SNAP_X1_CENTROID_EXACT") ||
-               std::getenv("SNAP_WB_REF4"));
+  ASSERT_FALSE(std::getenv("SNAP_X1_CENTROID_EXACT"));
   // the nghost >= 3 check is the switches' own: the default nghost is 1
   EXPECT_NO_THROW(make_column(1, 16, 1., "cell", 1));
   EXPECT_NO_THROW(make_column(2, 16, 1., "cell", 1));
@@ -338,10 +304,6 @@ TEST(X1SeamSplit, vic_refuses_x1_split) {
   }
 }
 
-TEST(X1SeamSplit, wb_ref4_flag_at_the_seam_split_matches_one_block) {
-  wb_ref4_flag_at_the_seam_split_matches_one_block(torch::kCPU);
-}
-
 TEST(X1SeamSplit, centroid_exact_split_matches_one_block_cuda) {
   if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
   centroid_exact_split_matches_one_block(torch::Device(torch::kCUDA, 0));
@@ -350,12 +312,6 @@ TEST(X1SeamSplit, centroid_exact_split_matches_one_block_cuda) {
 TEST(X1SeamSplit, radial_exact_split_gap_cuda) {
   if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
   radial_exact_split_gap(torch::Device(torch::kCUDA, 0));
-}
-
-TEST(X1SeamSplit, wb_ref4_flag_at_the_seam_split_matches_one_block_cuda) {
-  if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
-  wb_ref4_flag_at_the_seam_split_matches_one_block(
-      torch::Device(torch::kCUDA, 0));
 }
 
 // SNAP_X1_MASS_COVARIANCE: the one-sided wall rho_1 spans three cells, so a
@@ -373,24 +329,4 @@ TEST(X1SeamSplit, x1_mass_covariance_needs_3_x1_cells) {
         << e.what();
   }
   EXPECT_NO_THROW(make_column(1, 3, 1., "cell", 2));
-}
-
-// SNAP_WB_REF4 with grav1 = 0: no reference is built, so the nghost >= 3
-// check stays off and a donor-cell column on nghost 1 must set up and step
-TEST(X1SeamSplit, wb_ref4_gravity_0_nghost_1_steps) {
-  ASSERT_TRUE(std::getenv("SNAP_WB_REF4"));
-  ASSERT_TRUE(wb_ref4_enabled());
-  torch::set_num_threads(1);
-  for (int nb1 : {1, 2}) {
-    Mesh mesh = nullptr;
-    ASSERT_NO_THROW(mesh =
-                        make_column(nb1, 16, 1., "cell", 1, torch::kCPU, 0.));
-    MeshVariables vars(nb1);
-    fill_column(mesh, vars);
-    mesh->initialize(vars);
-    double dt = 0.3 * (kLz / 16) / std::sqrt(kGamma);
-    for (int n = 0; n < 5; ++n) ASSERT_NO_THROW(step(mesh, vars, dt));
-    EXPECT_TRUE(torch::isfinite(column_state(mesh, vars)).all().item<bool>())
-        << "nb1 " << nb1;
-  }
 }

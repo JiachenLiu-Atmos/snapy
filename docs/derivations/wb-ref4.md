@@ -1,5 +1,9 @@
 # #289: a fourth-order x1 well-balanced face density (`SNAP_WB_REF4`)
 
+> `SNAP_WB_REF4` is gone: the face density below runs only with `dynamics/conversion-order: 4`
+> (`src/hydro/wb_ref4.cpp`). Elsewhere the x1 face density is the x1 reconstruction's own linear rows on the cell
+> density reference (weno5/cp5), with the kernel's face value as the fallback and for every other reconstruction.
+
 This file derives the switch `SNAP_WB_REF4` (off unless set, read once per process) step by step and states
 the oracle it is tested against. The method is the face part of Jiheng's specification `wbref_exact_spec.md`
 (taken from his derivation at c5b810d, which was not
