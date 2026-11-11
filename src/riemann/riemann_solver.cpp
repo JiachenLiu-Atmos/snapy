@@ -24,8 +24,10 @@ RiemannSolverOptions RiemannSolverOptionsImpl::from_yaml(
     YAML::Node const& node) {
   auto op = RiemannSolverOptionsImpl::create();
 
-  op->type() = node["type"].as<std::string>("roe");
-  op->dir() = node["dir"].as<std::string>("omni");
+  // without the key: the type of create() (hllc), as for a deck with no
+  // riemann-solver block
+  op->type() = node["type"].as<std::string>(op->type());
+  op->dir() = node["dir"].as<std::string>(op->dir());
 
   return op;
 }

@@ -78,14 +78,16 @@ EquationOfStateOptions EquationOfStateOptionsImpl::from_yaml(
   op->gammad() = node["gammad"].as<double>(1.4);
   op->weight() = node["weight"].as<double>(29.e-3);
 
-  op->density_floor() = node["density-floor"].as<double>(1.e-6);
+  op->density_floor() = node["density-floor"].as<double>(op->density_floor());
   if (op->verbose()) {
     SINFO(EquationOfStateOptions)
         << "density floor = " << op->density_floor() << std::endl;
   }
 
-  op->pressure_floor() = node["pressure-floor"].as<double>(1.e-3);
-  op->temperature_floor() = node["temperature-floor"].as<double>(20.);
+  op->pressure_floor() =
+      node["pressure-floor"].as<double>(op->pressure_floor());
+  op->temperature_floor() =
+      node["temperature-floor"].as<double>(op->temperature_floor());
 
   op->limiter() = node["limiter"].as<bool>(false);
   if (op->verbose()) {

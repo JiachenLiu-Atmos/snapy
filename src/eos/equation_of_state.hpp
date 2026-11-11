@@ -46,8 +46,11 @@ struct EquationOfStateOptionsImpl {
   ADD_ARG(double, gammad) = 1.4;     // ratio of specific heats (cp/cv)
   ADD_ARG(double, weight) = 29.e-3;  // mean molecular weight in kg/mol
 
-  ADD_ARG(double, density_floor) = 1.e-10;
-  ADD_ARG(double, pressure_floor) = 1.e-10;
+  //! floors (SI): the limiter clamps to them, and the outflow boundary and
+  //! check_redo read them with the limiter off too. One default, the same
+  //! whether the options come from create() or from a deck without the key.
+  ADD_ARG(double, density_floor) = 1.e-6;
+  ADD_ARG(double, pressure_floor) = 1.e-3;
   ADD_ARG(double, temperature_floor) = 20.;
   ADD_ARG(bool, limiter) = false;
   ADD_ARG(std::string, eos_file) = "";
