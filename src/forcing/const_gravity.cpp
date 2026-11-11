@@ -26,11 +26,8 @@ ConstGravityOptions ConstGravityOptionsImpl::from_yaml(
   TORCH_CHECK(op->non_hydrostatic() >= 0. && op->non_hydrostatic() <= 1.);
 
   op->gravity_work() = node["gravity-work"].as<std::string>("face");
-  TORCH_CHECK(op->gravity_work() == "cell" ||
-                  op->gravity_work() == "face-wallc" ||
-                  op->gravity_work() == "face",
-              "forcing/const-gravity/gravity-work must be cell, face-wallc or "
-              "face, got '",
+  TORCH_CHECK(op->gravity_work() == "cell" || op->gravity_work() == "face",
+              "forcing/const-gravity/gravity-work must be cell or face, got '",
               op->gravity_work(), "'");
   bool cell = op->gravity_work() == "cell";
   op->gravity_work_fixer() = node["gravity-work-fixer"].as<bool>(cell);

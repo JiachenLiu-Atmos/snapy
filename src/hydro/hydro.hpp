@@ -200,14 +200,11 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! reconstructed cell velocity? read once from SNAP_X1_MASS_COVARIANCE; off
   //! unless it is set
   static bool x1_mass_covariance();
-  //! book the x1 gravity work of the corrected potential energy (derivation
-  //! curved-gravity-work-weight.md sec 7)? read once from
-  //! SNAP_GRAVITY_WORK_RADIAL_EXACT; on unless set to 0/false/off/no. On, E+P
-  //! is the conserved invariant: gravity_work_defect() and E+PE_d checks
-  //! measure the wrong one
-  static bool gravity_work_radial_exact();
-  //! the switch is on and acts here: gravity-work: face on a Cartesian, a
-  //! spherical-polar or a gnomonic-equiangle grid, grav1 != 0
+  //! the x1 gravity work of the corrected potential energy is booked here
+  //! (derivation curved-gravity-work-weight.md sec 7): gravity-work: face on a
+  //! Cartesian, a spherical-polar or a gnomonic-equiangle grid, grav1 != 0.
+  //! E+P is then the conserved invariant: gravity_work_defect() and E+PE_d
+  //! checks measure the wrong one
   bool radial_exact_work() const;
   //! the x1 neighbour blocks {below, above} across a split, non-periodic x1
   //! column, -1 where there is none (as the W reference relay pairs them)
@@ -337,7 +334,7 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! (storage, version) they were built from
   mutable torch::Tensor conv4_x1_[2];
   mutable std::pair<void*, int64_t> conv4_x1_at_;
-  //! SNAP_GRAVITY_WORK_RADIAL_EXACT grid-only work factors, built on first use
+  //! corrected-PE grid-only work factors, built on first use
   CorrectedPEFactors _pe_work;
   //! face_moment2_x1() for this block's x1 grid, built on first use. Holds
   //! x1f, so the key tensor cannot be freed and its address reused

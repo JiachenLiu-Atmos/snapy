@@ -1201,8 +1201,8 @@ void print_cycle_diagnostics(
       if (hydro->options->grav() && hydro->options->grav()->grav1() != 0.) {
         auto grav1 = hydro->options->grav()->grav1();
         auto pe = rho * (-grav1 * coord->x1v);
-        // SNAP_GRAVITY_WORK_RADIAL_EXACT books the work of the corrected
-        // potential energy P, so log P: E + P is what that work conserves
+        // gravity-work: face books the work of the corrected potential
+        // energy P, so log P: E + P is what that work conserves
         if (hydro->radial_exact_work()) {
           int is = coord->il(), ie = coord->iu() + 1;
           // across an x1 seam the ghost rho (exchanged after every stage) is

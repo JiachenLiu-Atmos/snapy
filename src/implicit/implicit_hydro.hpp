@@ -118,7 +118,7 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
   torch::Tensor _a, _b, _c, _delta, _du0, _corr, _mass_corr, _clamp_residual,
       _dry_clamp_step;
 
-  //! SNAP_GRAVITY_WORK_RADIAL_EXACT: the grid-only stencil rows and work
+  //! corrected-PE work: the grid-only stencil rows and work
   //! factors, built once per grid (#291)
   X1GridKey _rx_key;
   torch::Tensor _rx_lo, _rx_mid, _rx_hi;

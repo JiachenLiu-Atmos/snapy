@@ -51,7 +51,7 @@ class ConstGravityOptions:
 
     @overload
     def gravity_work(self) -> str:
-        """Get the x1 gravity-work form: "face" (default), "cell" or "face-wallc"."""
+        """Get the x1 gravity-work form: "face" (default) or "cell"."""
         ...
 
     @overload
