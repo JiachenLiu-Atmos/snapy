@@ -1,8 +1,12 @@
 // C/C++
 #include <cmath>
+#include <vector>
 
 // gtest
 #include <gtest/gtest.h>
+
+// torch
+#include <torch/torch.h>
 
 // snap
 #include <snap/implicit/vic_assemble_full_impl.h>
@@ -10,7 +14,73 @@
 #include <snap/implicit/vic_gravity_work_impl.h>
 #include <snap/snap.h>
 
+#include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/implicit/implicit_dispatch.hpp>
+
+namespace {
+
+// a and b hold the same bits (so -0 and 0 differ, as do two NaNs' payloads)
+bool same_bits(torch::Tensor const& a, torch::Tensor const& b) {
+  return a.sizes() == b.sizes() && a.scalar_type() == b.scalar_type() &&
+         torch::equal(a.contiguous().view(torch::kInt64),
+                      b.contiguous().view(torch::kInt64));
+}
+
+// cell centres of n cells: uniform, stretched, and the r^2 centroids of a
+// thin radial shell
+std::vector<torch::Tensor> grids(int n) {
+  auto opts = torch::TensorOptions().dtype(torch::kFloat64);
+  auto k = torch::arange(n + 1, opts);
+  auto uniform = k * 0.1;
+  auto stretched = (torch::pow(1.07, k) - 1.) / 0.07;
+  auto rf = 6.4e6 + 2.e3 * k;
+  auto r3 = rf.pow(3);
+  auto r2 = rf.pow(2);
+  auto centroid = .75 *
+                  (r2.narrow(0, 1, n) * r2.narrow(0, 1, n) -
+                   r2.narrow(0, 0, n) * r2.narrow(0, 0, n)) /
+                  (r3.narrow(0, 1, n) - r3.narrow(0, 0, n));
+  auto mid = [&](torch::Tensor const& f) {
+    return .5 * (f.narrow(0, 1, n) + f.narrow(0, 0, n));
+  };
+  return {mid(uniform), mid(stretched), centroid};
+}
+
+}  // namespace
+
+// the slope stencil's bands are the diagonals of the slope written as a
+// matrix (S[k][i]: the weight of cell k in the slope of cell i), bit for bit
+TEST(VicGravityWork, slope_bands_are_the_dense_diagonals) {
+  for (int n : {3, 4, 9}) {
+    for (auto const& x : grids(n)) {
+      auto st = snap::centroid_slope_stencil(x);
+      auto S = snap::centroid_slope(torch::eye(n, x.options()), x);
+      EXPECT_TRUE(same_bits(st.band(0), S.diagonal()));
+      EXPECT_TRUE(same_bits(st.band(-1).narrow(0, 1, n - 1), S.diagonal(1)));
+      EXPECT_TRUE(same_bits(st.band(1).narrow(0, 0, n - 1), S.diagonal(-1)));
+      EXPECT_TRUE(same_bits(st.band(2)[0], S[2][0]));
+      EXPECT_TRUE(same_bits(st.band(-2)[n - 1], S[n - 3][n - 1]));
+      // the stencil reaches two cells away only at the walls
+      if (n > 3) {
+        EXPECT_TRUE(
+            torch::all(st.band(2).narrow(0, 1, n - 1) == 0).item<bool>());
+        EXPECT_TRUE(
+            torch::all(st.band(-2).narrow(0, 0, n - 1) == 0).item<bool>());
+      }
+      // and the slope it applies is the matrix's
+      auto q = torch::sin(3. * x);
+      auto dense = torch::matmul(q.unsqueeze(0), S).squeeze(0);
+      auto sparse = st.band(0) * q;
+      sparse.narrow(0, 1, n - 1) +=
+          st.band(-1).narrow(0, 1, n - 1) * q.narrow(0, 0, n - 1);
+      sparse.narrow(0, 0, n - 1) +=
+          st.band(1).narrow(0, 0, n - 1) * q.narrow(0, 1, n - 1);
+      sparse[0] += st.band(2)[0] * q[2];
+      sparse[n - 1] += st.band(-2)[n - 1] * q[n - 3];
+      EXPECT_TRUE(torch::allclose(sparse, dense, 1.e-12, 1.e-12));
+    }
+  }
+}
 
 namespace {
 
