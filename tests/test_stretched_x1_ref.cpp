@@ -133,33 +133,9 @@ TEST(StretchedX1Ref, uniform_and_stretched_reflecting_decks_run) {
   EXPECT_NO_THROW(build_and_step(card(true)));
 }
 
-TEST(StretchedX1Ref, refuses_curvature_correction) {
-  refuses(
-      "the dx^2/12 x1 curvature flux H of cp3/cp5/weno5 is a uniform-grid "
-      "device: a stretched x1 uses option F",
-      ", gravity-work: face-wallc}");
-}
-
-TEST(StretchedX1Ref, refuses_curvature_correction_cp5) {
-  refuses(
-      "the dx^2/12 x1 curvature flux H of cp3/cp5/weno5 is a uniform-grid "
-      "device: a stretched x1 uses option F",
-      ", gravity-work: face-wallc}", "reflecting", "reflecting", "cartesian",
-      "cp5");
-}
-
 TEST(StretchedX1Ref, refuses_a_stretched_cp3_deck_outright) {
-  refuses("[cp3] has no stretched-x1 reconstruction",
-          ", gravity-work: face-wallc}", "reflecting", "reflecting",
-          "cartesian", "cp3");
-}
-
-TEST(StretchedX1Ref, refuses_curvature_with_radial_exact_off) {
-  if (HydroImpl::gravity_work_radial_exact())
-    GTEST_SKIP() << "SNAP_GRAVITY_WORK_RADIAL_EXACT is on";
-  refuses(
-      "the dx^2/12 x1 curvature flux H of cp3/cp5/weno5 is a uniform-grid "
-      "device: a stretched x1 uses option F");
+  refuses("[cp3] has no stretched-x1 reconstruction", ", gravity-work: face}",
+          "reflecting", "reflecting", "cartesian", "cp3");
 }
 
 // vx = a x1 heats by dt nu (4/3) a^2 exactly; RED: refused

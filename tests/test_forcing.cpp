@@ -20,6 +20,7 @@
 #include <snap/coord/coord_utils.hpp>
 #include <snap/coord/cubed_sphere_utils.hpp>
 #include <snap/forcing/forcing.hpp>
+#include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/mesh/meshblock.hpp>
 
 using namespace snap;
@@ -579,6 +580,17 @@ TEST(forcing, implicit_correction_reports_total_energy_delta) {
             0.);
 }
 
+// The corrected potential-energy work gravity-work: face books for a density
+// change drho of the interior x1 cells [is, ie) of a cartesian deck,
+// grav1 <(x1 - x1v)^2> d(drho)/dx1 (gravity_work_radial.hpp). E + P, not
+// E + PE_d, is what face work conserves, so the energy checks below add it.
+static torch::Tensor booked_pe_work(Coordinate const& coord,
+                                    torch::Tensor const& drho, double grav1) {
+  int is = coord->il(), ie = coord->iu() + 1;
+  return corrected_pe_work(drho.slice(-1, is, ie), coord->x1f, coord->x1v, is,
+                           ie, grav1, X1Measure::plain);
+}
+
 // One hydro forward with the VIC on: {column energy residual
 // sum V*(dE + phi*dmass) + dt*boundary flux, energy tendency, dry clamp fired}.
 std::tuple<double, torch::Tensor, bool> implicit_gravity_energy(
@@ -625,6 +637,8 @@ std::tuple<double, torch::Tensor, bool> implicit_gravity_energy(
   auto phi_cell = -gravity->grav1() * coord->x1v;
   auto phi_face = -gravity->grav1() * coord->x1f;
   auto mechanical_du = du[IPR] + phi_cell * mass_du;
+  mechanical_du.slice(-1, is, ie) -=
+      booked_pe_work(coord, mass_du, gravity->grav1());
   auto mechanical_flux = block->phydro->flux1()[IPR] +
                          phi_face.narrow(0, 0, mass_flux.size(-1)) * mass_flux;
   auto integrated_du =
@@ -903,6 +917,8 @@ TEST(forcing, vertical_gravity_work_uses_continuity_mass_flux) {
   auto phi_cell = -gravity->grav1() * coord->x1v;
   auto phi_face = -gravity->grav1() * coord->x1f;
   auto total_energy_du = du[IPR] + phi_cell * mass_du;
+  total_energy_du.slice(-1, is, ie) -=
+      booked_pe_work(coord, mass_du, gravity->grav1());
   auto total_energy_flux =
       block->phydro->flux1()[IPR] +
       phi_face.narrow(0, 0, mass_flux.size(-1)) * mass_flux;
@@ -962,6 +978,8 @@ TEST(forcing, vertical_gravity_work_includes_sedimentation_mass_flux) {
   auto phi_cell = -gravity->grav1() * coord->x1v;
   auto phi_face = -gravity->grav1() * coord->x1f;
   auto mechanical_du = du[IPR] + phi_cell * mass_du;
+  mechanical_du.slice(-1, is, ie) -=
+      booked_pe_work(coord, mass_du, gravity->grav1());
   auto mechanical_flux = block->phydro->flux1()[IPR] +
                          phi_face.narrow(0, 0, mass_flux.size(-1)) * mass_flux;
   auto integrated_du =
@@ -1024,96 +1042,23 @@ TEST(forcing, vertical_gravity_work_excludes_horizontal_mass_divergence) {
       -dt * coord->divergence(flux1.unsqueeze(0), flux2.unsqueeze(0),
                               flux3.unsqueeze(0))[0];
   auto actual = du[IPR] + phi_cell * total_mass_du;
+  // the corrected-PE work follows the x1 mass flux only
+  {
+    int is = coord->il(), ie = coord->iu() + 1;
+    auto area1 = coord->face_area1();
+    auto drho1 = torch::zeros_like(total_mass_du);
+    drho1.slice(-1, is, ie)
+        .copy_(-dt *
+               (area1.slice(-1, is + 1, ie + 1) *
+                    mass_flux1.slice(-1, is + 1, ie + 1) -
+                area1.slice(-1, is, ie) * mass_flux1.slice(-1, is, ie)) /
+               coord->cell_volume().slice(-1, is, ie));
+    actual.slice(-1, is, ie) -= booked_pe_work(coord, drho1, gravity->grav1());
+  }
   auto interior = block->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
 
   EXPECT_TRUE(torch::allclose(actual.index(interior), expected.index(interior),
                               1.e-10, 1.e-8));
-}
-
-// rho*v is quadratic in x1, so at cp3, cp5 and weno5 faces the booked work is
-// the face form minus dt*g*dx^2/12*(rho v)'' off the walls (2e-5 here;
-// round-off ~2e-12), and the column still telescopes; weno3 and dc faces book
-// no correction. The 5-point stencils run with 3 ghost cells.
-static void vertical_gravity_work_removes_the_curvature_excess(
-    torch::Device device) {
-  for (std::string type : {"cp3", "weno3", "dc", "cp5", "weno5"}) {
-    bool five_point = type == "cp5" || type == "weno5";
-    auto options = MeshBlockOptionsImpl::from_yaml("test_forcing_3d.yaml");
-    if (five_point) options->coord()->nghost(3);
-    options->hydro()->diffusion() = nullptr;
-    options->hydro()->icorr() = nullptr;
-    options->hydro()->recon1()->interp()->type(type);
-
-    auto gravity = ConstGravityOptionsImpl::create();
-    gravity->grav1(-1.);
-    gravity->gravity_work("face");  // the form these tests pin
-    options->hydro()->grav() = gravity;
-
-    auto block = std::make_shared<MeshBlockImpl>(options);
-    block->to(device, torch::kFloat64);
-    auto coord = block->pcoord;
-    ASSERT_EQ(coord->options->nghost(), five_point ? 3 : 2) << type;
-    auto w = make_primitive(block).to(device);
-    auto x1 = coord->x1v.view({1, 1, -1});
-    auto x2 = coord->x2v.view({1, -1, 1});
-    w[IDN] = 1. + 0.04 * x1 + 0.08 * x2;
-    w[IVX] = 0.2 + 0.03 * x1;
-    w[IVY] = -0.4 + 0.15 * x2;
-    w[IPR] = 1.e5 + 20. * x1 + 40. * x2;
-
-    auto u = block->phydro->peos->compute("W->U", {w});
-    Variables vars;
-    vars["hydro_w"] = torch::empty_like(w);
-    double dt = 0.1;
-    auto du = block->phydro->forward(dt, u, vars);
-
-    int ny = du.size(0) - ICY;
-    auto total_mass_du = du[IDN].clone();
-    auto mass_flux1 = block->phydro->flux1()[IDN].clone();
-    auto mass_flux2 = block->phydro->flux2()[IDN].clone();
-    auto mass_flux3 = block->phydro->flux3()[IDN].clone();
-    if (ny > 0) {
-      total_mass_du += du.narrow(0, ICY, ny).sum(0);
-      mass_flux1 += block->phydro->flux1().narrow(0, ICY, ny).sum(0);
-      mass_flux2 += block->phydro->flux2().narrow(0, ICY, ny).sum(0);
-      mass_flux3 += block->phydro->flux3().narrow(0, ICY, ny).sum(0);
-    }
-
-    auto phi_cell = -gravity->grav1() * coord->x1v;
-    auto phi_face = -gravity->grav1() * coord->x1f;
-    auto flux1 = block->phydro->flux1()[IPR] +
-                 phi_face.narrow(0, 0, mass_flux1.size(-1)) * mass_flux1;
-    auto flux2 = block->phydro->flux2()[IPR] + phi_cell * mass_flux2;
-    auto flux3 = block->phydro->flux3()[IPR] + phi_cell * mass_flux3;
-    auto face_form =
-        -dt * coord->divergence(flux1.unsqueeze(0), flux2.unsqueeze(0),
-                                flux3.unsqueeze(0))[0];
-    auto actual = du[IPR] + phi_cell * total_mass_du;
-    auto interior =
-        block->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
-    auto excess = (actual - face_form).index(interior);
-
-    int nx1 = excess.size(-1);
-    double dx = 1.;  // x1 in [0, 6] on 6 cells
-    double expected = type == "cp3" || five_point
-                          ? dt * dx * dx / 12. * 2. * 0.04 * 0.03
-                          : 0.;
-    auto off_wall = excess.narrow(-1, 1, nx1 - 2);
-    EXPECT_TRUE(torch::allclose(off_wall, torch::full_like(off_wall, expected),
-                                0., 1.e-9))
-        << type << ": " << off_wall;
-    EXPECT_LT(excess.sum(-1).abs().max().item<double>(), 1.e-9) << type;
-  }
-}
-
-TEST(forcing, vertical_gravity_work_removes_the_curvature_excess) {
-  vertical_gravity_work_removes_the_curvature_excess(torch::kCPU);
-}
-
-TEST(forcing, vertical_gravity_work_removes_the_curvature_excess_cuda) {
-  if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
-  vertical_gravity_work_removes_the_curvature_excess(
-      torch::Device(torch::kCUDA, 0));
 }
 
 static void implicit_gravity_work_holds_under_rk3_stage_weighting(
@@ -1169,6 +1114,8 @@ static void implicit_gravity_work_holds_under_rk3_stage_weighting(
     auto phi_cell = -gravity->grav1() * coord->x1v;
     auto phi_face = -gravity->grav1() * coord->x1f;
     auto mechanical_du = du[IPR] + phi_cell * mass_du;
+    mechanical_du.slice(-1, is, ie) -=
+        booked_pe_work(coord, mass_du, gravity->grav1());
     auto mechanical_flux =
         block->phydro->flux1()[IPR] +
         phi_face.narrow(0, 0, mass_flux.size(-1)) * mass_flux;

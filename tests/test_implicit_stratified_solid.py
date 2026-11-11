@@ -1,7 +1,7 @@
 """Tall columns, solid-wall mass closure, and clamped face-work energy (#283).
 
-With SNAP_GRAVITY_WORK_RADIAL_EXACT on (tall.radial_exact()) every face-work energy check
-measures E + P, the energy that switch conserves (P the corrected PE of
+Every face-work energy check measures E + P (tall.radial_exact(): gravity-work: face always
+books the corrected-PE work), the energy that work conserves (P the corrected PE of
 docs/derivations/curved-gravity-work-weight.md sec 7), on the final state; on a
 gnomonic-equiangle face block P also carries the centroid term of sec 12."""
 import json

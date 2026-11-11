@@ -10,11 +10,10 @@ to test a strictly radial column. Angular-mode stability is a separate gate.
 4 x 4 columns at the spherical radius, where the corrected-PE work carries the
 centroid term of the derivation's sec 12 (#300).
 
-The face ladder runs twice, each in a child process (the switch is read once per
-process): with SNAP_GRAVITY_WORK_RADIAL_EXACT=0, and with it on (the corrected-PE
-work of docs/derivations/curved-gravity-work-weight.md sec 7, booked inside the
-implicit operator, #296). Every rung must stay below W_TOL, end the run below
-W_SETTLED, and, with the switch on, peak at most ON_OFF times its switch-off rung.
+The face ladder runs in a child process, with the corrected-PE work of
+docs/derivations/curved-gravity-work-weight.md sec 7 that gravity-work: face books
+inside the implicit operator (#296), including the two wall rows of its slope.
+Every rung must stay below W_TOL and end the run below W_SETTLED.
 A child that exits non-zero or prints an incomplete ladder fails the parent (#299).
 """
 import argparse
@@ -34,7 +33,6 @@ COURANTS = (6.6, 65.6, 100.0, 197.0, 250.0)
 RADIUS = 7.e7
 W_TOL = 1.0e-7  # m/s
 W_SETTLED = 1.0e-10  # m/s, max w at the last step: the column has settled
-ON_OFF = 1.1  # switch on: max w at most this times the switch-off rung's
 
 
 def config(geometry="cartesian", cell_work=False):
@@ -143,7 +141,7 @@ def main():
                     default="both")
     ap.add_argument("--courants", type=float, nargs="+", default=COURANTS)
     ap.add_argument("--ladder", action="store_true",
-                    help="child: the face ladder only, under the inherited switch")
+                    help="child: the face ladder only")
     args = ap.parse_args()
     if args.device.startswith("cuda") and (os.environ.get("SNAPY_BUILD_CUDA", "1") == "0" or not torch.cuda.is_available()):
         print("SKIP: cuda requested but not available")
@@ -155,11 +153,8 @@ def main():
     geometries = ("cartesian", "spherical-polar") if args.geometry == "both" else (args.geometry,)
     if not args.ladder:
         ladder = {}
-        for value in ("0", "1"):  # SNAP_GRAVITY_WORK_RADIAL_EXACT off, on (on by default)
+        for value in ("1",):  # one face ladder, the corrected-PE work always on
             env = dict(os.environ)
-            env.pop("SNAP_GRAVITY_WORK_RADIAL_EXACT", None)
-            if value is not None:
-                env["SNAP_GRAVITY_WORK_RADIAL_EXACT"] = value
             cmd = [sys.executable, os.path.abspath(__file__), "--ladder", "--device", args.device,
                    "--nstep", str(args.nstep), "--geometry", args.geometry,
                    "--courants"] + [str(c) for c in args.courants]
@@ -169,14 +164,14 @@ def main():
                 if not line.startswith("{"):
                     continue
                 row = json.loads(line)
-                row["radial_exact"] = value == "1"
+                row["radial_exact"] = True
                 print(json.dumps(row), flush=True)
                 if "first_failing_courant" in row:
                     summaries.add(row["geometry"])
                 if "passed" not in row:
                     continue
                 rungs.add((row["geometry"], row["courant"]))
-                arm = "radial-exact" if value == "1" else "face"
+                arm = "radial-exact"
                 ladder[arm, row["geometry"], row["courant"]] = row
                 if not row["passed"]:
                     failures.append((arm, row["geometry"], row["courant"], row["steps"], row["max_w"]))
@@ -190,10 +185,6 @@ def main():
             if out.returncode != 0 or missing:
                 print(out.stderr[-2000:], flush=True)
                 failures.append(("child", value, out.returncode, "missing rows", missing))
-        for (arm, geometry, courant), on in ladder.items():
-            off = ladder.get(("face", geometry, courant))
-            if arm == "radial-exact" and off and on["max_w"] > ON_OFF * off["max_w"]:
-                failures.append((arm, geometry, courant, "max w", on["max_w"], "off", off["max_w"]))
     for geometry in (geometries if args.ladder else ()):
         first_failure = None
         for courant in args.courants:
