@@ -21,6 +21,7 @@
 #include "netcdf_utils.hpp"
 #include "output_formats.hpp"
 #include "output_utils.hpp"
+#include "writer_core.hpp"
 
 // Only proceed if NETCDF output enabled
 #ifdef NETCDFOUTPUT
@@ -56,37 +57,8 @@ void NetcdfOutput::write_output_file(MeshBlockImpl *pmb_in,
   auto pmeta = MetadataTable::GetInstance();
   auto phydro = pmb->phydro;
 
-  int nc1 = pmb->options->coord()->nc1();
-  int nc2 = pmb->options->coord()->nc2();
-  int nc3 = pmb->options->coord()->nc3();
-  int nghost = pmb->options->coord()->nghost();
-
-  // set start/end array indices depending on whether ghost zones are included
-  out_is = nc1 > 1 ? nghost : 0;
-  out_ie = nc1 > 1 ? nc1 - nghost - 1 : 0;
-  out_js = nc2 > 1 ? nghost : 0;
-  out_je = nc2 > 1 ? nc2 - nghost - 1 : 0;
-  out_ks = nc3 > 1 ? nghost : 0;
-  out_ke = nc3 > 1 ? nc3 - nghost - 1 : 0;
-
-  // FIXME: include_ghost zones probably doesn't work with grids other than
-  // CCC
-  if (options->include_ghost_zones()) {
-    if (out_is != out_ie) {
-      out_is -= nghost;
-      out_ie += nghost;
-    }
-
-    if (out_js != out_je) {
-      out_js -= nghost;
-      out_je += nghost;
-    }
-
-    if (out_ks != out_ke) {
-      out_ks -= nghost;
-      out_ke += nghost;
-    }
-  }
+  std::tie(out_is, out_ie, out_js, out_je, out_ks, out_ke) =
+      output_range(pmb, options->include_ghost_zones());
 
   if (!TransformOutputData(pmb)) {
     ClearOutputData();
@@ -118,12 +90,7 @@ void NetcdfOutput::write_output_file(MeshBlockImpl *pmb_in,
   std::stringstream msg;
   int ifile;
 
-  std::error_code ec;
-  std::filesystem::create_directories(pmb->options->output_dir(), ec);
-  if (ec) {
-    throw std::runtime_error("Failed to create output directory '" +
-                             pmb->options->output_dir() + "': " + ec.message());
-  }
+  make_output_dir(pmb);
   SNAP_NETCDF_CHECK(nc_create(fname.c_str(), NC_NETCDF4, &ifile));
 
   // 2. coordinate structure
@@ -158,22 +125,8 @@ void NetcdfOutput::write_output_file(MeshBlockImpl *pmb_in,
   // 3. define variables
   auto layout = pmb->get_layout();
 
-  int level = 0;
-  auto [lx2, lx3, lx1] = layout->loc_of(rank);
-
-  int nb1 = layout->options->pz();
-  int nb2 = layout->options->px();
-  int nb3 = layout->options->py();
-
-  int face = 0;
-  if (layout->options->type() == "cubed-sphere") {
-    face = lx1;
-    lx1 = 0;
-    lx2 += (face % 3) * nb2;
-    lx3 += (face / 3) * nb3;
-    nb2 *= 3;
-    nb3 *= 2;
-  }
+  auto [level, lx1, lx2, lx3, nb1, nb2, nb3, face] =
+      output_block_location(layout, rank);
   if (!options->x1_slice().empty()) {
     lx1 = 0;
     nb1 = 1;

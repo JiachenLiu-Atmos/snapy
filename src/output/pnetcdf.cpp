@@ -17,6 +17,7 @@
 #include "netcdf_utils.hpp"
 #include "output_formats.hpp"
 #include "output_utils.hpp"
+#include "writer_core.hpp"
 
 namespace snap {
 namespace {
@@ -84,32 +85,8 @@ void PNetcdfOutput::write_output_file(MeshBlockImpl* pmb_in,
   auto pmeta = MetadataTable::GetInstance();
 
   int rank = layout_options->rank();
-  int nc1 = pmb->options->coord()->nc1();
-  int nc2 = pmb->options->coord()->nc2();
-  int nc3 = pmb->options->coord()->nc3();
-  int nghost = pmb->options->coord()->nghost();
-
-  out_is = nc1 > 1 ? nghost : 0;
-  out_ie = nc1 > 1 ? nc1 - nghost - 1 : 0;
-  out_js = nc2 > 1 ? nghost : 0;
-  out_je = nc2 > 1 ? nc2 - nghost - 1 : 0;
-  out_ks = nc3 > 1 ? nghost : 0;
-  out_ke = nc3 > 1 ? nc3 - nghost - 1 : 0;
-
-  if (options->include_ghost_zones()) {
-    if (out_is != out_ie) {
-      out_is -= nghost;
-      out_ie += nghost;
-    }
-    if (out_js != out_je) {
-      out_js -= nghost;
-      out_je += nghost;
-    }
-    if (out_ks != out_ke) {
-      out_ks -= nghost;
-      out_ke += nghost;
-    }
-  }
+  std::tie(out_is, out_ie, out_js, out_je, out_ks, out_ke) =
+      output_range(pmb, options->include_ghost_zones());
 
   if (!TransformOutputData(pmb)) {
     ClearOutputData();
@@ -117,12 +94,11 @@ void PNetcdfOutput::write_output_file(MeshBlockImpl* pmb_in,
     return;
   }
 
-  std::error_code ec;
-  std::filesystem::create_directories(pmb->options->output_dir(), ec);
-  if (ec) {
+  try {
+    make_output_dir(pmb);
+  } catch (...) {
     if (pmb != pmb_in) delete pmb;
-    throw std::runtime_error("Failed to create output directory '" +
-                             pmb->options->output_dir() + "': " + ec.message());
+    throw;
   }
 
   char number[6];
@@ -142,21 +118,8 @@ void PNetcdfOutput::write_output_file(MeshBlockImpl* pmb_in,
   int nfaces2 = ncells2 > 1 ? ncells2 + 1 : ncells2;
   int nfaces3 = ncells3 > 1 ? ncells3 + 1 : ncells3;
 
-  int level = 0;
-  auto [lx2, lx3, lx1] = layout->loc_of(rank);
-  int nb1 = layout_options->pz();
-  int nb2 = layout_options->px();
-  int nb3 = layout_options->py();
-
-  int face = 0;
-  if (layout_options->type() == "cubed-sphere") {
-    face = lx1;
-    lx1 = 0;
-    lx2 += (face % 3) * nb2;
-    lx3 += (face / 3) * nb3;
-    nb2 *= 3;
-    nb3 *= 2;
-  }
+  auto [level, lx1, lx2, lx3, nb1, nb2, nb3, face] =
+      output_block_location(layout, rank);
 
   PINC_Offset nx1 = static_cast<PINC_Offset>(ncells1) * nb1;
   PINC_Offset nx2 = static_cast<PINC_Offset>(ncells2) * nb2;
