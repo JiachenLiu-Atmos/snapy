@@ -42,10 +42,12 @@ class Fp64StoreImpl : public torch::nn::Cloneable<Fp64StoreImpl> {
   //! dtype conversions are ignored; device moves are honoured
   void to(torch::Device device, torch::Dtype /*dtype*/,
           bool non_blocking = false) override {
-    torch::nn::Module::to(device, non_blocking);
+    to(device, non_blocking);
   }
   void to(torch::Dtype /*dtype*/, bool /*non_blocking*/ = false) override {}
   void to(torch::Device device, bool non_blocking = false) override {
+    TORCH_CHECK(!device.is_mps(), "anomaly storage keeps its reference in ",
+                "float64, which MPS does not have; run it on CPU or CUDA");
     torch::nn::Module::to(device, non_blocking);
   }
 
