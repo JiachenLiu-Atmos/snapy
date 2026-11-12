@@ -17,7 +17,7 @@ struct Case {  // gw: cell (+ fixer) or face; per: periodic x2/x3; vsed: rain
   double vsed = 0., qv = 0.01;
 };
 double const C = 4., kEps = 2.220446049250313e-16, g = 10.;
-bool const kMp = getenv("SNAP_BUDGET_MP") != nullptr;  // E2: two ranks
+bool const kMp = getenv("SNAP_BUDGET_MP") != nullptr;  // E2: three ranks
 
 std::string card(Case const& c) {  // the in-tree deck, closed and small
   auto d = YAML::LoadFile(c.deck);
