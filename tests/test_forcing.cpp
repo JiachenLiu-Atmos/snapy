@@ -273,6 +273,18 @@ TEST(forcing, coriolis_and_metric_take_w_from_the_x1_mass_flux) {
   };
   double torque = (run(5.) - run(0.)).abs().max().item<double>();
   EXPECT_LT(torque, 1.e-12) << "torque from a w that moves no mass";
+  // nx1 = 1, no Coriolis (no x1 mass flux): -rho w v_{2,3} / r at the cell
+  options->coord()->nx1() = options->coord()->global_nx1() = 1;
+  options->hydro()->coriolis() = nullptr;
+  block = std::make_shared<MeshBlockImpl>(options), coord = block->pcoord;
+  w = w.narrow(-1, 0, 1).clone();
+  auto c = coord->cosine_cell_kj, r = coord->x1v.view({1, 1, -1});
+  auto exact = torch::stack({30. - 20. * c, -20. + 30. * c}) * (-10. * 5. / r);
+  auto err =
+      (run(5.) - run(0.) - exact).slice(-2, coord->jl(), coord->ju() + 1);
+  EXPECT_LT(
+      err.slice(-3, coord->kl(), coord->ku() + 1).abs().max().item<double>(),
+      1.e-15);
 }
 
 TEST(forcing, relax_bottom_temperature) {

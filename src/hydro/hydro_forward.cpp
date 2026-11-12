@@ -1287,6 +1287,10 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     for (auto& f : forcings)
       if (coriolis(f)) f.forward(du, w0, temp, dt);
     pc->x1_mass_source_(du, w, m1, dt);
+  } else {  // no x1 mass-flux w (nc1 == 1, shallow water): m1 = rho w
+    auto src = torch::zeros_like(du);
+    pmb->pcoord->x1_mass_source_(src, w, w[IDN] * w[IVX], dt);
+    du.index(interior) += src.index(interior);
   }
 
   if (gwfix_stage.defined()) {
