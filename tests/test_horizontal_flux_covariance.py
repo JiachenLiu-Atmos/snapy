@@ -14,7 +14,8 @@ The physical value is 0 here. Face gravity work keeps the cell form's own O(dz^2
   2. term on:  |eps_eff nz^2| < 0.04;
   3. key unset and flux-covariance: true give the same step bit for bit (the default is on), and
      flux-covariance: false differs from it;
-  4. E+PE = sum (E + rho g z) dV of the seeded box, term on, closes over NSTEP steps.
+  4. E+P = sum (E + rho g z + g dz^2/12 drho/dz) dV of the seeded box, term on, closes over
+     NSTEP steps: with face gravity work E+P is the conserved invariant (hydro.hpp), not E+PE.
 The key is read per block, so the three arms (ARMS) run in one process.
 
   python test_horizontal_flux_covariance.py [--device cpu]
@@ -34,7 +35,7 @@ LX = 2.0 * math.sqrt(2.0)
 BASE = (-0.32, -0.20)
 FIXED = 0.04
 NSTEP = 50
-EPE_TOL = 1.e-12
+EP_TOL = 1.e-13
 ARMS = {"unset": None, "zero": False, "on": True}
 
 
@@ -138,30 +139,34 @@ def eps_eff_nz2(nz, device, cov=None):
     return float(num / den) * nz ** 2, bv1["hydro_u"].clone()
 
 
-def epe_drift(nz, device, cov=None):
-    """|d(E+PE)| / |E+PE| of the seeded Cartesian box, term on, over NSTEP steps."""
+def ep_drift(nz, device, cov=None):
+    """|d(E+P)| / |E+P| of the seeded Cartesian box, term on, over NSTEP steps. P is the
+    corrected PE, rho g z less g1 <(z - z_c)^2> drho/dz = dz^2/12 drho/dz with g = 1; the
+    slope is the 3-point one of centroid_slope, one-sided at the walls (edge_order 2)."""
     from snapy import kIDN, kIPR
 
     block, bv, _, coord, _ = build(nz, True, device, cov)
     I = slice(NG, -NG)
     phi = coord.buffer("x1v")[I].to(bv["hydro_u"])
+    dz = float(coord.buffer("dx1f")[NG])
 
-    def epe():
+    def ep():
         U = bv["hydro_u"][:, :, I, I]
-        return float((U[kIPR] + U[kIDN] * phi).sum())
+        slope = torch.gradient(U[kIDN], spacing=dz, dim=-1, edge_order=2)[0]
+        return float((U[kIPR] + U[kIDN] * phi + dz * dz / 12.0 * slope).sum())
 
-    e0 = epe()
+    e0 = ep()
     for _ in range(NSTEP):
         step(block, bv, float(block.max_time_step(bv)))
-    return abs(epe() - e0) / abs(e0)
+    return abs(ep() - e0) / abs(e0)
 
 
 def arm(cov, device):
-    """One arm: eps_eff nz^2 at nz 16 and 32, the stepped states, E+PE drift."""
+    """One arm: eps_eff nz^2 at nz 16 and 32, the stepped states, E+P drift."""
     res, u = {}, {}
     for nz in (16, 32):
         res[str(nz)], u[nz] = eps_eff_nz2(nz, device, cov)
-    res["drift"] = epe_drift(16, device, cov)
+    res["drift"] = ep_drift(16, device, cov)
     res["u"] = {nz: v.cpu() for nz, v in u.items()}
     return res
 
@@ -184,9 +189,9 @@ def main():
         if torch.equal(res["on"]["u"][nz], res["zero"]["u"][nz]):
             failures.append(f"nz {nz}: the key changed nothing")
     drift = res["on"]["drift"]
-    print(f"nz  16  E+PE drift over {NSTEP} steps, term on: {drift:.2e}", flush=True)
-    if not drift <= EPE_TOL:
-        failures.append(f"E+PE drift {drift:.2e} > {EPE_TOL}")
+    print(f"nz  16  E+P drift over {NSTEP} steps, term on: {drift:.2e}", flush=True)
+    if not drift <= EP_TOL:
+        failures.append(f"E+P drift {drift:.2e} > {EP_TOL}")
     for failure in failures:
         print("FAIL", failure)
     sys.exit(bool(failures))
