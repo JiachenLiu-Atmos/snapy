@@ -11,10 +11,10 @@
 #include "cuda_test_gate.hpp"
 using namespace snap;
 struct Case {  // gw: cell (+ fixer) or face; per: periodic x2/x3; vsed: rain
-  char const *name, *deck, *gw;
+  char const *name, *deck, *gw;  // qv: vapor, supersaturated above ~0.022
   int scheme;
   bool per, pocket;
-  double vsed;
+  double vsed = 0., qv = 0.01;
 };
 double const C = 4., kEps = 2.220446049250313e-16, g = 10.;
 bool const kMp = getenv("SNAP_BUDGET_MP") != nullptr;  // E2: two ranks
@@ -72,8 +72,8 @@ TEST_P(Budget, closes_to_round_off) {
     w[IPR] = w[IDN] / rho0 * 1.e5;
     w[IVX] = u0 * (M_PI * s).sin() * (2. * m[1]).cos();
     w[IVY] = u0 * (M_PI * s).sin();
-    for (int n = 0; n < ny; ++n)  // vapor subsaturated, first condensate empty
-      w[ICY + n] = (n == 1 ? 0. : 0.01) * (1. + 0.5 * s);
+    for (int n = 0; n < ny; ++n)  // vapor qv, first condensate empty
+      w[ICY + n] = (n == 1 ? 0. : n ? 0.01 : c.qv) * (1. + 0.5 * s);
     if (c.pocket) {  // the clamp at the wall and theta < 1 at the x2 edge
       w[ICY].select(-1, co->il()).fill_(1.e-12);
       w[ICY].select(-2, co->jl()).fill_(1.e-12);
@@ -92,12 +92,17 @@ TEST_P(Budget, closes_to_round_off) {
     auto t = torch::zeros({3 + ny}, torch::kFloat64);
     for (int i = 0; i < nb; ++i) {
       auto co = mesh->blocks[i]->pcoord;
+      int il = co->il(), iu = co->iu();
       auto u = vars[i].at("hydro_u").index(in);
       auto dV = vol[i].index(in3), rho = u[IDN] + u.narrow(0, ICY, ny).sum(0);
       auto pe = rho * phi[i].index(in3);
-      if (face)  // P = sum V [rho phi(x1v) - g1 <(x1 - r_c)^2> d rho/dx1 ...]
-        pe -= corrected_pe_work(rho, co->x1f, co->x1v, co->il(), co->iu() + 1,
-                                -g, x1_measure(co->options->type()));
+      auto f = co->x1f.slice(0, il, iu + 2), v = co->x1v.slice(0, il, iu + 1);
+      auto ms = x1_measure(co->options->type());  // P by hand, not through
+      if (face)  // corrected_pe_work: P = sum V [rho phi(r_c) - g1 <(x1 -
+        pe += g * x1_variance(f, ms != X1Measure::plain) *  // r_c)^2> rho']
+              centroid_slope(rho, v);
+      if (face && ms == X1Measure::radial_mid)  // r_c != x1v
+        pe += g * rho * x1_centroid_offset(f, v);
       std::vector<torch::Tensor> x = {rho * dV, (u[IPR] + pe) * dV,
                                       u[IVY] * dV};
       for (int n = 0; n < ny; ++n) x.push_back(u[ICY + n] * dV);
@@ -152,13 +157,17 @@ TEST_P(Budget, closes_to_round_off) {
     auto t = totals();
     printf("budget %s step %2d rel", c.name, step);
     for (int k = 0; k < 3 + ny; ++k) {
-      if (k == 2 && !c.per) continue;  // x2 momentum: periodic Cartesian only
+      if ((k == 2 && !c.per) || (k > 2 && c.qv > .02)) continue;  // x2 mom.:
+      // periodic only; species: the saturating row gates their sum (mass)
       double x0 = t0[k].item<double>(), dx = (t[k] - t0[k]).item<double>();
       double rel = std::abs(dx) / std::abs(x0 ? x0 : t0[0].item<double>());
       printf(" %.2e", rel / (step * kEps));
       EXPECT_LE(rel, C * step * kEps) << "total " << k << " step " << step;
     }
     printf("  (units of n eps)\n");
+    double dc = c.qv > .02 ? (t[4] - t0[4]).item<double>() : 1.;  // cloud
+    if (c.qv > .02) printf("condensed %.3e kg\n", dc);
+    EXPECT_GT(dc, 0.) << "the saturating row made no cloud";
   }
 }
 char const *A = "test_gravity_energy.yaml", *B = "test_species_face_clamp.yaml",
@@ -172,6 +181,7 @@ Case const kDecks[] = {{"a_cell_s0", A, "cell", 0},
                        {"a_face_s9", A, "face", 9},
                        {"a_per", A, "face", 0, true},
                        {"b_moist_slab", B, "face", 0, true, true},
+                       {"b_sat", B, "face", 0, true, false, 0., 0.03},
                        {"c_face_s0", Cs, "face", 0, false, false, -0.5},
                        {"c_face_s9", Cs, "face", 9},
                        {"c_cell_s9", Cs, "cell", 9},
