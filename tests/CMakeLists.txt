@@ -38,12 +38,6 @@ add_test(NAME test_stretched_x1_ref_x1_centroid.${buildl}
                  --gtest_filter=StretchedX1Ref.x1_centroid_switch_runs:StretchedX1Ref.balance_column_x1_centroid_runs)
 set_tests_properties(test_stretched_x1_ref_x1_centroid.${buildl}
                      PROPERTIES ENVIRONMENT "SNAP_X1_CENTROID_EXACT=1")
-add_test(NAME test_stretched_x1_ref_x1_mass_covariance.${buildl}
-         COMMAND test_stretched_x1_ref.${buildl}
-                 --gtest_filter=StretchedX1Ref.x1_mass_covariance_switch_runs)
-set_tests_properties(
-  test_stretched_x1_ref_x1_mass_covariance.${buildl}
-  PROPERTIES PASS_REGULAR_EXPRESSION "\\[  PASSED  \\] 1 test\\.")
 setup_test(test_radial_face_moments)
 setup_test(test_hydrostatic)
 setup_test(test_hydro_options)
@@ -774,7 +768,6 @@ foreach(_t IN ITEMS
     test_hydro_ref_x1 test_hydro_ref_x1_rf_wall test_gravity_work_cache_to
     test_implicit_face_work_jacobian test_riemann test_stretched_x1_ref
     test_stretched_x1_ref_x1_centroid
-    test_stretched_x1_ref_x1_mass_covariance
     test_wb_ref_wall test_wb_wall_corner test_x1_seam_split
     test_x1_seam_split_x1_centroid test_x1_seam_split_radial_exact
     test_x1_seam_split_vic_refuses_split

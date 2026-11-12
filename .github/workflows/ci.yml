@@ -159,7 +159,7 @@ jobs:
         run: |
           pip install wheel numpy pyyaml pytest netcdf4
           pip install 'torch==2.10.0'
-          pip install 'kintera>=2.6.3'
+          pip install 'kintera>=2.6.9'
           sudo apt-get update
           sudo apt-get install -y libnetcdf-dev libucx-dev nco autoconf automake libtool pkg-config
           pip install 'commux>=0.1.4' 'pinc>=0.2.0'
