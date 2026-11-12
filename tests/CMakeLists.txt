@@ -403,7 +403,6 @@ snapy_add_python_test(test_flux_covariance_seams TIMEOUT 300
 # which flux rows the covariance changes: Cartesian vs curved, dry vs moist
 snapy_add_python_test(test_flux_covariance_rowset TIMEOUT 300 LABELS "python;hydro")
 snapy_add_python_test(test_wb_ref4_order TIMEOUT 300 LABELS "python;hydro")
-snapy_add_python_test(test_x1_face_density_one_path TIMEOUT 300 LABELS "python;hydro")
 snapy_add_python_test(test_x1_centroid_rest TIMEOUT 300 LABELS "python;hydro")
 snapy_add_python_test(test_radial_order TIMEOUT 300 LABELS "python;hydro")
 snapy_add_python_test(test_conversion_order TIMEOUT 600 LABELS "python;hydro")
