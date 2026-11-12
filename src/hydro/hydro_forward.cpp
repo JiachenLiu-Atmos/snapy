@@ -293,7 +293,7 @@ static void conv4_x1_weights(torch::Tensor x1f, int n,
               "dynamics/conversion-order 4 needs nc1 >= 4 cells and nc1 + 1 "
               "x1 faces, got ",
               n, " and ", x1f.size(0));
-  x1f = x1f.to(torch::kCPU, torch::kFloat64);
+  x1f = x1f.cpu().to(torch::kFloat64);
   auto f = [&](int s) { return x1f.narrow(0, s, n - 2); };
   auto c = (f(2) - f(1)).square() / 4. / (f(3) - f(0));
   k[0] = (c / (f(3) - f(1))).to(opts);

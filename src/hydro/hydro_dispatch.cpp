@@ -219,7 +219,7 @@ void hydro_ref_x1_mps(torch::Tensor const& w, torch::Tensor const& dx1f,
 torch::Tensor hydro_ref_x1_stretched_rows(torch::Tensor const& dx1f, int iu,
                                           bool phys_in, bool phys_out,
                                           bool wall_clamp) {
-  auto h = dx1f.to(torch::kCPU, torch::kFloat64).contiguous();
+  auto h = dx1f.cpu().to(torch::kFloat64).contiguous();
   int nc1 = h.size(0);
   auto hp = h.data_ptr<double>();
   auto rows = torch::zeros({nc1, 7}, torch::kFloat64);

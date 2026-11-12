@@ -226,7 +226,7 @@ torch::Tensor checked_table(torch::Tensor const& table, char const* name) {
               " table must hold x1 knots and scale values, at least two of "
               "each; got ",
               table.sizes());
-  auto t = table.to(torch::kCPU, torch::kFloat64).contiguous();
+  auto t = table.cpu().to(torch::kFloat64).contiguous();
   TORCH_CHECK(torch::isfinite(t).all().item<bool>(), "[Diffusion] ", name,
               " table must be finite.");
   TORCH_CHECK((t[0].slice(0, 1) > t[0].slice(0, 0, -1)).all().item<bool>(),
@@ -241,7 +241,7 @@ torch::Tensor checked_table(torch::Tensor const& table, char const* name) {
 torch::Tensor profile_from_table(torch::Tensor const& table,
                                  torch::Tensor const& x1v) {
   auto x = table[0].contiguous(), s = table[1].contiguous();
-  auto xv = x1v.to(torch::kCPU, torch::kFloat64).contiguous();
+  auto xv = x1v.cpu().to(torch::kFloat64).contiguous();
   auto i = (torch::searchsorted(x, xv, /*out_int32=*/false, /*right=*/true) - 1)
                .clamp(0, x.size(0) - 2);
   auto x0 = x.index_select(0, i), x1 = x.index_select(0, i + 1);

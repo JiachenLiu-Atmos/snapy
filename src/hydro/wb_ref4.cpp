@@ -49,7 +49,7 @@ WbRef4Stencils wb_ref4_stencils(torch::Tensor const& x1f, int is, int iu,
                                 bool clamp_in, bool clamp_out,
                                 torch::TensorOptions const& options) {
   WbRef4Stencils st;
-  auto xt = x1f.to(torch::kCPU, torch::kFloat64).contiguous();
+  auto xt = x1f.cpu().to(torch::kFloat64).contiguous();
   int nc1 = xt.size(0) - 1;
   std::vector<double> xf(xt.data_ptr<double>(),
                          xt.data_ptr<double>() + nc1 + 1);
