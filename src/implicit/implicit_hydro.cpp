@@ -432,15 +432,15 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   } else {
     int m = options->size(), nx2 = pcoord->options->nx2(),
         nx3 = pcoord->options->nx3();
-    auto z1 = torch::empty_like(_delta), z2 = torch::empty_like(_delta);
-    auto it = vic_config().add_input(z1).add_input(z2).build();
+    auto z0 = torch::empty_like(_delta), z1 = torch::empty_like(_delta);
+    auto it = vic_config().add_input(z0).add_input(z1).build();
     if (full)
       at::native::vic_solve_woodbury_full(du.device().type(), it, dt, grav1, 0);
     else
       at::native::vic_solve_woodbury_partial(du.device().type(), it, dt, grav1,
                                              0);
     auto y = _delta.view({nx3, nx2, nx1, m});
-    z1 = z1.view({nx3, nx2, nx1, m}), z2 = z2.view({nx3, nx2, nx1, m});
+    z0 = z0.view({nx3, nx2, nx1, m}), z1 = z1.view({nx3, nx2, nx1, m});
     auto k0 = -rx_t0 / dt, k1 = -rx_t1 / dt;
     if (!no_solid) {
       k0 = k0 * rx_fluid.select(-1, 0), k1 = k1 * rx_fluid.select(-1, nx1 - 1);
@@ -448,13 +448,13 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     auto pick = [&](torch::Tensor const& v, int cell) {
       return v.select(-2, cell).select(-1, 0);
     };
-    auto m00 = 1. + k0 * pick(z1, 2), m01 = k0 * pick(z2, 2);
-    auto m10 = k1 * pick(z1, nx1 - 3), m11 = 1. + k1 * pick(z2, nx1 - 3);
+    auto m00 = 1. + k0 * pick(z0, 2), m01 = k0 * pick(z1, 2);
+    auto m10 = k1 * pick(z0, nx1 - 3), m11 = 1. + k1 * pick(z1, nx1 - 3);
     auto r0 = k0 * pick(y, 2), r1 = k1 * pick(y, nx1 - 3);
     auto det = m00 * m11 - m01 * m10;
     auto al0 = (m11 * r0 - m01 * r1) / det, al1 = (m00 * r1 - m10 * r0) / det;
-    y.copy_(y - z1 * al0.unsqueeze(-1).unsqueeze(-1) -
-            z2 * al1.unsqueeze(-1).unsqueeze(-1));
+    y.copy_(y - z0 * al0.unsqueeze(-1).unsqueeze(-1) -
+            z1 * al1.unsqueeze(-1).unsqueeze(-1));
   }
 
   // Both dispatches share the same rejection sentinel. This also catches
@@ -547,10 +547,11 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   pcoord->flux2global1_(du);
 
   // gravity-work: face: the matrix books the face form for the
-  // mass this solve moved and the tridiagonal part of the corrected potential
-  // energy's remainder (derivation sec 7) for its raw density change; add the
-  // rest, so the remainder is g1 sigma^2 s[du - du0] and E + P closes over the
-  // explicit and implicit parts
+  // mass this solve moved and the corrected potential energy's remainder
+  // (derivation sec 7) for its raw density change, with the exact 3-point
+  // slope s (tridiagonal part in the blocks, the two wall third points by
+  // Woodbury); add the rest, so the remainder is g1 sigma^2 s[du - du0] and
+  // E + P closes over the explicit and implicit parts
   if (radial_exact) {
     int is = pcoord->il(), ie = pcoord->iu() + 1;
     auto moved = du[IDN] - _du0[IDN];

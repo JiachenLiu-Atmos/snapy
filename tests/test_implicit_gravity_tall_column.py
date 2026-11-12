@@ -164,7 +164,6 @@ def main():
                 if not line.startswith("{"):
                     continue
                 row = json.loads(line)
-                row["radial_exact"] = True
                 print(json.dumps(row), flush=True)
                 if "first_failing_courant" in row:
                     summaries.add(row["geometry"])

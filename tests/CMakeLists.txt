@@ -453,6 +453,9 @@ if(CUDA)
     TIMEOUT 300 LABELS "python;positivity;cubed-sphere;cuda")
   snapy_add_python_test(test_implicit_face_work_operator_cuda SCRIPT test_implicit_face_work_operator.py
     ARGS --device cuda TIMEOUT 300 LABELS "python;hydro;implicit;gravity;cuda")
+  snapy_add_python_test(test_implicit_gravity_tall_column_large_courant_cuda
+    SCRIPT test_implicit_gravity_tall_column.py ARGS --device cuda --courants 1000 2000
+    TIMEOUT 300 LABELS "python;hydro;implicit;gravity;cuda")
   snapy_add_python_test(test_vic_moist_device
     TIMEOUT 120 LABELS "python;implicit;cuda")
   snapy_add_python_test(test_wb_ref4_order_cuda
@@ -489,6 +492,7 @@ if(CUDA)
     test_flux_positivity_cubedsphere_moist_cuda_python
     test_vic_moist_device_python
     test_conversion_order_cuda_python
+    test_implicit_gravity_tall_column_large_courant_cuda_python
     test_wb_ref4_order_cuda_python
     test_x1_centroid_rest_cuda_python
     test_radial_order_cuda_python

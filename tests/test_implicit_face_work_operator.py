@@ -9,8 +9,8 @@ discrete hydrostatic balance with snapy.balance_column, run with gravity-work: f
 w0 = 10 m/s, 1 m/s at Courant 657 to keep the advective Courant number below 1):
   every run finite with |E+PE drift| < EPE_TOL (E+PE the interior sum of E + rho g z);
   at rest also max |w| < W_TOL.
-With gravity-work: face the corrected-PE work is always booked (radial_exact()), so the
-conserved energy is E + P, P the corrected PE of
+With gravity-work: face the corrected-PE work is always booked (hydro.cpp
+radial_exact_work), so the conserved energy is E + P, P the corrected PE of
 docs/derivations/curved-gravity-work-weight.md sec 7, and the drift is measured on it
 (E+PE then drifts by the O(dz^2) error of PE itself, ~1e-10 here); the same runs blew up
 at Courant 197 and 657 before that work was coupled into the operator (#296).
@@ -23,7 +23,6 @@ the face work inside the operator the column stays near 5e-9 m/s and E+PE drifts
   python test_implicit_face_work_operator.py [--device cpu] [--nstep 40]
 """
 import argparse
-import functools
 import math
 import os
 import sys
@@ -61,13 +60,6 @@ def config(scheme, integ="rk3"):
         "integration": {"type": integ, "cfl": 0.5, "implicit-scheme": scheme, "nlim": -1, "tlim": 1.e9},
         "forcing": {"const-gravity": {"grav1": -GRAV, "gravity-work": "face"}},
     }
-
-
-@functools.lru_cache(maxsize=None)
-def radial_exact():
-    """gravity-work: face always books the corrected-PE work on these grids (hydro.cpp
-    radial_exact_work), so the conserved energy is E + P"""
-    return True
 
 
 def corrected_pe(rho, x1f, x1v, grav1, spherical=False, centroid=False):
@@ -115,13 +107,11 @@ def run(scheme, dt, w0, nstep, device, integ="rk3"):
     zz = z.to(w)
 
     x1f = torch.arange(NZ + 1, dtype=torch.float64) * DZ
-    exact = radial_exact()
 
     def epe():
         u = block_vars["hydro_u"][interior]
         e = u[kIPR] + u[kIDN] * GRAV * zz
-        if exact:
-            e = e + corrected_pe(u[kIDN], x1f, zz, -GRAV)
+        e = e + corrected_pe(u[kIDN], x1f, zz, -GRAV)
         return e.sum().item()
 
     e0 = epe()
