@@ -89,15 +89,6 @@ set_tests_properties(test_hydro_ref_x1_stretched_cuda.${buildl}
                      PROPERTIES TIMEOUT 120 LABELS "hydro;gpu")
 setup_test(test_uranus_cycle1_abort)
 setup_test(test_pref_local_seam)
-# UCzhangxi/snapy#44: the same 4-vs-1 x1-block comparison (200 steps, 1e-12)
-# with the x2/x3 face-flux covariance on; it must run and pass
-add_test(NAME test_pref_local_seam_flux_covariance.${buildl}
-         COMMAND test_pref_local_seam.${buildl})
-set_tests_properties(
-  test_pref_local_seam_flux_covariance.${buildl}
-  PROPERTIES ENVIRONMENT
-             "GTEST_FILTER=HydroRefX1.in_process_split_matches_one_block_after_200_steps"
-             PASS_REGULAR_EXPRESSION "\\[  PASSED  \\] 1 test\\.")
 setup_test(test_gravity_work_cache_to)
 setup_test(test_x1_seam_split)
 # one arm per entry: its environment, its one test, which must run and pass (a
