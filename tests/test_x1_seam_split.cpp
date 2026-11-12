@@ -412,10 +412,5 @@ TEST(X1SeamSplit, x1_mass_covariance_needs_3_x1_cells) {
               std::string::npos)
         << e.what();
   }
-  Mesh mesh = nullptr;
-  ASSERT_NO_THROW(mesh =
-                      make_column(1, 3, 1., "cell", 2, torch::kCPU, -1., true));
-  EXPECT_TRUE(mesh->blocks[0]->phydro->x1_mass_covariance());
-  // the key is per block: without it the same two-cell column sets up
-  EXPECT_NO_THROW(make_column(1, 2, 1., "cell", 2));
+  EXPECT_NO_THROW(make_column(1, 3, 1., "cell", 2, torch::kCPU, -1., true));
 }

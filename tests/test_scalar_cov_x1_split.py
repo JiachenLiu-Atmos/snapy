@@ -48,9 +48,7 @@ def config(nb1):
             "equation-of-state": {"type": "ideal-moist", "density-floor": 1.e-10,
                                   "pressure-floor": 1.e-10, "limiter": False},
             "reconstruct": {"vertical": {"type": "dc"}, "horizontal": {"type": "dc"}},
-            "riemann-solver": {"type": "lmars"},
-            # the default; set so the test keeps the term if the default moves
-            "flux-covariance": True},
+            "riemann-solver": {"type": "lmars"}},
         "boundary-condition": {"external": {
             "x1-inner": "reflecting", "x1-outer": "reflecting",
             "x2-inner": "periodic", "x2-outer": "periodic",

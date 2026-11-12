@@ -45,7 +45,7 @@ def run_arm(yaml_file: str, limiter: bool, device: str, flux_covariance=None):
     with open(yaml_file) as f:
         config = yaml.safe_load(f)
     config["dynamics"]["equation-of-state"]["limiter"] = limiter
-    if flux_covariance is not None:  # dynamics/flux-covariance; None leaves the key out
+    if flux_covariance is not None:
         config["dynamics"]["flux-covariance"] = flux_covariance == "1"
     nghost = config["geometry"]["cells"]["nghost"]
     nx2 = config["geometry"]["cells"]["nx2"]
@@ -149,15 +149,11 @@ def main():
         "--yaml",
         default=str(Path(__file__).resolve().parent / "test_flux_positivity.yaml"),
     )
-    # 0 runs without the face-flux covariance; on (the default), it also switches the donor
-    # limiter on in the unlimited arm
     parser.add_argument("--flux-covariance", choices=("0", "1"))
     args = parser.parse_args()
 
-    base = run_arm(args.yaml, limiter=False, device=args.device,
-                  flux_covariance=args.flux_covariance)
-    lim = run_arm(args.yaml, limiter=True, device=args.device,
-                  flux_covariance=args.flux_covariance)
+    base = run_arm(args.yaml, False, args.device, args.flux_covariance)
+    lim = run_arm(args.yaml, True, args.device, args.flux_covariance)
 
     for name, arm in (("base", base), ("limited", lim)):
         print(

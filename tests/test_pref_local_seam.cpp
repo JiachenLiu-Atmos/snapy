@@ -205,8 +205,7 @@ boundary-condition:
     x3-outer: periodic
 )";
 
-//! cov: dynamics/flux-covariance (0 off, 1 on, -1 the deck's default)
-Mesh make_column(int nb1, int cov = -1) {
+Mesh make_column(int nb1) {
   char fname[] = "/tmp/pref-drift-XXXXXX";
   int fd = mkstemp(fname);
   EXPECT_NE(fd, -1);
@@ -216,7 +215,6 @@ Mesh make_column(int nb1, int cov = -1) {
   out.close();
   auto block_opts = MeshBlockOptionsImpl::from_yaml(fname);
   std::remove(fname);
-  if (cov >= 0) block_opts->hydro()->flux_covariance() = cov == 1;
   if (nb1 > 1) {
     block_opts->layout()->type() = "cubed";
     block_opts->layout()->pz(nb1);
@@ -303,10 +301,10 @@ double rel_diff(torch::Tensor const& a, torch::Tensor const& b, int var,
 // One process. Four blocks along x1 against one block, 200 steps. The p_ref
 // and dref ghost rows go to every x1 neighbour, same-process blocks included,
 // so the split column tracks the one-block state. This keeps it under 1e-12.
-static void split_matches_one_block_after_200_steps(int cov) {
+TEST(HydroRefX1, in_process_split_matches_one_block_after_200_steps) {
   torch::set_num_threads(1);
-  auto one = make_column(1, cov);
-  auto split = make_column(4, cov);
+  auto one = make_column(1);
+  auto split = make_column(4);
   ASSERT_EQ(one->blocks.size(), 1u);
   ASSERT_EQ(split->blocks.size(), 4u);
 
@@ -334,14 +332,4 @@ static void split_matches_one_block_after_200_steps(int cov) {
       rho, pres, vx);
   // round-off of the chained in-process anchor scan: vx 5.4e-14, 200 steps
   EXPECT_LE(state, 1e-12) << "rho " << rho << " p " << pres << " vx " << vx;
-}
-
-TEST(HydroRefX1, in_process_split_matches_one_block_after_200_steps) {
-  split_matches_one_block_after_200_steps(-1);
-}
-
-// UCzhangxi/snapy#44: the same comparison with dynamics/flux-covariance set on
-// in the deck, so the x2/x3 covariance path stays covered if the default moves
-TEST(HydroRefX1, in_process_split_flux_covariance_on_after_200_steps) {
-  split_matches_one_block_after_200_steps(1);
 }

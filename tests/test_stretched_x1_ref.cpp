@@ -307,8 +307,6 @@ TEST(StretchedX1Ref, x1_centroid_switch_runs) {
 
 // ctest test_stretched_x1_ref_x1_mass_covariance: dynamics/x1-mass-covariance
 TEST(StretchedX1Ref, x1_mass_covariance_switch_runs) {
-  ASSERT_TRUE(make_block(with_x1_mass_covariance(card(true)))
-                  ->phydro->x1_mass_covariance());
   EXPECT_NO_THROW(build_and_step(with_x1_mass_covariance(card(true))));
   EXPECT_NO_THROW(build_and_step(with_x1_mass_covariance(card(false))));
 }

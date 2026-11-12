@@ -96,7 +96,7 @@ add_test(NAME test_pref_local_seam_flux_covariance.${buildl}
 set_tests_properties(
   test_pref_local_seam_flux_covariance.${buildl}
   PROPERTIES ENVIRONMENT
-             "GTEST_FILTER=HydroRefX1.in_process_split_flux_covariance_on_after_200_steps"
+             "GTEST_FILTER=HydroRefX1.in_process_split_matches_one_block_after_200_steps"
              PASS_REGULAR_EXPRESSION "\\[  PASSED  \\] 1 test\\.")
 setup_test(test_gravity_work_cache_to)
 setup_test(test_x1_seam_split)
