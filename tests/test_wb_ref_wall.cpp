@@ -296,6 +296,31 @@ TEST(WbRefWall, order_table_cuda_matches_cpu) {
   }
 }
 
+// A reflecting x1 wall passes no mass. A 4-cell column far from balance,
+// hllc (the default solver), 5 rk3 steps: total mass holds to round-off. Two
+// face densities at the wall face gave hllc a nonzero contact speed there.
+TEST(WbRefWall, reflecting_walls_pass_no_mass) {
+  auto block = make_block(4, 4., torch::kCPU);
+  auto c = block->pcoord;
+  auto z = c->x1v.view({1, 1, -1}) / 4.;
+  auto w = torch::zeros({block->phydro->peos->nvar(), 1, 1, c->options->nc1()},
+                        torch::kFloat64);
+  w[IDN] = (-z).exp();
+  w[IPR] = 1.e5 * (-z).exp();
+  w[IVX] = 0.5 * (M_PI * z).sin();
+  Variables vars{{"hydro_w", w}};
+  block->initialize(vars);
+  auto in = block->part({0, 0, 0}, PartOptions().exterior(false));
+  double m0 = vars.at("hydro_u").index(in)[IDN].sum().item<double>();
+  for (int n = 0; n < 5; ++n) {
+    double dt = block->max_time_step(vars);
+    for (int st = 0; st < 3; ++st) block->forward(vars, dt, st);
+  }
+  double m1 = vars.at("hydro_u").index(in)[IDN].sum().item<double>();
+  std::printf("relative mass change over 5 steps %.3e\n", (m1 - m0) / m0);
+  EXPECT_LE(std::abs(m1 - m0) / m0, 1.e-13);  // round-off: ~1e-16 per step
+}
+
 int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

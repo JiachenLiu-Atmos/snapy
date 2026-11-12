@@ -726,6 +726,17 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w) const {
       auto d = dsf_lr[s].narrow(-1, il - 1, iu5 + 3 - il);
       d.copy_(torch::where((face >= lo) & (face <= hi), face, d));
     }
+    // a reflecting x1 wall face is a mirror: one face density on both sides,
+    // the mean of the two rows. Two values there give a Riemann solver whose
+    // wave speeds read the face density (hllc, roe) a nonzero contact speed,
+    // which moves mass through the wall.
+    auto const& bf = pmb->options->bfuncs();
+    for (int f : {0, 1}) {
+      if (!is_x1_wall(f) || !is_reflecting(bf[f])) continue;
+      int i = f == 0 ? pcoord->il() : pcoord->iu() + 1;
+      auto mean = 0.5 * (dsf_lr[ILT].select(-1, i) + dsf_lr[IRT].select(-1, i));
+      for (int s : {(int)ILT, (int)IRT}) dsf_lr[s].select(-1, i).copy_(mean);
+    }
   }
 
   return {psf_lo, pref, dsf_lr, dref};
