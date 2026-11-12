@@ -273,6 +273,23 @@ TEST(forcing, coriolis_and_metric_take_w_from_the_x1_mass_flux) {
   };
   double torque = (run(5.) - run(0.)).abs().max().item<double>();
   EXPECT_LT(torque, 1.e-12) << "torque from a w that moves no mass";
+  // implicit scheme 9: the w-free Coriolis rows (rho v2, rho v3 into the
+  // radial row) go in before the solve, so the solve's correction sees Omega
+  options->hydro()->grav() = ConstGravityOptionsImpl::create();
+  options->hydro()->grav()->grav1(-10.);
+  options->hydro()->icorr() = ImplicitOptionsImpl::create();
+  options->hydro()->icorr()->scheme(9);
+  auto icorr = [&](CoriolisOptions cor) {
+    options->hydro()->coriolis() = cor;
+    block = std::make_shared<MeshBlockImpl>(options), coord = block->pcoord;
+    run(0.);
+    return block->phydro->picorr->correction().clone();
+  };
+  auto rotating = icorr(options->hydro()->coriolis());
+  auto seen = rotating - icorr(nullptr);
+  EXPECT_GT(seen.abs().max().item<double>(), 0.) << "solve blind to Omega";
+  options->hydro()->icorr() = nullptr;
+  options->hydro()->grav() = nullptr;
   // nx1 = 1, no Coriolis (no x1 mass flux): -rho w v_{2,3} / r at the cell
   options->coord()->nx1() = options->coord()->global_nx1() = 1;
   options->hydro()->coriolis() = nullptr;
