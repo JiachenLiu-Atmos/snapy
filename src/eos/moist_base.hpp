@@ -6,10 +6,11 @@
 namespace snap {
 
 //! number of species rows (vapors after the dry one, plus clouds) a
-//! thermodynamics card adds to the hydro state; 0 without a card
+//! thermodynamics card adds to the hydro state; 0 without a card or species
 inline int thermo_species_rows(kintera::ThermoOptions const& thermo) {
   if (!thermo) return 0;
-  return thermo->vapor_ids().size() + thermo->cloud_ids().size() - 1;
+  int n = thermo->vapor_ids().size() + thermo->cloud_ids().size();
+  return n > 0 ? n - 1 : 0;
 }
 
 //! \brief What the two moist equations of state share.

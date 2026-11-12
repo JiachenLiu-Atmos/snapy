@@ -23,6 +23,13 @@ TEST(MoistEOS, ideal_gas_refuses_a_moist_card) {
   }
 }
 
+TEST(MoistEOS, ideal_gas_accepts_a_card_without_species) {
+  auto op = MeshBlockOptionsImpl::from_yaml("test_eos_temp2inteng.yaml");
+  op->hydro()->eos()->type() = "ideal-gas";
+  op->hydro()->eos()->thermo() = kintera::ThermoOptionsImpl::create();
+  EXPECT_NO_THROW(std::make_shared<MeshBlockImpl>(op));
+}
+
 TEST(AthenaArray, float32_tensor_keeps_its_values) {
   torch::manual_seed(3);
   auto t4 = torch::rand({3, 2, 4, 5}, torch::kFloat32) + 1.;
