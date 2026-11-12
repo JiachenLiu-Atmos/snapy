@@ -195,6 +195,17 @@ setup_test(test_wall_saturation)
 setup_test(test_cloud_parent_slots)
 setup_test(test_two_cards_species)
 setup_test(test_forcing)
+setup_test(test_conservation_budget)
+add_test(NAME test_conservation_budget_cuda.${buildl}
+         COMMAND test_conservation_budget.${buildl})
+set_tests_properties(test_conservation_budget_cuda.${buildl} PROPERTIES
+  ENVIRONMENT "SNAP_BUDGET_CUDA=1" SKIP_REGULAR_EXPRESSION "no CUDA")
+# E2: the budget of a Cartesian slab split in x2 over three ranks (periodic)
+add_test(NAME test_conservation_budget_mp.${buildl}
+         COMMAND torchrun --no-python --nproc-per-node=3
+                 $<TARGET_FILE:test_conservation_budget.${buildl}>)
+set_tests_properties(test_conservation_budget_mp.${buildl} PROPERTIES
+  ENVIRONMENT "SNAP_BUDGET_MP=1;BACKEND=gloo" TIMEOUT 120)  # a mispaired edge hangs
 setup_parallel_test(test_exchange 2)
 setup_parallel_test(test_output_barrier 2)
 # The Gloo device must honor the selected interface rather than resolve the host.

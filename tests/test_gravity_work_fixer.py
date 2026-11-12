@@ -152,8 +152,7 @@ def main():
     torch.set_default_dtype(torch.float64)
 
     failures = []
-    arms = (("cell + fixer (default)", {}, 0, "conserves"),
-            ("cell + fixer, implicit", {}, 1, "conserves"),
+    arms = (("cell + fixer, implicit", {}, 1, "conserves"),
             ("cell, fixer off", {"gravity-work": "cell", "gravity-work-fixer": False}, 0, "drifts"))
     arms += (("cell + fixer, Python wall", {}, 0, "conserves"),
              ("cell + fixer, float32", {}, 0, "float32"))

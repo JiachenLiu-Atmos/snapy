@@ -206,7 +206,7 @@ double rel_gap(torch::Tensor const& a, torch::Tensor const& ref) {
 }
 
 struct Gaps {
-  double one = 0., two = 0., drift = 0.;
+  double one = 0., two = 0., drift = 0., mass = 0.;  // mass: in units of n eps
 };
 
 // the 2-rank split after nstep steps against one block and against the
@@ -239,8 +239,15 @@ Gaps split_gaps(int rank, int nx1, double nh, char const* gw, int nstep,
                                            torch::dtype(torch::kFloat64)))
         .item<double>();
   };
+  auto global_m = [&] {  // the split's total mass, both ranks
+    auto m = mp->blocks.front();
+    auto in3 = m->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
+    auto mass =
+        (vm[0].at("hydro_u")[IDN] * m->pcoord->cell_volume()).index(in3);
+    return allreduce_sum(mp, mass.sum().reshape({1})).item<double>();
+  };
   Gaps g;
-  double ep0 = global_ep();
+  double ep0 = global_ep(), m0 = global_m();
   for (int n = 0; n < nstep; ++n) {
     step(mp, vm, dt);
     if (rank == 0) {
@@ -248,6 +255,8 @@ Gaps split_gaps(int rank, int nx1, double nh, char const* gw, int nstep,
       step(two, v2, dt);
     }
     g.drift = std::max(g.drift, std::abs(global_ep() - ep0) / ep0);
+    g.mass = std::max(g.mass, std::abs(global_m() - m0) / m0 /
+                                  ((n + 1) * 2.220446049250313e-16));
   }
   auto c = allreduce_sum(mp, padded_column(mp, vm, nx1));
   if (rank == 0) {
@@ -290,12 +299,13 @@ TEST(X1SeamSplitMp, split_across_two_ranks_matches_one_process) {
             "%s, nz %d: 2 ranks vs 2 blocks %.3e, vs 1 block %.3e; split E+P "
             "drift %.3e\n",
             arm, nx1, g.two, g.one, g.drift);
-        EXPECT_LE(g.two, 1e-13) << "nz " << nx1;
+        EXPECT_EQ(g.two, 0.) << "nz " << nx1;
         // the seam takes one block's centred slope (#303): one block's state,
         // to the round-off of the other arms
         EXPECT_LE(g.one, 1e-13) << "nz " << nx1;
       }
       EXPECT_LE(g.drift, 1e-13) << "rank " << rank << ", nz " << nx1;
+      EXPECT_LE(g.mass, 4.) << "split mass, units of n eps, nz " << nx1;
     }
     return;
   }
@@ -308,7 +318,7 @@ TEST(X1SeamSplitMp, split_across_two_ranks_matches_one_process) {
         "%s, non-hydrostatic %g: 2 ranks vs 2 blocks %.3e, vs 1 block %.3e\n",
         arm, nh, g.two, g.one);
     // round-off: 20 steps of the column, as test_x1_seam_split
-    EXPECT_LE(g.two, 1e-13) << "non-hydrostatic " << nh;
+    EXPECT_EQ(g.two, 0.) << "non-hydrostatic " << nh;
     if (centroid || co4) EXPECT_LE(g.one, 1e-13) << "non-hydrostatic " << nh;
   }
 }
