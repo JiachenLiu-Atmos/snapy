@@ -15,10 +15,9 @@
 #include <snap/recon/interpolation.hpp>
 #include <snap/recon/reconstruct.hpp>
 
-#include "interp_simple.hpp"
-
 // tests
 #include "device_testing.hpp"
+#include "interp_simple.hpp"
 
 using namespace snap;
 
