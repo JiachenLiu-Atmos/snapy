@@ -1030,8 +1030,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   bool track_dry =
       pmb->pscalar && pmb->pscalar->nvar() > 0 && !forcings.empty();
   auto dry_before = track_dry ? du[IDN].clone() : torch::Tensor();
-  // x1 mass-flux w (step 8): the Coriolis rows that read rho w wait for the
-  // stage's final x1 mass transfer, so Coriolis sees w = 0 here
+  // x1 mass-flux w (step 8): Coriolis reads rho w, which waits for the
+  // stage's final x1 mass transfer, so the Coriolis forcings run there
   auto ptype = pmb->pcoord->options->type();
   bool mass_w = peos->options->type() != "shallow-water" &&
                 pmb->pcoord->options->nc1() > 1 &&
@@ -1046,30 +1046,27 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     auto pc = pmb->pcoord;
     auto shape = w[IDN].sizes().vec();
     if (!(mw.x1f.defined() && mw.x1f.is_same(pc->x1f) &&
-          mw.ver == pc->x1f._version() && mw.wc1.device() == w.device() &&
-          mw.wc1.scalar_type() == w.scalar_type() &&
-          mw.wc1[IDN].sizes() == c10::IntArrayRef(shape))) {
+          mw.ver == pc->x1f._version() && mw.wc.device() == w.device() &&
+          mw.wc.scalar_type() == w.scalar_type() &&
+          mw.wc[IDN].sizes() == c10::IntArrayRef(shape))) {
       int is = pc->il(), ie = pc->iu() + 1;
       auto r = pc->x1v.slice(0, is, ie);
       mw.x1f = pc->x1f;
       mw.ver = pc->x1f._version();
       mw.area = pc->face_area1();
-      mw.vol = pc->cell_volume().slice(-1, is, ie);
-      mw.lo = r.square() - pc->x1f.slice(0, is, ie).square();
-      mw.hi = pc->x1f.slice(0, is + 1, ie + 1).square() - r.square();
+      auto den = 2. * r * pc->cell_volume().slice(-1, is, ie);
+      mw.lo = (r.square() - pc->x1f.slice(0, is, ie).square()) / den;
+      mw.hi = (pc->x1f.slice(0, is + 1, ie + 1).square() - r.square()) / den;
       mw.phi = torch::empty_like(w[IDN]);
-      // only rows IDN..IVZ are read by the Coriolis forcings
-      mw.wc1 =
+      // only rows IDN..IVZ are read by the Coriolis forcings; unit density,
+      // so the momenta (m1, rho v2, rho v3) go in as they are
+      mw.wc =
           torch::zeros({IVZ + 1, shape[0], shape[1], shape[2]}, w.options());
-      mw.wc2 = torch::zeros_like(mw.wc1);
-      mw.wc2[IDN].fill_(1.);
+      mw.wc[IDN].fill_(1.);
     }
-    // Coriolis sees w = 0 here; rows IDN, IVY, IVZ are w's, row IVX stays 0
-    mw.wc1[IDN].copy_(w[IDN]);
-    mw.wc1.narrow(0, IVY, 2).copy_(w.narrow(0, IVY, 2));
   }
   for (auto& f : forcings)
-    f.forward(du, mass_w && coriolis(f) ? mw.wc1 : w, temp, dt);
+    if (!(mass_w && coriolis(f))) f.forward(du, w, temp, dt);
   _forcing_dry = track_dry ? du[IDN] - dry_before : torch::Tensor();
 
   // Face work uses the x1 mass flux after positivity limiting and
@@ -1293,24 +1290,29 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   if (mass_w) {
     auto pc = pmb->pcoord;
     int is = pc->il(), ie = pc->iu() + 1;
-    auto& phi = mw.phi;  // transfer through face i (below i)
-    phi.zero_();
+    // phi: mass transfer rate through face i (below i), explicit flux plus
+    // the implicit transfer per unit time
+    auto& phi = mw.phi;
     if (_flux1.defined() && !options->disable_flux_x1()) {
       // no species rows: the dry flux is the whole mass flux
       auto f1 =
           ny > 0 ? _flux1[IDN] + _flux1.narrow(0, ICY, ny).sum(0) : _flux1[IDN];
-      phi += dt * mw.area.narrow(-1, 0, f1.size(-1)) * f1;
+      torch::mul_out(phi, mw.area.narrow(-1, 0, f1.size(-1)), f1);
+    } else {
+      phi.zero_();
     }
     auto mc = implicit_mass_correction();
-    if (mc.defined() && mc.numel() > 0) phi += mc[IVZ];
-    auto r = pc->x1v.slice(0, is, ie);
-    // m1 lives in row IVX of the Coriolis input wc2, x1 ghosts stay 0
-    auto m1 = mw.wc2[IVX];
-    m1.slice(-1, is, ie) = (phi.slice(-1, is, ie) * mw.lo +
-                            phi.slice(-1, is + 1, ie + 1) * mw.hi) /
-                           (2. * dt * r * mw.vol);
+    if (mc.defined() && mc.numel() > 0) phi.add_(mc[IVZ], 1. / dt);
+    // m1 lives in row IVX of the Coriolis input wc, x1 ghosts stay 0; one
+    // Coriolis call takes (m1, rho v2, rho v3)
+    auto m1 = mw.wc[IVX];
+    auto m1i = m1.slice(-1, is, ie);
+    torch::mul_out(m1i, phi.slice(-1, is, ie), mw.lo);
+    m1i.addcmul_(phi.slice(-1, is + 1, ie + 1), mw.hi);
+    auto mom = mw.wc.narrow(0, IVY, 2);
+    torch::mul_out(mom, w.narrow(0, IVY, 2), w[IDN]);
     for (auto& f : forcings)
-      if (coriolis(f)) f.forward(du, mw.wc2, temp, dt);
+      if (coriolis(f)) f.forward(du, mw.wc, temp, dt);
     pc->x1_mass_source_(du, w, m1, dt);
   } else if (ptype == "gnomonic-equiangle") {
     // no x1 mass-flux w (nc1 == 1, shallow water): m1 = rho w. Only the

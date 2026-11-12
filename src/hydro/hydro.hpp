@@ -361,13 +361,14 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
     int64_t v1 = -1, v2 = -1, v3 = -1;
   };
   CellVolume _cell_vol;
-  //! x1 mass-flux w (forward step 8): the grid-only factors (x1 face area,
-  //! cell volume and the r^2 split weights of the interior cells) and the
-  //! stage buffers it reuses: phi (face transfers), the Coriolis inputs wc1
-  //! (rho, 0, v2, v3) and wc2 (1, m1, 0, 0), whose row IVX is m1. Rebuilt
-  //! when the x1 faces, the dtype, the device or the block shape change
+  //! x1 mass-flux w (forward step 8): the grid-only factors (x1 face area and
+  //! the split weights (r^2 - r_lo^2) / (2 r V), (r_hi^2 - r^2) / (2 r V) of
+  //! the interior cells) and the stage buffers it reuses: phi (face transfer
+  //! rates) and the one Coriolis input wc = (1, m1, rho v2, rho v3), whose
+  //! row IVX is m1. Rebuilt when the x1 faces, the dtype, the device or the
+  //! block shape change
   struct MassW {
-    torch::Tensor x1f, area, vol, lo, hi, phi, wc1, wc2;
+    torch::Tensor x1f, area, lo, hi, phi, wc;
     int64_t ver = -1;
   };
   MassW _mass_w;

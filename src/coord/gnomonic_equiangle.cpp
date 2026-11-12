@@ -472,10 +472,12 @@ void GnomonicEquiangleImpl::x1_mass_source_(torch::Tensor du,
                                             torch::Tensor const& prim,
                                             torch::Tensor const& m1,
                                             double dt) const {
+  // du[v_i] -= dt m1 v_i / r with the covariant v_2 = v2 + c v3, v_3 = v3 + c
+  // v2
   auto c = cosine_cell_kj;
-  auto r = x1v.unsqueeze(0).unsqueeze(1);
-  du[IVY] -= dt * m1 * (prim[IVY] + prim[IVZ] * c) / r;
-  du[IVZ] -= dt * m1 * (prim[IVZ] + prim[IVY] * c) / r;
+  auto mr = m1 / x1v.unsqueeze(0).unsqueeze(1);
+  du[IVY].addcmul_(mr, torch::addcmul(prim[IVY], prim[IVZ], c), -dt);
+  du[IVZ].addcmul_(mr, torch::addcmul(prim[IVZ], prim[IVY], c), -dt);
 }
 
 torch::Tensor GnomonicEquiangleImpl::_interp_ghost(torch::Tensor buf,
