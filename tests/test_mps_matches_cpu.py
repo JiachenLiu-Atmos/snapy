@@ -3,8 +3,9 @@
 
 Each arm runs the same float32 problem on CPU and MPS. err = max|mps - cpu| /
 max|cpu| per variable, worst variable; an arm passes when both are finite and
-err <= TOL. f64 = the same for CPU float32 against CPU float64, printed for
-scale only. Exits 125 when MPS is not available.
+err <= max(TOL, 3 f64), f64 = the same for CPU float32 against CPU float64: MPS
+float32 is held to the CPU's own float32 error where that is larger. The ripple
+arms compare the tendency u(n) - u(0). Exits 125 when MPS is not available.
 
 The moist column stops before its last stage: the saturation adjustment there
 calls the thermodynamics library, which has no MPS kernel.
@@ -45,6 +46,12 @@ DRY = {
                     "tlim": 1.0e6, "ncycle_out": 0},
     "forcing": {"const-gravity": {"grav1": -9.8}},
 }
+
+
+def moist_cfg():
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "test_tracer_dry_convention.yaml")) as f:
+        return yaml.safe_load(f)
 
 
 def with_(cfg, **kv):
@@ -104,15 +111,24 @@ def column_ic(block, cfg):
     return {"hydro_w": w, "scalar_r": torch.full((1,) + w.shape[1:], 1.0e-3)}
 
 
-def evolve(cfg, ic, device, dtype, nstep, skip_last_stage=False):
+def rippled(ic):
+    """ic with a 5% (-1)^i density ripple along x1, which the x1 reference keeps."""
+    w = ic["hydro_w"]
+    w[0] *= 1.0 + 0.05 * (1 - 2 * (torch.arange(w.shape[-1]) % 2))
+    return ic
+
+
+def evolve(cfg, ic, device, dtype, nstep, skip_last_stage=False, tendency=False):
     block = make_block(cfg, device, dtype)
     v, _ = block.initialize({k: x.to(device, dtype) for k, x in ic(block).items()})
+    u0 = v["hydro_u"].detach().cpu().double().clone() if tendency else 0.0
     for _ in range(nstep):
         dt = block.max_time_step(v)
         n = len(block.intg.stages) - (1 if skip_last_stage else 0)
         for stage in range(n):
             block.forward(v, dt, stage)
-    return {k: v[k].detach().cpu().double() for k in ("hydro_u", "scalar_s") if k in v}
+    out = {k: v[k].detach().cpu().double() for k in ("hydro_u", "scalar_s") if k in v}
+    return {**out, "hydro_u": out["hydro_u"] - u0}
 
 
 def compare(name, run):
@@ -172,10 +188,7 @@ def solid_arm():
 
 
 def deck_arms():
-    here = os.path.dirname(os.path.abspath(__file__))
-    with open(os.path.join(here, "test_tracer_dry_convention.yaml")) as f:
-        moist = yaml.safe_load(f)
-    moist["integration"]["implicit-scheme"] = 0
+    moist = with_(moist_cfg(), integration__implicit_scheme=0)
     dry = {
         "rest": (DRY, 0.0),
         "bubble": (DRY, -15.0),
@@ -193,6 +206,9 @@ def deck_arms():
     for name, (cfg, dT) in dry.items():
         yield compare(name, lambda d, t, c=cfg, dT=dT: evolve(
             c, lambda b: bubble_ic(b, dT), d, t, nstep=5))
+    for name, dT, n in (("ripple rest", 0.0, 1), ("ripple bubble", -15.0, 5)):
+        yield compare(name, lambda d, t, dT=dT, n=n: evolve(
+            DRY, lambda b: rippled(bubble_ic(b, dT)), d, t, nstep=n, tendency=True))
     sed = {"radius": {}, "density": {}, "const-vsed": {"cloud": -2.0}}
     column = {
         "column": moist,
@@ -207,13 +223,13 @@ def deck_arms():
             c, lambda b: column_ic(b, c), d, t, nstep=1, skip_last_stage=True))
 
 
-def stretched_refused():
-    """A stretched x1 has no MPS reconstruction; it must say so."""
-    cfg = with_(DRY, geometry__cells__x1rat=1.02)
+def refused(cfg, says):
+    """A stretched x1 (no MPS reconstruction) and anomaly storage (a float64
+    reference) must say so on MPS."""
     try:
         evolve(cfg, lambda b: bubble_ic(b, 0.0), "mps", torch.float32, nstep=1)
     except Exception as e:
-        return "not supported on MPS" in str(e), str(e).splitlines()[0][:160]
+        return says in str(e), str(e).splitlines()[0][:160]
     return False, "ran"
 
 
@@ -225,14 +241,17 @@ def main():
 
     failures = []
     for name, err, f64, msg in [*recon_arms(), *solid_arm(), *deck_arms()]:
-        ok = err <= TOL
+        ok = err <= max(TOL, 3 * f64)
         print(f"{'ok  ' if ok else 'FAIL'} {name:28s} err={err:.2e} f64={f64:.2e} {msg}")
         if not ok:
             failures.append(name)
-    ok, msg = stretched_refused()
-    print(f"{'ok  ' if ok else 'FAIL'} stretched x1 refused: {msg}")
-    if not ok:
-        failures.append("stretched x1")
+    for name, cfg, says in (
+            ("stretched x1", with_(DRY, geometry__cells__x1rat=1.02), "not supported on MPS"),
+            ("anomaly", with_(moist_cfg(), dynamics__anomaly=True), "MPS does not have")):
+        ok, msg = refused(cfg, says)
+        print(f"{'ok  ' if ok else 'FAIL'} {name} refused: {msg}")
+        if not ok:
+            failures.append(name)
 
     if failures:
         print("FAIL:", ", ".join(failures))
