@@ -81,7 +81,8 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
   TORCH_CHECK(other.count("hydro_u"),
               "[Scalar] hydro_u is required for passive scalar transport");
 
-  auto rho = other.at("hydro_u")[IDN].unsqueeze(0);
+  // the TOTAL dry density (anomaly storage adds the reference)
+  auto rho = pmb->phydro->dry_density(other.at("hydro_u")).unsqueeze(0);
   // r = q_face / rho_face; q / rho of cell averages is second order (S177)
   auto face_r = [&](int dim) {
     auto recon = dim == DIM1 ? precon1 : precon;

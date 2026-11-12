@@ -34,9 +34,13 @@ void call_hllc_cpu(at::TensorIterator& iter, int dim) {
             auto elr = reinterpret_cast<scalar_t*>(data[4] + i * strides[4]);
             auto glr = reinterpret_cast<scalar_t*>(data[5] + i * strides[5]);
             auto clr = reinterpret_cast<scalar_t*>(data[6] + i * strides[6]);
+            auto p0 =
+                iter.ninputs() == 6
+                    ? *reinterpret_cast<scalar_t*>(data[7] + i * strides[7])
+                    : scalar_t(0);
             hllc_impl(out, wl, wr, *elr, *(elr + stride), *glr, *(glr + stride),
                       *clr, *(clr + stride), dim, ny, stride, stride,
-                      face_pressure);
+                      face_pressure, p0);
           }
         },
         grain_size);
@@ -53,6 +57,10 @@ void call_hllc_mps(at::TensorIterator& iter, int dim) {
   auto elr = iter.input(2);
   auto glr = iter.input(3);
   auto clr = iter.input(4);
+  bool shifted = iter.ninputs() == 6;
+  auto p0 = shifted ? iter.input(5).squeeze(0) : torch::Tensor();
+  auto pl = shifted ? p0 + wl[IPR] : wl[IPR];
+  auto pr = shifted ? p0 + wr[IPR] : wr[IPR];
 
   auto el = elr[ILT].clone();
   auto er = elr[IRT].clone();
@@ -83,12 +91,12 @@ void call_hllc_mps(at::TensorIterator& iter, int dim) {
 
   //--- Step 3.  Compute sound speed in L,R
 
-  auto ql =
-      torch::sqrt(1.0 + (gammal + 1) / (2 * gammal) * (pmid / wl[IPR] - 1.0));
+  auto shock_l = shifted ? (pmid - wl[IPR]) / pl : pmid / wl[IPR] - 1.0;
+  auto shock_r = shifted ? (pmid - wr[IPR]) / pr : pmid / wr[IPR] - 1.0;
+  auto ql = torch::sqrt(1.0 + (gammal + 1) / (2 * gammal) * shock_l);
   ql = torch::where(pmid <= wl[IPR], 1., ql);
 
-  auto qr =
-      torch::sqrt(1.0 + (gammar + 1) / (2 * gammar) * (pmid / wr[IPR] - 1.0));
+  auto qr = torch::sqrt(1.0 + (gammar + 1) / (2 * gammar) * shock_r);
   qr = torch::where(pmid <= wr[IPR], 1., qr);
 
   //--- Step 4.  Compute the max/min wave speeds based on L/R
@@ -114,7 +122,7 @@ void call_hllc_mps(at::TensorIterator& iter, int dim) {
   auto am = (tl - tr) / (ml + mr);
   // ...and the pressure at the contact surface
   auto cp = (ml * tr + mr * tl) / (ml + mr);
-  cp = torch::where(cp > 0.0, cp, 0.0);
+  cp = shifted ? torch::maximum(cp, -p0) : torch::where(cp > 0.0, cp, 0.0);
   face_pressure.copy_(cp);
 
   //--- Step 6. Compute L/R fluxes along the line bm, bp
@@ -133,8 +141,15 @@ void call_hllc_mps(at::TensorIterator& iter, int dim) {
   fl[ivx] += wl[IPR];
   fr[ivx] += wr[IPR];
 
-  fl[IPR] = el * vxl + wl[IPR] * wl[ivx];
-  fr[IPR] = er * vxr + wr[IPR] * wr[ivx];
+  fl[IPR] = el * vxl + pl * wl[ivx];
+  fr[IPR] = er * vxr + pr * wr[ivx];
+  if (shifted) {
+    int ny = wl.size(0) - ICY;
+    fl.narrow(0, ICY, ny).copy_(wl[IDN] * wl.narrow(0, ICY, ny) * vxl);
+    fr.narrow(0, ICY, ny).copy_(wr[IDN] * wr.narrow(0, ICY, ny) * vxr);
+    fl[IDN].mul_(1. - wl.narrow(0, ICY, ny).sum(0));
+    fr[IDN].mul_(1. - wr.narrow(0, ICY, ny).sum(0));
+  }
 
   //--- Step 8. Compute flux weights or scales
 
@@ -149,7 +164,7 @@ void call_hllc_mps(at::TensorIterator& iter, int dim) {
 
   torch::add_out(flx, sl.unsqueeze(0) * fl, sr.unsqueeze(0) * fr);
   flx[ivx] += sm * cp;
-  flx[IPR] += sm * cp * am;
+  flx[IPR] += sm * (shifted ? p0 + cp : cp) * am;
 }
 
 }  // namespace snap

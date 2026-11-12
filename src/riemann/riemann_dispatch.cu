@@ -36,16 +36,15 @@ void call_lmars_cuda(at::TensorIterator &iter, int dim) {
   });
 }
 
-void call_hllc_cuda(at::TensorIterator &iter, int dim) {
-  at::cuda::CUDAGuard device_guard(iter.device());
-
+template <int N>
+void hllc_cuda_impl(at::TensorIterator &iter, int dim) {
   AT_DISPATCH_FLOATING_TYPES(iter.common_dtype(), "call_hllc_cuda", [&]() {
     auto nhydro = at::native::ensure_nonempty_size(iter.output(0), 0);
     auto stride = at::native::ensure_nonempty_stride(iter.output(0), 0);
     auto ny = nhydro - ICY;
 
-    native::gpu_kernel<7>(iter, [=] GPU_LAMBDA(char *const data[7],
-                                               unsigned int strides[7]) {
+    native::gpu_kernel<N>(iter, [=] GPU_LAMBDA(char *const data[N],
+                                               unsigned int strides[N]) {
       auto out = reinterpret_cast<scalar_t *>(data[0] + strides[0]);
       auto face_pressure = reinterpret_cast<scalar_t *>(data[1] + strides[1]);
       auto wl = reinterpret_cast<scalar_t *>(data[2] + strides[2]);
@@ -53,10 +52,21 @@ void call_hllc_cuda(at::TensorIterator &iter, int dim) {
       auto elr = reinterpret_cast<scalar_t *>(data[4] + strides[4]);
       auto glr = reinterpret_cast<scalar_t *>(data[5] + strides[5]);
       auto clr = reinterpret_cast<scalar_t *>(data[6] + strides[6]);
+      scalar_t p0 = 0;
+      if constexpr (N == 8)
+        p0 = *reinterpret_cast<scalar_t *>(data[7] + strides[7]);
       hllc_impl(out, wl, wr, *elr, *(elr + stride), *glr, *(glr + stride), *clr,
-                *(clr + stride), dim, ny, stride, stride, face_pressure);
+                *(clr + stride), dim, ny, stride, stride, face_pressure, p0);
     });
   });
+}
+
+void call_hllc_cuda(at::TensorIterator &iter, int dim) {
+  at::cuda::CUDAGuard device_guard(iter.device());
+  if (iter.ninputs() == 6)
+    hllc_cuda_impl<8>(iter, dim);
+  else
+    hllc_cuda_impl<7>(iter, dim);
 }
 
 void call_roe_cuda(at::TensorIterator &iter, int dim, bool ideal_moist,

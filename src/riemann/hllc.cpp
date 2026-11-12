@@ -30,27 +30,50 @@ void HLLCSolverImpl::reset() {
 torch::Tensor HLLCSolverImpl::forward(torch::Tensor wl, torch::Tensor wr,
                                       int dim, torch::Tensor flx,
                                       torch::Tensor face_pressure) {
+  return _forward(wl, wr, dim, flx, face_pressure, torch::Tensor());
+}
+
+torch::Tensor HLLCSolverImpl::forward_perturbations(
+    torch::Tensor wl, torch::Tensor wr, int dim, torch::Tensor flx,
+    torch::Tensor reference_pressure, torch::Tensor face_pressure_delta) {
+  TORCH_CHECK(reference_pressure.defined(),
+              "HLLC perturbations require a shared face pressure background");
+  return _forward(wl, wr, dim, flx, face_pressure_delta, reference_pressure);
+}
+
+torch::Tensor HLLCSolverImpl::_forward(torch::Tensor wl, torch::Tensor wr,
+                                       int dim, torch::Tensor flx,
+                                       torch::Tensor face_pressure,
+                                       torch::Tensor reference_pressure) {
   auto pcoord = phydro->pmb->pcoord;
   auto peos = phydro->peos;
-
-  elr[ILT] = peos->compute("W->I", {wl});
-
-  if (peos->options->type() == "aneos") {
-    clr[ILT] = peos->compute("W->L", {wl});
-    glr[ILT] = peos->compute("WL->A", {wl, clr[ILT]});
-  } else {
-    glr[ILT] = peos->compute("W->A", {wl});
-    clr[ILT] = peos->compute("WA->L", {wl, glr[ILT]});
+  auto wl_total = wl, wr_total = wr;
+  if (reference_pressure.defined()) {
+    reference_pressure = reference_pressure.to(wl.options()).expand_as(wl[IPR]);
+    wl_total = wl.clone();
+    wr_total = wr.clone();
+    wl_total[IPR] += reference_pressure;
+    wr_total[IPR] += reference_pressure;
   }
 
-  elr[IRT] = peos->compute("W->I", {wr});
+  elr[ILT] = peos->compute("W->I", {wl_total});
 
   if (peos->options->type() == "aneos") {
-    clr[IRT] = peos->compute("W->L", {wr});
-    glr[IRT] = peos->compute("WL->A", {wr, clr[IRT]});
+    clr[ILT] = peos->compute("W->L", {wl_total});
+    glr[ILT] = peos->compute("WL->A", {wl_total, clr[ILT]});
   } else {
-    glr[IRT] = peos->compute("W->A", {wr});
-    clr[IRT] = peos->compute("WA->L", {wr, glr[IRT]});
+    glr[ILT] = peos->compute("W->A", {wl_total});
+    clr[ILT] = peos->compute("WA->L", {wl_total, glr[ILT]});
+  }
+
+  elr[IRT] = peos->compute("W->I", {wr_total});
+
+  if (peos->options->type() == "aneos") {
+    clr[IRT] = peos->compute("W->L", {wr_total});
+    glr[IRT] = peos->compute("WL->A", {wr_total, clr[IRT]});
+  } else {
+    glr[IRT] = peos->compute("W->A", {wr_total});
+    clr[IRT] = peos->compute("WA->L", {wr_total, glr[IRT]});
   }
 
   switch (dim) {
@@ -73,18 +96,20 @@ torch::Tensor HLLCSolverImpl::forward(torch::Tensor wl, torch::Tensor wr,
   auto face_pressure_out =
       face_pressure.defined() ? face_pressure : torch::empty_like(wl[IDN]);
 
-  auto iter = at::TensorIteratorConfig()
-                  .resize_outputs(false)
-                  .check_all_same_dtype(false)
-                  .declare_static_shape(flx.sizes(), /*squash_dims=*/0)
-                  .add_output(flx)
-                  .add_owned_output(face_pressure_out.unsqueeze(0))
-                  .add_input(wl)
-                  .add_input(wr)
-                  .add_input(elr)
-                  .add_input(glr)
-                  .add_input(clr)
-                  .build();
+  at::TensorIteratorConfig config;
+  config.resize_outputs(false)
+      .check_all_same_dtype(false)
+      .declare_static_shape(flx.sizes(), /*squash_dims=*/0)
+      .add_output(flx)
+      .add_owned_output(face_pressure_out.unsqueeze(0))
+      .add_input(wl)
+      .add_input(wr)
+      .add_input(elr)
+      .add_input(glr)
+      .add_input(clr);
+  if (reference_pressure.defined())
+    config.add_owned_input(reference_pressure.unsqueeze(0));
+  auto iter = config.build();
 
   at::native::call_hllc(flx.device().type(), iter, dim);
 

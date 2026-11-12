@@ -5,6 +5,7 @@
 #include <torch/torch.h>
 
 // snap
+#include <snap/hydro/gravity_work.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
 
 using namespace snap;
@@ -85,6 +86,38 @@ TEST(GravityWorkCacheTo, seam_radial) {
 }
 TEST(GravityWorkCacheTo, seam_radial_mid) {
   check_cache_follows_to(X1Measure::radial_mid, true);
+}
+
+TEST(GravityWorkCacheTo, local_face_work_retains_small_offsets_and_dtype) {
+  auto x1f = torch::arange(9, torch::kFloat64) * 0.125;
+  auto x1v = (x1f.slice(0, 0, 8) + x1f.slice(0, 1, 9)) * 0.5;
+  auto volume = torch::full({2, 3, 8}, 0.125, torch::kFloat64);
+  auto mass = torch::arange(54, torch::kFloat32).reshape({2, 3, 9}) * 0.01;
+  auto origin = gravity_work_from_face_mass(mass, x1f, x1v, volume, 1, 7, -10.);
+  auto translated = gravity_work_from_face_mass(mass, x1f + 1.e8, x1v + 1.e8,
+                                                volume, 1, 7, -10.);
+  EXPECT_EQ(origin.scalar_type(), torch::kFloat32);
+  EXPECT_TRUE(torch::equal(origin, translated));
+  auto expected = -5. * (mass.slice(-1, 2, 8) + mass.slice(-1, 1, 7));
+  EXPECT_TRUE(torch::allclose(origin, expected, 2.e-7, 1.e-7));
+}
+
+TEST(GravityWorkCacheTo, local_face_work_matches_potential_energy_identity) {
+  auto x1f = torch::tensor({0., 1., 2.5, 4.5, 7., 10.}, torch::kFloat64);
+  auto x1v = (x1f.slice(0, 0, 5) + x1f.slice(0, 1, 6)) * 0.5;
+  auto volume = torch::tensor({1., 1.5, 2., 2.5, 3.}, torch::kFloat64);
+  auto mass = torch::tensor({0., -2., 3., -4., 2., 0.}, torch::kFloat64);
+  double g = -9.8;
+  auto work = gravity_work_from_face_mass(mass, x1f, x1v, volume, 0, 5, g);
+  auto phi = -g * x1f;
+  auto expected = ((-g * x1v) * (mass.slice(0, 1, 6) - mass.slice(0, 0, 5)) -
+                   (phi.slice(0, 1, 6) * mass.slice(0, 1, 6) -
+                    phi.slice(0, 0, 5) * mass.slice(0, 0, 5))) /
+                  volume;
+  EXPECT_TRUE(torch::allclose(work, expected, 1.e-14, 1.e-13));
+  auto dm = -(mass.slice(0, 1, 6) - mass.slice(0, 0, 5));
+  EXPECT_NEAR((work * volume + (-g * x1v) * dm).sum().item<double>(), 0.,
+              1.e-12);
 }
 
 int main(int argc, char** argv) {

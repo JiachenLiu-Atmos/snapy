@@ -96,6 +96,7 @@ TEST(UranusCycle1, column_finishes_the_two_cycles) {
 // exits 0 and goes green once finalize returns that status.
 TEST(UranusCycle1, abnormal_termination_exits_nonzero) {
   auto r = run_deck("test_abnormal_exit_floor.yaml");
+  SCOPED_TRACE(r.log);
   ASSERT_NE(r.code, -1) << r.log;
   ASSERT_NE(r.log.find("Terminating abnormally"), std::string::npos)
       << "this deck no longer terminates abnormally; the exit-code check was "

@@ -9,6 +9,7 @@
 #include <snap/utils/log.hpp>
 
 #include "flux_positivity.hpp"
+#include "gravity_work.hpp"
 #include "gravity_work_radial.hpp"
 #include "hydro.hpp"
 #include "x1_mass_covariance.hpp"
@@ -350,16 +351,19 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       return p && a.size(0) > IPR ? good & (a[IPR] > pf) : good;
     };
     auto w0 = w.clone();
-    auto up = u - lap(u);
+    // Conversion acts on total cell averages, including the static background.
+    // Differencing only stored anomalies omits the background curvature.
+    auto averages = has_reference() ? total_u(u) : u;
+    auto up = averages - lap(averages);
     auto good = ok(up, false);
-    auto tmp = torch::where(good, up, u);
+    auto tmp = torch::where(good, up, averages);
     auto keep = [](torch::Tensor const& a) {
       return a.defined() ? a.clone() : a;
     };
     auto marks = keep(peos->limiter_marks());
     auto fails = keep(peos->vapor_failures());
     auto tmp0 = lim ? tmp.clone() : torch::Tensor();
-    peos->forward(tmp, w);
+    peos->compute("U->W", {tmp, w});
     if (lim) {
       good &= (tmp == tmp0).all(0);
       if (marks.defined()) peos->limiter_marks().copy_(marks);
@@ -896,7 +900,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       auto m = [&](torch::Tensor const& f) {
         return f.defined() ? f.narrow(0, IDN, 1) : torch::Tensor();
       };
-      auto rho = u.narrow(0, IDN, 1);
+      auto rho = dry_density(u).unsqueeze(0);
       auto td = flux_positivity_theta(rho, m(_flux1), m(_flux2), m(_flux3),
                                       pmb->pcoord, dt);
       auto phi = flux_positivity_share(uy / rho);
@@ -933,7 +937,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       vc.v2 = pc->x2f._version();
       vc.v3 = pc->x3f._version();
     }
-    auto cell_mass = (u[IDN] + uy.sum(0)) * vc.val;
+    auto cell_mass = (dry_density(u) + uy.sum(0)) * vc.val;
     auto withheld = ((1. - theta) * drain).index(cells).to(torch::kFloat64);
     auto above =
         withheld > positivity_roundoff(u.scalar_type()) *
@@ -1066,24 +1070,32 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     int ie = pmb->pcoord->iu() + 1;
     auto area1 = pmb->pcoord->face_area1();
     auto volume = pmb->pcoord->cell_volume();
-    auto phi_face = -grav1 * pmb->pcoord->x1f;
     auto phi_cell = -grav1 * pmb->pcoord->x1v;
-    auto potential_flux1 = vertical_mass_flux1 *
-                           phi_face.narrow(0, 0, vertical_mass_flux1.size(-1));
     auto vertical_mass_div =
         (area1.slice(-1, is + 1, ie + 1) *
              vertical_mass_flux1.slice(-1, is + 1, ie + 1) -
          area1.slice(-1, is, ie) * vertical_mass_flux1.slice(-1, is, ie)) /
         volume.slice(-1, is, ie);
-    auto potential_flux_div =
-        (area1.slice(-1, is + 1, ie + 1) *
-             potential_flux1.slice(-1, is + 1, ie + 1) -
-         area1.slice(-1, is, ie) * potential_flux1.slice(-1, is, ie)) /
-        volume.slice(-1, is, ie);
-
-    auto face_gravity_work =
-        dt *
-        (phi_cell.slice(0, is, ie) * vertical_mass_div - potential_flux_div);
+    torch::Tensor face_gravity_work;
+    if (pmb->pcoord->options->type() == "cartesian") {
+      auto face_mass = area1.narrow(-1, 0, vertical_mass_flux1.size(-1)) *
+                       vertical_mass_flux1;
+      face_gravity_work = dt * gravity_work_from_face_mass(
+                                   face_mass, pmb->pcoord->x1f,
+                                   pmb->pcoord->x1v, volume, is, ie, grav1);
+    } else {
+      auto phi_face = -grav1 * pmb->pcoord->x1f;
+      auto potential_flux1 =
+          vertical_mass_flux1 *
+          phi_face.narrow(0, 0, vertical_mass_flux1.size(-1));
+      auto potential_flux_div =
+          (area1.slice(-1, is + 1, ie + 1) *
+               potential_flux1.slice(-1, is + 1, ie + 1) -
+           area1.slice(-1, is, ie) * potential_flux1.slice(-1, is, ie)) /
+          volume.slice(-1, is, ie);
+      face_gravity_work = dt * (phi_cell.slice(0, is, ie) * vertical_mass_div -
+                                potential_flux_div);
+    }
 
     // SNAP_GRAVITY_WORK_RADIAL_EXACT: add the work of the corrected potential
     // energy for this stage's x1 density change (derivation sec 7); it

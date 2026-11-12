@@ -34,7 +34,8 @@ void OutputType::loadHydroOutputData(MeshBlockImpl* pmb,
   auto pcoord = pmb->pcoord;
 
   auto const& w = vars.at("hydro_w");
-  auto const& u = vars.at("hydro_u");
+  // totals: anomaly storage adds the reference back for output
+  auto u = pmb->phydro->total_u(vars.at("hydro_u"));
   int nhydro = peos->nvar();
   int ncomp = nhydro - ICY;
 

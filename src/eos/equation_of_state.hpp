@@ -130,6 +130,11 @@ class EquationOfStateImpl {
    * These five abbreviations should be supported:
    *  - "W->U": convert primitive variables to conserved variables
    *  - "U->W": convert conserved variables to primitive variables
+   *
+   * Under anomaly storage (fp32 roadmap Step 1; ideal-moist only) "U->W" and
+   * "W->U" keep meaning totals; "U'->W" and "W->U'" take or give the stored
+   * representation, whose rows {IDN, IPR} are anomalies about hydro.ref.
+   * `forward` converts the stored representation.
    *  - "WA->L": compute sound speed from primitive variables and adiabatic
    *  - "W->A": compute adiabatic index from conserved variables
    *  - "W->T": compute temperature
@@ -151,8 +156,14 @@ class EquationOfStateImpl {
   //!        whole x1 column when it spans meshblocks; all blocks of the column
   //!        must then call together, as MeshBlockImpl::advance_local does
   //!        (#232).
+  //! \param totals   `cons` holds totals even though the block stores
+  //!        anomalies (fp32 roadmap Step 1): the "U->W"/"W->U" keys. Without a
+  //!        hydro reference it changes nothing. With one and `totals` false,
+  //!        rows {IDN, IPR} of `cons` are anomalies of the full block and the
+  //!        floors act in anomaly space, bit-exact where they are inactive.
   virtual void apply_conserved_limiter_(torch::Tensor const& cons,
-                                        bool whole_column = false);
+                                        bool whole_column = false,
+                                        bool totals = false);
 
   //! \brief Apply the primitive variable limiter in place.
   virtual void apply_primitive_limiter_(torch::Tensor const& prim);

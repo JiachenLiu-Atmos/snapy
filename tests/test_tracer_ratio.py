@@ -35,7 +35,7 @@ def build(card):
     return block
 
 
-def column(nx1, nx2, nx3=1, limiter=False, x2max=4.e6, amp=1., onecol=False, courant=15., q=1e-4, r=R0):
+def column(nx1, nx2, nx3=1, limiter=False, x2max=4.e6, amp=1., onecol=False, courant=15., q=1e-4, r=R0, anomaly=False):
     """Isothermal column on a stretched x1 grid (snapy.balance_column), a Gaussian pressure bump
     (in every column, or in the first only), ratios q and r per x1 cell; returns block, state, dt"""
     weno = {"type": "weno5", "scale": True, "shock": True}
@@ -52,7 +52,7 @@ def column(nx1, nx2, nx3=1, limiter=False, x2max=4.e6, amp=1., onecol=False, cou
                      "cells": {"nx1": nx1, "nx2": nx2, "nx3": nx3, "nghost": 3,
                                "x1rat": 4. ** (1. / (nx1 - 1))}},
         "distribute": {"layout": "slab", "nb2": 1, "nb3": 1, "verbose": False},
-        "dynamics": {"equation-of-state": {"type": "ideal-moist", "density-floor": 1.e-10,
+        "dynamics": {"anomaly": anomaly, "equation-of-state": {"type": "ideal-moist", "density-floor": 1.e-10,
                                            "pressure-floor": 1.e-10, "limiter": limiter},
                      "reconstruct": {"vertical": weno, "horizontal": weno},
                      "riemann-solver": {"type": "lmars"}},
@@ -95,7 +95,7 @@ def step(block, v, dt, q0):  # one rk3 step: max|r/r0-1|, max|q/q0-1|, min s, mi
         if stage == 0:
             Fr, Fs = B["hydro.F1"][kIDN][I[:2]][..., 3:-2], B["scalar.F1"][0][I[:2]][..., 3:-2]
             face = Fs[Fr != 0] / (R0 * Fr[Fr != 0])
-        u, s = v["hydro_u"][(slice(None),) + I], v["scalar_s"][0][I]
+        u, s = block.total_u(v)[(slice(None),) + I], v["scalar_s"][0][I]
         dr = max(dr, float((s / u[kIDN] / R0 - 1).abs().max()))
         dq = max(dq, float((u[kICY] / (u[kIDN] + u[kICY:].sum(0)) / q0 - 1).abs().max()))
         ls, lq = min(ls, float(s.min())), min(lq, float(u[kICY].min()))
@@ -108,8 +108,8 @@ def one(n, k, hole):  # one cell k filled in an empty column, or one empty cell 
     return p
 
 
-def uniform(nx2, nx3=1):
-    dr, dq, _, _, df = step(*column(8, nx2, nx3), 1e-4)
+def uniform(nx2, nx3=1, anomaly=False):
+    dr, dq, _, _, df = step(*column(8, nx2, nx3, anomaly=anomaly), 1e-4)
     return f"max|r/r0-1| = {dr:.3e}, max|q/q0-1| = {dq:.3e}, stage-0 x1 F_s/(r0 F_rho) off 1 by {df:.1e}", \
         max(dr, dq, df) <= 1e-12
 
@@ -182,6 +182,8 @@ def sideways(nx3, lim):  # ratios alternate 1, 0.1 along x2 (x3), wind along it 
 if __name__ == "__main__":
     if DEV == "cuda" and not torch.cuda.is_available(): sys.exit(125)  # no visible GPU: skip
     arms = [("uniform nx2=4", lambda: uniform(4)), ("uniform nx2=nx3=4", lambda: uniform(4, 4)),
+            ("anomaly uniform nx2=4", lambda: uniform(4, anomaly=True)),
+            ("anomaly uniform nx2=nx3=4", lambda: uniform(4, 4, anomaly=True)),
             ("uniform nx2=1", lambda: uniform(1)),
             ("one-cell 5", lambda: holes(5, False)), ("one-hole 6", lambda: holes(6, True)),
             ("limiter C30", lambda: limiter(30., 0.55)), ("limiter C100", lambda: limiter(100., 0.18)),

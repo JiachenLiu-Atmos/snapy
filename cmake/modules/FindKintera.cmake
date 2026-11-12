@@ -127,7 +127,7 @@ find_package_handle_standard_args(
   REQUIRED_VARS ${kintera_required_vars}
   VERSION_VAR KINTERA_VERSION
   REASON_FAILURE_MESSAGE
-    "snapy requires kintera >= ${Kintera_FIND_VERSION} (SpeciesThermo names()/mu() from kintera #121, ThermoY take_saturation_adjustment_failures() from kintera #131, the h2o_bryan liquid beta of kintera #144, and explicit kinetics rate constants from forward_with_rate_constants()), found ${KINTERA_VERSION}")
+    "snapy requires kintera >= ${Kintera_FIND_VERSION} (SpeciesThermo names()/mu() from kintera #121, ThermoY take_saturation_adjustment_failures() from kintera #131, the h2o_bryan liquid beta of kintera #144, explicit kinetics rate constants from forward_with_rate_constants(), and perturbation pressure from kintera #155), found ${KINTERA_VERSION}")
 
 unset(kintera_lib_dir)
 unset(kintera_include_dir)

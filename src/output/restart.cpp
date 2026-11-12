@@ -34,6 +34,24 @@ void RestartOutput::write_output_file(MeshBlockImpl* pmb, Variables const& vars,
       out_vars[name] = var.to(torch::kCPU);
     }
   }
+  // anomaly storage (fp32 roadmap Step 1): the file always holds totals, and
+  // the fp64 reference rides along so a resume reuses the same bits
+  // (hydro_u_stored keeps the anomaly bits: (u' + ref) - ref is not u')
+  if (pmb->phydro->has_reference() && vars.count("hydro_u")) {
+    auto const& u = vars.at("hydro_u");
+    out_vars["hydro_u"] = pmb->phydro->total_u(u).to(torch::kCPU);
+    out_vars["hydro_u_stored"] = u.to(torch::kCPU);
+    out_vars["hydro_ref"] = pmb->phydro->u_ref().to(torch::kCPU);
+    if (pmb->phydro->species_ref().defined()) {
+      out_vars["hydro_ref_species"] =
+          pmb->phydro->species_ref().to(torch::kCPU);
+    }
+    if (vars.count("fill_solid_hydro_u") &&
+        vars.at("fill_solid_hydro_u").defined()) {
+      out_vars["fill_solid_hydro_u"] =
+          pmb->phydro->total_u(vars.at("fill_solid_hydro_u")).to(torch::kCPU);
+    }
+  }
 
   // store last time and cycle
   out_vars["last_time"] = torch::tensor({current_time}, torch::kFloat64);

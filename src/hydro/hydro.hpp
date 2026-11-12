@@ -15,6 +15,7 @@
 #include <snap/recon/reconstruct.hpp>
 #include <snap/riemann/riemann_solver.hpp>
 #include <snap/sedimentation/sedimentation.hpp>
+#include <snap/utils/fp64_store.hpp>
 
 // arg
 #include <snap/add_arg.h>
@@ -23,6 +24,7 @@ namespace snap {
 
 class MeshBlockImpl;
 struct WbRef4Stencils;
+class HydroReferenceX1Operator;
 struct X1PlainMeanStencils;
 struct X1PressureSourceStencils;
 
@@ -56,6 +58,10 @@ struct HydroOptionsImpl {
   //! order of the x1 cell-average <-> point conversion of the primitives: 2
   //! (W of the averages) or 4 (hydro_forward.cpp); x2/x3 stay second order
   ADD_ARG(int, conversion_order) = 2;
+  //! store hydro_u rows IDN and IPR as anomalies about a static fp64
+  //! reference (fp32 roadmap, Step 1). YAML `dynamics: {anomaly: true}`,
+  //! overridden by SNAP_ANOMALY=0|1. Off: every path is unchanged.
+  ADD_ARG(bool, anomaly) = false;
 
   //! forcing options
   ADD_ARG(ConstGravityOptions, grav) = nullptr;
@@ -235,6 +241,51 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! directly, outside the stage loop, and must keep working.
   int rk_stage = -1;
 
+  //// ---------- anomaly storage (fp32 roadmap, Step 1) ---------- ////
+  //! fp64 holder of the reference state, registered as "ref" when anomaly
+  //! mode is on (null otherwise). Buffer "u0": rows {IDN, IPR} of the
+  //! conserved reference, shape (2, n3|1, n2|1, nc1) including ghosts.
+  Fp64Store pref = nullptr;
+
+  //! anomaly storage is on for this block
+  bool anomaly() const { return options->anomaly(); }
+  //! the reference has been built (anomaly on and initialization done)
+  bool has_reference() const { return pref && pref->has("u0"); }
+  //! rows {IDN, IPR} of the conserved reference (undefined if none)
+  torch::Tensor u_ref() const {
+    return pref ? pref->get("u0") : torch::Tensor();
+  }
+  //! Initial species densities for thermodynamic/mixture-density perturbations.
+  //! Undefined for legacy restarts that did not retain composition.
+  torch::Tensor species_ref() const {
+    auto r = pref ? pref->get("species0") : torch::Tensor();
+    return r.defined() && r.dim() == 4 ? r : torch::Tensor();
+  }
+  //! `t` has the full block shape the reference covers (nvar, n3, n2, n1)
+  bool is_full_block(torch::Tensor const& t) const {
+    if (!has_reference() || t.dim() != 4 || t.size(0) <= IPR) return false;
+    auto r = u_ref();
+    return (r.size(1) == 1 || t.size(1) == r.size(1)) &&
+           (r.size(2) == 1 || t.size(2) == r.size(2)) && t.size(3) == r.size(3);
+  }
+  //! rows {IDN, IPR} of the reference expanded to the block shape of `u`
+  //! (nvar, n3, n2, n1), retaining FP64; checks that `u` is a full block
+  torch::Tensor u_ref_like(torch::Tensor const& u) const;
+  //! store the reference from a full-row conserved state `u_full`
+  //! (velocities already zero). Keeps a broadcast column when `u_full` is
+  //! bit-identical along x2 and x3.
+  void set_reference(torch::Tensor const& u_full);
+  //! u[{IDN, IPR}] += ref, in place, in u's dtype; no-op without a reference
+  void add_reference_(torch::Tensor u) const;
+  //! u[{IDN, IPR}] -= ref, in place; no-op without a reference
+  void sub_reference_(torch::Tensor u) const;
+  //! total dry density u[IDN] (+ ref) of a full-block stored state
+  torch::Tensor dry_density(torch::Tensor const& u) const {
+    return has_reference() ? u[IDN] + u_ref_like(u)[0] : u[IDN];
+  }
+  //! FP64 totals from the stored representation (new tensor; `u` if no ref)
+  torch::Tensor total_u(torch::Tensor const& u) const;
+
  protected:
   void _revise_x1inner_ghost(torch::Tensor const& w);
   void _revise_x1outer_ghost(torch::Tensor const& w);
@@ -273,8 +324,7 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! Register all forcing modules
   std::vector<std::string> _register_forcings_module();
 
-  mutable int x1_uniform_ = -1;
-  mutable torch::Tensor x1_rows_;
+  mutable std::shared_ptr<HydroReferenceX1Operator> x1_reference_;
 
   void _check_stretched_x1(torch::Tensor const& u) const;
   //! SNAP_WB_REF4 stencils for this block's x1 grid, built on first use

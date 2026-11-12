@@ -7,7 +7,7 @@
 #include <snap/coord/x1_centroid.hpp>
 
 #include "balance_column.hpp"
-#include "hydro_dispatch.hpp"
+#include "hydro_reference.hpp"
 
 namespace snap {
 
@@ -54,24 +54,13 @@ std::tuple<torch::Tensor, double, int> balance_column(
               "balance_column: p and rho must be positive everywhere");
   auto rt = (prs / rho).clone();  // p/rho per cell, the invariant, taken ONCE
 
-  auto sizes = w.sizes().slice(1).vec();
-  auto psf_lo = torch::empty(sizes, w.options());
-  auto psf_hi = torch::empty(sizes, w.options());
-  auto pref = torch::empty(sizes, w.options());
-  auto dsf = torch::empty(sizes, w.options());
-  auto dref = torch::empty(sizes, w.options());
+  HydroReferenceX1 reference(w);
+  auto& pref = reference.pref;
+  HydroReferenceX1Operator ref_operator(dxf, nc1 - 1, stretched,
+                                        /*phys_in=*/true, /*phys_out=*/true,
+                                        wall_clamp, kX1RefStretched);
   torch::Tensor anchor;  // undefined: the kernel builds its own top anchor
 
-  // unequal widths take the stretched rows (#280), whatever the key
-  auto d = dxf.to(torch::kCPU).to(torch::kFloat64);
-  stretched = stretched || (d.max() - d.min()).item<double>() >=
-                               1.e-10 * d.mean().item<double>();
-  int x1_grid = stretched ? kX1RefStretched : kX1RefUniform;
-  // #280 (iv): the same rows a block builds from the same widths
-  torch::Tensor rows;
-  if (stretched)
-    rows = hydro_ref_x1_stretched_rows(dxf, nc1 - 1, true, true, wall_clamp)
-               .to(w.options());
   auto wgt = grav * dxf;
 
   // check, then update: the residual therefore describes the state returned,
@@ -79,10 +68,7 @@ std::tuple<torch::Tensor, double, int> balance_column(
   double err = std::numeric_limits<double>::infinity();
   int sweeps = 0;
   for (; sweeps <= max_iter; ++sweeps) {
-    at::native::call_hydro_ref_x1(wb.device().type(), wb, dxf, anchor, psf_lo,
-                                  psf_hi, pref, dsf, dref, nc1 - 1, grav,
-                                  x1_grid, /*phys_in=*/true, /*phys_out=*/true,
-                                  wall_clamp, rows);
+    ref_operator.evaluate(wb, grav, anchor, reference);
     auto pp = prs - pref;
     auto c = pp.narrow(-1, nc1 - 1, 1);  // one gauge per column, at its top
     err = ((pp - c).abs() / (rho * wgt)).max().item<double>();

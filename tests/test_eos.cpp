@@ -257,6 +257,175 @@ TEST_P(DeviceTest, ideal_moist_internal_energy_offset) {
   EXPECT_TRUE(torch::allclose(tendency_offset, 0.25 * offset, 1.E-6, 1.E-6));
 }
 
+TEST_P(DeviceTest, ideal_moist_pressure_perturbations_preserve_small_heating) {
+  auto options = MeshBlockOptionsImpl::from_yaml("test_eos_temp2inteng.yaml");
+  options->hydro()->anomaly() = true;
+  auto block = MeshBlock(options);
+  block->to(device, torch::kFloat64);
+  auto eos = std::dynamic_pointer_cast<IdealMoistImpl>(block->phydro->peos);
+  auto w = torch::zeros(
+      {eos->nvar(), block->pcoord->options->nc3(),
+       block->pcoord->options->nc2(), block->pcoord->options->nc1()},
+      torch::device(device).dtype(torch::kFloat64));
+  w[IDN].fill_(10.);
+  w[IPR].fill_(1.e7);
+  // Exactly representable species densities after W->U, so their initial
+  // conversion to float32 cannot masquerade as a thermal perturbation.
+  w[ICY].fill_(0.0125);
+  w[ICY + 1].fill_(0.025);
+  auto u0 = eos->compute("W->U", {w});
+  block->phydro->set_reference(u0);
+  auto stored = u0.clone();
+  block->phydro->sub_reference_(stored);
+  block->to(device, dtype);
+  stored = stored.to(dtype);
+  stored[IPR].fill_(0.01);
+  auto before = stored.clone();
+  auto result = eos->perturbations(stored);
+  auto rho = torch::cat({u0[IDN].unsqueeze(0), u0.narrow(0, ICY, 2)}, 0);
+  // Use options for the offset oracle too: module conversion may round u0.
+  auto offset = torch::tensor(eos->pthermo->options->uref_R(), w.options()) *
+                kintera::constants::Rgas /
+                torch::tensor(eos->pthermo->options->mu(), w.options());
+  auto expected = stored[IPR].to(torch::kFloat64) * w[IPR] /
+                  (u0[IPR] - (rho * offset.view({-1, 1, 1, 1})).sum(0));
+  EXPECT_EQ(result.pressure_delta.scalar_type(), dtype);
+  EXPECT_EQ(result.pressure0.scalar_type(), torch::kFloat64);
+  EXPECT_TRUE(torch::equal(stored, before));
+  EXPECT_TRUE(torch::allclose(result.pressure_delta.to(torch::kFloat64),
+                              expected, 2.e-6, 1.e-10));
+  EXPECT_TRUE(torch::equal(result.density_delta,
+                           torch::zeros_like(result.density_delta)));
+  EXPECT_TRUE(torch::allclose(result.pressure0, w[IPR], 1.e-14, 1.e-8));
+  if (dtype == torch::kFloat32)
+    EXPECT_TRUE(
+        torch::equal(u0[IPR].to(dtype) + stored[IPR], u0[IPR].to(dtype)));
+}
+
+TEST_P(DeviceTest, ideal_moist_pressure_perturbations_include_species_and_ke) {
+  auto options = MeshBlockOptionsImpl::from_yaml("test_eos_temp2inteng.yaml");
+  options->hydro()->anomaly() = true;
+  auto block = MeshBlock(options);
+  block->to(device, torch::kFloat64);
+  auto eos = std::dynamic_pointer_cast<IdealMoistImpl>(block->phydro->peos);
+  auto w = torch::zeros(
+      {eos->nvar(), block->pcoord->options->nc3(),
+       block->pcoord->options->nc2(), block->pcoord->options->nc1()},
+      torch::device(device).dtype(torch::kFloat64));
+  w[IDN].fill_(10.);
+  w[IPR].fill_(1.e7);
+  w[ICY].fill_(0.0125);
+  w[ICY + 1].fill_(0.025);
+  auto u0 = eos->compute("W->U", {w});
+  block->phydro->set_reference(u0);
+  auto stored = u0.clone();
+  block->phydro->sub_reference_(stored);
+  stored[IDN].fill_(0.001);
+  stored[IPR].fill_(100.);
+  stored[IVX].fill_(0.03);
+  stored[ICY] += 0.001;
+  stored[ICY + 1] -= 0.001;
+  stored = stored.to(dtype);
+  // Oracle uses the actual stored species/increments before module demotion.
+  auto total = block->phydro->total_u(stored.to(torch::kFloat64));
+  auto expected = eos->compute("U->W", {total});
+  block->to(device, dtype);
+  auto result = eos->perturbations(stored);
+  EXPECT_TRUE(torch::allclose(result.pressure_delta.to(torch::kFloat64),
+                              expected[IPR] - w[IPR], 2.e-6, 1.e-7));
+  EXPECT_TRUE(torch::allclose(result.density_delta.to(torch::kFloat64),
+                              expected[IDN] - w[IDN], 2.e-6, 1.e-12));
+  block->phydro->pref->set("species0", torch::empty({0}, w.options()));
+  EXPECT_THROW(eos->perturbations(stored), c10::Error);
+}
+
+TEST_P(DeviceTest, ideal_moist_pressure_perturbations_without_condensables) {
+  auto options = MeshBlockOptionsImpl::from_yaml("test_eos.yaml");
+  options->hydro()->eos()->type() = "ideal-moist";
+  options->hydro()->anomaly() = true;
+  auto block = MeshBlock(options);
+  block->to(device, torch::kFloat64);
+  auto eos = std::dynamic_pointer_cast<IdealMoistImpl>(block->phydro->peos);
+  auto w = torch::zeros(
+      {eos->nvar(), block->pcoord->options->nc3(),
+       block->pcoord->options->nc2(), block->pcoord->options->nc1()},
+      torch::device(device).dtype(torch::kFloat64));
+  w[IDN].fill_(10.);
+  w[IPR].fill_(1.e7);
+  auto u0 = eos->compute("W->U", {w});
+  block->phydro->set_reference(u0);
+  auto stored = torch::zeros_like(u0).to(dtype);
+  stored[IPR].fill_(0.01);
+  block->to(device, dtype);
+  auto result = eos->perturbations(stored);
+  EXPECT_TRUE(torch::allclose(result.pressure_delta,
+                              torch::full_like(stored[IPR], 0.004), 2.e-7,
+                              1.e-10));
+  EXPECT_TRUE(torch::equal(result.density_delta,
+                           torch::zeros_like(result.density_delta)));
+  // Reject singular and negative total heat capacity before pressure division.
+  for (double drho : {-10., -20.}) {
+    stored[IDN].fill_(drho);
+    EXPECT_THROW(eos->perturbations(stored), c10::Error);
+  }
+  stored[IDN].zero_();
+  auto bad_ref = block->phydro->u_ref().clone();
+  bad_ref[0].zero_();
+  block->phydro->pref->set("u0", bad_ref);
+  EXPECT_THROW(eos->perturbations(stored), c10::Error);
+}
+
+TEST(eos_limiter,
+     float_anomaly_floor_is_representable_and_preserves_other_cells) {
+  auto options = MeshBlockOptionsImpl::from_yaml("test_eos_temp2inteng.yaml");
+  options->hydro()->anomaly() = true;
+  auto block = MeshBlock(options);
+  block->to(torch::kCPU, torch::kFloat64);
+  auto eos = block->phydro->peos;
+  auto w = torch::zeros(
+      {eos->nvar(), block->pcoord->options->nc3(),
+       block->pcoord->options->nc2(), block->pcoord->options->nc1()},
+      torch::kFloat64);
+  w[IDN].fill_(10.);
+  w[IPR].fill_(1.e7);
+  auto u0 = eos->compute("W->U", {w});
+  block->phydro->set_reference(u0);
+  auto stored = u0.clone();
+  block->phydro->sub_reference_(stored);
+  stored = stored.to(torch::kFloat32);
+  stored[IDN].fill_(1.e-8);
+  auto dry = block->phydro->dry_density(stored);
+  EXPECT_EQ(dry.scalar_type(), torch::kFloat64);
+  EXPECT_GT(dry.min().item<double>(), 10.);
+  stored[IDN].zero_();
+  // total_u must add the exact reference after promotion, not before it.
+  stored[IPR].fill_(0.01);
+  auto reconstructed = block->phydro->total_u(stored);
+  EXPECT_EQ(reconstructed.scalar_type(), torch::kFloat64);
+  EXPECT_TRUE(torch::allclose(reconstructed[IPR] - u0[IPR],
+                              stored[IPR].to(torch::kFloat64), 1.e-6, 1.e-8));
+  block->to(torch::kCPU, torch::kFloat32);
+  eos->options->limiter() = true;
+  auto before = stored.clone();
+  int i = block->pcoord->il();
+  int j = block->pcoord->jl();
+  int k = block->pcoord->kl();
+  stored[IDN][k][j][i] = -10.;
+  stored[IPR][k][j][i + 1] = -1.e9;
+  eos->apply_conserved_limiter_(stored, /*whole_column=*/false);
+  auto total = block->phydro->total_u(stored);
+  EXPECT_GE(total[IDN][k][j][i].item<double>(), eos->options->density_floor());
+  auto ke = eos->compute("U->K", {total});
+  auto min_ie = eos->compute(
+      "UT->I",
+      {total, torch::full_like(ke, eos->options->temperature_floor())});
+  EXPECT_GE(total[IPR][k][j][i + 1].item<double>(),
+            (ke + min_ie)[k][j][i + 1].item<double>());
+  stored[IDN][k][j][i] = before[IDN][k][j][i];
+  stored[IPR][k][j][i + 1] = before[IPR][k][j][i + 1];
+  EXPECT_TRUE(torch::equal(stored, before));
+}
+
 TEST_P(DeviceTest, ideal_gas_internal_energy_offset_is_zero) {
   auto block = make_block("ideal-gas");
   block->to(device, dtype);

@@ -172,25 +172,30 @@ int main(int argc, char **argv) {
     auto &hydro_u = vars["hydro_u"];
     auto &hydro_w = vars["hydro_w"];
 
-    // Kinetics needs the final dynamics state, including saturation adjustment.
-    peos->forward(hydro_u, hydro_w);
-    auto temp = peos->compute("W->T", {hydro_w});
-    auto pres = hydro_w[IPR];
-    auto xfrac = thermo_y->compute("Y->X", {hydro_w.narrow(0, ICY, ny)});
-    auto conc = thermo_x->compute("TPX->V", {temp, pres, xfrac});
-    auto cp_vol = thermo_x->compute("TV->cp", {temp, conc});
+    // A dry or reaction-free deck has no chemistry update. In particular,
+    // do not form an empty-species Jacobian in kintera.
+    if (kinet->stoich.numel() > 0) {
+      // Kinetics needs the final dynamics state, including saturation
+      // adjustment.
+      peos->forward(hydro_u, hydro_w);
+      auto temp = peos->compute("W->T", {hydro_w});
+      auto pres = hydro_w[IPR];
+      auto xfrac = thermo_y->compute("Y->X", {hydro_w.narrow(0, ICY, ny)});
+      auto conc = thermo_x->compute("TPX->V", {temp, pres, xfrac});
+      auto cp_vol = thermo_x->compute("TV->cp", {temp, conc});
 
-    // auto conc_kinet = kinet->options.narrow_copy(conc, thermo_y->options);
-    auto conc_kinet = conc.slice(-1, 1, conc.size(-1));
-    auto [rate, rc_ddC, rc_ddT, rate_constants] =
-        kinet->forward_with_rate_constants(temp, pres, conc_kinet);
-    auto jac = kinet->jacobian(temp, conc_kinet, cp_vol, rate, rc_ddC, rc_ddT,
-                               rate_constants);
-    auto del_conc = kintera::evolve_implicit(rate, kinet->stoich, jac, dt);
-    std::vector<int64_t> vec(del_conc.dim(), 1);
-    vec[del_conc.dim() - 1] = -1;
-    auto del_rho = del_conc / thermo_y->inv_mu.narrow(0, 1, ny).view(vec);
-    hydro_u.narrow(0, ICY, ny) += del_rho.permute({3, 0, 1, 2});
+      // auto conc_kinet = kinet->options.narrow_copy(conc, thermo_y->options);
+      auto conc_kinet = conc.slice(-1, 1, conc.size(-1));
+      auto [rate, rc_ddC, rc_ddT, rate_constants] =
+          kinet->forward_with_rate_constants(temp, pres, conc_kinet);
+      auto jac = kinet->jacobian(temp, conc_kinet, cp_vol, rate, rc_ddC, rc_ddT,
+                                 rate_constants);
+      auto del_conc = kintera::evolve_implicit(rate, kinet->stoich, jac, dt);
+      std::vector<int64_t> vec(del_conc.dim(), 1);
+      vec[del_conc.dim() - 1] = -1;
+      auto del_rho = del_conc / thermo_y->inv_mu.narrow(0, 1, ny).view(vec);
+      hydro_u.narrow(0, ICY, ny) += del_rho.permute({3, 0, 1, 2});
+    }
 
     int err = block->check_redo(vars);
     if (err > 0) continue;  // redo this step with smaller dt

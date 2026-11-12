@@ -46,7 +46,7 @@ pkill -9 XXXXX
 - Python 3.9 or higher
 - PyTorch 2.10.x
 - NumPy
-- kintera >= 2.6.3
+- kintera >= 2.6.9
 
 ### Build from Source (Advanced)
 
@@ -62,7 +62,7 @@ Building from source is recommended only for advanced users who need to:
 - Autoconf, Automake, Libtool, and pkg-config on Linux (for fetched UCX)
 - PyTorch 2.10.x with C++ libraries
 - NetCDF C library
-- kintera >= 2.6.3
+- kintera >= 2.6.9
 
 **Build steps:**
 
@@ -74,8 +74,14 @@ cd snapy
 
 2. Install dependencies:
 ```bash
-pip install numpy "kintera>=2.6.3" torch==2.10.0
+pip install numpy "kintera>=2.6.9" torch==2.10.0
 ```
+
+Kintera 2.6.9 introduces the perturbation-pressure helper required by this
+branch. Until a compatible wheel is published, build and install tag `v2.6.9`
+from source before building snapy, using the commands in
+[FP32_PROGRESS.md](FP32_PROGRESS.md). CI builds the pinned source commit;
+package releases still require a compatible published or preinstalled dependency.
 
 3. Install NetCDF:
    - **Linux (Ubuntu/Debian):**

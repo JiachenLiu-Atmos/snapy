@@ -17,6 +17,7 @@
 #include <snap/snap.h>
 
 #include <snap/hydro/hydro_dispatch.hpp>
+#include <snap/hydro/hydro_reference.hpp>
 
 namespace {
 
@@ -519,6 +520,64 @@ TEST(HydroRefX1Dispatch, without_the_clamp_a_thin_blocks_ghosts_do_reach_it) {
   dispatch(moved, b, true, true, true, /*wall_clamp=*/false, iu);
 
   EXPECT_FALSE(torch::equal(interior(a.pref, iu), interior(b.pref, iu)));
+}
+
+// Shared setup must retain the legacy nonuniform operator as well as the
+// stretched quadrature selected explicitly by initialization and stretched
+// grids.
+TEST(HydroRefX1Dispatch,
+     shared_operator_preserves_dispatch_and_typed_geometry) {
+  for (auto dtype : {torch::kFloat64, torch::kFloat32}) {
+    for (bool uniform : {false, true}) {
+      for (bool stretched : {false, true}) {
+        auto in = make_inputs(dtype, uniform, /*with_anchor=*/true);
+        auto dx_master = in.dx1f.to(torch::kFloat64);
+        snap::HydroReferenceX1Operator op(dx_master, kIu, stretched, true, true,
+                                          true);
+        int grid = stretched ? snap::kX1RefStretched
+                             : (uniform ? snap::kX1RefUniform
+                                        : snap::kX1RefNonUniform);
+        EXPECT_EQ(op.grid(), grid);
+        auto expected = allocate_output(in.w);
+        auto rows = stretched ? snap::hydro_ref_x1_stretched_rows(
+                                    dx_master, kIu, true, true, true)
+                                    .to(in.w.options())
+                              : torch::Tensor();
+        at::native::call_hydro_ref_x1(
+            torch::kCPU, in.w, in.dx1f, in.anchor, expected.psf_lo,
+            expected.psf_hi, expected.pref, expected.dsf, expected.dref, kIu,
+            1., grid, true, true, true, rows);
+        snap::HydroReferenceX1 actual(in.w);
+        op.evaluate(in.w, 1., in.anchor, actual);
+        EXPECT_TRUE(torch::equal(actual.psf_lo, expected.psf_lo));
+        EXPECT_TRUE(torch::equal(actual.psf_hi, expected.psf_hi));
+        EXPECT_TRUE(torch::equal(actual.pref, expected.pref));
+        EXPECT_TRUE(torch::equal(actual.dsf, expected.dsf));
+        EXPECT_TRUE(torch::equal(actual.dref, expected.dref));
+      }
+    }
+  }
+}
+
+TEST(HydroRefX1Dispatch, shared_operator_invalidates_geometry_cache) {
+  torch::nn::Module grid;
+  auto dx = grid.register_buffer("dx", torch::ones({10}, torch::kFloat64));
+  snap::HydroReferenceX1Operator op(dx, kIu, true, true, true, true);
+  EXPECT_TRUE(op.matches(dx, kIu, true, true, true, true));
+  EXPECT_FALSE(op.matches(dx, kIu, true, false, true, true));
+  EXPECT_FALSE(op.matches(dx, kIu, true, true, true, false));
+  EXPECT_FALSE(op.matches(dx.clone(), kIu, true, true, true, true));
+  grid.to(torch::kFloat32);
+  EXPECT_FALSE(op.matches(dx, kIu, true, true, true, true));
+  snap::HydroReferenceX1Operator moved(dx, kIu, true, true, true, true);
+  EXPECT_TRUE(moved.matches(dx, kIu, true, true, true, true));
+  dx[4] *= 1.5;
+  EXPECT_FALSE(moved.matches(dx, kIu, true, true, true, true));
+  snap::HydroReferenceX1Operator legacy(dx, kIu, false, true, true, true);
+  snap::HydroReferenceX1Operator initialization(dx, kIu, false, true, true,
+                                                true, snap::kX1RefStretched);
+  EXPECT_EQ(legacy.grid(), snap::kX1RefNonUniform);
+  EXPECT_EQ(initialization.grid(), snap::kX1RefStretched);
 }
 
 }  // namespace

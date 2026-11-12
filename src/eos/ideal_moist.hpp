@@ -5,6 +5,11 @@
 
 namespace snap {
 
+//! Static totals and small changes, kept separate through reconstruction.
+struct IdealMoistPerturbations {
+  torch::Tensor density0, pressure0, density_delta, pressure_delta;
+};
+
 class IdealMoistImpl final : public torch::nn::Cloneable<IdealMoistImpl>,
                              public EquationOfStateImpl {
  public:
@@ -35,6 +40,11 @@ class IdealMoistImpl final : public torch::nn::Cloneable<IdealMoistImpl>,
                                  torch::Tensor temp) override;
   torch::Tensor internal_energy_offset(torch::Tensor hydro_like) const override;
   torch::Tensor species_enthalpy(torch::Tensor prim) override;
+
+  //! Read a full-block stored state without limiting or rewriting it. Reference
+  //! and nonlinear thermodynamic arithmetic are FP64; deltas return in the
+  //! stored dtype. Requires the original species background (new restarts).
+  IdealMoistPerturbations perturbations(torch::Tensor const& stored) const;
 
   /*torch::Tensor get_buffer(std::string var) const override {
     return named_buffers()[var];
@@ -73,7 +83,9 @@ class IdealMoistImpl final : public torch::nn::Cloneable<IdealMoistImpl>,
    * \param[in] cons  conserved variables
    * \param[ou] out   primitive variables
    */
-  void _cons2prim(torch::Tensor cons, torch::Tensor& out);
+  //! `cons` holds totals; `limit` false skips the conserved limiter (the
+  //! anomaly key "U'->W" has already limited the stored anomalies)
+  void _cons2prim(torch::Tensor cons, torch::Tensor& out, bool limit = true);
 
   //! \brief calculate internal energy
   /*

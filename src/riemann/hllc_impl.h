@@ -17,7 +17,14 @@ template <typename T>
 void DISPATCH_MACRO hllc_impl(T *flx, T *wl, T *wr, T el, T er, T gammal,
                               T gammar, T cl, T cr, int dim, int ny,
                               int stride_w, int stride_f,
-                              T *face_pressure = nullptr) {
+                              T *face_pressure = nullptr,
+                              T reference_pressure = T(0)) {
+  // With a shared face background, pressure rows and momentum pressure flux
+  // are perturbations. Wave speeds and energy transport still use totals.
+  // Keep the original arithmetic when the background is absent.
+  bool shifted = reference_pressure != T(0);
+  auto pl = shifted ? reference_pressure + WL(IPR) : WL(IPR);
+  auto pr = shifted ? reference_pressure + WR(IPR) : WR(IPR);
   auto TINY_NUMBER = 1.0e-10;
 
   auto ivx = IPR - dim;
@@ -38,12 +45,14 @@ void DISPATCH_MACRO hllc_impl(T *flx, T *wl, T *wr, T el, T er, T gammal,
 
   //--- Step 3.  Compute sound speed in L,R
 
-  auto ql = (pmid <= WL(IPR)) ? 1.0
-                              : std::sqrt(1.0 + (gammal + 1) / (2 * gammal) *
-                                                    (pmid / WL(IPR) - 1.0));
-  auto qr = (pmid <= WR(IPR)) ? 1.0
-                              : std::sqrt(1.0 + (gammar + 1) / (2 * gammar) *
-                                                    (pmid / WR(IPR) - 1.0));
+  auto shock_l = shifted ? (pmid - WL(IPR)) / pl : pmid / WL(IPR) - 1.0;
+  auto shock_r = shifted ? (pmid - WR(IPR)) / pr : pmid / WR(IPR) - 1.0;
+  auto ql = (pmid <= WL(IPR))
+                ? 1.0
+                : std::sqrt(1.0 + (gammal + 1) / (2 * gammal) * shock_l);
+  auto qr = (pmid <= WR(IPR))
+                ? 1.0
+                : std::sqrt(1.0 + (gammar + 1) / (2 * gammar) * shock_r);
 
   //--- Step 4.  Compute the max/min wave speeds based on L/R
 
@@ -68,7 +77,8 @@ void DISPATCH_MACRO hllc_impl(T *flx, T *wl, T *wr, T el, T er, T gammal,
   auto am = (tl - tr) / (ml + mr);
   // ...and the pressure at the contact surface
   auto cp = (ml * tr + mr * tl) / (ml + mr);
-  cp = cp > 0.0 ? cp : 0.0;
+  cp = shifted ? (cp > -reference_pressure ? cp : -reference_pressure)
+               : (cp > 0.0 ? cp : 0.0);
   if (face_pressure != nullptr) *face_pressure = cp;
 
   //--- Step 6. Compute L/R fluxes along the line bm, bp
@@ -96,8 +106,8 @@ void DISPATCH_MACRO hllc_impl(T *flx, T *wl, T *wr, T el, T er, T gammal,
   fl[ivz] = WL(IDN) * WL(ivz) * vxl;
   fr[ivz] = WR(IDN) * WR(ivz) * vxr;
 
-  fl[IPR] = el * vxl + WL(IPR) * WL(ivx);
-  fr[IPR] = er * vxr + WR(IPR) * WR(ivx);
+  fl[IPR] = el * vxl + pl * WL(ivx);
+  fr[IPR] = er * vxr + pr * WR(ivx);
 
   //--- Step 8. Compute flux weights or scales
 
@@ -120,7 +130,8 @@ void DISPATCH_MACRO hllc_impl(T *flx, T *wl, T *wr, T el, T er, T gammal,
   FLX(ivx) = sl * fl[ivx] + sr * fr[ivx] + sm * cp;
   FLX(ivy) = sl * fl[ivy] + sr * fr[ivy];
   FLX(ivz) = sl * fl[ivz] + sr * fr[ivz];
-  FLX(IPR) = sl * fl[IPR] + sr * fr[IPR] + sm * cp * am;
+  auto cp_total = shifted ? reference_pressure + cp : cp;
+  FLX(IPR) = sl * fl[IPR] + sr * fr[IPR] + sm * cp_total * am;
 
   for (int n = 0; n < ny; ++n) {
     auto fln = WL(IDN) * WL(ICY + n) * vxl;

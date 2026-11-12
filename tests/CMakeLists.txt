@@ -5,6 +5,7 @@
 enable_testing()
 
 setup_test(test_eos)
+setup_test(test_fp32_storage)
 setup_test(test_implicit_cfl)
 setup_test(test_implicit_face_work_jacobian)
 setup_test(test_vic_partial_tangential)
@@ -369,6 +370,9 @@ snapy_add_python_test(test_shear_cfl TIMEOUT 60 LABELS "python;hydro;implicit")
 snapy_add_python_test(test_check_redo_floor TIMEOUT 60 LABELS "python;mesh;redo")
 snapy_add_python_test(test_check_redo_saturation TIMEOUT 60 LABELS "python;mesh;redo;eos")
 snapy_add_python_test(test_eos_temp2inteng TIMEOUT 60 LABELS "python;eos")
+# fp32 roadmap Step 1a: anomaly storage of hydro_u, and the Step 0 fp32
+# storage emulation hook (SNAP_FP32_STORAGE)
+snapy_add_python_test(test_anomaly_storage TIMEOUT 600 LABELS "python;eos;anomaly")
 snapy_add_python_test(test_flux_positivity TIMEOUT 300 LABELS "python;positivity")
 # the base arm is the unlimited scheme and must go negative; with the face-flux
 # covariance on (the default, #289) the donor limiter runs in every arm
@@ -431,7 +435,7 @@ snapy_add_python_test(test_scalar_stratified TIMEOUT 300 LABELS "python;scalar")
 # upper-bound must not drive a donor negative
 snapy_add_python_test(test_scalar_upper_bound_donor TIMEOUT 300 LABELS "python;scalar")
 # tracer and species ratios under the species positivity limiter (#338)
-snapy_add_python_test(test_tracer_ratio TIMEOUT 120 LABELS "python;hydro;scalar;positivity")
+snapy_add_python_test(test_tracer_ratio TIMEOUT 120 LABELS "python;hydro;scalar;positivity;fp32-foundations")
 # #289: the same, on a column split in x1, four blocks in one process vs one
 snapy_add_python_test(test_scalar_cov_x1_split TIMEOUT 300 LABELS "python;hydro;scalar")
 set_tests_properties(test_scalar_cov_x1_split_python
@@ -451,6 +455,9 @@ set_tests_properties(
 
 # CUDA variants reuse the same scripts and assertions.
 if(CUDA)
+  snapy_add_python_test(test_anomaly_storage_cuda
+    SCRIPT test_anomaly_storage.py ARGS --device cuda
+    TIMEOUT 300 LABELS "python;hydro;anomaly;cuda;fp32-foundations")
   snapy_add_python_test(test_fix_vapor_reports_failure_cuda
     SCRIPT test_fix_vapor_reports_failure.py ARGS --device cuda
     TIMEOUT 60 LABELS "python;eos;positivity;cuda")
@@ -498,6 +505,7 @@ if(CUDA)
     SCRIPT test_tracer_dry_convention.py ARGS --device cuda
     TIMEOUT 120 LABELS "python;scalar;implicit;forcing;cuda")
   set_tests_properties(
+    test_anomaly_storage_cuda_python
     test_fix_vapor_reports_failure_cuda_python
     test_fix_vapor_stale_count_cuda_python
     test_check_redo_saturation_cuda_python
@@ -790,3 +798,26 @@ target_link_libraries(g3_decks.${buildl}
 if (UNIX AND NOT APPLE)
   target_link_options(g3_decks.${buildl} PRIVATE -Wl,--no-as-needed)
 endif()
+
+# Reproducible gate for the FP32 foundations. This does not replace the coupled
+# Jupiter/production-GPU acceptance runs in FP32_ROADMAP.md.
+foreach(_t IN ITEMS
+    test_eos test_coordinate test_fp32_storage test_balance_column
+    test_balance_column_wb_ref4 test_balance_column_x1_centroid
+    test_hydro_ref_x1 test_hydro_ref_x1_rf_wall test_gravity_work_cache_to
+    test_implicit_face_work_jacobian test_riemann test_stretched_x1_ref
+    test_stretched_x1_ref_wb_ref4 test_stretched_x1_ref_x1_centroid
+    test_stretched_x1_ref_radial_exact_off test_stretched_x1_ref_x1_mass_covariance
+    test_wb_ref_wall test_wb_wall_corner test_x1_seam_split
+    test_x1_seam_split_x1_centroid test_x1_seam_split_radial_exact
+    test_x1_seam_split_radial_exact_off test_x1_seam_split_vic_refuses_split
+    test_x1_seam_split_wb_ref4 test_x1_seam_split_wb_ref4_gravity_0
+    test_x1_seam_split_x1_mass_covariance)
+  set_property(TEST ${_t}.${buildl} APPEND PROPERTY LABELS "fp32-foundations")
+endforeach()
+foreach(_t IN ITEMS
+    test_anomaly_storage test_gravity_work_fixer test_gravity_work_radial_exact
+    test_implicit_face_work_operator test_implicit_face_work_operator_radial_exact
+    test_implicit_gravity_tall_column test_implicit_gravity_tall_column_cubed)
+  set_property(TEST ${_t}_python APPEND PROPERTY LABELS "fp32-foundations")
+endforeach()

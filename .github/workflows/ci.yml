@@ -60,7 +60,7 @@ jobs:
         run: |
           pip install wheel numpy pyyaml pytest netcdf4
           pip install 'torch==2.10.0'
-          pip install 'kintera>=2.6.3'
+          pip install setuptools-scm 'pyharp>=2.2.0'
 
       - name: Install NetCDF
         run: |
@@ -74,6 +74,22 @@ jobs:
             echo 'import socket; socket.getfqdn = lambda name="": name or "localhost"' \
               > "$(python -c 'import site; print(site.getsitepackages()[0])')/sitecustomize.py"
           fi
+
+      # v2.6.9 contains kintera #155 but has no PyPI wheel yet.
+      - name: Check out kintera
+        uses: actions/checkout@v4
+        with:
+          repository: chengcli/kintera
+          ref: b8e726ce2fb1538aa15f0787fdcef732d9cdc997
+          fetch-depth: 0
+          path: .ci-kintera
+
+      - name: Build and install kintera 2.6.9
+        working-directory: .ci-kintera
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DBUILD_TESTS=OFF
+          cmake --build build --parallel 3
+          pip install --no-build-isolation --no-deps .
 
       - name: Install commux UCX backend
         if: runner.os == 'Linux'

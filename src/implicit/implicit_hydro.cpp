@@ -10,6 +10,7 @@
 #include <snap/snap.h>
 
 #include <snap/coord/coord_utils.hpp>
+#include <snap/hydro/gravity_work.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/hydro/hydro.hpp>
 #include <snap/input/check_keys.hpp>
@@ -510,13 +511,9 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     int ie = pcoord->iu() + 1;
 
     auto face_mass = _mass_corr[IVZ];
-    auto x1v = pcoord->x1v.slice(0, is, ie);
-    auto dphi_top = -grav1 * (pcoord->x1f.slice(0, is + 1, ie + 1) - x1v);
-    auto dphi_bot = -grav1 * (pcoord->x1f.slice(0, is, ie) - x1v);
     auto volume = pcoord->cell_volume();
-    auto face_gravity_work = -(dphi_top * face_mass.slice(-1, is + 1, ie + 1) -
-                               dphi_bot * face_mass.slice(-1, is, ie)) /
-                             volume.slice(-1, is, ie);
+    auto face_gravity_work = gravity_work_from_face_mass(
+        face_mass, pcoord->x1f, pcoord->x1v, volume, is, ie, grav1);
     auto matrix_gravity_work = dt * grav1 * du[IVX].slice(-1, is, ie);
     auto swap = face_gravity_work - matrix_gravity_work;
     // face-wallc: the x1 wall cells keep the matrix's cell work

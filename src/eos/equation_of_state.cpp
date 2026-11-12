@@ -1,5 +1,6 @@
 // C/C++
 #include <algorithm>
+#include <limits>
 
 // yaml
 #include <yaml-cpp/yaml.h>
@@ -29,6 +30,21 @@
 #include "shallow_water.hpp"
 
 namespace snap {
+
+namespace {
+
+// The nearest representable anomaly can reconstruct below the requested
+// floor (even as zero when the reference is large). Round the bound upward
+// only when necessary. Inactive cells are never re-encoded through totals.
+torch::Tensor float_anomaly_floor(torch::Tensor const& floor,
+                                  torch::Tensor const& ref) {
+  auto bound = (floor - ref).to(torch::kFloat32);
+  auto up = torch::nextafter(
+      bound, torch::full_like(bound, std::numeric_limits<float>::infinity()));
+  return torch::where(bound.to(torch::kFloat64) + ref < floor, up, bound);
+}
+
+}  // namespace
 
 EquationOfStateOptions EquationOfStateOptionsImpl::from_yaml(
     std::string const& filename, bool verbose) {
@@ -186,15 +202,31 @@ torch::Tensor EquationOfStateImpl::compute(
 torch::Tensor EquationOfStateImpl::forward(torch::Tensor cons,
                                            torch::optional<torch::Tensor> out) {
   auto prim = out.value_or(torch::empty_like(cons));
-  return compute("U->W", {cons, prim});
+  // the stored representation: anomalies when the block keeps a reference
+  bool anomaly = phydro && phydro->has_reference();
+  return compute(anomaly ? "U'->W" : "U->W", {cons, prim});
 }
 
 void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
-                                                   bool whole_column) {
+                                                   bool whole_column,
+                                                   bool totals) {
   auto pmb = phydro->pmb;
   auto pcoord = pmb->pcoord;
 
   if (!options->limiter()) return;  // no limiter
+
+  // Anomaly storage: rows {IDN, IPR} of cons are u - ref. Every floor is
+  // applied to the anomaly against (floor - ref); the totals are formed only
+  // to be read. Never limit a total and write total - ref back: that
+  // re-rounds the anomaly on every call.
+  bool float_anomaly = !totals && phydro->has_reference() &&
+                       cons.scalar_type() == torch::kFloat32;
+  auto ref = (!totals && phydro->has_reference()) ? phydro->u_ref_like(cons)
+                                                  : torch::Tensor();
+  bool anom = ref.defined();
+  auto dry_total = [&](torch::Tensor const& c) {
+    return anom ? c[IDN] + ref[0] : c[IDN];
+  };
   // every call marks a repaired interior, so MeshBlock::check_redo redoes it
   auto interior = pmb->part({0, 0, 0}, PartOptions().exterior(false));
   bool mark = limiter_marks_.defined();
@@ -206,7 +238,14 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
     return nvar() > IPR ? torch::stack({u[IDN], u[IPR]}) : u[IDN].clone();
   };
   auto before = mark ? dens_energy() : torch::Tensor();
-  cons[IDN].clamp_min_(options->density_floor());
+  if (anom) {
+    auto floor = options->density_floor() * torch::ones_like(ref[0]);
+    auto bound =
+        float_anomaly ? float_anomaly_floor(floor, ref[0]) : floor - ref[0];
+    cons[IDN].copy_(torch::maximum(cons[IDN], bound));
+  } else {
+    cons[IDN].clamp_min_(options->density_floor());
+  }
 
   // for (int i = ICY; i < ICY + nvapor; ++i)
   //   cons.index(interior)[i] = pull_neighbors3(cons.index(interior)[i]);
@@ -226,11 +265,24 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
   if (nvar() > IPR) {
     auto mom = cons.narrow(0, IVX, 3).clone();
     coord_vec_raise_(mom, pcoord->cosine_cell_kj);
-    auto rho = cons[IDN] + cons.narrow(0, ICY, ny).sum(0);
+    auto rho = dry_total(cons) + cons.narrow(0, ICY, ny).sum(0);
     auto ke = 0.5 * (mom * cons.narrow(0, IVX, 3)).sum(0) / rho;
     auto min_temp = options->temperature_floor() * torch::ones_like(ke);
-    auto min_ie = compute("UT->I", {cons, min_temp});
-    cons[IPR].clamp_min_(ke + min_ie);
+    // UT->I reads the dry density: hand it the total
+    auto cons_t = cons;
+    if (anom) {
+      cons_t = float_anomaly ? cons.to(torch::kFloat64) : cons.clone();
+      cons_t[IDN].add_(ref[0]);
+    }
+    auto min_ie = compute("UT->I", {cons_t, min_temp});
+    if (anom) {
+      auto floor = ke + min_ie;
+      auto bound =
+          float_anomaly ? float_anomaly_floor(floor, ref[1]) : floor - ref[1];
+      cons[IPR].clamp_min_(bound);
+    } else {
+      cons[IPR].clamp_min_(ke + min_ie);
+    }
   }
   if (mark) push_mark_(0, dens_energy().ne(before).any());
 
@@ -269,13 +321,18 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
     }
 
     // cell volumes, so a column repair conserves mass, not density (#241)
-    auto vol = pcoord->cell_volume().unsqueeze(0).contiguous().index(interior);
+    auto vol = pcoord->cell_volume()
+                   .to(cons.options())
+                   .unsqueeze(0)
+                   .contiguous()
+                   .index(interior);
 
     // Keep the two repairs separate: clouds tolerate an unrepairable column
     // and clamp it; vapor must throw before a gathered column is copied back.
     auto repair_column = [&](torch::Tensor field, bool require_success) {
       int count = field.size(0);
-      auto major = cons.index(interior)[IDN].unsqueeze(0);
+      auto major =
+          dry_total(cons).to(field.options()).unsqueeze(0).index(interior);
       auto layout = pmb->get_layout();
       bool split =
           count > 0 && whole_column && layout && layout->options->pz() > 1;
@@ -323,7 +380,8 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
     // density is repaired without a redo; kinetics leaves ~1e-304 in a
     // cloud-free cell that no smaller dt removes (#256)
     if (mark) {
-      auto rho = cons.index(interior)[IDN] + species_before.sum(0);
+      auto rho = dry_total(cons).unsqueeze(0).index(interior)[0] +
+                 species_before.sum(0);
       auto tol = species_repair_mark(cons.scalar_type()) * rho.abs();
       push_mark_(0, (species_before < -tol).any());
     }

@@ -353,6 +353,9 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
 
   if (blocks.size() == 1) {
     blocks[0]->advance_local(vars[0], dt, stage);
+    // FP32 storage emulation: the stored stage output, before the exchange
+    // copies it into the neighbours' ghosts
+    blocks[0]->round_storage_after_stage(vars[0], stage);
     blocks[0]->exchange_ghost_zones(vars[0]);
     return;
   }
@@ -380,6 +383,9 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
           v.count("scalar_s") ? v.at("scalar_s") : torch::Tensor());
     });
   }
+  // FP32 storage emulation: after the deferred fixer, before the exchange
+  run_block_jobs(
+      [&](size_t i) { blocks[i]->round_storage_after_stage(vars[i], stage); });
   run_block_jobs([&](size_t i) { blocks[i]->exchange_ghost_zones(vars[i]); });
 }
 

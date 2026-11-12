@@ -31,10 +31,12 @@ struct Repaired {
 };
 
 //! one conserved-limiter call on the column with cell 3 set to `negative`
-Repaired repair(double negative) {
-  static auto block = [] {
+Repaired repair(double negative, bool anomaly = false,
+                double donor_dry = kDry) {
+  auto block = [anomaly] {
     auto options =
         MeshBlockOptionsImpl::from_yaml("test_fix_vapor_deficit.yaml");
+    options->hydro()->anomaly() = anomaly;
     auto b = std::make_shared<MeshBlockImpl>(options);
     b->to(torch::kCPU, torch::kFloat64);
     return b;
@@ -47,6 +49,7 @@ Repaired repair(double negative) {
                            torch::kFloat64);
   cons[IDN].fill_(kDry);
   cons[IPR].fill_(2.e5);
+  cons[IDN].select(-1, il + 2).fill_(donor_dry);
   for (int k = 0; k < kColumn.size(); ++k) {
     cons[ICY].select(-1, il + k).fill_(k == 3 ? negative : kColumn[k]);
   }
@@ -56,6 +59,10 @@ Repaired repair(double negative) {
     cons[ICY].select(-1, il + kColumn.size() + g).fill_(kColumn.back());
   }
 
+  if (anomaly) {
+    block->phydro->set_reference(cons);
+    block->phydro->sub_reference_(cons);
+  }
   peos->reset_limiter_marks(cons);
   peos->apply_conserved_limiter_(cons);
 
@@ -103,9 +110,7 @@ TEST(eos, fix_vapor_borrows_only_the_deficit) {
   EXPECT_EQ(r.vapor[5], kColumn[5]);
 
   // 2.5e-11 is above the mark (4096 ulp of the cell's ~0.8 kg/m3): a redo.
-  // kSpeciesRepairMarkUlp defaults to the positivity round-off; a test that
-  // runs on main as well reads that one
-  double mark = positivity_roundoff(torch::kFloat64) * kDry;
+  double mark = species_repair_mark(torch::kFloat64) * kDry;
   ASSERT_GT(deficit, mark);
   EXPECT_TRUE(r.marked);
 }
@@ -114,7 +119,7 @@ TEST(eos, fix_vapor_borrows_only_the_deficit) {
 // kSpeciesRepairMarkUlp of the gas density is repaired without a redo, though
 // it sits on the same moist cell.
 TEST(eos, fix_vapor_marks_on_the_deficit) {
-  double mark = positivity_roundoff(torch::kFloat64) * kDry;
+  double mark = species_repair_mark(torch::kFloat64) * kDry;
   double small = 0.25 * mark;
   auto r = repair(-small);
   std::printf("deficit %.3g (mark %.3g): cell 2 moved %.6g, marked %d\n", small,
@@ -123,4 +128,20 @@ TEST(eos, fix_vapor_marks_on_the_deficit) {
   EXPECT_NEAR(kColumn[2] - r.vapor[2], small,
               4. * std::numeric_limits<double>::epsilon() * kColumn[2]);
   EXPECT_FALSE(r.marked);
+}
+
+// A light donor may lose more than its own round-off allowance while covering
+// a sub-threshold deficit in a denser cell. #332 tests the receiving deficit.
+TEST(eos, fix_vapor_donor_motion_does_not_mark_a_small_deficit) {
+  double small = 0.25 * species_repair_mark(torch::kFloat64) * kDry;
+  for (bool anomaly : {false, true}) {
+    auto r = repair(-small, anomaly, 1.e-5);
+    EXPECT_EQ(r.vapor[3], 0.);
+    EXPECT_GT(kColumn[2] - r.vapor[2],
+              species_repair_mark(torch::kFloat64) * (1.e-5 + kColumn[2]));
+    EXPECT_FALSE(r.marked) << "anomaly=" << anomaly;
+    EXPECT_TRUE(repair(-4. * species_repair_mark(torch::kFloat64) * kDry,
+                       anomaly, 1.e-5)
+                    .marked);
+  }
 }

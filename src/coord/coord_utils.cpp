@@ -20,7 +20,7 @@ void coord_vec_lower_(torch::Tensor const& vel, torch::Tensor cth) {
                   .declare_static_shape(vel[VEL2].sizes())
                   .add_owned_output(vel[VEL2])
                   .add_owned_output(vel[VEL3])
-                  .add_owned_input(cth.expand_as(vel[VEL2]))
+                  .add_owned_input(cth.to(vel.options()).expand_as(vel[VEL2]))
                   .build();
 
   at::native::call_coord_vec_lower(vel.device().type(), iter);
@@ -37,7 +37,7 @@ void coord_vec_raise_(torch::Tensor const& vel, torch::Tensor cth) {
                   .declare_static_shape(vel[VEL2].sizes())
                   .add_owned_output(vel[VEL2])
                   .add_owned_output(vel[VEL3])
-                  .add_owned_input(cth.expand_as(vel[VEL2]))
+                  .add_owned_input(cth.to(vel.options()).expand_as(vel[VEL2]))
                   .build();
 
   at::native::call_coord_vec_raise(vel.device().type(), iter);

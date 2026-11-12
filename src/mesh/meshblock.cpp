@@ -15,6 +15,7 @@
 #include <snap/implicit/implicit_dispatch.hpp>
 #include <snap/input/read_restart_file.hpp>
 #include <snap/output/output_formats.hpp>
+#include <snap/utils/fp32_storage.hpp>
 #include <snap/utils/log.hpp>
 #include <snap/utils/signal_handler.hpp>
 
@@ -26,8 +27,10 @@ namespace snap {
 static std::mutex meshblock_mutex;
 
 static void set_scalar_primitive(Variables &vars, torch::Tensor const &scalar_s,
-                                 torch::Tensor const &hydro_u) {
-  auto scalar_r = scalar_s / hydro_u[IDN].unsqueeze(0);
+                                 torch::Tensor const &hydro_u,
+                                 HydroImpl const &hydro) {
+  // the tracers ride the TOTAL dry density (anomaly storage: + ref)
+  auto scalar_r = scalar_s / hydro.dry_density(hydro_u).unsqueeze(0);
   auto it = vars.find("scalar_r");
   if (it != vars.end()) {
     it->second.set_(scalar_r);
@@ -469,6 +472,24 @@ void MeshBlockImpl::initialize_under_mesh(Variables &vars) {
   finalize_initialization(vars);
 }
 
+void MeshBlockImpl::build_hydro_reference(Variables &vars) {
+  // the initial state with the velocities zeroed, in totals; its ghosts
+  // come from the same boundary functions as the state, so for the linear
+  // fills (reflect, periodic, exchange copies) BC(ref + u') = BC(ref) + BC(u')
+  TORCH_CHECK(!phydro->has_reference(),
+              "build_hydro_reference: the reference already exists");
+  auto w_ref = vars.at("hydro_w").clone();
+  w_ref.narrow(0, IVX, 3).zero_();
+  auto u_ref = phydro->peos->compute("W->U", {w_ref});
+  Variables tmp = vars;  // apply_boundaries reads only the references
+  apply_boundaries(tmp, u_ref, torch::Tensor());
+  phydro->set_reference(u_ref);
+  if (options->verbose()) {
+    SINFO(MeshBlock) << "anomaly reference built, shape "
+                     << phydro->u_ref().sizes() << std::endl;
+  }
+}
+
 void MeshBlockImpl::finalize_initialization(Variables &vars) {
   auto hydro_w = vars.at("hydro_w");
   auto scalar_r =
@@ -484,10 +505,15 @@ void MeshBlockImpl::finalize_initialization(Variables &vars) {
   }
 
   vars["hydro_u"] = phydro->peos->compute("W->U", {hydro_w});
+  // anomaly storage (fp32 roadmap Step 1, D1): the static reference is the
+  // initial state at rest, built here from totals
+  if (phydro->anomaly()) build_hydro_reference(vars);
   if (pscalar->nvar() > 0) {
     // Seed with the conserved (dry) density, as set_scalar_primitive divides.
     vars["scalar_s"] = vars.at("hydro_u")[IDN] * scalar_r;
   }
+  // from here on hydro_u holds rows {IDN, IPR} as anomalies
+  if (phydro->has_reference()) phydro->sub_reference_(vars.at("hydro_u"));
 
   //// ------------- (8) Fill solid boundaries -------------- ////
   if (vars.count("solid")) {
@@ -567,6 +593,30 @@ void MeshBlockImpl::forward(Variables &vars, double dt, int stage) {
   // one-signed seam bias on the cubed sphere.
   exchange_ghost_zones(vars);
   advance_local(vars, dt, stage);
+  round_storage_after_stage(vars, stage);
+}
+
+bool MeshBlockImpl::round_storage(Variables &vars) const {
+  auto const &cfg = fp32_storage_config();
+  if (cfg.mode == Fp32StorageConfig::kOff) return false;
+  auto hydro_u = vars.at("hydro_u");
+  round_through_fp32_(hydro_u,
+                      resolve_fp32_storage_rows(cfg.rows, hydro_u.size(0)));
+  if (vars.count("scalar_s") && vars.at("scalar_s").defined() &&
+      vars.at("scalar_s").numel() > 0) {
+    auto scalar_s = vars.at("scalar_s");
+    round_through_fp32_(scalar_s, {});
+    set_scalar_primitive(vars, scalar_s, hydro_u, *phydro);
+  }
+  return true;
+}
+
+bool MeshBlockImpl::round_storage_after_stage(Variables &vars,
+                                              int stage) const {
+  auto const &cfg = fp32_storage_config();
+  if (!fp32_storage_due(cfg, stage, static_cast<int>(pintg->stages.size())))
+    return false;
+  return round_storage(vars);
 }
 
 void MeshBlockImpl::exchange(Variables &vars, SyncOptions const &opts) const {
@@ -677,6 +727,10 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
     if (!dry.defined() || !vars.count("scalar_r")) return;
     auto rho_base = pintg->forward(stage, _hydro_u0[IDN], hydro_u[IDN],
                                    fut_hydro_du[IDN] - dry);
+    // anomaly storage: the stage weights of the two states sum to one, so
+    // the total is the combined anomaly plus the reference
+    if (phydro->has_reference())
+      rho_base = rho_base + phydro->u_ref_like(hydro_u)[0];
     auto s_base = pintg->forward(stage, _scalar_s0, scalar_s, scalar_base);
     auto remove_r =
         torch::where(rho_base.unsqueeze(0) == 0., vars.at("scalar_r"),
@@ -835,7 +889,7 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
 
   if (pscalar->nvar() > 0) {
     scalar_s.set_(pintg->forward(stage, _scalar_s0, scalar_s, fut_scalar_ds));
-    set_scalar_primitive(vars, scalar_s, hydro_u);
+    set_scalar_primitive(vars, scalar_s, hydro_u, *phydro);
     if (options->verbose()) {
       auto end = std::chrono::high_resolution_clock::now();
       std::chrono::duration<double> elapsed = end - start;
@@ -868,9 +922,11 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
 
     int ny = hydro_u.size(0) - ICY;  // number of species
 
-    auto ke = phydro->peos->compute("U->K", {hydro_u});
-    auto rho = hydro_u[IDN] + hydro_u.narrow(0, ICY, ny).sum(0);
-    auto ie = hydro_u[IPR] - ke;
+    // thermodynamics needs totals; only the species rows are written back
+    auto ut = phydro->total_u(hydro_u);
+    auto ke = phydro->peos->compute("U->K", {ut});
+    auto rho = ut[IDN] + ut.narrow(0, ICY, ny).sum(0);
+    auto ie = ut[IPR] - ke;
 
     auto yfrac = hydro_u.narrow(0, ICY, ny) / rho;
 
@@ -914,7 +970,7 @@ torch::Tensor MeshBlockImpl::gravity_work_fixer_sums(
     Variables const &vars) const {
   auto hydro_u = vars.at("hydro_u");
   int ny = hydro_u.size(0) - ICY;
-  auto m = hydro_u[IDN].clone();
+  auto m = phydro->dry_density(hydro_u).clone();
   if (ny > 0) m += hydro_u.narrow(0, ICY, ny).sum(0);
   // immersed solid cells are refilled each step: they take no share of -D
   if (vars.count("solid")) m.masked_fill_(vars.at("solid"), 0.);
@@ -942,7 +998,7 @@ void MeshBlockImpl::apply_gravity_work_fixer(Variables &vars,
                                              torch::Tensor const &global) {
   auto hydro_u = vars.at("hydro_u");
   int ny = hydro_u.size(0) - ICY;
-  auto m = hydro_u[IDN].clone();
+  auto m = phydro->dry_density(hydro_u).clone();
   if (ny > 0) m += hydro_u.narrow(0, ICY, ny).sum(0);
   // immersed solid cells are refilled each step: they take no share of -D
   if (vars.count("solid")) m.masked_fill_(vars.at("solid"), 0.);
@@ -1073,7 +1129,7 @@ void MeshBlockImpl::exchange_ghost_zones(Variables &vars) {
   }
 
   if (pscalar->nvar() > 0) {
-    set_scalar_primitive(vars, scalar_s, hydro_u);
+    set_scalar_primitive(vars, scalar_s, hydro_u, *phydro);
   }
 
   if (options->verbose()) {
@@ -1130,7 +1186,8 @@ void print_cycle_diagnostics(
     auto coord = block->pcoord;
     auto interior = block->part({0, 0, 0}, PartOptions().exterior(false));
     auto vol = coord->cell_volume();
-    auto u = vars->at("hydro_u");
+    // totals: anomaly storage adds the reference back (fp64 in Step 1)
+    auto u = hydro->total_u(vars->at("hydro_u"));
     add(conserved, (u * vol).index(interior).sum({1, 2, 3}));
 
     // Read the conserved state; hydro_w can still describe an earlier stage.
@@ -1357,7 +1414,7 @@ int MeshBlockImpl::apply_redo(Variables &vars, int causes) {
     phydro->peos->forward(vars["hydro_u"], vars["hydro_w"]);
     if (vars.count("scalar_s")) {
       vars["scalar_s"].copy_(_scalar_s0);
-      set_scalar_primitive(vars, vars["scalar_s"], vars["hydro_u"]);
+      set_scalar_primitive(vars, vars["scalar_s"], vars["hydro_u"], *phydro);
     }
 
     // The caller advances the cycle only after an accepted step.
@@ -1573,7 +1630,62 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
     if (rebuild_scalar_r && name == "scalar_r") {
       continue;
     }
+    // held by hydro.ref / used below, not kept in vars
+    if (name == "hydro_ref" || name == "hydro_ref_species" ||
+        name == "hydro_u_stored")
+      continue;
     vars[name] = tensor.to(torch::Device(options->device_str()));
+  }
+
+  // anomaly storage: the file holds totals. Reuse its reference when it has
+  // one; otherwise rebuild it from the restored state at rest (single-block
+  // runs only: a per-block rebuild would not match across block seams)
+  if (phydro->anomaly()) {
+    auto &hydro_u = vars.at("hydro_u");
+    bool stored = false;
+    if (data.count("hydro_ref")) {
+      auto r = data.at("hydro_ref").to(hydro_u.device());
+      phydro->pref->set("u0", r);
+      phydro->u_ref_like(hydro_u);  // shape check
+      if (data.count("hydro_ref_species")) {
+        auto species = data.at("hydro_ref_species").to(hydro_u.device());
+        TORCH_CHECK(
+            species.dim() == 4 && species.size(0) == hydro_u.size(0) - ICY &&
+                (species.size(1) == 1 || species.size(1) == hydro_u.size(1)) &&
+                (species.size(2) == 1 || species.size(2) == hydro_u.size(2)) &&
+                species.size(3) == hydro_u.size(3),
+            "restart: hydro_ref_species does not match the block state");
+        phydro->pref->set("species0", species);
+      } else {
+        // Composition at restart time is not the initial background. Never
+        // silently substitute it (or keep a previous initialization's cache).
+        phydro->pref->set("species0", torch::empty({0}, r.options()));
+      }
+      // resume the anomaly bit for bit when the file carries it
+      if (data.count("hydro_u_stored")) {
+        // Totals in the file are FP64; retain the stored anomaly dtype.
+        hydro_u = data.at("hydro_u_stored").to(hydro_u.device());
+        stored = true;
+      }
+    } else {
+      auto const &lo = _playout->options;
+      TORCH_CHECK(
+          !_playout->has_process_group() && lo->px() * lo->py() * lo->pz() == 1,
+          "restart: anomaly mode needs 'hydro_ref' in a multi-block "
+          "restart file (this one was written without it). Resume "
+          "with SNAP_ANOMALY=0, or from a file written with anomaly "
+          "storage on.");
+      Variables tmp = vars;
+      tmp["hydro_w"] = phydro->peos->compute("U->W", {hydro_u.clone()});
+      build_hydro_reference(tmp);
+    }
+    if (!stored) phydro->sub_reference_(hydro_u);
+    // the solid fill values are kept in the stored form too; the file has
+    // them in totals
+    if (vars.count("fill_solid_hydro_u") &&
+        vars.at("fill_solid_hydro_u").defined() &&
+        !vars.at("fill_solid_hydro_u").is_same(hydro_u))
+      phydro->sub_reference_(vars.at("fill_solid_hydro_u"));
   }
 
   if (has_radiating_boundary()) {
@@ -1600,7 +1712,8 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
   vars.erase("output_key");
 
   if (rebuild_scalar_r) {
-    set_scalar_primitive(vars, vars.at("scalar_s"), vars.at("hydro_u"));
+    set_scalar_primitive(vars, vars.at("scalar_s"), vars.at("hydro_u"),
+                         *phydro);
   }
 
   return current_time;
@@ -1647,6 +1760,8 @@ void MeshBlockImpl::apply_boundaries(Variables &vars, torch::Tensor hydro,
     // Tracer densities ride the conserved (dry) density, as in
     // set_scalar_primitive, not the total density w[IDN].
     auto s = has_tracers ? r * u[IDN] : torch::Tensor();
+    // anomaly storage: the ghosts are filled in totals, stored as anomalies
+    phydro->sub_reference_(u);
     for (int f : pending_faces) {
       int dim = 3 - f / 2, ng = op.nghost();
       int start = f % 2 ? hydro.size(dim) - ng : 0;
@@ -1666,8 +1781,10 @@ void MeshBlockImpl::apply_boundaries(Variables &vars, torch::Tensor hydro,
         w = hydro;
         r = tracers;
       } else if (pending_faces.empty()) {
-        w = phydro->peos->compute("U->W", {hydro.clone()});
-        r = has_tracers ? tracers / hydro[IDN] : torch::Tensor();
+        w = phydro->peos->compute(phydro->has_reference() ? "U'->W" : "U->W",
+                                  {hydro.clone()});
+        r = has_tracers ? tracers / phydro->dry_density(hydro)
+                        : torch::Tensor();
       }
       op.type(kPrimitive);
       op.tracers = has_tracers ? r : torch::Tensor();

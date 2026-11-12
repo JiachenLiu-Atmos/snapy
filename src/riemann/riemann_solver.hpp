@@ -155,8 +155,22 @@ class HLLCSolverImpl : public torch::nn::Cloneable<HLLCSolverImpl>,
                         torch::Tensor out,
                         torch::Tensor face_pressure = torch::Tensor()) override;
 
+  //! Pressure rows are perturbations about one shared face background.
+  //! Returns perturbation normal-momentum flux and contact pressure; energy
+  //! flux includes the total pressure. Other primitive rows retain their
+  //! normal meanings. This is separate from the total-state forward contract.
+  torch::Tensor forward_perturbations(
+      torch::Tensor wl, torch::Tensor wr, int dim, torch::Tensor out,
+      torch::Tensor reference_pressure,
+      torch::Tensor face_pressure_delta = torch::Tensor());
+
  protected:
   FORWARD_HAS_DEFAULT_ARGS({4, torch::nn::AnyValue(torch::Tensor())})
+
+ private:
+  torch::Tensor _forward(torch::Tensor wl, torch::Tensor wr, int dim,
+                         torch::Tensor out, torch::Tensor face_pressure,
+                         torch::Tensor reference_pressure);
 };
 TORCH_MODULE(HLLCSolver);
 

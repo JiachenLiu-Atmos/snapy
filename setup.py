@@ -3,6 +3,7 @@ import os
 import sys
 import glob
 import torch
+import kintera
 import platform
 from pathlib import Path
 from setuptools import setup
@@ -32,6 +33,7 @@ def parse_library_names(libdir):
     return snap_non_cuda + other + snap_cuda
 
 site_dir = sysconfig.get_paths()["purelib"]
+kintera_dir = Path(kintera.__file__).resolve().parent
 try:
     import commux
 except ImportError:
@@ -45,7 +47,7 @@ include_dirs = [
     f"{current_dir}/build",
     f"{current_dir}/build/_deps/fmt-src/include",
     f'{current_dir}/build/_deps/yaml-cpp-src/include',
-    f"{site_dir}/kintera",
+    str(kintera_dir),
     f"{site_dir}/pyharp",
 ]
 if commux_dir is not None:

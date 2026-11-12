@@ -82,6 +82,64 @@ torch::Tensor IdealMoistImpl::internal_energy_offset(
   return offset;
 }
 
+IdealMoistPerturbations IdealMoistImpl::perturbations(
+    torch::Tensor const& stored) const {
+  TORCH_CHECK(phydro->has_reference(),
+              "ideal-moist perturbations require an anomaly background");
+  auto species0 = phydro->species_ref();
+  TORCH_CHECK(species0.defined(),
+              "ideal-moist perturbations require the original species "
+              "background; this legacy restart only supports anomaly storage");
+  auto const& thermo = pthermo->options;
+  TORCH_CHECK(!thermo->use_nasa9_cp() && !thermo->use_h2_cp(),
+              "ideal-moist perturbations require constant heat capacities");
+  auto u = stored.to(torch::kFloat64);
+  auto ref = phydro->u_ref_like(u);
+  int ny = nvar() - ICY;
+  TORCH_CHECK(stored.size(0) == nvar() && species0.size(0) == ny,
+              "ideal-moist perturbations: species count mismatch");
+  auto s0 = species0.expand({ny, u.size(1), u.size(2), u.size(3)});
+  auto rho0 = torch::cat({ref[0].unsqueeze(0), s0}, 0);
+  auto drho = torch::cat({u[IDN].unsqueeze(0), u.narrow(0, ICY, ny) - s0}, 0);
+
+  // Recreate constants from the double-valued options, not buffers that
+  // Module::to(float32) may already have rounded. Energy offsets have already
+  // been referred to T=0 by ThermoY during reset.
+  auto inv_mu = 1. / torch::tensor(thermo->mu(), u.options());
+  auto cv = torch::tensor(thermo->cref_R(), u.options()) *
+            kintera::constants::Rgas * inv_mu;
+  auto offset = torch::tensor(thermo->uref_R(), u.options()) *
+                kintera::constants::Rgas * inv_mu;
+  auto gas = kintera::constants::Rgas * inv_mu;
+  gas.narrow(0, thermo->vapor_ids().size(), thermo->cloud_ids().size()).zero_();
+  auto dot = [](torch::Tensor const& r, torch::Tensor const& c) {
+    return (r * c.view({-1, 1, 1, 1})).sum(0);
+  };
+  auto density0 = rho0.sum(0);
+  auto density_delta = drho.sum(0);
+  auto density = density0 + density_delta;
+  auto momentum = u.narrow(0, IVX, 3);
+  auto raised = momentum.clone();
+  coord_vec_raise_(raised, phydro->pmb->pcoord->cosine_cell_kj);
+  auto ke = 0.5 * (momentum * raised).sum(0) / density;
+  auto thermal0 = ref[1] - dot(rho0, offset);
+  auto dthermal = u[IPR] - ke - dot(drho, offset);
+  auto gas0 = dot(rho0, gas), cv0 = dot(rho0, cv);
+  auto dcv = dot(drho, cv);
+  auto total_cv = cv0 + dcv;
+  TORCH_CHECK((torch::isfinite(cv0) & (cv0 > 0.) & torch::isfinite(total_cv) &
+               (total_cv > 0.))
+                  .all()
+                  .item<bool>(),
+              "ideal-moist perturbations require finite positive background "
+              "and total volumetric heat capacities");
+  auto pressure0 = thermal0 * gas0 / cv0;
+  auto pressure_delta = kintera::eval_const_cv_pressure_delta(
+      thermal0, gas0, cv0, dthermal, dot(drho, gas), dcv);
+  return {density0, pressure0, density_delta.to(stored.scalar_type()),
+          pressure_delta.to(stored.scalar_type())};
+}
+
 torch::Tensor IdealMoistImpl::compute(std::string ab,
                                       std::vector<torch::Tensor> const& args) {
   if (ab == "W->U") {
@@ -93,6 +151,26 @@ torch::Tensor IdealMoistImpl::compute(std::string ab,
     auto u = args[0];
     auto w = args.size() > 1 ? args[1] : torch::empty_like(u);
     _cons2prim(u, w);
+    return w;
+  } else if (ab == "W->U'") {
+    // the stored representation: totals, then rows {IDN, IPR} minus the
+    // reference (fp32 roadmap Step 1); totals when there is no reference
+    auto w = args[0];
+    auto u = args.size() > 1 ? args[1] : torch::empty_like(w);
+    _prim2cons(w, u);
+    phydro->sub_reference_(u);
+    return u;
+  } else if (ab == "U'->W") {
+    // limit the stored anomalies in place (anomaly-space floors), then
+    // convert the totals they stand for; `u` itself keeps anomalies
+    auto u = args[0];
+    auto w = args.size() > 1 ? args[1] : torch::empty_like(u);
+    if (!phydro->has_reference()) {
+      _cons2prim(u, w);
+      return w;
+    }
+    apply_conserved_limiter_(u);
+    _cons2prim(phydro->total_u(u), w, /*limit=*/false);
     return w;
   } else if (ab == "W->I") {
     auto w = args[0];
@@ -158,11 +236,14 @@ void IdealMoistImpl::_prim2cons(torch::Tensor prim, torch::Tensor& cons) {
   cons[IPR] = _prim2intEng(prim);
   cons[IPR] += ke;
 
-  apply_conserved_limiter_(cons);
+  apply_conserved_limiter_(cons, /*whole_column=*/false, /*totals=*/true);
 }
 
-void IdealMoistImpl::_cons2prim(torch::Tensor cons, torch::Tensor& prim) {
-  apply_conserved_limiter_(cons);
+void IdealMoistImpl::_cons2prim(torch::Tensor cons, torch::Tensor& prim,
+                                bool limit) {
+  if (limit) {
+    apply_conserved_limiter_(cons, /*whole_column=*/false, /*totals=*/true);
+  }
   auto pcoord = phydro->pmb->pcoord;
 
   int ny = pthermo->options->vapor_ids().size() +

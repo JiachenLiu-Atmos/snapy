@@ -195,6 +195,20 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   void forward(Variables& vars, double dt, int stage);
   void advance_local(Variables& vars, double dt, int stage);
 
+  //! build the anomaly reference (hydro.ref) from the initial hydro_w;
+  //! called by finalize_initialization and by a restart without one
+  void build_hydro_reference(Variables& vars);
+
+  //! FP32 storage emulation (utils/fp32_storage.hpp, SNAP_FP32_STORAGE):
+  //! round the stored state (hydro_u rows from SNAP_FP32_STORAGE_ROWS, and
+  //! every scalar_s row) through float32 when the emulation is on. Called by
+  //! Mesh/MeshBlock::forward after a stage whose output is due, and from
+  //! Python after host-side updates (initialization, kinetics). Returns
+  //! whether it rounded.
+  bool round_storage(Variables& vars) const;
+  //! round_storage when `stage` is due under the configured mode
+  bool round_storage_after_stage(Variables& vars, int stage) const;
+
   //! gravity-work-fixer: this block's {E+PE defect D, mass M} (CPU, double),
   //! and the step-end fix from the global sums
   torch::Tensor gravity_work_fixer_sums(Variables const& vars) const;

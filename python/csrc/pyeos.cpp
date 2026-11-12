@@ -10,11 +10,34 @@
 #include <snap/eos/ideal_moist.hpp>
 #include <snap/eos/moist_mixture.hpp>
 #include <snap/eos/shallow_water.hpp>
+#include <snap/hydro/hydro.hpp>
 
 // python
 #include "pyoptions.hpp"
 
 namespace py = pybind11;
+
+namespace {
+// Anomaly storage (fp32 roadmap Step 1): "U->W"/"W->U" mean totals, "U'->W"/
+// "W->U'" the stored anomalies. A full-block tensor passed with an old key
+// while the block stores anomalies is almost always vars["hydro_u"]: refuse
+// it instead of converting anomalies as if they were totals.
+torch::Tensor checked_compute(snap::EquationOfStateImpl &self, std::string ab,
+                              std::vector<torch::Tensor> const &args) {
+  if (self.phydro && self.phydro->has_reference() &&
+      (ab == "U->W" || ab == "W->U") && !args.empty() &&
+      self.phydro->is_full_block(args[0])) {
+    throw py::value_error(
+        "eos.compute('" + ab +
+        "'): this block stores hydro_u rows IDN and IPR as anomalies "
+        "(dynamics: anomaly). Use '" +
+        (ab == "U->W" ? std::string("U'->W") : std::string("W->U'")) +
+        "' for the stored representation. Totals of a stored state: "
+        "block.total_u(vars); the stored form of totals: block.stored_u(u).");
+  }
+  return self.compute(ab, args);
+}
+}  // namespace
 
 void bind_eos(py::module &m) {
   auto pyEquationOfStateOptions =
@@ -63,7 +86,8 @@ void bind_eos(py::module &m) {
            py::arg("n") = 0)
       .def("specific_heat_cv", &snap::EquationOfStateImpl::specific_heat_cv,
            py::arg("prim"), py::arg("temp"))
-      .def("compute", &snap::EquationOfStateImpl::compute);
+      .def("compute", &checked_compute, py::arg("ab"),
+           py::arg("args") = std::vector<torch::Tensor>{});
 
   auto pyIdealGas =
       py::class_<snap::IdealGasImpl, snap::EquationOfStateImpl,
@@ -99,7 +123,8 @@ void bind_eos(py::module &m) {
              return fmt::format("IdealMoist(\n{})", ss.str());
            })
       .def("nvar", &snap::IdealMoistImpl::nvar)
-      .def("compute", &snap::IdealMoistImpl::compute);
+      .def("compute", &checked_compute, py::arg("ab"),
+           py::arg("args") = std::vector<torch::Tensor>{});
 
   auto pyMoistMixture =
       py::class_<snap::MoistMixtureImpl, snap::EquationOfStateImpl,
