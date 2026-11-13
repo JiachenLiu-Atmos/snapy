@@ -1,5 +1,8 @@
 #pragma once
 
+// C/C++
+#include <array>
+
 // torch
 #include <torch/nn/cloneable.h>
 #include <torch/nn/module.h>
@@ -44,7 +47,8 @@ struct HydroOptionsImpl {
        << "* disable_flux_x2 = " << disable_flux_x2() << "\n"
        << "* disable_flux_x3 = " << disable_flux_x3() << "\n"
        << "* flux_covariance = " << flux_covariance() << "\n"
-       << "* x1_mass_covariance = " << x1_mass_covariance() << "\n";
+       << "* x1_mass_covariance = " << x1_mass_covariance() << "\n"
+       << "* conserve_axial_momentum = " << conserve_axial_momentum() << "\n";
   }
 
   //! verbose
@@ -75,6 +79,12 @@ struct HydroOptionsImpl {
   //! dz^2/12 rho_1 w_1 / rho from the reconstructed cell velocity; needs at
   //! least 3 x1 cells per block. Same every-block rule as flux_covariance.
   ADD_ARG(bool, x1_mass_covariance) = false;
+
+  //! Axial angular momentum in flux form on the cubed sphere: the component
+  //! of each cell's momentum tendency along the rotation about the omega1
+  //! axis is the divergence of face AAM fluxes, so the global AAM changes only
+  //! through physical boundary faces (see GnomonicEquiangle).
+  ADD_ARG(bool, conserve_axial_momentum) = false;
 
   //! forcing options
   ADD_ARG(ConstGravityOptions, grav) = nullptr;
@@ -157,6 +167,16 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   torch::Tensor flux1() const { return _flux1; }
   torch::Tensor flux2() const { return _flux2; }
   torch::Tensor flux3() const { return _flux3; }
+
+  //! dynamics/conserve-axial-momentum: the face mass fluxes the Coriolis
+  //! call in progress closes the planetary AAM with (x1, x2, x3; undefined
+  //! entries are skipped) and their number of species rows. The call before
+  //! the implicit solve takes the x2 and x3 faces, the call after it the x1
+  //! faces with the stage's final x1 mass transfer.
+  std::array<torch::Tensor, 3> const& axial_mass_fluxes() const {
+    return _aam_mass_flux;
+  }
+  int axial_mass_species() const { return _aam_mass_ny; }
 
   //! dynamics/flux-covariance (#289): the face-flux covariance rows a passive
   //! scalar carries on this stage's x2 (dim 2) or x3 (dim 1) faces, the rows a
@@ -373,6 +393,10 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
     int64_t ver = -1;
   };
   MassW _mass_w;
+
+  //! see axial_mass_fluxes()
+  std::array<torch::Tensor, 3> _aam_mass_flux;
+  int _aam_mass_ny = 0;
 
   torch::Tensor _flux1, _flux2, _flux3, _face_pressure1, _div, _forcing_dry;
   torch::Tensor _positivity_hits, _positivity_severe, _positivity_min;

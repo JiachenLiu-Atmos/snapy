@@ -51,7 +51,8 @@ HydroOptions HydroOptionsImpl::from_yaml(std::string const& filename,
                  {"equation-of-state", "reconstruct", "riemann-solver",
                   "verbose", "disable-flux-x1", "disable-flux-x2",
                   "disable-flux-x3", "wb-wall-clamp", "conversion-order",
-                  "anomaly", "flux-covariance", "x1-mass-covariance"});
+                  "anomaly", "flux-covariance", "x1-mass-covariance",
+                  "conserve-axial-momentum"});
       op->verbose() = dyn["verbose"].as<bool>(verbose);
       op->disable_flux_x1() = dyn["disable-flux-x1"].as<bool>(false);
       op->disable_flux_x2() = dyn["disable-flux-x2"].as<bool>(false);
@@ -61,6 +62,8 @@ HydroOptions HydroOptionsImpl::from_yaml(std::string const& filename,
       op->anomaly() = dyn["anomaly"].as<bool>(false);
       op->flux_covariance() = dyn["flux-covariance"].as<bool>(true);
       op->x1_mass_covariance() = dyn["x1-mass-covariance"].as<bool>(false);
+      op->conserve_axial_momentum() =
+          dyn["conserve-axial-momentum"].as<bool>(false);
     }
   }
 
@@ -154,6 +157,7 @@ HydroOptions HydroOptionsImpl::clone() const {
   op->anomaly() = anomaly();
   op->flux_covariance() = flux_covariance();
   op->x1_mass_covariance() = x1_mass_covariance();
+  op->conserve_axial_momentum() = conserve_axial_momentum();
   if (grav()) op->grav() = grav()->clone();
   if (coriolis()) op->coriolis() = coriolis()->clone();
   if (diffusion()) op->diffusion() = diffusion()->clone();

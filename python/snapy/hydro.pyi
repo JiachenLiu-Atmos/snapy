@@ -203,6 +203,19 @@ class HydroOptions:
     @overload
     def x1_mass_covariance(self, value: bool) -> "HydroOptions": ...
 
+    @overload
+    def conserve_axial_momentum(self) -> bool:
+        """Axial angular momentum in flux form on the gnomonic-equiangle cubed
+        sphere: the rotation component of each cell's momentum tendency is the
+        divergence of face AAM fluxes. Default False;
+        `dynamics: {conserve-axial-momentum: true}` turns it on. 3D and 2D
+        shallow water; with a Coriolis force it must be `type: xyz` about
+        `omega1`."""
+        ...
+
+    @overload
+    def conserve_axial_momentum(self, value: bool) -> "HydroOptions": ...
+
 class Hydro:
     """
     Hydrodynamics implementation.

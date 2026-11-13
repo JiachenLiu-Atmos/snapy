@@ -39,6 +39,19 @@ void HydroImpl::reset() {
     TORCH_WARN_ONCE(
         "SNAP_X1_MASS_COVARIANCE is ignored; set the deck key "
         "dynamics/x1-mass-covariance instead");
+  TORCH_CHECK(!options->conserve_axial_momentum() || !pmb->pcoord ||
+                  pmb->pcoord->options->type() == "gnomonic-equiangle",
+              "dynamics/conserve-axial-momentum is defined for the "
+              "gnomonic-equiangle cubed sphere only, not for '",
+              pmb->pcoord ? pmb->pcoord->options->type() : "", "'");
+  if (options->conserve_axial_momentum() && options->coriolis()) {
+    auto const& c = options->coriolis();
+    // the AAM is about the omega1 axis
+    TORCH_CHECK(c->type() == "xyz" && c->omega2() == 0. && c->omega3() == 0.,
+                "dynamics/conserve-axial-momentum needs coriolis type xyz "
+                "with omega2 = omega3 = 0 (the AAM is about the omega1 "
+                "axis)");
+  }
 
   //// ---- (1) set up equation-of-state model ---- ////
   peos = EquationOfStateImpl::create(options->eos(), this);

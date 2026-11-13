@@ -1013,6 +1013,16 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     }
     _div.set_(div);
   }
+  // axial angular momentum in flux form (#314): the rotation component of the
+  // momentum rows from the same face fluxes, so it telescopes across faces
+  if (options->conserve_axial_momentum()) {
+    pmb->pcoord->conserve_axial_momentum_(
+        _div,
+        options->disable_flux_x1() || u.size(DIM1) == 1 ? torch::Tensor()
+                                                        : _flux1,
+        options->disable_flux_x2() ? torch::Tensor() : _flux2,
+        options->disable_flux_x3() ? torch::Tensor() : _flux3);
+  }
   if (options->verbose()) {
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
@@ -1067,6 +1077,21 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // Coriolis sees w = 0 here; rows IDN, IVY, IVZ are w's, row IVX stays 0
     mw.wc1[IDN].copy_(w[IDN]);
     mw.wc1.narrow(0, IVY, 2).copy_(w.narrow(0, IVY, 2));
+  }
+  // conserve-axial-momentum: this Coriolis call closes the planetary AAM
+  // over the x2 and x3 faces; the x1 faces wait for step 8 with the w rows
+  bool aam = options->conserve_axial_momentum();
+  if (aam) {
+    auto on = [](bool off, torch::Tensor const& f) {
+      return off ? torch::Tensor() : f;
+    };
+    _aam_mass_flux = {mass_w ? torch::Tensor()
+                             : on(options->disable_flux_x1() ||
+                                      u.size(DIM1) == 1,
+                                  _flux1),
+                      on(options->disable_flux_x2(), _flux2),
+                      on(options->disable_flux_x3(), _flux3)};
+    _aam_mass_ny = ny;
   }
   for (auto& f : forcings)
     f.forward(du, mass_w && coriolis(f) ? mw.wc1 : w, temp, dt);
@@ -1313,14 +1338,39 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     auto m1i = m1.slice(-1, is, ie);
     torch::mul_out(m1i, phi.slice(-1, is, ie), mw.lo);
     m1i.addcmul_(phi.slice(-1, is + 1, ie + 1), mw.hi);
+    if (aam) {
+      // the x1 faces' share of the planetary AAM, from the same transfers:
+      // one flux row (IDN) per unit area, no species rows
+      _aam_mass_flux = {(phi / mw.area.narrow(-1, 0, phi.size(-1))).unsqueeze(0),
+                        torch::Tensor(), torch::Tensor()};
+      _aam_mass_ny = 0;
+    }
     for (auto& f : forcings)
       if (coriolis(f)) f.forward(du, mw.wc2, temp, dt);
-    pc->x1_mass_source_(du, w, m1, dt);
+    if (!aam) {
+      pc->x1_mass_source_(du, w, m1, dt);
+    } else {
+      // The explicit x1 faces are already in the flux form of step 5 (their
+      // AAM flux carries r_f, which is -rho w u / r for the K component), so
+      // the K component of this source only has to put the tangential
+      // momentum the implicit solve moved between cells i and i+1 at the face
+      // radius: with P the transfer through a face (k . p, per unit radius),
+      //   r k . src V = (r_lo - r) P_lo - (r_hi - r) P_hi .
+      // The component orthogonal to K keeps -m1 v / r.
+      auto src = torch::zeros_like(du);
+      pc->x1_mass_source_(src, w, m1, dt);
+      pc->axial_x1_source_(src[IVY], src[IVZ],
+                           picorr ? picorr->correction() : torch::Tensor());
+      du.narrow(0, IVY, 2) += src.narrow(0, IVY, 2);
+    }
   } else if (ptype == "gnomonic-equiangle") {
     // no x1 mass-flux w (nc1 == 1, shallow water): m1 = rho w. Only the
     // gnomonic grid has an x1_mass_source_; the others add nothing
     auto src = torch::zeros_like(du);
     pmb->pcoord->x1_mass_source_(src, w, w[IDN] * w[IVX], dt);
+    // conserve-axial-momentum: no K component, as in the branch above
+    if (aam)
+      pmb->pcoord->axial_x1_source_(src[IVY], src[IVZ], torch::Tensor());
     du.index(interior) += src.index(interior);
   }
 

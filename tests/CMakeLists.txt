@@ -324,6 +324,9 @@ snapy_add_python_test(test_fix_vapor_reports_failure TIMEOUT 60 LABELS "python;e
 snapy_add_python_test(test_fix_vapor_stale_count TIMEOUT 60 LABELS "python;eos;positivity;redo")
 snapy_add_python_test(test_fix_vapor_counts_every_column TIMEOUT 120 LABELS "python;eos;positivity")
 snapy_add_python_test(test_implicit_advection_cfl TIMEOUT 60 LABELS "python;hydro;implicit")
+# axial angular momentum in flux form on six cubed-sphere panels (#314)
+snapy_add_python_test(test_axial_momentum_flux_form TIMEOUT 600
+                      LABELS "python;cubed-sphere;hydro;conservation")
 snapy_add_python_test(test_implicit_gravity_tall_column TIMEOUT 120 LABELS "python;hydro;implicit;gravity")
 # the same ladder on one cubed-sphere face block, where the corrected-PE work carries the
 # centroid term (#300)
