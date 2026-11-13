@@ -6,6 +6,7 @@
 // snap
 #include "flux_decomposition_impl.h"
 #include "implicit_dispatch.hpp"
+#include "vic_gravity_work_impl.h"
 
 #define GAMMA(n) gamma[(n) * stride2]
 #define AREA(n) area[(n) * stride2]
@@ -98,26 +99,10 @@ void DISPATCH_MACRO vic_assemble_full_impl(
   b[i] = -(Am + dfdq_prev) * area_i * half_inv_vol;
   c[i] = -(Ap - dfdq_next) * area_ip1 * half_inv_vol;
 
-  if (face_work && cartesian_face) {
-    Eigen::Matrix<T, 1, 5> em;
-    em.setZero();
-    em(IVX + dir) = 1.;
-    a[i](IPR, IVX + dir) += grav;
-    a[i].row(IPR) -= 0.5 * grav * (em + 0.5 * (Ap.row(IDN) - Am.row(IDN)));
-    b[i].row(IPR) -= 0.5 * grav * (0.5 * em + 0.5 * Am.row(IDN));
-    c[i].row(IPR) -= 0.5 * grav * (0.5 * em - 0.5 * Ap.row(IDN));
-  } else if (face_work || diffusive_cell) {
-    // The same face-to-centre potential weights as the mass update.
-    T lower = work_lo[i * stride2], upper = work_hi[i * stride2];
-    a[i].row(IPR) -= grav * (upper * Ap.row(IDN) - lower * Am.row(IDN));
-    b[i].row(IPR) -= grav * lower * Am.row(IDN);
-    c[i].row(IPR) += grav * upper * Ap.row(IDN);
-    if (face_work) {
-      a[i](IPR, IVX + dir) += grav * (1. - lower - upper);
-      b[i](IPR, IVX + dir) -= grav * lower;
-      c[i](IPR, IVX + dir) -= grav * upper;
-    }
-  }
+  vic_gravity_work_rows<T, 5>(a[i], b[i], c[i], Am.row(IDN), Ap.row(IDN), IPR,
+                              IVX + dir, grav, face_work, diffusive_cell,
+                              cartesian_face, work_lo[i * stride2],
+                              work_hi[i * stride2]);
 
   // Fix boundary conditions for the cells at the ends of the column.
   if ((i == is || solid_lower) && first_block && !periodic)

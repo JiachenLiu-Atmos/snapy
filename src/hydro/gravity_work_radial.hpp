@@ -55,6 +55,16 @@ struct CentroidSlopeStencil {
     s += wt[2] * q.index_select(-1, idx[2]);
     return s.to(q.scalar_type());
   }
+  //! the weight of cell i + off in the slope of cell i, for each cell i (zero
+  //! where the stencil does not reach): one diagonal of the slope as a matrix,
+  //! summed as operator() sums it
+  torch::Tensor band(int off) const {
+    auto at = torch::arange(idx[0].size(0), idx[0].options()) + off;
+    auto s = wt[0] * (idx[0] == at).to(wt[0].scalar_type());
+    s += wt[1] * (idx[1] == at).to(wt[1].scalar_type());
+    s += wt[2] * (idx[2] == at).to(wt[2].scalar_type());
+    return s;
+  }
 };
 
 //! d q / d x1 at each x along the last dimension (n = x.size(0) cells): the

@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 #include <snap/implicit/forward_sweep_impl.h>
-#include <snap/implicit/tridiag_thomas_impl.h>
 #include <torch/torch.h>
 #include <yaml-cpp/yaml.h>
 
@@ -9,7 +8,6 @@
 #include <limits>
 #include <snap/mesh/mesh.hpp>
 #include <snap/mesh/meshblock.hpp>
-#include <type_traits>
 
 #include "cuda_test_gate.hpp"
 
@@ -56,27 +54,14 @@ void factor_cases() {
   EXPECT_EQ(ludcmp(a, ix), 0);
 }
 
-// Allows the regression to execute against the old void API: normal return
-// there means successful completion, which must fail the rejection checks.
-template <typename F>
-bool completed(F &&f) {
-  if constexpr (std::is_void_v<decltype(f())>) {
-    f();
-    return true;
-  } else {
-    return f();
-  }
-}
-
-template <typename T, int N, bool Legacy>
+template <typename T, int N>
 void sweep_cases() {
-  using Mat =
-      Eigen::Matrix<T, N, N, Legacy ? Eigen::RowMajor : Eigen::ColMajor>;
+  using Mat = Eigen::Matrix<T, N, N>;
   using Vec = Eigen::Matrix<T, N, 1>;
   for (int badcell = 0; badcell < 2; ++badcell) {
     for (int kind = 0; kind < 5; ++kind) {
       Mat a[2], b[2], c[2];
-      Vec delta[2], corr[2];
+      Vec delta[2];
       T du[10];
       for (auto &x : du) x = 1;
       for (int i = 0; i < 2; ++i) {
@@ -84,7 +69,6 @@ void sweep_cases() {
         b[i].setZero();
         c[i].setZero();
         delta[i].setZero();
-        corr[i].setZero();
       }
       if (kind == 1 || kind == 2) {
         a[badcell].row(1) = a[badcell].row(0);
@@ -94,16 +78,10 @@ void sweep_cases() {
       if (kind == 3) a[badcell](0, 0) = std::numeric_limits<T>::infinity();
       if (kind == 4)
         du[snap::IPR * 2 + badcell] = std::numeric_limits<T>::infinity();
-      bool ok = completed([&]() {
-        if constexpr (Legacy)
-          return snap::forward_sweep_impl(a, b, c, delta, corr, du, 1., 0, 2, 0,
-                                          1);
-        else
-          return snap::ForwardSweep(a, b, c, delta, du, 1., 0, 1, 0, 0, 2, 1,
-                                    true, true);
-      });
-      EXPECT_EQ(ok, kind == 0) << "N=" << N << " legacy=" << Legacy
-                               << " cell=" << badcell << " kind=" << kind;
+      bool ok = snap::ForwardSweep(a, b, c, delta, du, 1., 0, 1, 0, 0, 2, 1,
+                                   true, true);
+      EXPECT_EQ(ok, kind == 0)
+          << "N=" << N << " cell=" << badcell << " kind=" << kind;
       if (ok) {
         EXPECT_TRUE(delta[0].allFinite());
         EXPECT_TRUE(delta[1].allFinite());
@@ -199,14 +177,10 @@ TEST(lu_failure, float_three) { factor_cases<float, 3>(); }
 TEST(lu_failure, float_five) { factor_cases<float, 5>(); }
 TEST(lu_failure, double_three) { factor_cases<double, 3>(); }
 TEST(lu_failure, double_five) { factor_cases<double, 5>(); }
-TEST(lu_failure, current_float_three) { sweep_cases<float, 3, false>(); }
-TEST(lu_failure, current_float_five) { sweep_cases<float, 5, false>(); }
-TEST(lu_failure, current_double_three) { sweep_cases<double, 3, false>(); }
-TEST(lu_failure, current_double_five) { sweep_cases<double, 5, false>(); }
-TEST(lu_failure, legacy_float_three) { sweep_cases<float, 3, true>(); }
-TEST(lu_failure, legacy_float_five) { sweep_cases<float, 5, true>(); }
-TEST(lu_failure, legacy_double_three) { sweep_cases<double, 3, true>(); }
-TEST(lu_failure, legacy_double_five) { sweep_cases<double, 5, true>(); }
+TEST(lu_failure, current_float_three) { sweep_cases<float, 3>(); }
+TEST(lu_failure, current_float_five) { sweep_cases<float, 5>(); }
+TEST(lu_failure, current_double_three) { sweep_cases<double, 3>(); }
+TEST(lu_failure, current_double_five) { sweep_cases<double, 5>(); }
 TEST(lu_failure, partial_retry_restores_step) { retry_case(1, false); }
 TEST(lu_failure, full_retry_restores_step) { retry_case(9, false); }
 TEST(lu_failure, partial_stop_restores_step) { retry_case(1, true); }

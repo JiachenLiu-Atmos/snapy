@@ -354,34 +354,32 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     X1GridKey key(pcoord->x1f, pcoord->x1v, is, ie, is, ie, grav1, measure);
     if (!(_rx_key == key) || _rx_mid.scalar_type() != w.scalar_type() ||
         _rx_mid.device() != w.device()) {
-      // S[k][i]: the weight of cell k in the slope of cell i. One-sided only
-      // at the column's two physical walls: an implicit scheme refuses an x1
-      // split (HydroImpl::_apply_implicit_correction), so a VIC block has no
-      // internal x1 seam and this per-block slope is the one-block slope
-      auto S = centroid_slope(torch::eye(nx1, w.options()),
-                              pcoord->x1v.slice(0, is, ie).to(w.options()));
-      auto gv = grav1 * x1_variance(pcoord->x1f.slice(0, is, ie + 1),
-                                    measure != X1Measure::plain)
-                            .to(w.options());
-      rx_mid = gv * S.diagonal();
+      // the stencil and work factors of corrected_pe_work, which the
+      // post-solve term below reads from the same cache. The slope is
+      // one-sided only at the column's two physical walls: an implicit scheme
+      // refuses an x1 split (HydroImpl::_apply_implicit_correction), so a VIC
+      // block has no internal x1 seam and this per-block slope is the
+      // one-block slope
+      auto const& f = corrected_pe_factors(key, &_rx_work);
+      auto band = [&](int off) { return f.slope.band(off).to(w.options()); };
+      auto gv = f.gvar.to(w.options());
+      rx_mid = gv * band(0);
       // gnomonic-equiangle: x1v is not the r^2 centroid, and the work carries
       // g1 (r_c - x1v) drho as well (sec 12), a diagonal term
-      if (measure == X1Measure::radial_mid)
-        rx_mid += grav1 * x1_centroid_offset(pcoord->x1f.slice(0, is, ie + 1),
-                                             pcoord->x1v.slice(0, is, ie))
-                              .to(w.options());
+      if (f.goff.defined()) rx_mid += f.goff.to(w.options());
       rx_lo = torch::zeros_like(rx_mid);
       rx_hi = torch::zeros_like(rx_mid);
-      rx_lo.narrow(0, 1, nx1 - 1).copy_(S.diagonal(1));
-      rx_hi.narrow(0, 0, nx1 - 1).copy_(S.diagonal(-1));
+      rx_lo.narrow(0, 1, nx1 - 1).copy_(band(-1).narrow(0, 1, nx1 - 1));
+      rx_hi.narrow(0, 0, nx1 - 1).copy_(band(1).narrow(0, 0, nx1 - 1));
       rx_lo *= gv;
       rx_hi *= gv;
       _rx_key = key;
       _rx_lo = rx_lo;
       _rx_mid = rx_mid;
       _rx_hi = rx_hi;
-      _rx_t0 = gv[0] * S[2][0];
-      _rx_t1 = gv[nx1 - 1] * S[nx1 - 3][nx1 - 1];
+      // the one-sided wall slopes' third points
+      _rx_t0 = gv[0] * band(2)[0];
+      _rx_t1 = gv[nx1 - 1] * band(-2)[nx1 - 1];
     }
     rx_lo = _rx_lo;
     rx_mid = _rx_mid;
