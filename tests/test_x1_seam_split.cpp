@@ -12,8 +12,8 @@
 // The corrected-PE work of gravity-work: face exchanges the stage's density
 // change across the seam and takes the centred slope there, one-sided only at
 // the walls (#303), so the split column keeps the one-block state; the second
-// test checks a zero gap at nz 32/64/128 and E + P (the one-block P) on the
-// split column
+// test checks a round-off gap at nz 32/64/128 and E + P (the one-block P) on
+// the split column
 // (docs/derivations/curved-gravity-work-weight.md sec 7). An implicit scheme
 // refuses an x1 split, so the VIC row has no seam (vic_refuses_x1_split).
 //
@@ -263,8 +263,12 @@ void radial_exact_split_gap(torch::Device device) {
         "nz %d: 2 blocks vs 1, max rel gap %.3e; split E+P drift %.3e\n", nx1,
         gap, drift);
     EXPECT_LE(drift, 1e-13) << "nz " << nx1;
-    // the seam cells take one block's slope (#303): no gap
-    EXPECT_EQ(gap, 0.) << "nz " << nx1;
+    // the seam cells take one block's slope (#303); the gap is round-off
+    // only, bounded as in the tests above: the reference pressure of the top
+    // cell below the seam is built from that block's own ghost-face pressures
+    // and can differ from the one-block value in the last bit, and the face
+    // density, the x1 linear rows on dref, carries that bit into the flux
+    EXPECT_LE(gap, 1e-13) << "nz " << nx1;
   }
 }
 

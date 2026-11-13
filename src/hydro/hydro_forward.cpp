@@ -548,8 +548,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       wtmp[ILT][IPR].copy_(torch::where(pl > 0., pl, psf_lo));
       wtmp[IRT][IPR].copy_(torch::where(pr > 0., pr, psf_lo));
 
-      auto dl = wtmp[ILT][IDN] + dsf;
-      auto dr = wtmp[IRT][IDN] + dsf;
+      auto dl = wtmp[ILT][IDN] + dsf[ILT];
+      auto dr = wtmp[IRT][IDN] + dsf[IRT];
       // Positivity fallback = the adjacent cell's density, not dsf: a
       // reference that overestimates density aloft (a bottom-anchored
       // isentrope did, by orders of magnitude) turns every floor event at a

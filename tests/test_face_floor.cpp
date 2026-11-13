@@ -89,7 +89,9 @@ void face_floor_uses_adjacent_density(torch::Device device) {
 // pressure drops by e^{g dz rho/p} = e^1 > e^{0.5}, so every cell is flagged
 // and keeps the kernel's reference, which does not follow the dip; the
 // overshoot is then floored to the adjacent density, as with the switch off:
-// the same flux in every arm (with the linear/ln wall continuation of rho/p)
+// the same flux in every arm (with the linear/ln wall continuation of rho/p,
+// and the face density from the x1 linear rows on dref, which sets the flux
+// of the floored face: 2.83191e-8 with the earlier face density)
 void face_floor_fires_on_an_unresolved_column(torch::Device device) {
   auto block = dipped_column(device, 10.);
   int dipped = block->pcoord->iu() - 1;
@@ -97,7 +99,7 @@ void face_floor_fires_on_an_unresolved_column(torch::Device device) {
       block->phydro->flux1()[IDN].select(-1, dipped).item<double>();
   std::printf("wb_ref4 %d, p = 10 e^{-x/2}: dipped face mass flux %.4e\n",
               static_cast<int>(HydroImpl::wb_ref4()), dipped_mass);
-  EXPECT_NEAR(dipped_mass, 2.83191e-8, 1.e-5 * 2.83191e-8);
+  EXPECT_NEAR(dipped_mass, 1.28524e-8, 1.e-5 * 1.28524e-8);
 }
 
 }  // namespace

@@ -114,14 +114,9 @@ RefOutput tensor_reference(torch::Tensor const& w, torch::Tensor const& dx1f,
                                 dp / torch::log(ratio)));
   }
 
-  auto rop = rho / w[snap::IPR];
-  auto lo_edge = rop.narrow(-1, 0, 1);
-  auto hi_edge = rop.narrow(-1, nc1 - 1, 1);
-  auto pad = torch::cat({lo_edge, lo_edge, rop, hi_edge, hi_edge}, -1);
-  auto rs = (pad.narrow(-1, 0, nc1) + 4. * pad.narrow(-1, 1, nc1) +
-             6. * pad.narrow(-1, 2, nc1) + 4. * pad.narrow(-1, 3, nc1) +
-             pad.narrow(-1, 4, nc1)) /
-            16.;
+  // without the wall clamp every cell's density reference uses its own rho/p
+  // (the 5-point binomial is kept only next to a clamped wall)
+  auto rs = rho / w[snap::IPR];
   auto rf = rs.clone();
   rf.narrow(-1, 1, nc1 - 1)
       .copy_(0.5 * (rs.narrow(-1, 0, nc1 - 1) + rs.narrow(-1, 1, nc1 - 1)));

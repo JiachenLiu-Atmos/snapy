@@ -685,7 +685,61 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w) const {
   // faces as one block
   if (wb4_flag.defined()) wb_ref4_faces(*wb_ref4_, dref, dsf, wb4_flag);
 
-  return {psf_lo, pref, dsf, dref};
+  // the face density on each side of a face is the x1 reconstruction's own
+  // optimal-linear row applied to dref (cp5 = the weno5 candidates combined
+  // with their linear weights), so rho_f = R_lin(rho) + N(rho') whatever
+  // dref is. Read after the seam exchange; a face whose value leaves
+  // [min, max] of its two cells' dref keeps the face density above, which is
+  // also what any other reconstruction gets on both sides.
+  auto dsf_lr = torch::stack({dsf, dsf});
+  auto const& itype = options->recon1()->interp()->type();
+  int nc1 = dref.size(-1);
+  if ((itype == "weno5" || itype == "cp5") && nc1 >= 6) {
+    if (!dsf_lin_ || dsf_lin_->cm.device() != w.device() ||
+        dsf_lin_->cm.scalar_type() != w.scalar_type()) {
+      auto op = InterpOptionsImpl::create();
+      op->type("cp5");
+      dsf_lin_ = std::make_shared<Center5InterpImpl>(op);
+      if (precon1->pinterp1->has_x1_coeffs()) {
+        auto const& co = pcoord->options;
+        bool plain =
+            x1_centroid_exact_enabled() && co->type() == "spherical-polar";
+        auto x1f = !plain               ? pcoord->x1_row_faces(itype)
+                   : co->stretched_x1() ? pcoord->x1f
+                                        : torch::Tensor();
+        if (x1f.defined()) dsf_lin_->set_x1_coeffs(x1f);
+      }
+      dsf_lin_->to(w.device(), w.scalar_type());
+    }
+    constexpr int D1 = 3;
+    int il = 3, iu5 = nc1 - 3;
+    auto lin = torch::stack({dsf, dsf}).unsqueeze(1);
+    dsf_lin_->forward(dref.unsqueeze(0), D1,
+                      lin[IRT].slice(D1, il - 1, iu5 + 1),
+                      lin[ILT].slice(D1, il, iu5 + 2));
+    lin = lin.squeeze(1);
+    auto dl = dref.narrow(-1, 0, nc1 - 1), dr = dref.narrow(-1, 1, nc1 - 1);
+    for (int s : {(int)ILT, (int)IRT}) {
+      auto face = lin[s].narrow(-1, il - 1, iu5 + 3 - il);
+      auto lo = torch::minimum(dl, dr).narrow(-1, il - 2, iu5 + 3 - il);
+      auto hi = torch::maximum(dl, dr).narrow(-1, il - 2, iu5 + 3 - il);
+      auto d = dsf_lr[s].narrow(-1, il - 1, iu5 + 3 - il);
+      d.copy_(torch::where((face >= lo) & (face <= hi), face, d));
+    }
+    // a reflecting x1 wall face is a mirror: one face density on both sides,
+    // the mean of the two rows. Two values there give a Riemann solver whose
+    // wave speeds read the face density (hllc, roe) a nonzero contact speed,
+    // which moves mass through the wall.
+    auto const& bf = pmb->options->bfuncs();
+    for (int f : {0, 1}) {
+      if (!is_x1_wall(f) || !is_reflecting(bf[f])) continue;
+      int i = f == 0 ? pcoord->il() : pcoord->iu() + 1;
+      auto mean = 0.5 * (dsf_lr[ILT].select(-1, i) + dsf_lr[IRT].select(-1, i));
+      for (int s : {(int)ILT, (int)IRT}) dsf_lr[s].select(-1, i).copy_(mean);
+    }
+  }
+
+  return {psf_lo, pref, dsf_lr, dref};
 }
 
 std::shared_ptr<HydroImpl> HydroImpl::create(HydroOptions const& opts,

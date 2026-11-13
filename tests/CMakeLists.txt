@@ -428,6 +428,9 @@ set_tests_properties(test_scalar_cov_x1_split_python
                      PROPERTIES ENVIRONMENT "SNAP_FLUX_COVARIANCE=1")
 # #298: the x1 stencil caches on blocks with too few x1 cells
 snapy_add_python_test(test_stencil_cache_small_block TIMEOUT 300 LABELS "python;hydro")
+# the x1 density reference at a 1.5 cell-width jump: the jump-cell state error
+# converges at order 4 (conversion-order 4) and 1.8 (conversion-order 2) or better
+snapy_add_python_test(test_density_ref_width_jump TIMEOUT 300 LABELS "python;hydro")
 
 # CUDA variants reuse the same scripts and assertions.
 if(CUDA)
@@ -502,6 +505,12 @@ if(CUDA)
     test_scalar_upper_bound_donor_cuda_python
     test_tracer_ratio_cuda_python
     test_tracer_dry_convention_cuda_python
+    PROPERTIES SKIP_RETURN_CODE 125)
+  # the density-reference width-jump ladder on the GPU
+  snapy_add_python_test(test_density_ref_width_jump_cuda
+    SCRIPT test_density_ref_width_jump.py ARGS --device cuda
+    TIMEOUT 300 LABELS "python;hydro;cuda")
+  set_tests_properties(test_density_ref_width_jump_cuda_python
     PROPERTIES SKIP_RETURN_CODE 125)
 endif()
 

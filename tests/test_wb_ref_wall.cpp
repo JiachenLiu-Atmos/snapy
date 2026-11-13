@@ -1,6 +1,7 @@
 // C/C++
 #include <unistd.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -30,13 +31,20 @@ using namespace snap;
 // wall. A hydrostatic polytrope T = 1 - beta z (g = R = 1, rho = p / T) one
 // pressure scale height deep, reflecting x1 walls, held as exact cell
 // averages. Reported per face f, relative to the exact rho(z_f):
-//   dsf          the face density reference itself;
+//   dsf, dsf_R   the face density reference itself, on the face's left and
+//                right side (the x1 linear rows applied to dref);
 //   rho_L, rho_R the face densities the solver builds from it,
 //                dsf + WENO5(rho - dref) with the even-parity wall ghosts of
 //                hydro_forward.cpp.
 // Interior faces are O(dz^2). See docs/derivations/wb-ref-wall.md.
 
 namespace {
+
+// _hydro_ref_x1 is protected. A derived class may name it; the member
+// pointer applies to any HydroImpl (as in test_pref_local_seam).
+struct RefPeek : HydroImpl {
+  static auto ptr() { return &RefPeek::_hydro_ref_x1; }
+};
 
 constexpr int kNg = 3;
 constexpr int kDim1 = 3;  // x1, as DIM1 in hydro_forward.cpp
@@ -80,7 +88,10 @@ std::shared_ptr<MeshBlockImpl> make_block(int nx1, double depth,
                           "false}\n"
                           "boundary-condition:\n"
                           "  external: {x1-inner: reflecting, x1-outer: "
-                          "reflecting}\n";
+                          "reflecting}\n"
+                          // g = 1, the gravity of the reference
+                          "forcing:\n"
+                          "  const-gravity: {grav1: -1.}\n";
   auto options = MeshBlockOptionsImpl::from_yaml(fname);
   std::remove(fname);
   auto block = std::make_shared<MeshBlockImpl>(options);
@@ -89,7 +100,7 @@ std::shared_ptr<MeshBlockImpl> make_block(int nx1, double depth,
 }
 
 struct Faces {
-  torch::Tensor dsf, rl, rr;  // relative errors at faces il..iu+1
+  torch::Tensor dsf, dsr, rl, rr;  // relative errors at faces il..iu+1
   double dz;
 };
 
@@ -129,19 +140,10 @@ Faces face_errors(int nx1, Profile const& prof,
     }
   }
 
-  // the reference, as HydroImpl::_hydro_ref_x1 builds it for one block with
-  // two physical walls (wb-wall-clamp is on by default)
+  // the reference HydroImpl::_hydro_ref_x1 builds for this block (two
+  // physical walls; wb-wall-clamp is on by default); dsf is (ILT, IRT)
   w = w.to(device);
-  opt = opt.device(device);
-  auto sizes = w.sizes().slice(1).vec();
-  auto psf_lo = torch::empty(sizes, opt), psf_hi = torch::empty(sizes, opt),
-       pref = torch::empty(sizes, opt), dsf = torch::empty(sizes, opt),
-       dref = torch::empty(sizes, opt);
-  at::native::call_hydro_ref_x1(device.type(), w, coord->dx1f.contiguous(),
-                                torch::Tensor(), psf_lo, psf_hi, pref, dsf,
-                                dref, iu, /*grav=*/1., /*uniform=*/true,
-                                /*phys_in=*/true, /*phys_out=*/true,
-                                /*wall_clamp=*/true, torch::Tensor());
+  auto [psf_lo, pref, dsf, dref] = ((*block->phydro).*RefPeek::ptr())(w);
 
   // the solver's face densities (hydro_forward.cpp): reconstruct rho - dref
   // with even-parity wall ghosts, then add dsf back
@@ -172,9 +174,10 @@ Faces face_errors(int nx1, Profile const& prof,
     return t.flatten().narrow(0, il, nf).cpu();
   };
   Faces out;
-  out.dsf = at(dsf) / exact - 1.;
-  out.rl = (at(wtmp[ILT][IDN]) + at(dsf)) / exact - 1.;
-  out.rr = (at(wtmp[IRT][IDN]) + at(dsf)) / exact - 1.;
+  out.dsf = at(dsf[ILT]) / exact - 1.;
+  out.dsr = at(dsf[IRT]) / exact - 1.;
+  out.rl = (at(wtmp[ILT][IDN]) + at(dsf[ILT])) / exact - 1.;
+  out.rr = (at(wtmp[IRT][IDN]) + at(dsf[IRT])) / exact - 1.;
   out.dz = dz;
   return out;
 }
@@ -220,17 +223,26 @@ TEST(WbRefWall, order_table) {
   }
 }
 
-// The faces next to each wall (one and two cells in) keep the interior's
-// second order: the observed order nz 32 -> 64 is at least 1.7 for the face
-// density reference and for the face densities the solver builds from it, and
-// at nz 64 the reference there is no worse than 1.5 times the largest interior
-// error. With the wall cell repeated past the wall (the clamp) the first face
-// is first order, 1.39e-3 against an interior 1.45e-4 at nz 64.
+// The faces next to each wall (one and two cells in) keep second order: the
+// observed order nz 32 -> 64 is at least 1.7 for the face density reference
+// (either side) and for the face densities the solver builds from it, and at
+// nz 64 the solver's face densities there stay within kWallRho of the exact
+// rho (max 2.30e-5 measured; 2.20e-5 with the earlier kernel face density).
+// The reference is not compared with the interior: the solver adds back
+// WENO5(rho - dref), so with linear rows its own error cancels, and the
+// interior face densities are now 3.1e-7 at nz 64, the reference 3.4e-5. With
+// the wall cell repeated past the wall (the clamp) the first face is first
+// order, 1.39e-3 against an interior 1.45e-4 at nz 64.
+constexpr double kWallRho = 3.e-5;
+
 void faces_next_to_the_walls_are_second_order(torch::Device device) {
   Profile prof{0.5};
   auto c = face_errors(32, prof, device), f = face_errors(64, prof, device);
   int nc = c.dsf.size(0), nf = f.dsf.size(0);
-  double interior = interior_max(f.dsf, 3);
+  std::printf(
+      "nz 64 interior (>= 3 faces from a wall): dsf %.3e, rho_L/R %.3e\n",
+      std::max(interior_max(f.dsf, 3), interior_max(f.dsr, 3)),
+      std::max(interior_max(f.rl, 3), interior_max(f.rr, 3)));
   struct Face {
     char const* name;
     int ic, iff;
@@ -239,17 +251,16 @@ void faces_next_to_the_walls_are_second_order(torch::Device device) {
        {Face{"bottom 1", 1, 1}, Face{"bottom 2", 2, 2},
         Face{"top 1", nc - 2, nf - 2}, Face{"top 2", nc - 3, nf - 3}}) {
     for (auto [what, ec, ef] :
-         {std::tuple{"dsf", c.dsf, f.dsf}, std::tuple{"rho_L", c.rl, f.rl},
-          std::tuple{"rho_R", c.rr, f.rr}}) {
+         {std::tuple{"dsf", c.dsf, f.dsf}, std::tuple{"dsf_R", c.dsr, f.dsr},
+          std::tuple{"rho_L", c.rl, f.rl}, std::tuple{"rho_R", c.rr, f.rr}}) {
       double a = std::abs(ec[face.ic].item<double>());
       double b = std::abs(ef[face.iff].item<double>());
       double order = std::log2(a / b);
       std::printf("%-8s %-5s nz 32 %.3e  nz 64 %.3e  order %.2f\n", face.name,
                   what, a, b, order);
       EXPECT_GE(order, 1.7) << face.name << " " << what;
-      if (std::string(what) == "dsf") {
-        EXPECT_LE(b, 1.5 * interior)
-            << face.name << " dsf " << b << " vs interior " << interior;
+      if (std::string(what).rfind("rho", 0) == 0) {
+        EXPECT_LE(b, kWallRho) << face.name << " " << what << " " << b;
       }
     }
   }
@@ -274,8 +285,8 @@ TEST(WbRefWall, order_table_cuda_matches_cpu) {
       auto a = face_errors(nz, prof);
       auto b = face_errors(nz, prof, torch::Device(torch::kCUDA, 0));
       for (auto [what, ea, eb] :
-           {std::tuple{"dsf", a.dsf, b.dsf}, std::tuple{"rho_L", a.rl, b.rl},
-            std::tuple{"rho_R", a.rr, b.rr}}) {
+           {std::tuple{"dsf", a.dsf, b.dsf}, std::tuple{"dsf_R", a.dsr, b.dsr},
+            std::tuple{"rho_L", a.rl, b.rl}, std::tuple{"rho_R", a.rr, b.rr}}) {
         double d = (ea - eb).abs().max().item<double>();
         std::printf("beta %g nz %3d %-5s max |CUDA - CPU| %.2e\n", beta, nz,
                     what, d);
@@ -283,6 +294,31 @@ TEST(WbRefWall, order_table_cuda_matches_cpu) {
       }
     }
   }
+}
+
+// A reflecting x1 wall passes no mass. A 4-cell column far from balance,
+// hllc (the default solver), 5 rk3 steps: total mass holds to round-off. Two
+// face densities at the wall face gave hllc a nonzero contact speed there.
+TEST(WbRefWall, reflecting_walls_pass_no_mass) {
+  auto block = make_block(4, 4., torch::kCPU);
+  auto c = block->pcoord;
+  auto z = c->x1v.view({1, 1, -1}) / 4.;
+  auto w = torch::zeros({block->phydro->peos->nvar(), 1, 1, c->options->nc1()},
+                        torch::kFloat64);
+  w[IDN] = (-z).exp();
+  w[IPR] = 1.e5 * (-z).exp();
+  w[IVX] = 0.5 * (M_PI * z).sin();
+  Variables vars{{"hydro_w", w}};
+  block->initialize(vars);
+  auto in = block->part({0, 0, 0}, PartOptions().exterior(false));
+  double m0 = vars.at("hydro_u").index(in)[IDN].sum().item<double>();
+  for (int n = 0; n < 5; ++n) {
+    double dt = block->max_time_step(vars);
+    for (int st = 0; st < 3; ++st) block->forward(vars, dt, st);
+  }
+  double m1 = vars.at("hydro_u").index(in)[IDN].sum().item<double>();
+  std::printf("relative mass change over 5 steps %.3e\n", (m1 - m0) / m0);
+  EXPECT_LE(std::abs(m1 - m0) / m0, 1.e-13);  // round-off: ~1e-16 per step
 }
 
 int main(int argc, char** argv) {

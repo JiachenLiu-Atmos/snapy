@@ -305,8 +305,8 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
 
   // Per-column hydrostatic references for the well-balanced x1
   // reconstruction: {psf_lo (face pressure), pref (cell pressure), dsf (face
-  // density), dref (cell density)}, rebuilt from the current field on every
-  // call.
+  // density, (2, ...) = its ILT and IRT values), dref (cell density)},
+  // rebuilt from the current field on every call.
   std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
   _hydro_ref_x1(torch::Tensor const& w) const;
   //! overwrite the m x1 ghost rows of f next to each x1 neighbour with the
@@ -326,6 +326,8 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   void _check_stretched_x1(torch::Tensor const& u) const;
   //! SNAP_WB_REF4 stencils for this block's x1 grid, built on first use
   mutable std::shared_ptr<WbRef4Stencils> wb_ref4_;
+  //! the x1 reconstruction's optimal-linear rows (cp5) for the face density
+  mutable std::shared_ptr<Center5InterpImpl> dsf_lin_;
   //! SNAP_X1_CENTROID_EXACT r^2 -> plain-mean stencils, built on first use
   mutable std::shared_ptr<X1PlainMeanStencils> x1pm_;
   //! and its pressure-force stencils, for the hydrostatic correction
