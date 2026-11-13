@@ -94,15 +94,17 @@ struct HydroOptionsImpl {
   //!    of 0.5 to 1: the drift is 110 to 290 times smaller than off at C8 and
   //!    50 to 130 times at C16 (the gain shrinks with resolution). At a ratio
   //!    of 14 it was larger than off, where the two errors of off cancel in
-  //!    part.
+  //!    part. Shallow-water noise decays as with off (what is left after 4000
+  //!    steps is within x1.4 of off up to 4 Omega).
   //!  - full: also the axial component of the Coriolis force, from the face
   //!    mass fluxes, so relative plus planetary AAM is exact. That force is
   //!    then built from two different velocities and is not skew-symmetric:
-  //!    grid-scale noise gains energy with rotation. Linear f-plane growth is
-  //!    about 0.1 to 0.15 f^2 dx / c; noisy shallow water (Williamson 2, u0 =
-  //!    3 m/s, 4000 steps) gains kinetic energy x10 to x14 at C16 and x1.5 at
-  //!    C32, none at Omega / 4 or at u0 = 38.6 m/s (why is not known). Use it
-  //!    without rotation.
+  //!    with rotation it does work and grid-scale noise gains energy. Linear
+  //!    f-plane growth is about 0.1 to 0.15 f^2 dx / c, whatever the wind.
+  //!    Shallow water at C16 over 4000 steps: noise on a state of rest keeps
+  //!    2.5 times the kinetic energy of off at Omega / 4 and grows 30-fold at
+  //!    Omega; a Williamson-2 flow gains the same amount, x10 at u0 = 3 m/s
+  //!    with or without noise, 5 % at 38.6 m/s. Use it without rotation.
   ADD_ARG(std::string, conserve_axial_momentum) = "off";
 
   //! forcing options
