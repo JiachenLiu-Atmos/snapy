@@ -427,6 +427,7 @@ snapy_add_python_test(test_wb_ref4_order TIMEOUT 300 LABELS "python;hydro")
 snapy_add_python_test(test_x1_centroid_rest TIMEOUT 300 LABELS "python;hydro")
 snapy_add_python_test(test_radial_order TIMEOUT 300 LABELS "python;hydro")
 snapy_add_python_test(test_conversion_order TIMEOUT 600 LABELS "python;hydro")
+snapy_add_python_test(test_balance_column_order4 TIMEOUT 60 LABELS "python;hydro")
 snapy_add_python_test(test_radial_order_x1_centroid SCRIPT test_radial_order.py
                       ARGS --x1-centroid TIMEOUT 300 LABELS "python;hydro")
 # #289: a passive scalar and the same tracer as a hydro species, covariance on and off

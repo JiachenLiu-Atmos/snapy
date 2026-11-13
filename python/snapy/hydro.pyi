@@ -228,5 +228,7 @@ class Hydro:
 
 def balance_column(w: torch.Tensor, dx1f: torch.Tensor, grav: float,
                    wall_clamp: bool = True, rtol: float = 1.e-10,
-                   max_iter: int = 120, geometry: str = ""
+                   max_iter: int = 120, geometry: str = "",
+                   stretched: bool = False, conversion_order: int = 2,
+                   eos: Optional[torch.nn.Module] = None
                    ) -> Tuple[torch.Tensor, float, int]: ...

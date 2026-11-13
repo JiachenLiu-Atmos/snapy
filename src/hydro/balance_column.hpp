@@ -9,6 +9,8 @@
 
 namespace snap {
 
+class EquationOfStateImpl;
+
 //! \brief Project a ghost-free x1 column onto the well-balanced scheme's own
 //!        discrete hydrostatic balance, at fixed temperature.
 //!
@@ -26,7 +28,7 @@ namespace snap {
 //! column moves least where it is thinnest; anchoring it at the bottom
 //! diverges on a deep column. p/rho is held fixed per cell, which for
 //! `ideal-gas` and `ideal-moist` at fixed mass fractions holds the TEMPERATURE
-//! fixed exactly -- only p and rho move, together.
+//! fixed exactly -- only p and rho move, together (conversion_order 2).
 //!
 //! \param w        (nvar, nc3, nc2, nx1) primitive state, nvar > IPR. The last
 //!                 dimension is the WHOLE column with NO ghost cells: every
@@ -46,8 +48,11 @@ namespace snap {
 //!                 faces BELOW the wall -- ghost faces, which a ghost-free
 //!                 column does not have -- so the fixed point found here would
 //!                 not be the one the solver later enforces.
-//! \param rtol     bound on the residual below, dimensionless.
-//! \param max_iter sweeps before giving up.
+//! \param rtol     bound on the residual below, dimensionless. Its floor is
+//!                 about eps (p/rho) / (g dz_min), ~10x that at order 4: pass
+//!                 a larger rtol when the thinnest cells are millimetres.
+//! \param max_iter sweeps before giving up; at conversion_order 4 it bounds
+//!                 both the outer passes and each pass's inner sweeps.
 //!
 //! \return (balanced w, residual, sweeps). The residual is
 //!         max |p' - C| / (rho g dz), which bounds what the leftover imbalance
@@ -107,9 +112,23 @@ namespace snap {
 //! plain means converted from its r^2 means, which this column does not model:
 //! the caller then passes geometry "cartesian", and anything else (unknown, or
 //! spherical-polar, whose rest state is the solver's own) is refused.
+//!
+//! `conversion_order` is the run's dynamics/conversion-order. At 4 the solver
+//! applies the reference to w4 = W(u - L u) + L W(u), not to W(u), so where W
+//! is not linear in u (mass fractions varying in x1) a column balanced at 2 is
+//! not at rest under key 4. Order 4 balances w4 instead: each pass projects
+//! w4 at order 2 and moves w by the same dp and drho, until w4 needs no sweep;
+//! `eos` (the run's) gives W -> U -> W, and the return counts passes. The x1
+//! ends are reflecting walls, as above. The temperature (p/rho) is held per
+//! pass, not over the call: w's p/rho drifts at second order in dz. Cells
+//! where conv4_admissible() fails keep W(u), as in the solver (its
+//! limiter-repair fallback is not modelled). The eos limiter flag is cleared
+//! for the call and restored on return and on error. `eos` must come from a
+//! block with nx2 = nx3 = 1.
 std::tuple<torch::Tensor, double, int> balance_column(
     torch::Tensor const& w, torch::Tensor const& dx1f, double grav,
     bool wall_clamp = true, double rtol = 1.e-10, int max_iter = 120,
-    std::string const& geometry = "", bool stretched = false);
+    std::string const& geometry = "", bool stretched = false,
+    int conversion_order = 2, EquationOfStateImpl* eos = nullptr);
 
 }  // namespace snap

@@ -6,6 +6,16 @@
 
 namespace snap {
 
+class EquationOfStateImpl;
+
+//! dynamics/conversion-order 4's per-cell fallback test (hydro_forward.cpp):
+//! true where `a` is admissible -- finite, rho above the density floor and,
+//! with `limiter` on, no species below zero (u - L u, prim false), and p
+//! above the pressure floor too (its primitives, prim true). The floors are
+//! zero with `limiter` off. balance_column passes the run's limiter flag.
+torch::Tensor conv4_admissible(torch::Tensor const& a, bool prim,
+                               EquationOfStateImpl* eos, bool limiter);
+
 enum X1RefGrid : int {
   kX1RefNonUniform = 0,
   kX1RefUniform = 1,

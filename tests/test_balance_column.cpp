@@ -505,6 +505,64 @@ TEST(BalanceColumn, a_moist_column_with_one_condensable_comes_out_at_rest) {
             1.e-12);
 }
 
+// KEY 4 AT REST. The card's vapour falls with height, so W is not linear in u
+// and dynamics/conversion-order 4 applies the reference to W(u - L u) + L W(u),
+// not to W(u): balanced at order 2 the column moves under key 4, balanced at
+// order 4 it stays at rest. Max over nstep steps of max|w|/c, max|drho|/rho.
+std::pair<double, double> key4_rest(int order, int scheme, double courant,
+                                    int nstep) {
+  auto op = snap::MeshBlockOptionsImpl::from_yaml(kMoistCard);
+  op->hydro()->conversion_order(4);
+  if (scheme) op->hydro()->icorr(snap::ImplicitOptionsImpl::create());
+  if (scheme) op->hydro()->icorr()->scheme(scheme);
+  auto b = snap::MeshBlock(op);
+  b->to(torch::kCPU, torch::kFloat64);
+  auto eos = b->phydro->peos;
+  auto c = moist_marched_column(b);
+  auto col =
+      std::get<0>(snap::balance_column(c.w, c.dx1f, kGrav, true, 1.e-13, 400,
+                                       "cartesian", false, order, eos.get()));
+  int il = b->pcoord->il(), nx1 = col.size(-1);
+  namespace F = torch::nn::functional;
+  snap::Variables v{
+      {"hydro_w",
+       F::pad(col, F::PadFuncOptions({il, il, 0, 0}).mode(torch::kReplicate))}};
+  b->initialize(v);
+  auto state = [&] {  // the EOS reads the whole block, then the owned cells
+    auto u = v.at("hydro_u");
+    auto w = eos->compute("U->W", {u.clone()}).narrow(-1, il, nx1);
+    auto ui = u.narrow(-1, il, nx1);
+    auto c =
+        torch::sqrt(eos->compute("W->A", {w}) * w[snap::IPR] / w[snap::IDN]);
+    return std::make_tuple(
+        w[snap::IVX] / c, ui[snap::IDN] + ui.narrow(0, snap::ICY, 2).sum(0), c);
+  };
+  auto [w0, rho0, c0] = state();
+  double dt = courant / (c0 / c.dx1f).max().item<double>(), wc = 0., dr = 0.;
+  for (int n = 0; n < nstep; ++n) {
+    for (int stage = 0; stage < b->pintg->stages.size(); ++stage)
+      b->forward(v, dt, stage);
+    auto [wn, rho, cn] = state();
+    wc = std::max(wc, wn.abs().max().item<double>());
+    dr = std::max(dr, ((rho - rho0) / rho0).abs().max().item<double>());
+  }
+  std::cout << std::scientific << "key 4 from the order-" << order
+            << " balance, scheme " << scheme << ", " << nstep
+            << " steps: max|w|/c " << wc << ", max|drho|/rho " << dr << '\n';
+  return {wc, dr};
+}
+
+TEST(BalanceColumn, a_moist_column_balanced_at_order_4_stays_at_rest_in_key_4) {
+  torch::set_num_threads(1);
+  for (auto [scheme, courant, nstep] :
+       {std::tuple{0, 0.8, 100}, {9, 10., 20}}) {
+    EXPECT_GT(key4_rest(2, scheme, courant, nstep).first, 1.e-8);  // control
+    auto [wc, dr] = key4_rest(4, scheme, courant, nstep);
+    EXPECT_LE(wc, 1.e-12) << "scheme " << scheme;
+    EXPECT_LE(dr, 1.e-12) << "scheme " << scheme;
+  }
+}
+
 TEST(BalanceColumn, x1_centroid_switch_balances_only_a_cartesian_column) {
   x1_centroid_switch_balances_only_a_cartesian_column(torch::kCPU);
 }
