@@ -46,8 +46,8 @@ Stencil weights(int n, bool faces, bool derivative, double h, Tensor like,
   for (int k = 0; k < static_cast<int>(t.size()); ++k)
     t[k] = k - (faces ? 0.5 : 0.);
   if (nodes.defined()) {
-    auto xn = nodes.to(torch::kCPU, torch::kFloat64).contiguous();
-    auto tn = at.to(torch::kCPU, torch::kFloat64).contiguous();
+    auto xn = nodes.cpu().to(torch::kFloat64).contiguous();
+    auto tn = at.cpu().to(torch::kFloat64).contiguous();
     std::copy_n(xn.data_ptr<double>(), x.size(), x.begin());
     std::copy_n(tn.data_ptr<double>(), t.size(), t.begin());
   }

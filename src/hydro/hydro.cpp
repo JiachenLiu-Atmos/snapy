@@ -352,7 +352,7 @@ double HydroImpl::max_time_step(torch::Tensor w, torch::Tensor solid) const {
   }
 
   auto dt_min = torch::tensor({1.e9, 1.e9, 1.e9},
-                              torch::dtype(torch::kFloat64).device(w.device()));
+                              torch::dtype(w.dtype()).device(w.device()));
 
   auto icorr = options->icorr();
 

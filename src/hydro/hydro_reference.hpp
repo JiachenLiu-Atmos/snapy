@@ -39,7 +39,7 @@ class HydroReferenceX1Operator {
         phys_in_(phys_in),
         phys_out_(phys_out),
         wall_clamp_(wall_clamp) {
-    auto d = dx1f.to(torch::kCPU, torch::kFloat64);
+    auto d = dx1f.cpu().to(torch::kFloat64);
     grid_ = stretched ? kX1RefStretched
                       : ((d.max() - d.min()).item<double>() <
                                  1.e-10 * d.mean().item<double>()

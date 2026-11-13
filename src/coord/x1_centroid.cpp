@@ -58,7 +58,7 @@ double lagrange(std::vector<double> const& X, int j, double x) {
 }
 
 std::vector<double> faces_of(torch::Tensor const& x1f) {
-  auto xt = x1f.to(torch::kCPU, torch::kFloat64).contiguous();
+  auto xt = x1f.cpu().to(torch::kFloat64).contiguous();
   return std::vector<double>(xt.data_ptr<double>(),
                              xt.data_ptr<double>() + xt.size(0));
 }

@@ -190,7 +190,7 @@ void sedimentation_flux_mps(torch::Tensor w, torch::Tensor flux,
   auto vcell = vsed.clone();
 
   auto vel = w.narrow(0, IVX, 3).clone();
-  coord_vec_lower_(vel, cosine_cell_kj);
+  coord_vec_lower_(vel, cosine_cell_kj.unsqueeze(-1));
   auto ke = 0.5 * (w.narrow(0, IVX, 3) * vel).sum(0, /*keepdim=*/true);
 
   auto species_ids = hydro_ids - ICY;

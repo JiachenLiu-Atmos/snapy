@@ -987,10 +987,10 @@ torch::Tensor MeshBlockImpl::gravity_work_fixer_sums(
                   ? phydro->picorr->solve_failed_tensor(mwall.options())
                   : torch::zeros_like(mwall);
   if (marks.defined()) redo = torch::maximum(redo, marks.any().to(redo));
-  return torch::stack({phydro->gravity_work_defect()[0],
-                       mv.sum().to(torch::kFloat64),
-                       phydro->gravity_work_wall_mass()[0],
-                       mwall.to(torch::kFloat64), redo.to(torch::kFloat64)})
+  auto wide = mv.is_mps() ? torch::kFloat32 : torch::kFloat64;  // MPS: no f64
+  return torch::stack({phydro->gravity_work_defect()[0], mv.sum().to(wide),
+                       phydro->gravity_work_wall_mass()[0], mwall.to(wide),
+                       redo.to(wide)})
       .cpu();
 }
 
@@ -1217,15 +1217,15 @@ void print_cycle_diagnostics(
       }
     }
 
-    add(meters,
-        torch::stack({hydro->lim_cut()[0].to(torch::kFloat64),
-                      hydro->lim_flux()[0].to(torch::kFloat64),
-                      hydro->positivity_severe()[0].to(torch::kFloat64)}));
-    auto tmin = hydro->positivity_min().to(torch::kFloat64);
+    add(meters, torch::stack(
+                    {hydro->lim_cut()[0].cpu().to(torch::kFloat64),
+                     hydro->lim_flux()[0].cpu().to(torch::kFloat64),
+                     hydro->positivity_severe()[0].cpu().to(torch::kFloat64)}));
+    auto tmin = hydro->positivity_min().cpu().to(torch::kFloat64);
     theta_min =
         theta_min.defined() ? torch::minimum(theta_min, tmin) : tmin.clone();
     if (hydro->picorr) {
-      auto vc = hydro->picorr->clamp_residual().to(torch::kFloat64);
+      auto vc = hydro->picorr->clamp_residual().cpu().to(torch::kFloat64);
       vic_max = vic_max.defined() ? torch::maximum(vic_max, vc) : vc.clone();
     }
   }
@@ -1457,7 +1457,7 @@ torch::Tensor MeshBlockImpl::local_redo_flag_tensor(Variables const &vars) {
     floor = floor.logical_or(
         (w[IPR].min() > 1.001 * eos->pressure_floor()).logical_not());
   }
-  auto opts = hydro_u.options().dtype(torch::kFloat64);
+  auto opts = hydro_u.options();
   auto zero = torch::zeros({}, opts);
 
   auto clamp = phydro->picorr
@@ -1492,7 +1492,7 @@ torch::Tensor MeshBlockImpl::local_redo_flag_tensor(Variables const &vars) {
 }
 
 std::array<bool, 6> MeshBlockImpl::read_redo_flags(torch::Tensor const &flags) {
-  auto c = flags.to(torch::kCPU);  // the one device-to-host read
+  auto c = flags.cpu().to(torch::kFloat64);  // the one device-to-host read
   auto a = c.accessor<double, 1>();
   std::array<bool, 6> out;
   for (size_t i = 0; i < out.size(); ++i) out[i] = a[i] > 0.;

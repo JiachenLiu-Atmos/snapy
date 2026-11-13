@@ -132,8 +132,11 @@ void call_hllc_mps(at::TensorIterator& iter, int dim) {
   vxl = wl[ivx] - bm;
   vxr = wr[ivx] - bp;
 
-  fl[IDN] = wl[IDN] * vxl;
-  fr[IDN] = wr[IDN] * vxr;
+  int ny = wl.size(0) - ICY;  // the mass row carries the dry part only
+  fl[IDN] = wl[IDN] * vxl * (1. - wl.narrow(0, ICY, ny).sum(0));
+  fr[IDN] = wr[IDN] * vxr * (1. - wr.narrow(0, ICY, ny).sum(0));
+  fl.narrow(0, ICY, ny) = wl[IDN] * wl.narrow(0, ICY, ny) * vxl;
+  fr.narrow(0, ICY, ny) = wr[IDN] * wr.narrow(0, ICY, ny) * vxr;
 
   fl.narrow(0, IVX, 3) = wl[IDN] * wl.narrow(0, IVX, 3) * vxl;
   fr.narrow(0, IVX, 3) = wr[IDN] * wr.narrow(0, IVX, 3) * vxr;
@@ -143,13 +146,6 @@ void call_hllc_mps(at::TensorIterator& iter, int dim) {
 
   fl[IPR] = el * vxl + pl * wl[ivx];
   fr[IPR] = er * vxr + pr * wr[ivx];
-  if (shifted) {
-    int ny = wl.size(0) - ICY;
-    fl.narrow(0, ICY, ny).copy_(wl[IDN] * wl.narrow(0, ICY, ny) * vxl);
-    fr.narrow(0, ICY, ny).copy_(wr[IDN] * wr.narrow(0, ICY, ny) * vxr);
-    fl[IDN].mul_(1. - wl.narrow(0, ICY, ny).sum(0));
-    fr[IDN].mul_(1. - wr.narrow(0, ICY, ny).sum(0));
-  }
 
   //--- Step 8. Compute flux weights or scales
 
