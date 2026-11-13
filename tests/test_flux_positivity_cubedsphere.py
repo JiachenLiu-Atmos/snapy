@@ -23,13 +23,15 @@ import yaml
 DRIFT_TOL = 1e-13
 
 
-def run_arm(yaml_file: str, limiter: bool, device: str):
+def run_arm(yaml_file: str, limiter: bool, device: str, flux_covariance=None):
     import snapy
     from snapy import Mesh, MeshOptions, kIDN, kIV1, kIV2, kIV3, kIPR
 
     with open(yaml_file) as f:
         cfg = yaml.safe_load(f)
     cfg["dynamics"]["equation-of-state"]["limiter"] = limiter
+    if flux_covariance is not None:
+        cfg["dynamics"]["flux-covariance"] = flux_covariance == "1"
     if not limiter:
         cfg["scalar"].pop("upper-bound", None)
     nx = cfg["geometry"]["cells"]["nx2"]
@@ -108,13 +110,14 @@ def main(argv=None):
         "--yaml",
         default=str(Path(__file__).resolve().parent / "test_flux_positivity_cubedsphere.yaml"),
     )
+    ap.add_argument("--flux-covariance", choices=("0", "1"))
     args = ap.parse_args(argv)
     if args.device == "cuda" and (os.environ.get("SNAPY_BUILD_CUDA", "1") == "0" or not torch.cuda.is_available()):
         print("SKIP: cuda requested but not available")
         return 125
 
-    base = run_arm(args.yaml, limiter=False, device=args.device)
-    lim = run_arm(args.yaml, limiter=True, device=args.device)
+    base = run_arm(args.yaml, False, args.device, args.flux_covariance)
+    lim = run_arm(args.yaml, True, args.device, args.flux_covariance)
     for name, arm in (("base", base), ("limited", lim)):
         print("%-8s drift=%.3e max=%.12f min=%+.3e hits=%d"
               % (name, arm["drift"], arm["max"], arm["min"], arm["hits"]))

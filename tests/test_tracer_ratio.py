@@ -16,7 +16,6 @@ Arms (the value each failed at, main fb003523 unless noted):
 python test_tracer_ratio.py [--device cuda] [--scheme 0|9]"""
 import math, os, sys, tempfile, torch, yaml
 from pathlib import Path
-os.environ["SNAP_FLUX_COVARIANCE"] = "1"  # the nx2 > 1 arms need the covariance rows
 import snapy
 from snapy import MeshBlock, MeshBlockOptions, kICY, kIDN, kIPR, kIV1
 
@@ -26,6 +25,7 @@ ZTOP, T0, RG, G, R0 = 3.2e4, 320., 3900., 10., 1e-3
 
 
 def build(card):
+    card["dynamics"]["flux-covariance"] = True  # the nx2 > 1 arms need the covariance rows
     with tempfile.TemporaryDirectory() as wd:
         p = os.path.join(wd, "card.yaml")
         with open(p, "w") as f:

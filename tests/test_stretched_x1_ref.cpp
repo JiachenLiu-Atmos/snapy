@@ -61,6 +61,12 @@ std::string card(bool stretched, std::string const& forcing = "}",
          "    x1-outer: " +
          outer + "\n";
 }
+//! the card with dynamics/x1-mass-covariance on
+std::string with_x1_mass_covariance(std::string text) {
+  auto at = text.find("dynamics:\n");
+  text.insert(at + 10, "  x1-mass-covariance: true\n");
+  return text;
+}
 std::string write_temp(std::string const& text) {
   char fname[] = "/tmp/test-stretched-x1-ref-XXXXXX";
   int fd = mkstemp(fname);
@@ -299,12 +305,10 @@ TEST(StretchedX1Ref, x1_centroid_switch_runs) {
   EXPECT_NO_THROW(build_and_step(card(false)));
 }
 
-// ctest test_stretched_x1_ref_x1_mass_covariance: SNAP_X1_MASS_COVARIANCE=1
+// ctest test_stretched_x1_ref_x1_mass_covariance: dynamics/x1-mass-covariance
 TEST(StretchedX1Ref, x1_mass_covariance_switch_runs) {
-  if (!HydroImpl::x1_mass_covariance())
-    GTEST_SKIP() << "SNAP_X1_MASS_COVARIANCE is not set";
-  EXPECT_NO_THROW(build_and_step(card(true)));
-  EXPECT_NO_THROW(build_and_step(card(false)));
+  EXPECT_NO_THROW(build_and_step(with_x1_mass_covariance(card(true))));
+  EXPECT_NO_THROW(build_and_step(with_x1_mass_covariance(card(false))));
 }
 
 namespace {

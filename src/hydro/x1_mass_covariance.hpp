@@ -5,7 +5,7 @@
 
 namespace snap {
 
-//! x1 slopes of SNAP_X1_MASS_COVARIANCE; `stretched` is the grid key (#280)
+//! x1 slopes of dynamics/x1-mass-covariance; `stretched` is the grid key (#280)
 inline torch::Tensor x1_cov_d1_centred(torch::Tensor const& a,
                                        torch::Tensor const& x1v,
                                        bool stretched) {

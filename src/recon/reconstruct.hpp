@@ -40,8 +40,6 @@ struct ReconstructOptionsImpl {
        << "* is_boundary_upper = " << (is_boundary_upper() ? "true" : "false")
        << "\n"
        << "* shock = " << (shock() ? "true" : "false") << "\n"
-       << "* density_floor = " << density_floor() << "\n"
-       << "* pressure_floor = " << pressure_floor() << "\n"
        << "* limiter = " << (limiter() ? "true" : "false") << "\n";
   }
 
@@ -49,8 +47,6 @@ struct ReconstructOptionsImpl {
   ADD_ARG(bool, is_boundary_lower) = false;
   ADD_ARG(bool, is_boundary_upper) = false;
   ADD_ARG(bool, shock) = true;
-  ADD_ARG(double, density_floor) = 1.e-10;
-  ADD_ARG(double, pressure_floor) = 1.e-10;
   ADD_ARG(bool, limiter) = false;
 
   //! abstract submodules

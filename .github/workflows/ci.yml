@@ -132,3 +132,56 @@ jobs:
             ctest --output-on-failure \
                   -R '^(test_(eos|plm|gloo_one_tensor)\.release|test_python_import_path_python)$'
           fi
+
+  # The bitwise configuration: no FMA contraction and ATen's portable CPU
+  # kernels, so a sum is formed in the same order on every runner. Results
+  # then depend on the scheme alone, and a refactor that claims "bitwise"
+  # can be checked here. GitHub runners have no GPU; the CUDA half of this
+  # configuration (-DCMAKE_CUDA_FLAGS=--fmad=false) runs on a local or
+  # self-hosted GPU machine.
+  bitwise-cpu:
+    needs: pre-commit
+    runs-on: ubuntu-latest
+    env:
+      ATEN_CPU_CAPABILITY: default
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          pip install wheel numpy pyyaml pytest netcdf4
+          pip install 'torch==2.10.0'
+          pip install 'kintera>=2.6.9'
+          sudo apt-get update
+          sudo apt-get install -y libnetcdf-dev libucx-dev nco autoconf automake libtool pkg-config
+          pip install 'commux>=0.1.4' 'pinc>=0.2.0'
+
+      - name: Configure CMake
+        run: |
+          cmake -B ${{ github.workspace }}/build \
+                -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+                -DCMAKE_CXX_FLAGS="-ffp-contract=off" \
+                -DCUDA=OFF \
+                -DNETCDF=ON \
+                -DBUILD_TESTS=ON \
+                -DSNAPY_TEST_PYTHONPATH="$(python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+
+      - name: Build
+        run: cmake --build ${{ github.workspace }}/build --config ${{ env.BUILD_TYPE }} --parallel 4
+
+      - name: Install the project
+        # the bindings link the library built above; CFLAGS reaches their own glue
+        run: CFLAGS="-ffp-contract=off" pip install --no-build-isolation --no-deps .
+
+      - name: Run C++ & Pybind tests
+        run: |
+          cd ${{ github.workspace }}/build/tests
+          ctest --output-on-failure -E '^test_shallow_xy_decomp$'

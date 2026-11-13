@@ -66,8 +66,9 @@ std::vector<double> faces_of(torch::Tensor const& x1f) {
 }  // namespace
 
 bool x1_centroid_exact_enabled() {
-  // read once, like the flux-covariance switch: every block must make the
-  // same choice or the x1 seam faces stop agreeing
+  // read once from the environment (`SNAP_X1_CENTROID_EXACT` is not a deck
+  // key): every block must make the same choice or the x1 seam faces stop
+  // agreeing
   static const bool on = [] {
     auto v = get_env("SNAP_X1_CENTROID_EXACT", "0");
     std::transform(v.begin(), v.end(), v.begin(),

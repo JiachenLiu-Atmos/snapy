@@ -1123,28 +1123,22 @@ on \texttt{0.5*(wl+wr)} and projects that copy itself; the result is added to th
 after the call. \texttt{\_set\_face2\_metric()} is idempotent, so the extra call does not
 disturb the solver.
 
-\subsection*{5.1 The environment switch}
+\subsection*{5.1 The deck key}
 
 \begin{lstlisting}
-bool HydroImpl::flux_covariance() {              // src/hydro/hydro.cpp
-  static const bool on = [] {
-    auto v = get_env("SNAP_FLUX_COVARIANCE", "1");
-    std::transform(v.begin(), v.end(), v.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-    return !(v.empty() || v == "0" || v == "false" || v == "off" || v == "no");
-  }();
-  return on;
-}
+dynamics:
+  flux-covariance: false   # default true
 \end{lstlisting}
 
 \begin{itemize}
-\item \textbf{Name:} \texttt{SNAP\_FLUX\_COVARIANCE}. \textbf{Default: ON} (it was OFF when this note
-  was written). Any of \texttt{0}, \texttt{false}, \texttt{off}, \texttt{no}, or empty (case-insensitive)
-  leaves the term out, and that path is bit-identical to \texttt{117e449}.
-\item Read \textbf{once} into a function-local \texttt{static}, for the reason in §3.1: every
-  block of every rank must make the same choice or a shared face stops being
-  single-valued. \texttt{get\_env} is the tree's existing helper
-  (\texttt{src/layout/layout.hpp:38-41}).
+\item \textbf{Name:} \texttt{dynamics/flux-covariance} (\texttt{HydroOptions::flux\_covariance}, read
+  in \texttt{src/hydro/hydro\_options.cpp}). \textbf{Default: ON} (it was OFF when this note
+  was written). \texttt{false} leaves the term out, and that path is bit-identical to
+  \texttt{117e449}. It replaced the environment switch \texttt{SNAP\_FLUX\_COVARIANCE}, which
+  was read once per process.
+\item It is read per block. For the reason in §3.1, every block of every rank must
+  make the same choice or a shared face stops being single-valued; blocks built
+  from one deck do.
 \end{itemize}
 
 \subsection*{5.2 Stencil and ghost-cell requirements}

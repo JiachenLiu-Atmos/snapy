@@ -42,7 +42,9 @@ struct HydroOptionsImpl {
     os << "* verbose = " << verbose() << "\n"
        << "* disable_flux_x1 = " << disable_flux_x1() << "\n"
        << "* disable_flux_x2 = " << disable_flux_x2() << "\n"
-       << "* disable_flux_x3 = " << disable_flux_x3() << "\n";
+       << "* disable_flux_x3 = " << disable_flux_x3() << "\n"
+       << "* flux_covariance = " << flux_covariance() << "\n"
+       << "* x1_mass_covariance = " << x1_mass_covariance() << "\n";
   }
 
   //! verbose
@@ -62,6 +64,17 @@ struct HydroOptionsImpl {
   //! reference (fp32 roadmap, Step 1). YAML `dynamics: {anomaly: true}`,
   //! overridden by SNAP_ANOMALY=0|1. Off: every path is unchanged.
   ADD_ARG(bool, anomaly) = false;
+
+  //! dynamics/flux-covariance: the O(dx1^2) x1 covariance term of the x2/x3
+  //! face fluxes (#289). A scheme choice: every block of a run must make the
+  //! same one, or the shared faces stop being single-valued; blocks built from
+  //! one deck do. Off restores the plain face product.
+  ADD_ARG(bool, flux_covariance) = true;
+
+  //! dynamics/x1-mass-covariance: subtract the x1 rho-w covariance
+  //! dz^2/12 rho_1 w_1 / rho from the reconstructed cell velocity; needs at
+  //! least 3 x1 cells per block. Same every-block rule as flux_covariance.
+  ADD_ARG(bool, x1_mass_covariance) = false;
 
   //! forcing options
   ADD_ARG(ConstGravityOptions, grav) = nullptr;
@@ -145,7 +158,7 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   torch::Tensor flux2() const { return _flux2; }
   torch::Tensor flux3() const { return _flux3; }
 
-  //! SNAP_FLUX_COVARIANCE (#289): the face-flux covariance rows a passive
+  //! dynamics/flux-covariance (#289): the face-flux covariance rows a passive
   //! scalar carries on this stage's x2 (dim 2) or x3 (dim 1) faces, the rows a
   //! hydro tracer with the same mass fraction gets in _flux_covariance, built
   //! from the same face states
@@ -188,14 +201,12 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! gravity-work: face with an implicit scheme: the implicit
   //! operator books the face work of the mass it moves (#283)
   bool face_work_in_operator() const;
-  //! add the O(dx1^2) covariance term to the x2/x3 energy flux (#289)?
-  //! read once from SNAP_FLUX_COVARIANCE; on unless set to 0/false/off/no
-  //! (or empty)
-  static bool flux_covariance();
+  //! add the O(dx1^2) covariance term to the x2/x3 face fluxes (#289)?
+  //! dynamics/flux-covariance, on by default
+  bool flux_covariance() const { return options->flux_covariance(); }
   //! subtract the x1 rho-w covariance dz^2/12 rho_1 w_1 / rho from the
-  //! reconstructed cell velocity? read once from SNAP_X1_MASS_COVARIANCE; off
-  //! unless it is set
-  static bool x1_mass_covariance();
+  //! reconstructed cell velocity? dynamics/x1-mass-covariance, off by default
+  bool x1_mass_covariance() const { return options->x1_mass_covariance(); }
   //! the x1 gravity work of the corrected potential energy is booked here
   //! (derivation curved-gravity-work-weight.md sec 7): gravity-work: face on a
   //! Cartesian, a spherical-polar or a gnomonic-equiangle grid, grav1 != 0.

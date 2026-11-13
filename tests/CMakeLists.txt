@@ -40,22 +40,15 @@ add_test(NAME test_stretched_x1_ref_x1_centroid.${buildl}
                  --gtest_filter=StretchedX1Ref.x1_centroid_switch_runs:StretchedX1Ref.balance_column_x1_centroid_runs)
 set_tests_properties(test_stretched_x1_ref_x1_centroid.${buildl}
                      PROPERTIES ENVIRONMENT "SNAP_X1_CENTROID_EXACT=1")
-add_test(NAME test_stretched_x1_ref_x1_mass_covariance.${buildl}
-         COMMAND test_stretched_x1_ref.${buildl}
-                 --gtest_filter=StretchedX1Ref.x1_mass_covariance_switch_runs)
-set_tests_properties(
-  test_stretched_x1_ref_x1_mass_covariance.${buildl}
-  PROPERTIES ENVIRONMENT "SNAP_X1_MASS_COVARIANCE=1"
-             PASS_REGULAR_EXPRESSION "\\[  PASSED  \\] 1 test\\.")
 setup_test(test_radial_face_moments)
 setup_test(test_hydrostatic)
 setup_test(test_hydro_options)
+setup_test(test_options_defaults)
 setup_test(test_cycle_diagnostics)
 setup_test(test_flux_positivity_carry)
 # its limiter-off arm must run without the step 4.C donor limiter, which the
-# face-flux covariance (on by default, #289) also switches on
-set_tests_properties(test_flux_positivity_carry.${buildl}
-                     PROPERTIES ENVIRONMENT "SNAP_FLUX_COVARIANCE=0")
+# face-flux covariance (on by default, #289) also switches on: its card sets
+# dynamics/flux-covariance false
 setup_test(test_yaml_keys)
 
 # Reads the example decks from the source tree; it needs no build and no snapy import.
@@ -92,15 +85,6 @@ set_tests_properties(test_hydro_ref_x1_stretched_cuda.${buildl}
                      PROPERTIES TIMEOUT 120 LABELS "hydro;gpu")
 setup_test(test_uranus_cycle1_abort)
 setup_test(test_pref_local_seam)
-# UCzhangxi/snapy#44: the same 4-vs-1 x1-block comparison (200 steps, 1e-12)
-# with the x2/x3 face-flux covariance on; it must run and pass
-add_test(NAME test_pref_local_seam_flux_covariance.${buildl}
-         COMMAND test_pref_local_seam.${buildl})
-set_tests_properties(
-  test_pref_local_seam_flux_covariance.${buildl}
-  PROPERTIES ENVIRONMENT
-             "GTEST_FILTER=HydroRefX1.in_process_split_matches_one_block_after_200_steps;SNAP_FLUX_COVARIANCE=1"
-             PASS_REGULAR_EXPRESSION "\\[  PASSED  \\] 1 test\\.")
 setup_test(test_gravity_work_cache_to)
 setup_test(test_x1_seam_split)
 # one arm per entry: its environment, its one test, which must run and pass (a
@@ -127,9 +111,8 @@ seam_arm(_nghost_check_x1_centroid "SNAP_X1_CENTROID_EXACT=1"
          nghost_check_refuses_fewer_than_3_ghosts)
 # the VIC row's per-block slope relies on an implicit scheme refusing an x1 split
 seam_arm(_vic_refuses_split "" vic_refuses_x1_split)
-# SNAP_X1_MASS_COVARIANCE refuses a block with fewer than 3 x1 cells
-seam_arm(_x1_mass_covariance "SNAP_X1_MASS_COVARIANCE=1"
-         x1_mass_covariance_needs_3_x1_cells)
+# dynamics/x1-mass-covariance refuses a block with fewer than 3 x1 cells
+seam_arm(_x1_mass_covariance "" x1_mass_covariance_needs_3_x1_cells)
 if(CUDA)
   # the same arms on the GPU; without one the test skips and so does the entry
   seam_arm(_x1_centroid_cuda "SNAP_X1_CENTROID_EXACT=1"
@@ -354,28 +337,25 @@ snapy_add_python_test(test_eos_temp2inteng TIMEOUT 60 LABELS "python;eos")
 # fp32 roadmap Step 1a: anomaly storage of hydro_u, and the Step 0 fp32
 # storage emulation hook (SNAP_FP32_STORAGE)
 snapy_add_python_test(test_anomaly_storage TIMEOUT 600 LABELS "python;eos;anomaly")
-snapy_add_python_test(test_flux_positivity TIMEOUT 300 LABELS "python;positivity")
 # the base arm is the unlimited scheme and must go negative; with the face-flux
 # covariance on (the default, #289) the donor limiter runs in every arm
-set_tests_properties(test_flux_positivity_python
-                     PROPERTIES ENVIRONMENT "SNAP_FLUX_COVARIANCE=0")
+snapy_add_python_test(test_flux_positivity ARGS --flux-covariance 0 TIMEOUT 300
+                      LABELS "python;positivity")
 snapy_add_python_test(test_flux_positivity_cubedsphere TIMEOUT 300
                       LABELS "python;positivity;cubed-sphere")
 # with the covariance on (the default) the donor limiter runs in the base arm
 # too; this arm keeps the unlimited base arm covered
 snapy_add_python_test(test_flux_positivity_cubedsphere_cov_off
-                      SCRIPT test_flux_positivity_cubedsphere.py TIMEOUT 300
+                      SCRIPT test_flux_positivity_cubedsphere.py
+                      ARGS --flux-covariance 0 TIMEOUT 300
                       LABELS "python;positivity;cubed-sphere")
-set_tests_properties(test_flux_positivity_cubedsphere_cov_off_python
-                     PROPERTIES ENVIRONMENT "SNAP_FLUX_COVARIANCE=0")
 # UCzhangxi/snapy#44 (B1): the six-panel scalar seam test with the x2/x3
 # face-flux covariance on, whose x1 differences read the cross-panel face
 # states' x1 ghost rows next to the radial walls
 snapy_add_python_test(test_flux_positivity_cubedsphere_flux_covariance
-                      SCRIPT test_flux_positivity_cubedsphere.py TIMEOUT 300
+                      SCRIPT test_flux_positivity_cubedsphere.py
+                      ARGS --flux-covariance 1 TIMEOUT 300
                       LABELS "python;positivity;cubed-sphere")
-set_tests_properties(test_flux_positivity_cubedsphere_flux_covariance_python
-                     PROPERTIES ENVIRONMENT "SNAP_FLUX_COVARIANCE=1")
 snapy_add_python_test(test_flux_positivity_cubedsphere_moist TIMEOUT 300
                       LABELS "python;positivity;cubed-sphere")
 snapy_add_python_test(test_roe_cubed_sphere_rest TIMEOUT 120
@@ -420,8 +400,6 @@ snapy_add_python_test(test_scalar_upper_bound_donor TIMEOUT 300 LABELS "python;s
 snapy_add_python_test(test_tracer_ratio TIMEOUT 120 LABELS "python;hydro;scalar;positivity;fp32-foundations")
 # #289: the same, on a column split in x1, four blocks in one process vs one
 snapy_add_python_test(test_scalar_cov_x1_split TIMEOUT 300 LABELS "python;hydro;scalar")
-set_tests_properties(test_scalar_cov_x1_split_python
-                     PROPERTIES ENVIRONMENT "SNAP_FLUX_COVARIANCE=1")
 # #298: the x1 stencil caches on blocks with too few x1 cells
 snapy_add_python_test(test_stencil_cache_small_block TIMEOUT 300 LABELS "python;hydro")
 # the x1 density reference at a 1.5 cell-width jump: the jump-cell state error
@@ -792,7 +770,6 @@ foreach(_t IN ITEMS
     test_hydro_ref_x1 test_hydro_ref_x1_rf_wall test_gravity_work_cache_to
     test_implicit_face_work_jacobian test_riemann test_stretched_x1_ref
     test_stretched_x1_ref_x1_centroid
-    test_stretched_x1_ref_x1_mass_covariance
     test_wb_ref_wall test_wb_wall_corner test_x1_seam_split
     test_x1_seam_split_x1_centroid test_x1_seam_split_radial_exact
     test_x1_seam_split_vic_refuses_split

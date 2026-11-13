@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The flux covariance's nonzero-row set (switch SNAP_FLUX_COVARIANCE), Cartesian vs curved, dry vs moist.
+"""The flux covariance's nonzero-row set (key dynamics/flux-covariance), Cartesian vs curved, dry vs moist.
 
 _flux_covariance returns only its nonzero rows on a Cartesian grid (IPR and, with species, the tracer
 rows and IDN, on the x1-interior cells) and the full flux on a curved one; HydroImpl::forward adds them
@@ -8,8 +8,8 @@ off: the rows of the x2 face flux that change, and where, must be exactly
   cartesian dry:    {IPR}
   cartesian moist:  {IDN, IPR, vapor, cloud}
   curved (spherical-polar), dry and moist: every row (the centroid parts reach the momentum rows)
-and, in Cartesian, the first and last x1 cells must not change. The switch is read once per process, so
-each arm runs in its own process (as in test_flux_covariance_rows).
+and, in Cartesian, the first and last x1 cells must not change. Each arm runs in its own process (as in
+test_flux_covariance_rows: kintera's species table is per process).
 
   python test_flux_covariance_rowset.py [--device cpu]
 """
@@ -57,11 +57,9 @@ def stage_flux(geom, moist, device):
 
 
 def run(geom, moist, switch, device, tmpdir):
-    env = dict(os.environ)
-    env["SNAP_FLUX_COVARIANCE"] = switch
     out = os.path.join(tmpdir, f"{geom}_{int(moist)}_{switch}.pt")
     subprocess.run([sys.executable, __file__, "--child", f"{geom}:{int(moist)}", "--out", out,
-                    "--device", device], env=env, check=True)
+                    "--device", device, "--flux-covariance", switch], check=True)
     return torch.load(out)
 
 
@@ -70,8 +68,10 @@ def main():
     ap.add_argument("--device", default="cpu", choices=("cpu", "cuda"))
     ap.add_argument("--child")
     ap.add_argument("--out")
+    ap.add_argument("--flux-covariance", choices=("0", "1"))
     a = ap.parse_args()
     if a.child:
+        rows.COV = a.flux_covariance == "1"
         geom, moist = a.child.split(":")
         torch.save(stage_flux(geom, moist == "1", a.device), a.out)
         return 0

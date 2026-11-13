@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""#289 all-rows face-flux covariance (switch SNAP_FLUX_COVARIANCE): rest, uniform tracer, offsets.
+"""#289 all-rows face-flux covariance (key dynamics/flux-covariance): rest, uniform tracer, offsets.
 
 The x2/x3 face fluxes carry, per row, a covariance part (density-weighted pairs only: tracer
 s2 rho D1[u_n] D1[q], dry mass minus their sum, energy s2 rho D1[h] D1[u_n]) and the centroid part
 -delta d_1(F); the normal-momentum pressure p* = p - delta d_1 p is mirrored in the geometric
-source. Checked, each arm in its own process because the switch is read once per process:
+source. Checked, each arm in its own process (kintera's species table is per process, and the dry
+and moist decks differ):
   1. rest: a discretely balanced isothermal shell, spherical-polar (one block) and gnomonic
      (six panels), stays at rest with the term on as well as off (max |v| / c_s);
   2. uniform tracer: on the six-panel moist shell under a solid-body wind, a vapor mass fraction
@@ -41,6 +42,8 @@ NREST, NFLOW = 20, 20
 CART_REF = {16: 0.009686, 32: 0.007529, 64: 0.006987}
 CART_TOL = 2e-3
 P0, RHO0, G = 1.0e5, 0.1, 10.0
+# dynamics/flux-covariance of every deck card() builds in this process; None leaves the key out
+COV = None
 
 DRY = {"name": "dry", "composition": {"H": 1.64813, "He": 0.17591}, "cv_R": 2.5}
 VAPOR = {"name": "vapor", "composition": {"H": 2, "O": 1}, "cv_R": 3.5}
@@ -98,6 +101,8 @@ def card(geom, moist=False, u0_vapor=None):
            "forcing": {"const-gravity": {"grav1": -G}}}
     if moist:
         cfg["reactions"] = REACTIONS
+    if COV is not None:
+        cfg["dynamics"]["flux-covariance"] = COV
     if dist:
         cfg["distribute"] = dist
     return cfg
@@ -245,7 +250,7 @@ def arm_offset(u0, device):
 def arm_cartesian(device):
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import test_horizontal_flux_covariance as hfc
-    return {nz: hfc.eps_eff_nz2(nz, device)[0] for nz in CART_REF}
+    return {nz: hfc.eps_eff_nz2(nz, device, COV)[0] for nz in CART_REF}
 
 
 def child(task, out, device):
@@ -261,13 +266,12 @@ def child(task, out, device):
 
 
 def run(task, switch, device, tmpdir):
-    env = dict(os.environ)
-    env.pop("SNAP_FLUX_COVARIANCE", None)
-    if switch is not None:
-        env["SNAP_FLUX_COVARIANCE"] = switch
+    """task in a child process; switch "0"/"1" sets dynamics/flux-covariance, None leaves it out"""
     out = os.path.join(tmpdir, task.replace(":", "_").replace("-", "_") + f"_{switch}.out")
-    subprocess.run([sys.executable, __file__, "--child", task, "--out", out, "--device", device],
-                   env=env, check=True)
+    cmd = [sys.executable, __file__, "--child", task, "--out", out, "--device", device]
+    if switch is not None:
+        cmd += ["--flux-covariance", switch]
+    subprocess.run(cmd, check=True)
     return out
 
 
@@ -276,8 +280,12 @@ def main():
     ap.add_argument("--device", default="cpu", choices=("cpu", "cuda"))
     ap.add_argument("--child")
     ap.add_argument("--out")
+    ap.add_argument("--flux-covariance", choices=("0", "1"))
     a = ap.parse_args()
     if a.child:
+        global COV
+        if a.flux_covariance is not None:
+            COV = a.flux_covariance == "1"
         child(a.child, a.out, a.device)
         return 0
     failures = []

@@ -144,11 +144,11 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
       pmb->finalize_exchange(send_vars3, sync_opts.dim(DIM3), works3);
   }
 
-  // SNAP_FLUX_COVARIANCE (#289): a scalar carries the tracer row of the face
-  // covariance (HydroImpl::scalar_flux_covariance), not r times the dry-mass
-  // row that the hydro's mass flux carries, so it rides on the mass flux
-  // without that row and adds its own: the flux of a hydro species with the
-  // same mass fraction
+  // dynamics/flux-covariance (#289): a scalar carries the tracer row of the
+  // face covariance (HydroImpl::scalar_flux_covariance), not r times the
+  // dry-mass row that the hydro's mass flux carries, so it rides on the mass
+  // flux without that row and adds its own: the flux of a hydro species with
+  // the same mass fraction
   bool cov = false;
   auto lateral = [&](torch::Tensor const& rlr, int dim,
                      torch::Tensor const& mass) {

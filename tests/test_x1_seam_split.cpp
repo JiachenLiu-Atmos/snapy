@@ -109,7 +109,8 @@ boundary-condition:
 }
 
 Mesh make_column(int nb1, int nx1, double nh, char const* gw, int ng = 3,
-                 torch::Device device = torch::kCPU, double g1 = -1.) {
+                 torch::Device device = torch::kCPU, double g1 = -1.,
+                 bool x1_mass_covariance = false) {
   char fname[] = "/tmp/x1-seam-split-XXXXXX";
   int fd = mkstemp(fname);
   EXPECT_NE(fd, -1);
@@ -125,6 +126,7 @@ Mesh make_column(int nb1, int nx1, double nh, char const* gw, int ng = 3,
     block_opts->hydro()->recon1()->interp()->type(g_recon);
     block_opts->hydro()->recon23()->interp()->type(g_recon);
   }
+  block_opts->hydro()->x1_mass_covariance() = x1_mass_covariance;
   if (g1 == 0. || ng < 3) {  // donor cell: weno5 needs nghost >= 3 (S184)
     block_opts->hydro()->recon1()->interp()->type("dc");
     block_opts->hydro()->recon23()->interp()->type("dc");
@@ -398,19 +400,17 @@ TEST(X1SeamSplit, co4_face_density_at_the_seam_split_matches_one_block_cuda) {
       torch::Device(torch::kCUDA, 0));
 }
 
-// SNAP_X1_MASS_COVARIANCE: the one-sided wall rho_1 spans three cells, so a
-// block with two would read the ghost it replaces; setup refuses it. On
+// dynamics/x1-mass-covariance: the one-sided wall rho_1 spans three cells, so
+// a block with two would read the ghost it replaces; setup refuses it. On
 // nghost 3 the coordinate setup already refuses two cells, so use nghost 2.
 TEST(X1SeamSplit, x1_mass_covariance_needs_3_x1_cells) {
-  ASSERT_TRUE(std::getenv("SNAP_X1_MASS_COVARIANCE"));
-  ASSERT_TRUE(HydroImpl::x1_mass_covariance());
   try {
-    make_column(1, 2, 1., "cell", 2);
+    make_column(1, 2, 1., "cell", 2, torch::kCPU, -1., true);
     ADD_FAILURE() << "nx1 2 accepted";
   } catch (c10::Error const& e) {
     EXPECT_NE(std::string(e.what()).find("needs at least 3 x1 cells"),
               std::string::npos)
         << e.what();
   }
-  EXPECT_NO_THROW(make_column(1, 3, 1., "cell", 2));
+  EXPECT_NO_THROW(make_column(1, 3, 1., "cell", 2, torch::kCPU, -1., true));
 }
