@@ -24,6 +24,14 @@ HydroImpl::HydroImpl(const HydroOptions& options_, torch::nn::Module* p)
   reset();
 }
 
+bool HydroImpl::axial_flux_form() const {
+  if (!options->conserve_axial_momentum() || !pmb || !pmb->pcoord ||
+      pmb->pcoord->options->type() != "gnomonic-equiangle")
+    return false;
+  auto const& c = options->coriolis();
+  return !c || (c->type() == "xyz" && c->omega2() == 0. && c->omega3() == 0.);
+}
+
 void HydroImpl::reset() {
   TORCH_CHECK(pmb, "[Hydro] Parent MeshBlock is null");
   TORCH_CHECK(
@@ -39,19 +47,16 @@ void HydroImpl::reset() {
     TORCH_WARN_ONCE(
         "SNAP_X1_MASS_COVARIANCE is ignored; set the deck key "
         "dynamics/x1-mass-covariance instead");
-  TORCH_CHECK(!options->conserve_axial_momentum() || !pmb->pcoord ||
-                  pmb->pcoord->options->type() == "gnomonic-equiangle",
-              "dynamics/conserve-axial-momentum is defined for the "
-              "gnomonic-equiangle cubed sphere only, not for '",
-              pmb->pcoord ? pmb->pcoord->options->type() : "", "'");
-  if (options->conserve_axial_momentum() && options->coriolis()) {
-    auto const& c = options->coriolis();
-    // the AAM is about the omega1 axis
-    TORCH_CHECK(c->type() == "xyz" && c->omega2() == 0. && c->omega3() == 0.,
-                "dynamics/conserve-axial-momentum needs coriolis type xyz "
-                "with omega2 = omega3 = 0 (the AAM is about the omega1 "
-                "axis)");
-  }
+  // conserve-axial-momentum is on by default and acts where it is defined
+  // (axial_flux_form); say so when a Coriolis force about another axis
+  // turns it off on the cubed sphere
+  if (options->conserve_axial_momentum() && pmb->pcoord &&
+      pmb->pcoord->options->type() == "gnomonic-equiangle" &&
+      !axial_flux_form())
+    TORCH_WARN_ONCE(
+        "dynamics/conserve-axial-momentum is off for this run: it needs "
+        "coriolis type xyz with omega2 = omega3 = 0 (the AAM is about the "
+        "omega1 axis)");
 
   //// ---- (1) set up equation-of-state model ---- ////
   peos = EquationOfStateImpl::create(options->eos(), this);

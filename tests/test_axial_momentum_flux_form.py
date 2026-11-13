@@ -16,7 +16,7 @@ computed here from the coordinate buffers, independently of the option's own ari
   (b) a discretely balanced rest state with the option on stays at rest (max |v| / c_s <= REST_TOL)
       and keeps L at zero to TOL;
   (c) a longer run of the perturbed jet with the option on stays finite with bounded |v| / c_s;
-  (d) the key is refused on a Cartesian grid with a clear message;
+  (d) the key is on by default and a Cartesian block, where it does nothing, builds with it;
   (e)-(i) an odd grid with a cell on the axis, Coriolis, the vertically implicit solve with and
       without a vapor species, the traditional approximation, and 2D shallow water.
 Each arm builds its own Mesh and frees it before the next.
@@ -457,31 +457,27 @@ def main(argv=None):
         failures.append("shallow water: the balanced-flow error grows with the option on, %.3e against %.3e"
                         % (phi_err[True], phi_err[False]))
 
-    # (d) refused on a Cartesian grid
+    # (d) on by default, and no effect where it is not defined: a Cartesian block builds
     cfg = config(True)
     cfg["geometry"] = {"type": "cartesian",
                        "bounds": {"x1min": 0., "x1max": 1.e3, "x2min": 0., "x2max": 1.e3, "x3min": 0., "x3max": 1.e3},
                        "cells": {"nx1": 8, "nx2": 8, "nx3": 8, "nghost": 3}}
     cfg["distribute"] = {"layout": "slab", "nb2": 1, "nb3": 1, "verbose": False}
     cfg["boundary-condition"]["external"] = {k: "periodic" for k in cfg["boundary-condition"]["external"]}
-    try:
-        from snapy import MeshBlock, MeshBlockOptions
+    from snapy import HydroOptions, MeshBlock, MeshBlockOptions
 
-        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=os.getcwd()) as f:
-            yaml.safe_dump(cfg, f)
-            tmp = f.name
-        try:
-            MeshBlock(MeshBlockOptions.from_yaml(tmp))
-        finally:
-            os.unlink(tmp)
-        failures.append("conserve-axial-momentum accepted on a Cartesian grid")
-        print("(d) Cartesian: accepted (unexpected)")
+    if not HydroOptions().conserve_axial_momentum():
+        failures.append("conserve-axial-momentum is not on by default")
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=os.getcwd()) as f:
+        yaml.safe_dump(cfg, f)
+        tmp = f.name
+    try:
+        MeshBlock(MeshBlockOptions.from_yaml(tmp))
+        print("(d) default %s; Cartesian: the block builds with the key on" % HydroOptions().conserve_axial_momentum())
     except Exception as exc:  # noqa: BLE001
-        msg = str(exc)
-        ok = "conserve-axial-momentum" in msg and "gnomonic-equiangle" in msg
-        print("(d) Cartesian: refused, message %s" % ("names the key and the grid" if ok else "unclear: " + msg[:200]))
-        if not ok:
-            failures.append("Cartesian refusal message is unclear")
+        failures.append("conserve-axial-momentum: a Cartesian block does not build: " + str(exc)[:200])
+    finally:
+        os.unlink(tmp)
 
     if failures:
         print("FAIL:\n  " + "\n  ".join(failures))

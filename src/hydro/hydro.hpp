@@ -83,8 +83,10 @@ struct HydroOptionsImpl {
   //! Axial angular momentum in flux form on the cubed sphere: the component
   //! of each cell's momentum tendency along the rotation about the omega1
   //! axis is the divergence of face AAM fluxes, so the global AAM changes only
-  //! through physical boundary faces (see GnomonicEquiangle).
-  ADD_ARG(bool, conserve_axial_momentum) = false;
+  //! through physical boundary faces (see GnomonicEquiangle). It acts on the
+  //! gnomonic-equiangle grid, without a Coriolis force or with one of type
+  //! xyz about omega1, and does nothing elsewhere (Hydro::axial_flux_form).
+  ADD_ARG(bool, conserve_axial_momentum) = true;
 
   //! forcing options
   ADD_ARG(ConstGravityOptions, grav) = nullptr;
@@ -167,6 +169,11 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   torch::Tensor flux1() const { return _flux1; }
   torch::Tensor flux2() const { return _flux2; }
   torch::Tensor flux3() const { return _flux3; }
+
+  //! whether dynamics/conserve-axial-momentum acts in this block: the option
+  //! is set, the grid is gnomonic-equiangle and the Coriolis force, if any,
+  //! is of type xyz about omega1
+  bool axial_flux_form() const;
 
   //! dynamics/conserve-axial-momentum: the face mass fluxes the Coriolis
   //! call in progress closes the planetary AAM with (x1, x2, x3; undefined

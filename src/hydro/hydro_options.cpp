@@ -63,7 +63,7 @@ HydroOptions HydroOptionsImpl::from_yaml(std::string const& filename,
       op->flux_covariance() = dyn["flux-covariance"].as<bool>(true);
       op->x1_mass_covariance() = dyn["x1-mass-covariance"].as<bool>(false);
       op->conserve_axial_momentum() =
-          dyn["conserve-axial-momentum"].as<bool>(false);
+          dyn["conserve-axial-momentum"].as<bool>(true);
     }
   }
 

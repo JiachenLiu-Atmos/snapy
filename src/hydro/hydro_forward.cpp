@@ -1015,7 +1015,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   }
   // axial angular momentum in flux form (#314): the rotation component of the
   // momentum rows from the same face fluxes, so it telescopes across faces
-  if (options->conserve_axial_momentum()) {
+  bool aam = axial_flux_form();
+  if (aam) {
     pmb->pcoord->conserve_axial_momentum_(
         _div,
         options->disable_flux_x1() || u.size(DIM1) == 1 ? torch::Tensor()
@@ -1080,7 +1081,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   }
   // conserve-axial-momentum: this Coriolis call closes the planetary AAM
   // over the x2 and x3 faces; the x1 faces wait for step 8 with the w rows
-  bool aam = options->conserve_axial_momentum();
   if (aam) {
     auto on = [](bool off, torch::Tensor const& f) {
       return off ? torch::Tensor() : f;

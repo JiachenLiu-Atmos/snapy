@@ -179,7 +179,7 @@ torch::Tensor CoriolisXYZImpl::forward(torch::Tensor du, torch::Tensor w,
     // traditional approximation (and shallow water) has no w rows: only the
     // x2 and x3 faces enter, and what the planetary AAM gains from mass moved
     // along x1 is the term those equations leave out.
-    if (phydro->options->conserve_axial_momentum()) {
+    if (phydro->axial_flux_form()) {
       auto pcoord = phydro->pmb->pcoord;
       auto const& mf = phydro->axial_mass_fluxes();
       auto f1 = traditional ? torch::Tensor() : mf[0];
