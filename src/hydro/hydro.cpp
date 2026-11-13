@@ -167,15 +167,6 @@ void HydroImpl::reset() {
   //// ---- (6) set up implicit solver ---- ////
   if (options->icorr()) {
     picorr = ImplicitHydroImpl::create(options->icorr(), this);
-    if (options->grav() && options->grav()->grav1() != 0. &&
-        options->grav()->gravity_work() != "cell" && !face_work_in_operator()) {
-      TORCH_WARN(
-          "gravity-work: ", options->grav()->gravity_work(),
-          " with an implicit scheme: the face work "
-          "sits outside the implicit operator, which linearises the cell "
-          "work; a tall column at acoustic Courant ~66 blows up "
-          "(chengcli/snapy#283). gravity-work: cell is consistent with it.");
-    }
     if (options->verbose()) {
       SINFO(Hydro) << "Implicit correction type: " << picorr->options->type()
                    << "\n";
