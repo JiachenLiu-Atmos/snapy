@@ -75,6 +75,11 @@ std::tuple<torch::Tensor, double, int> balance_column(
     auto c = (x(2) - x(1)).square() / 4. / (x(3) - x(0));
     auto kp = c / (x(3) - x(1)), km = c / (x(2) - x(0));
     // L a = h^2/24 q'' on the owned cells, hydro_forward.cpp's lap
+    auto const& bf = eos->phydro->pmb->options->bfuncs();  // the column's BCs
+    bool walls[2] = {n > 3 && is_reflecting(bf[0]),
+                     n > 3 && is_reflecting(bf[1])};
+    auto E = walls[0] || walls[1] ? wall4_weights(f, 1, n, 1).to(w.options())
+                                  : torch::Tensor();  // the solver's ghosts
     auto lap = [&](torch::Tensor const& a) {
       auto a0 = a.narrow(-1, 1, n);
       return kp * (a.narrow(-1, 2, n) - a0) - km * (a0 - a.narrow(-1, 0, n));
@@ -90,6 +95,8 @@ std::tuple<torch::Tensor, double, int> balance_column(
       auto wp = pad(wb);
       wp[IVX].narrow(-1, 0, 1).neg_(), wp[IVX].narrow(-1, -1, 1).neg_();
       auto u = eos->compute("W->U", {wp});
+      for (int c = 0; c < u.size(0); ++c)
+        wall4_fill(u[c], E, c == IVX, 1, n, walls, c == IDN || c == IPR, {});
       auto up = (u.narrow(-1, 1, n) - lap(u)).contiguous();
       // the solver's fallback: W(u) where u - L u or its W is not admissible
       auto good = conv4_admissible(up, false, eos, lim);
@@ -97,6 +104,8 @@ std::tuple<torch::Tensor, double, int> balance_column(
           "U->W", {torch::where(good, up, u.narrow(-1, 1, n)).contiguous()});
       good &= conv4_admissible(w4, true, eos, lim);
       auto w2 = eos->compute("U->W", {u.clone()});
+      for (int c = 0; c < w2.size(0); ++c)
+        wall4_fill(w2[c], E, 0, 1, n, walls, c == IDN || c == IPR, {});
       w4 = torch::where(good, w4 + lap(w2), w2.narrow(-1, 1, n));
       auto [b, err, sweeps] = balance_column(w4, dx1f, grav, wall_clamp, rtol,
                                              max_iter, geometry, stretched);

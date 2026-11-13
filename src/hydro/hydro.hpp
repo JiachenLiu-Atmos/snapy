@@ -344,6 +344,7 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! (storage, version) they were built from
   mutable torch::Tensor conv4_x1_[2];
   mutable std::pair<void*, int64_t> conv4_x1_at_;
+  mutable torch::Tensor wall4_E_;  // reflecting-wall ghost weights, key 4
   //! corrected-PE grid-only work factors, built on first use
   CorrectedPEFactors _pe_work;
   //! face_moment2_x1() for this block's x1 grid, built on first use. Holds

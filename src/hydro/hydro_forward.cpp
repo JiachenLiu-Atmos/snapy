@@ -301,6 +301,51 @@ static void conv4_x1_weights(torch::Tensor x1f, int n,
   k[1] = (c / (f(2) - f(0))).to(opts);
 }
 
+// conversion-order 4 at a reflecting x1 wall: ghost averages of the polynomial
+// through the four owned averages next to the wall, plus q(0) = 0 (c = 1) or
+// q'(0) = 0 (c = 2); E[side][c] maps those four (narrow order) to the ghosts
+torch::Tensor wall4_weights(torch::Tensor x1f, int is, int iu, int ng) {
+  x1f = x1f.to(torch::kCPU, torch::kFloat64);
+  auto E = torch::zeros({2, 3, ng, 4}, torch::kFloat64);
+  for (int s : {0, 1}) {
+    int w = s ? iu + 1 : is, d = s ? -1 : 1;
+    auto y = (x1f - x1f[w]) / (x1f[w + d] - x1f[w]);
+    auto m = torch::arange(5, torch::kFloat64) + 1.;
+    auto row = [&](int j) {
+      return (y[j + 1].pow(m) - y[j].pow(m)) / m / (y[j + 1] - y[j]);
+    };
+    std::vector<torch::Tensor> a, b;
+    for (int k = 0; k < 4; ++k) a.push_back(row(s ? iu - 3 + k : is + k));
+    for (int k = 0; k < ng; ++k) b.push_back(row(s ? iu + 1 + k : is - ng + k));
+    for (int c : {0, 1, 2}) {
+      int n = 4 + (c > 0);
+      auto A = torch::zeros({n, n}, torch::kFloat64);
+      A.narrow(0, 0, 4) = torch::stack(a).narrow(1, 0, n);
+      if (c) A[4][c - 1] = 1.;
+      E[s][c] =
+          torch::stack(b).narrow(1, 0, n).matmul(A.inverse()).narrow(1, 0, 4);
+    }
+  }
+  return E;
+}
+
+torch::Tensor wall4_fill(torch::Tensor a, torch::Tensor const& E, int c, int i0,
+                         int i1, bool const* wall, bool pos,
+                         torch::Tensor ref) {
+  auto trips = torch::zeros({}, a.options().dtype(torch::kLong));
+  for (int s : {0, 1}) {
+    if (!wall[s]) continue;
+    int g = E.size(2);
+    auto old = a.narrow(-1, s ? i1 + 1 : i0 - g, g);
+    auto x = a.narrow(-1, s ? i1 - 3 : i0, 4).matmul(E[s][c].t());
+    auto t = ref.defined() ? x + ref.narrow(-1, s ? i1 + 1 : i0 - g, g) : x;
+    auto bad = pos ? t <= 0. : torch::zeros_like(t, torch::kBool);
+    trips += bad.sum();
+    old.copy_(torch::where(bad, old, x));
+  }
+  return trips;
+}
+
 torch::Tensor conv4_admissible(torch::Tensor const& a, bool prim,
                                EquationOfStateImpl* eos, bool limiter) {
   double df = limiter ? eos->options->density_floor() : 0.;
@@ -328,6 +373,22 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   auto const& w = other.at("hydro_w");
 
   peos->forward(u, w);
+  // conversion-order 4: x1 ghosts at a reflecting wall from the owned cells
+  // (wall4_weights, constraint c); a rho or p ghost whose total (ref + a) is
+  // not positive keeps the mirror and counts as a conversion trip
+  int i0 = pmb->pcoord->il(), i1 = pmb->pcoord->iu();
+  bool wall4[2];
+  for (int f : {0, 1}) {
+    wall4[f] = options->conversion_order() == 4 && u.size(DIM1) > 1 &&
+               is_x1_wall(f) && is_reflecting(pmb->options->bfuncs()[f]);
+    if (wall4[f] && i1 - i0 < 3)
+      TORCH_WARN_ONCE("fewer than 4 x1 cells: wall ghosts stay mirrored");
+    wall4[f] = wall4[f] && i1 - i0 >= 3;
+  }
+  auto fill4 = [&](torch::Tensor a, int c, bool pos, torch::Tensor ref) {
+    if (wall4[0] || wall4[1])  // key 2 and wall-less blocks never enter
+      _conv4_trips += wall4_fill(a, wall4_E_, c, i0, i1, wall4, pos, ref);
+  };
   // x1 point values u - L u, the primitives there, and back to cell averages:
   // w = W(u - L u) + L W(u), fourth order where W(u) is second
   if (options->conversion_order() == 4 && u.size(DIM1) > 1) {
@@ -337,8 +398,10 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     auto const& x1f = pmb->pcoord->x1f;  // rebuilt on a new or rewritten grid
     std::pair<void*, int64_t> at{x1f.data_ptr(), x1f._version()};
     if (!k[0].defined() || at != conv4_x1_at_ || k[0].device() != u.device() ||
-        k[0].scalar_type() != u.scalar_type())
+        k[0].scalar_type() != u.scalar_type()) {
       conv4_x1_weights(x1f, u.size(DIM1), u.options(), k), conv4_x1_at_ = at;
+      wall4_E_ = wall4_weights(x1f, i0, i1, ng).to(u.options());
+    }
     int n = u.size(DIM1) - 2;
     // centred everywhere, reading the u ghosts the boundary condition or the
     // exchange filled; the converted ghosts are refilled below
@@ -362,6 +425,15 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // Conversion acts on total cell averages, including the static background.
     // Differencing only stored anomalies omits the background curvature.
     auto averages = has_reference() ? total_u(u) : u;
+    // the wall cell's row reads one-sided ghosts: m(0) = 0; W(u) has no
+    // wall condition (m/rho = v + O(h^2), not zero at the wall)
+    if (wall4[0] || wall4[1]) {
+      averages = averages.clone();
+      for (int c = 0; c < u.size(0); ++c) {
+        fill4(averages[c], c == IVX, c == IDN || c == IPR, {});
+        fill4(w0[c], 0, c == IDN || c == IPR, {});
+      }
+    }
     auto up = averages - lap(averages);
     auto good = ok(up, false);
     auto tmp = torch::where(good, up, averages);
@@ -504,6 +576,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
               .narrow(-1, iu + 1, ng)
               .copy_(wx1[c].narrow(-1, iu + 1 - ng, ng).flip(-1));
         }
+        // key 4 one-sided rho', p', v ghosts: this path runs only with gravity
+        fill4(wx1[c], c == IPR ? 2 : 0, true, c == IPR ? pref : dref);
       }
 
       torch::Tensor velocity;
@@ -532,6 +606,10 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
           wx1[IVX]
               .narrow(-1, iu + 1, ng)
               .copy_(-wx1[IVX].narrow(-1, iu + 1 - ng, ng).flip(-1));
+      }
+      if (wall4[0] || wall4[1]) {
+        if (!velocity.defined()) velocity = wx1[IVX].clone();
+        fill4(wx1[IVX], 1, false, {});
       }
 
       // floor=false: reconstruction-stage floors would clamp legitimately
@@ -566,6 +644,13 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
           {density.narrow(-1, 0, 1), density.narrow(-1, 0, n1 - 1)}, -1);
       wtmp[ILT][IDN].copy_(torch::where(dl > 0., dl, rho_below));
       wtmp[IRT][IDN].copy_(torch::where(dr > 0., dr, density));
+      // key 4, after the floors: the wall face mirrors its owned side, v* = 0
+      for (int s : {0, 1}) {
+        if (!wall4[s]) continue;
+        int i = s ? iu + 1 : is, o = s ? ILT : IRT;
+        wtmp[1 - o].select(-1, i).copy_(wtmp[o].select(-1, i));
+        wtmp[1 - o][IVX].select(-1, i).neg_();
+      }
     } else {
       wtmp = precon1->forward(wx1, DIM1);
       if (grav1) {
