@@ -244,6 +244,66 @@ TEST(forcing, cubed_sphere_shallow_water_uses_traditional_coriolis) {
   check_cubed_sphere_coriolis("shallow-water", false, true);
 }
 
+// Coriolis and the u w / r metric take rho w from the x1 mass transfer: with w
+// alternating in sign every x1 face (a wall face too) moves no mass, so w must
+// exert no torque on the horizontal momenta, whatever the cell-centre w.
+TEST(forcing, coriolis_and_metric_take_w_from_the_x1_mass_flux) {
+  auto options =
+      MeshBlockOptionsImpl::from_yaml("test_forcing_cubed_sphere.yaml");
+  options->layout()->type() = "slab";  // one panel, no exchange
+  options->hydro()->coriolis() = CoriolisOptionsImpl::from_yaml(YAML::Load(
+      "coriolis: {type: xyz, omega1: 0.7e-4, omega2: -0.4e-4, omega3: 1.e-4}"));
+  auto block = std::make_shared<MeshBlockImpl>(options);
+  auto coord = block->pcoord;
+  auto w = torch::zeros({block->phydro->peos->nvar(), coord->options->nc3(),
+                         coord->options->nc2(), coord->options->nc1()},
+                        torch::kFloat64);
+  w[IDN] = 1.;
+  w[IVY] = 30.;
+  w[IVZ] = -20.;
+  w[IPR] = 1.e5;
+  auto run = [&](double w1) {
+    w[IVX] = w1 * (1. - 2. * (torch::arange(w.size(-1)) % 2));
+    Variables vars;
+    vars["hydro_w"] = torch::empty_like(w);
+    auto u = block->phydro->peos->compute("W->U", {w});
+    return block->phydro->forward(10., u, vars)
+        .narrow(0, IVY, 2)
+        .slice(-1, coord->il(), coord->iu() + 1);
+  };
+  double torque = (run(5.) - run(0.)).abs().max().item<double>();
+  EXPECT_LT(torque, 1.e-12) << "torque from a w that moves no mass";
+  // implicit scheme 9: the w-free Coriolis rows (rho v2, rho v3 into the
+  // radial row) go in before the solve, so the solve's correction sees Omega
+  options->hydro()->grav() = ConstGravityOptionsImpl::create();
+  options->hydro()->grav()->grav1(-10.);
+  options->hydro()->icorr() = ImplicitOptionsImpl::create();
+  options->hydro()->icorr()->scheme(9);
+  auto icorr = [&](CoriolisOptions cor) {
+    options->hydro()->coriolis() = cor;
+    block = std::make_shared<MeshBlockImpl>(options), coord = block->pcoord;
+    run(0.);
+    return block->phydro->picorr->correction().clone();
+  };
+  auto rotating = icorr(options->hydro()->coriolis());
+  auto seen = rotating - icorr(nullptr);
+  EXPECT_GT(seen.abs().max().item<double>(), 0.) << "solve blind to Omega";
+  options->hydro()->icorr() = nullptr;
+  options->hydro()->grav() = nullptr;
+  // nx1 = 1, no Coriolis (no x1 mass flux): -rho w v_{2,3} / r at the cell
+  options->coord()->nx1() = options->coord()->global_nx1() = 1;
+  options->hydro()->coriolis() = nullptr;
+  block = std::make_shared<MeshBlockImpl>(options), coord = block->pcoord;
+  w = w.narrow(-1, 0, 1).clone();
+  auto c = coord->cosine_cell_kj, r = coord->x1v.view({1, 1, -1});
+  auto exact = torch::stack({30. - 20. * c, -20. + 30. * c}) * (-10. * 5. / r);
+  auto err =
+      (run(5.) - run(0.) - exact).slice(-2, coord->jl(), coord->ju() + 1);
+  EXPECT_LT(
+      err.slice(-3, coord->kl(), coord->ku() + 1).abs().max().item<double>(),
+      1.e-15);
+}
+
 TEST(forcing, relax_bottom_temperature) {
   auto block = make_block();
   auto w = make_primitive(block);

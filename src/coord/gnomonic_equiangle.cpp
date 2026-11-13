@@ -422,7 +422,6 @@ torch::Tensor GnomonicEquiangleImpl::forward(torch::Tensor prim,
   auto sine2 = sine_cell_kj.square();
 
   // General variables
-  auto v1 = prim[IVX];
   auto v2 = prim[IVY];
   auto v3 = prim[IVZ];
   auto radius = x1v.unsqueeze(0).unsqueeze(1);
@@ -458,16 +457,27 @@ torch::Tensor GnomonicEquiangleImpl::forward(torch::Tensor prim,
   }
 
   // Update flux 2
-  auto src2 =
-      x_ov_rD_kji * (pr + rho * v3 * v3 * sine2) - rho * v1 * v_2 / radius;
+  // the -rho v1 v_2 / r part is x1_mass_source_
+  auto src2 = x_ov_rD_kji * (pr + rho * v3 * v3 * sine2);
   div[IVY] -= src2;
 
   // Update flux 3
-  auto src3 =
-      y_ov_rC_kji * (pr + rho * v2 * v2 * sine2) - rho * v1 * v_3 / radius;
+  auto src3 = y_ov_rC_kji * (pr + rho * v2 * v2 * sine2);
   div[IVZ] -= src3;
 
   return div;
+}
+
+void GnomonicEquiangleImpl::x1_mass_source_(torch::Tensor du,
+                                            torch::Tensor const& prim,
+                                            torch::Tensor const& m1,
+                                            double dt) const {
+  // du[v_i] -= dt m1 v_i / r with the covariant v_2 = v2 + c v3, v_3 = v3 + c
+  // v2
+  auto c = cosine_cell_kj;
+  auto mr = m1 / x1v.unsqueeze(0).unsqueeze(1);
+  du[IVY].addcmul_(mr, torch::addcmul(prim[IVY], prim[IVZ], c), -dt);
+  du[IVZ].addcmul_(mr, torch::addcmul(prim[IVZ], prim[IVY], c), -dt);
 }
 
 torch::Tensor GnomonicEquiangleImpl::_interp_ghost(torch::Tensor buf,
