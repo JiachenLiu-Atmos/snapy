@@ -37,22 +37,7 @@ torch::Tensor ShallowRoeSolverImpl::forward(torch::Tensor wl, torch::Tensor wr,
                 options->dir());
   }
 
-  switch (dim) {
-    case 1:
-      pcoord->prim2local3_(wl);
-      pcoord->prim2local3_(wr);
-      break;
-    case 2:
-      pcoord->prim2local2_(wl);
-      pcoord->prim2local2_(wr);
-      break;
-    case 3:
-      pcoord->prim2local1_(wl);
-      pcoord->prim2local1_(wr);
-      break;
-    default:
-      TORCH_CHECK(false, "Invalid dimension: ", dim);
-  }
+  to_face_frame_(*pcoord, dim, wl, wr);
 
   auto iter = at::TensorIteratorConfig()
                   .resize_outputs(false)
@@ -66,19 +51,7 @@ torch::Tensor ShallowRoeSolverImpl::forward(torch::Tensor wl, torch::Tensor wr,
   at::native::call_shallow_roe(flx.device().type(), iter, dim,
                                options->dir() == "yz");
 
-  switch (dim) {
-    case 1:
-      pcoord->flux2global3_(flx);
-      break;
-    case 2:
-      pcoord->flux2global2_(flx);
-      break;
-    case 3:
-      pcoord->flux2global1_(flx);
-      break;
-    default:
-      TORCH_CHECK(false, "Invalid dimension: ", dim);
-  }
+  to_global_frame_(*pcoord, dim, flx);
 
   return flx;
 }

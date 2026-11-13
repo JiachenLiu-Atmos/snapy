@@ -4,6 +4,8 @@
 // snap
 #include <snap/snap.h>
 
+#include <snap/mesh/meshblock.hpp>
+
 #include "flux_positivity.hpp"
 
 namespace snap {
@@ -162,6 +164,32 @@ void flux_positivity_carry_(
   carry(flux1, DIM1, pcoord->il(), pcoord->iu(), fsed1);
   carry(flux2, DIM2, pcoord->jl(), pcoord->ju(), torch::Tensor());
   carry(flux3, DIM3, pcoord->kl(), pcoord->ku(), torch::Tensor());
+}
+
+torch::Tensor flux_positivity_relax(torch::Tensor const& theta,
+                                    torch::Tensor const& td,
+                                    torch::Tensor const& phi) {
+  return torch::where((td < 1.) & (td > 0.),
+                      theta + phi * ((theta / td).clamp_max(1.) - theta),
+                      theta);
+}
+
+void flux_positivity_sync_theta_(MeshBlockImpl const* pmb,
+                                 torch::Tensor const& theta,
+                                 std::string const& key) {
+  Variables tvars;
+  tvars[key] = theta;
+  SyncOptions topts;
+  topts.interpolate(false).type(kScalar);
+  pmb->exchange(tvars, topts);
+
+  BoundaryFuncOptions bops;
+  bops.nghost(pmb->pcoord->options->nghost());
+  bops.type(kScalar);
+  for (int i = 0; i < pmb->options->bfuncs().size(); ++i) {
+    if (pmb->options->bfuncs()[i] == nullptr) continue;
+    pmb->options->bfuncs()[i](theta, 3 - i / 2, bops);
+  }
 }
 
 }  // namespace snap

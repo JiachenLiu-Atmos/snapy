@@ -9,11 +9,11 @@
 #include <torch/torch.h>
 
 // snap
-#include <snap/recon/interp_simple.hpp>
 #include <snap/recon/interpolation.hpp>
 
 // tests
 #include "device_testing.hpp"
+#include "interp_simple.hpp"
 
 using namespace snap;
 

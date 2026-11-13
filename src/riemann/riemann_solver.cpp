@@ -2,12 +2,50 @@
 #include <yaml-cpp/yaml.h>
 
 // snap
+#include <snap/coord/coordinate.hpp>
 #include <snap/hydro/hydro.hpp>
 #include <snap/input/check_keys.hpp>
 
 #include "riemann_solver.hpp"
 
 namespace snap {
+void to_face_frame_(CoordinateImpl const& coord, int dim,
+                    torch::Tensor const& wl, torch::Tensor const& wr) {
+  switch (dim) {
+    case 1:
+      coord.prim2local3_(wl);
+      coord.prim2local3_(wr);
+      break;
+    case 2:
+      coord.prim2local2_(wl);
+      coord.prim2local2_(wr);
+      break;
+    case 3:
+      coord.prim2local1_(wl);
+      coord.prim2local1_(wr);
+      break;
+    default:
+      TORCH_CHECK(false, "Invalid dimension: ", dim);
+  }
+}
+
+void to_global_frame_(CoordinateImpl const& coord, int dim,
+                      torch::Tensor const& flx) {
+  switch (dim) {
+    case 1:
+      coord.flux2global3_(flx);
+      break;
+    case 2:
+      coord.flux2global2_(flx);
+      break;
+    case 3:
+      coord.flux2global1_(flx);
+      break;
+    default:
+      TORCH_CHECK(false, "Invalid dimension: ", dim);
+  }
+}
+
 RiemannSolverOptions RiemannSolverOptionsImpl::from_yaml(
     std::string const& filename, std::string const& section) {
   auto op = RiemannSolverOptionsImpl::create();

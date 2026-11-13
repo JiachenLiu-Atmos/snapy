@@ -15,11 +15,17 @@
 
 namespace snap {
 
-template <int N>
-void call_poly_cuda(at::TensorIterator& iter, at::Tensor coeff, int dim) {
+// One launcher for every variant: a line that fits one CUDA block (1024
+// threads, the block limit) keeps the one-block kernel, split into launches of
+// at most `per` variables when their shared memory does not fit; a longer line
+// is walked in tiles (interp_line_tiled). Every output is the same point
+// function either way.
+template <int Stencil, int NCoeff, typename Op>
+void call_interp_cuda(at::TensorIterator& iter, at::Tensor coeff, int dim,
+                      bool scale) {
   at::cuda::CUDAGuard device_guard(iter.device());
 
-  AT_DISPATCH_FLOATING_TYPES(iter.common_dtype(), "call_poly_cuda", [&]() {
+  AT_DISPATCH_FLOATING_TYPES(iter.common_dtype(), "call_interp_cuda", [&]() {
     int stride_in1 = at::native::ensure_nonempty_stride(iter.input(), dim);
     int stride_in2 = at::native::ensure_nonempty_stride(iter.input(), 0);
 
@@ -30,50 +36,34 @@ void call_poly_cuda(at::TensorIterator& iter, at::Tensor coeff, int dim) {
     auto c = coeff.data_ptr<scalar_t>();
     int64_t nline64 = at::native::ensure_nonempty_size(iter.input(), dim);
     size_t shared = 0;
-    int tile = recon_tile_width(nline64, nvar, N, coeff.numel(),
+    int tile = recon_tile_width(nline64, nvar, Stencil, NCoeff,
                                 sizeof(scalar_t), &shared);
 
     if (tile == 0) {
       int per = native::stencil_vars_per_launch(nline64, coeff.numel(),
                                                 sizeof(scalar_t));
-      if (nvar <= per) {
-        native::stencil_kernel<scalar_t, 2>(
-            iter, dim, coeff.numel(),
-            [=] GPU_LAMBDA(char* const data[2], unsigned int strides[2],
-                           scalar_t* smem) {
-              auto out = reinterpret_cast<scalar_t*>(data[0] + strides[0]);
-              auto w = reinterpret_cast<scalar_t*>(data[1] + strides[1]);
-              interp_poly_impl<scalar_t, N>(out, w, c, nvar, stride_in1,
-                                            stride_in2, stride_out1,
-                                            stride_out2, smem);
-            });
-        return;
-      }
-      // More variables than one launch's shared memory holds: launch on
-      // parts of at most `per` variables. Every output is computed as in the
-      // single launch.
       for (int v0 = 0; v0 < nvar; v0 += per) {
         int nv = std::min(per, nvar - v0);
         int64_t off_in = static_cast<int64_t>(v0) * stride_in2;
         int64_t off_out = static_cast<int64_t>(v0) * stride_out2;
         native::stencil_kernel<scalar_t, 2>(
             iter, dim, coeff.numel(),
-            [=] GPU_LAMBDA(char* const data[2], unsigned int strides[2],
+            [=] __device__(char* const data[2], unsigned int strides[2],
                            scalar_t* smem) {
               auto out =
                   reinterpret_cast<scalar_t*>(data[0] + strides[0]) + off_out;
               auto w =
                   reinterpret_cast<scalar_t*>(data[1] + strides[1]) + off_in;
-              interp_poly_impl<scalar_t, N>(out, w, c, nv, stride_in1,
-                                            stride_in2, stride_out1,
-                                            stride_out2, smem);
+              interp_line_block<scalar_t, Stencil, NCoeff, Op>(
+                  out, w, c, nv, stride_in1, stride_in2, stride_out1,
+                  stride_out2, scale, smem);
             },
             nv);
       }
       return;
     }
 
-    TORCH_CHECK(coeff.numel() == N);
+    TORCH_CHECK(coeff.numel() == NCoeff);
     int nline = static_cast<int>(nline64);
     stencil_kernel_tiled<scalar_t, 2>(
         iter, dim, tile, shared,
@@ -81,155 +71,28 @@ void call_poly_cuda(at::TensorIterator& iter, at::Tensor coeff, int dim) {
                        scalar_t* smem) {
           auto out = reinterpret_cast<scalar_t*>(data[0] + strides[0]);
           auto w = reinterpret_cast<scalar_t*>(data[1] + strides[1]);
-          interp_line_tiled<scalar_t, N, N, PolyOp<N>>(
+          interp_line_tiled<scalar_t, Stencil, NCoeff, Op>(
               out, w, c, nvar, stride_in1, stride_in2, stride_out1, stride_out2,
-              /*scale=*/false, nline, smem);
+              scale, nline, smem);
         });
   });
+}
+
+template <int N>
+void call_poly_cuda(at::TensorIterator& iter, at::Tensor coeff, int dim) {
+  call_interp_cuda<N, N, PolyOp<N>>(iter, coeff, dim, /*scale=*/false);
 }
 
 void call_weno3_cuda(at::TensorIterator& iter, at::Tensor coeff, int dim,
                      bool scale) {
-  at::cuda::CUDAGuard device_guard(iter.device());
-
-  AT_DISPATCH_FLOATING_TYPES(iter.common_dtype(), "call_weno3_cuda", [&]() {
-    int stride_in1 = at::native::ensure_nonempty_stride(iter.input(), dim);
-    int stride_in2 = at::native::ensure_nonempty_stride(iter.input(), 0);
-
-    int stride_out1 = at::native::ensure_nonempty_stride(iter.output(), dim);
-    int stride_out2 = at::native::ensure_nonempty_stride(iter.output(), 0);
-
-    int nvar = at::native::ensure_nonempty_size(iter.output(), 0);
-    auto c = coeff.data_ptr<scalar_t>();
-    int64_t nline64 = at::native::ensure_nonempty_size(iter.input(), dim);
-    size_t shared = 0;
-    int tile = recon_tile_width(nline64, nvar, kWeno3Stencil, kWeno3Coeff,
-                                sizeof(scalar_t), &shared);
-
-    if (tile == 0) {
-      int per = native::stencil_vars_per_launch(nline64, coeff.numel(),
-                                                sizeof(scalar_t));
-      if (nvar <= per) {
-        native::stencil_kernel<scalar_t, 2>(
-            iter, dim, coeff.numel(),
-            [=] __device__(char* const data[2], unsigned int strides[2],
-                           scalar_t* smem) {
-              auto out = reinterpret_cast<scalar_t*>(data[0] + strides[0]);
-              auto w = reinterpret_cast<scalar_t*>(data[1] + strides[1]);
-              interp_weno3_impl(out, w, c, nvar, stride_in1, stride_in2,
-                                stride_out1, stride_out2, scale, smem);
-            });
-        return;
-      }
-      // More variables than one launch's shared memory holds: launch on
-      // parts of at most `per` variables. Every output is computed as in the
-      // single launch.
-      for (int v0 = 0; v0 < nvar; v0 += per) {
-        int nv = std::min(per, nvar - v0);
-        int64_t off_in = static_cast<int64_t>(v0) * stride_in2;
-        int64_t off_out = static_cast<int64_t>(v0) * stride_out2;
-        native::stencil_kernel<scalar_t, 2>(
-            iter, dim, coeff.numel(),
-            [=] __device__(char* const data[2], unsigned int strides[2],
-                           scalar_t* smem) {
-              auto out =
-                  reinterpret_cast<scalar_t*>(data[0] + strides[0]) + off_out;
-              auto w =
-                  reinterpret_cast<scalar_t*>(data[1] + strides[1]) + off_in;
-              interp_weno3_impl(out, w, c, nv, stride_in1, stride_in2,
-                                stride_out1, stride_out2, scale, smem);
-            },
-            nv);
-      }
-      return;
-    }
-
-    TORCH_CHECK(coeff.numel() == kWeno3Coeff);
-    int nline = static_cast<int>(nline64);
-    stencil_kernel_tiled<scalar_t, 2>(
-        iter, dim, tile, shared,
-        [=] __device__(char* const data[2], unsigned int strides[2],
-                       scalar_t* smem) {
-          auto out = reinterpret_cast<scalar_t*>(data[0] + strides[0]);
-          auto w = reinterpret_cast<scalar_t*>(data[1] + strides[1]);
-          interp_line_tiled<scalar_t, kWeno3Stencil, kWeno3Coeff, Weno3Op>(
-              out, w, c, nvar, stride_in1, stride_in2, stride_out1, stride_out2,
-              scale, nline, smem);
-        });
-  });
+  call_interp_cuda<kWeno3Stencil, kWeno3Coeff, Weno3Op>(iter, coeff, dim,
+                                                        scale);
 }
 
 void call_weno5_cuda(at::TensorIterator& iter, at::Tensor coeff, int dim,
                      bool scale) {
-  at::cuda::CUDAGuard device_guard(iter.device());
-
-  AT_DISPATCH_FLOATING_TYPES(iter.common_dtype(), "call_weno5_cuda", [&]() {
-    int stride_in1 = at::native::ensure_nonempty_stride(iter.input(), dim);
-    int stride_in2 = at::native::ensure_nonempty_stride(iter.input(), 0);
-
-    int stride_out1 = at::native::ensure_nonempty_stride(iter.output(), dim);
-    int stride_out2 = at::native::ensure_nonempty_stride(iter.output(), 0);
-
-    int nvar = at::native::ensure_nonempty_size(iter.output(), 0);
-    auto c = coeff.data_ptr<scalar_t>();
-    int64_t nline64 = at::native::ensure_nonempty_size(iter.input(), dim);
-    size_t shared = 0;
-    int tile = recon_tile_width(nline64, nvar, kWeno5Stencil, kWeno5Coeff,
-                                sizeof(scalar_t), &shared);
-
-    // 1024 threads is the CUDA block limit. This launch is the one that
-    // already ships, so a line that fits stays on it.
-    if (tile == 0) {
-      int per = native::stencil_vars_per_launch(nline64, coeff.numel(),
-                                                sizeof(scalar_t));
-      if (nvar <= per) {
-        native::stencil_kernel<scalar_t, 2>(
-            iter, dim, coeff.numel(),
-            [=] __device__(char* const data[2], unsigned int strides[2],
-                           scalar_t* smem) {
-              auto out = reinterpret_cast<scalar_t*>(data[0] + strides[0]);
-              auto w = reinterpret_cast<scalar_t*>(data[1] + strides[1]);
-              interp_weno5_impl(out, w, c, nvar, stride_in1, stride_in2,
-                                stride_out1, stride_out2, scale, smem);
-            });
-        return;
-      }
-      // More variables than one launch's shared memory holds: launch on
-      // parts of at most `per` variables. Every output is computed as in the
-      // single launch.
-      for (int v0 = 0; v0 < nvar; v0 += per) {
-        int nv = std::min(per, nvar - v0);
-        int64_t off_in = static_cast<int64_t>(v0) * stride_in2;
-        int64_t off_out = static_cast<int64_t>(v0) * stride_out2;
-        native::stencil_kernel<scalar_t, 2>(
-            iter, dim, coeff.numel(),
-            [=] __device__(char* const data[2], unsigned int strides[2],
-                           scalar_t* smem) {
-              auto out =
-                  reinterpret_cast<scalar_t*>(data[0] + strides[0]) + off_out;
-              auto w =
-                  reinterpret_cast<scalar_t*>(data[1] + strides[1]) + off_in;
-              interp_weno5_impl(out, w, c, nv, stride_in1, stride_in2,
-                                stride_out1, stride_out2, scale, smem);
-            },
-            nv);
-      }
-      return;
-    }
-
-    TORCH_CHECK(coeff.numel() == kWeno5Coeff);
-    int nline = static_cast<int>(nline64);
-    stencil_kernel_tiled<scalar_t, 2>(
-        iter, dim, tile, shared,
-        [=] __device__(char* const data[2], unsigned int strides[2],
-                       scalar_t* smem) {
-          auto out = reinterpret_cast<scalar_t*>(data[0] + strides[0]);
-          auto w = reinterpret_cast<scalar_t*>(data[1] + strides[1]);
-          interp_line_tiled<scalar_t, kWeno5Stencil, kWeno5Coeff, Weno5Op>(
-              out, w, c, nvar, stride_in1, stride_in2, stride_out1, stride_out2,
-              scale, nline, smem);
-        });
-  });
+  call_interp_cuda<kWeno5Stencil, kWeno5Coeff, Weno5Op>(iter, coeff, dim,
+                                                        scale);
 }
 }  // namespace snap
 

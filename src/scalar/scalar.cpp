@@ -174,19 +174,7 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
   // the scalar carries its covariance row, which can export tracer a cell
   // does not have.
   auto sync_theta = [&](torch::Tensor theta) {
-    Variables tvars;
-    tvars["scalar_theta"] = theta;
-    SyncOptions theta_opts;
-    theta_opts.interpolate(false).type(kScalar);  // see hydro_forward.cpp 4.C
-    pmb->exchange(tvars, theta_opts);
-
-    BoundaryFuncOptions bops;
-    bops.nghost(pcoord->options->nghost());
-    bops.type(kScalar);
-    for (int i = 0; i < pmb->options->bfuncs().size(); ++i) {
-      if (pmb->options->bfuncs()[i] == nullptr) continue;
-      pmb->options->bfuncs()[i](theta, 3 - i / 2, bops);
-    }
+    flux_positivity_sync_theta_(pmb, theta, "scalar_theta");
     return theta;
   };
 
@@ -243,9 +231,7 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
                                       m(_flux2, ph->flux2()),
                                       m(_flux3, ph->flux3()), pcoord, dt);
       auto phi = flux_positivity_share(u / rho);
-      theta = torch::where((td < 1.) & (td > 0.),
-                           theta + phi * ((theta / td).clamp_max(1.) - theta),
-                           theta);
+      theta = flux_positivity_relax(theta, td, phi);
     }
     _positivity_hits += (theta.index(cells) < 1.).sum();
     flux_positivity_scale_(sync_theta(theta), _flux1, _flux2, _flux3, pcoord);

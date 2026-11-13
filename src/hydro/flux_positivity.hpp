@@ -125,4 +125,27 @@ void flux_positivity_carry_(
     torch::Tensor const& flux2, torch::Tensor const& flux3,
     Coordinate const& pcoord, torch::Tensor const& fsed1 = torch::Tensor());
 
+//! \brief Relax theta where the mass flux drains the cell too.
+//!
+//! Where 0 < td < 1 (td: the theta of the mass flux), a species may drain past
+//! its content as far as the poorer neighbour repays: theta moves toward
+//! min(theta / td, 1) by the share phi (flux_positivity_share). Elsewhere
+//! theta is returned unchanged.
+torch::Tensor flux_positivity_relax(torch::Tensor const& theta,
+                                    torch::Tensor const& td,
+                                    torch::Tensor const& phi);
+
+class MeshBlockImpl;
+
+//! \brief Fill theta's ghost layer in place, as a conserved variable's.
+//!
+//! A raw copy at internal seams (never interpolated: the donor of a panel-seam
+//! face is the neighbour's edge cell, and an interpolated ghost is not its
+//! factor), then the block's boundary functions at physical faces, so the
+//! donor factor of every shared face is identical on both ranks.
+//! \param key  name under which theta is exchanged
+void flux_positivity_sync_theta_(MeshBlockImpl const* pmb,
+                                 torch::Tensor const& theta,
+                                 std::string const& key);
+
 }  // namespace snap

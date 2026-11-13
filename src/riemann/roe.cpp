@@ -38,11 +38,7 @@ torch::Tensor RoeSolverImpl::forward(torch::Tensor wl, torch::Tensor wr,
 
   // solve in the face-local orthonormal frame, as lmars.cpp does
   auto pcoord = phydro->pmb->pcoord;
-  for (auto const& w : {wl, wr}) {
-    if (dim == 1) pcoord->prim2local3_(w);
-    if (dim == 2) pcoord->prim2local2_(w);
-    if (dim == 3) pcoord->prim2local1_(w);
-  }
+  to_face_frame_(*pcoord, dim, wl, wr);
 
   auto face_pressure_out =
       face_pressure.defined() ? face_pressure : torch::empty_like(wl[IDN]);
@@ -66,9 +62,7 @@ torch::Tensor RoeSolverImpl::forward(torch::Tensor wl, torch::Tensor wr,
                        peos->options->gammad(), inv_mu_ratio_m1, cv_ratio_m1,
                        u0);
 
-  if (dim == 1) pcoord->flux2global3_(flx);
-  if (dim == 2) pcoord->flux2global2_(flx);
-  if (dim == 3) pcoord->flux2global1_(flx);
+  to_global_frame_(*pcoord, dim, flx);
   return flx;
 }
 
