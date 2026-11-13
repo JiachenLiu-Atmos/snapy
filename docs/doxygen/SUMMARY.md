@@ -14,7 +14,6 @@ The following header files have been documented with comprehensive Doxygen-style
 - ✅ `pull_neighbors.hpp` - Functions for pulling neighboring values in 2D/3D/4D
 - ✅ `vectorize.hpp` - String parsing and vectorization utilities
 - ✅ `signal_handler.hpp` - System signal handling for graceful shutdown
-- ✅ `format.hpp` - Custom fmt::formatter specializations
 - ✅ `log.hpp` - Lightweight logging mechanism
 
 #### Input Module (`src/input/`)
@@ -27,15 +26,9 @@ The following header files have been documented with comprehensive Doxygen-style
 #### Math Module (`src/math/`)
 - ✅ `lubksb.h` - LU decomposition backsubstitution solver
 - ✅ `ludcmp.h` - LU decomposition with partial pivoting
-- ✅ `luminv.h` - Matrix inversion using LU decomposition
-- ✅ `poly.h` - Polynomial operations (coefficients, evaluation, Newton's method)
 
 #### Interface Module (`src/interface/`)
 - ✅ `stride_iterator.hpp` - Random-access iterator with custom stride
-
-#### Parallel Module (`src/parallel/serialize/`)
-- ✅ `serialize.h` - PyTorch tensor serialization/deserialization
-- ✅ `vector_stream.h` - Stream buffer backed by std::vector
 
 #### Turbulence Module (`src/turbulence/`)
 - ✅ `turbulence_model.hpp` - Base turbulence model and K-Epsilon implementation
