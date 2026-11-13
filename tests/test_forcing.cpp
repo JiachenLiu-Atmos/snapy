@@ -290,12 +290,9 @@ TEST(forcing, coriolis_and_metric_take_w_from_the_x1_mass_flux) {
   EXPECT_GT(seen.abs().max().item<double>(), 0.) << "solve blind to Omega";
   options->hydro()->icorr() = nullptr;
   options->hydro()->grav() = nullptr;
-  // nx1 = 1, no Coriolis (no x1 mass flux): -rho w v_{2,3} / r at the cell.
-  // conserve-axial-momentum drops the axial component of this source (no
-  // mass crosses an x1 face, so it would change the AAM), hence off here
+  // nx1 = 1, no Coriolis (no x1 mass flux): -rho w v_{2,3} / r at the cell
   options->coord()->nx1() = options->coord()->global_nx1() = 1;
   options->hydro()->coriolis() = nullptr;
-  options->hydro()->conserve_axial_momentum(false);
   block = std::make_shared<MeshBlockImpl>(options), coord = block->pcoord;
   w = w.narrow(-1, 0, 1).clone();
   auto c = coord->cosine_cell_kj, r = coord->x1v.view({1, 1, -1});

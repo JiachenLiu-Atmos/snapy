@@ -172,14 +172,16 @@ torch::Tensor CoriolisXYZImpl::forward(torch::Tensor du, torch::Tensor w,
     force[VEL3] = 2. * (o2 * m1 - o1 * m2);
 
     cs_apply_velocity_transform_(force, spherical_to_covariant);
-    // dynamics/conserve-axial-momentum (#314): the component of the Coriolis
-    // force along the rotation about the omega1 axis in flux form, from the
-    // face mass fluxes Hydro names for this call, so the exchange between
-    // relative and planetary AAM closes exactly (axial_coriolis_rate). The
-    // traditional approximation (and shallow water) has no w rows: only the
-    // x2 and x3 faces enter, and what the planetary AAM gains from mass moved
-    // along x1 is the term those equations leave out.
-    if (phydro->axial_flux_form()) {
+    // dynamics/conserve-axial-momentum: full (#314): the component of the
+    // Coriolis force along the rotation about the omega1 axis in flux form,
+    // from the face mass fluxes Hydro names for this call, so the exchange
+    // between relative and planetary AAM closes exactly
+    // (axial_coriolis_rate). The traditional approximation (and shallow
+    // water) has no w rows: only the x2 and x3 faces enter, and what the
+    // planetary AAM gains from mass moved along x1 is the term those
+    // equations leave out. This makes the force not skew-symmetric (the rest
+    // of it uses the cell momentum): see the note at the option.
+    if (phydro->axial_coriolis_form()) {
       auto pcoord = phydro->pmb->pcoord;
       auto const &mf = phydro->axial_mass_fluxes();
       auto f1 = traditional ? torch::Tensor() : mf[0];

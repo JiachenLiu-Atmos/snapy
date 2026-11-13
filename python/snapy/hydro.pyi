@@ -204,17 +204,27 @@ class HydroOptions:
     def x1_mass_covariance(self, value: bool) -> "HydroOptions": ...
 
     @overload
-    def conserve_axial_momentum(self) -> bool:
-        """Axial angular momentum in flux form on the gnomonic-equiangle cubed
-        sphere: the rotation component of each cell's momentum tendency is the
-        divergence of face AAM fluxes. Default True;
-        `dynamics: {conserve-axial-momentum: false}` turns it off. 3D and 2D
-        shallow water. It does nothing on other grids, or with a Coriolis
-        force that is not `type: xyz` about `omega1`."""
+    def conserve_axial_momentum(self) -> str:
+        """Axial angular momentum (AAM) in flux form on the gnomonic-equiangle
+        cubed sphere, `dynamics: {conserve-axial-momentum: off | transport |
+        full}`, default `off`. 3D and 2D shallow water. It does nothing on
+        other grids, or with a Coriolis force that is not `type: xyz` about
+        `omega1`.
+
+        `transport`: the rotation component of each cell's flux divergence is
+        the divergence of face AAM fluxes; the Coriolis force stays in cell
+        form and does no work. Exact without rotation; with slow rotation,
+        Omega / (u / a) of 0.5 to 1, the drift was 50 to 290 times smaller
+        than `off` in one test (C8 and C16), and larger than `off` at 14.
+
+        `full`: also the axial component of the Coriolis force, from the face
+        mass fluxes. Relative plus planetary AAM is exact, but grid-scale
+        noise gains energy with rotation (see the note in hydro.hpp). Use it
+        without rotation."""
         ...
 
     @overload
-    def conserve_axial_momentum(self, value: bool) -> "HydroOptions": ...
+    def conserve_axial_momentum(self, value: str) -> "HydroOptions": ...
 
 class Hydro:
     """

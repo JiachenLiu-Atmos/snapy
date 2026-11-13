@@ -25,11 +25,15 @@ HydroImpl::HydroImpl(const HydroOptions& options_, torch::nn::Module* p)
 }
 
 bool HydroImpl::axial_flux_form() const {
-  if (!options->conserve_axial_momentum() || !pmb || !pmb->pcoord ||
+  if (options->conserve_axial_momentum() == "off" || !pmb || !pmb->pcoord ||
       pmb->pcoord->options->type() != "gnomonic-equiangle")
     return false;
   auto const& c = options->coriolis();
   return !c || (c->type() == "xyz" && c->omega2() == 0. && c->omega3() == 0.);
+}
+
+bool HydroImpl::axial_coriolis_form() const {
+  return options->conserve_axial_momentum() == "full" && axial_flux_form();
 }
 
 void HydroImpl::reset() {
@@ -47,10 +51,15 @@ void HydroImpl::reset() {
     TORCH_WARN_ONCE(
         "SNAP_X1_MASS_COVARIANCE is ignored; set the deck key "
         "dynamics/x1-mass-covariance instead");
-  // conserve-axial-momentum is on by default and acts where it is defined
-  // (axial_flux_form); say so when a Coriolis force about another axis
-  // turns it off on the cubed sphere
-  if (options->conserve_axial_momentum() && pmb->pcoord &&
+  // conserve-axial-momentum acts where it is defined (axial_flux_form); say
+  // so when a Coriolis force about another axis turns it off on the cubed
+  // sphere
+  auto const& aam_mode = options->conserve_axial_momentum();
+  TORCH_CHECK(
+      aam_mode == "off" || aam_mode == "transport" || aam_mode == "full",
+      "[Hydro] conserve_axial_momentum must be off, transport or full, got '",
+      aam_mode, "'");
+  if (aam_mode != "off" && pmb->pcoord &&
       pmb->pcoord->options->type() == "gnomonic-equiangle" &&
       !axial_flux_form())
     TORCH_WARN_ONCE(

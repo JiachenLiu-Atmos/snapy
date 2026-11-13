@@ -80,13 +80,30 @@ struct HydroOptionsImpl {
   //! least 3 x1 cells per block. Same every-block rule as flux_covariance.
   ADD_ARG(bool, x1_mass_covariance) = false;
 
-  //! Axial angular momentum in flux form on the cubed sphere: the component
-  //! of each cell's momentum tendency along the rotation about the omega1
-  //! axis is the divergence of face AAM fluxes, so the global AAM changes only
-  //! through physical boundary faces (see GnomonicEquiangle). It acts on the
-  //! gnomonic-equiangle grid, without a Coriolis force or with one of type
-  //! xyz about omega1, and does nothing elsewhere (Hydro::axial_flux_form).
-  ADD_ARG(bool, conserve_axial_momentum) = true;
+  //! dynamics/conserve-axial-momentum: off (default), transport or full.
+  //! Axial angular momentum (AAM) in flux form on the gnomonic-equiangle grid:
+  //! the component of each cell's momentum tendency along the rotation about
+  //! the omega1 axis is the divergence of face AAM fluxes, so the global AAM
+  //! changes only through physical boundary faces (see GnomonicEquiangle). It
+  //! needs no Coriolis force or one of type xyz about omega1, and does nothing
+  //! on other grids (Hydro::axial_flux_form).
+  //!  - transport: the flux divergence and the x1 metric source. The Coriolis
+  //!    force stays in cell form, which does no work. The relative AAM is
+  //!    exact without rotation. With rotation the Coriolis exchange with the
+  //!    planetary AAM is left open. Measured with one jet, for Omega / (u / a)
+  //!    of 0.5 to 1: the drift is 110 to 290 times smaller than off at C8 and
+  //!    50 to 130 times at C16 (the gain shrinks with resolution). At a ratio
+  //!    of 14 it was larger than off, where the two errors of off cancel in
+  //!    part.
+  //!  - full: also the axial component of the Coriolis force, from the face
+  //!    mass fluxes, so relative plus planetary AAM is exact. That force is
+  //!    then built from two different velocities and is not skew-symmetric:
+  //!    grid-scale noise gains energy with rotation. Linear f-plane growth is
+  //!    about 0.1 to 0.15 f^2 dx / c; noisy shallow water (Williamson 2, u0 =
+  //!    3 m/s, 4000 steps) gains kinetic energy x10 to x14 at C16 and x1.5 at
+  //!    C32, none at Omega / 4 or at u0 = 38.6 m/s (why is not known). Use it
+  //!    without rotation.
+  ADD_ARG(std::string, conserve_axial_momentum) = "off";
 
   //! forcing options
   ADD_ARG(ConstGravityOptions, grav) = nullptr;
@@ -174,6 +191,9 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! is set, the grid is gnomonic-equiangle and the Coriolis force, if any,
   //! is of type xyz about omega1
   bool axial_flux_form() const;
+  //! conserve-axial-momentum: full, and it applies: the Coriolis force takes
+  //! its axial component from the face mass fluxes
+  bool axial_coriolis_form() const;
 
   //! dynamics/conserve-axial-momentum: the face mass fluxes the Coriolis
   //! call in progress closes the planetary AAM with (x1, x2, x3; undefined
