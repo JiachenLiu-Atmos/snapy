@@ -711,6 +711,13 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w) const {
     for (int f : {0, 1}) {
       if (!is_x1_wall(f) || !is_reflecting(bf[f])) continue;
       int i = f == 0 ? pcoord->il() : pcoord->iu() + 1;
+      // conversion-order 4: a side whose cp5 row reads a ghost keeps wb_ref4's
+      for (int k = 0; wb4_flag.defined() && k < 3; ++k)
+        for (int s : {(int)ILT, (int)IRT})
+          if (k < 2 || s == (f ? IRT : ILT))
+            dsf_lr[s]
+                .select(-1, i + (f ? -k : k))
+                .copy_(dsf.select(-1, i + (f ? -k : k)));
       auto mean = 0.5 * (dsf_lr[ILT].select(-1, i) + dsf_lr[IRT].select(-1, i));
       for (int s : {(int)ILT, (int)IRT}) dsf_lr[s].select(-1, i).copy_(mean);
     }
