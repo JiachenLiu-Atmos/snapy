@@ -105,7 +105,7 @@ def main():
     failures = []
     for switch, value, geometry, nx1 in CASES:
         env = dict(os.environ)
-        for s in SWITCHES + ("SNAP_GRAVITY_WORK_RADIAL_EXACT", "SNAP_X1_MASS_COVARIANCE"):
+        for s in SWITCHES + ("SNAP_X1_MASS_COVARIANCE",):
             env.pop(s, None)
         env[switch] = value
         out = subprocess.run([sys.executable, os.path.abspath(__file__), "--device", a.device,

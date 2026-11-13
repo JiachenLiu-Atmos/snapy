@@ -9,11 +9,11 @@ discrete hydrostatic balance with snapy.balance_column, run with gravity-work: f
 w0 = 10 m/s, 1 m/s at Courant 657 to keep the advective Courant number below 1):
   every run finite with |E+PE drift| < EPE_TOL (E+PE the interior sum of E + rho g z);
   at rest also max |w| < W_TOL.
-With SNAP_GRAVITY_WORK_RADIAL_EXACT on (the default with face work, radial_exact()) the
-conserved energy is E + P, P the corrected PE of
+With gravity-work: face the corrected-PE work is always booked (hydro.cpp
+radial_exact_work), so the conserved energy is E + P, P the corrected PE of
 docs/derivations/curved-gravity-work-weight.md sec 7, and the drift is measured on it
 (E+PE then drifts by the O(dz^2) error of PE itself, ~1e-10 here); the same runs blew up
-at Courant 197 and 657 before that switch's work was coupled into the operator (#296).
+at Courant 197 and 657 before that work was coupled into the operator (#296).
 
 Face work booked after the implicit solve, outside the operator that linearises the
 cell work, blows the column up at Courant 65.6 by step 27 (chengcli/snapy#283). With
@@ -23,7 +23,6 @@ the face work inside the operator the column stays near 5e-9 m/s and E+PE drifts
   python test_implicit_face_work_operator.py [--device cpu] [--nstep 40]
 """
 import argparse
-import functools
 import math
 import os
 import sys
@@ -63,16 +62,9 @@ def config(scheme, integ="rk3"):
     }
 
 
-@functools.lru_cache(maxsize=None)
-def radial_exact():
-    """SNAP_GRAVITY_WORK_RADIAL_EXACT as hydro.cpp reads it: on unless 0/false/off/no"""
-    v = os.environ.get("SNAP_GRAVITY_WORK_RADIAL_EXACT", "1").lower()
-    return v not in ("0", "false", "off", "no")
-
-
 def corrected_pe(rho, x1f, x1v, grav1, spherical=False, centroid=False):
     """per-cell -grav1 sigma^2 s[rho] (times the cell volume by the caller): what P adds
-    to PE_d with SNAP_GRAVITY_WORK_RADIAL_EXACT on, rho along the last dimension;
+    to PE_d under gravity-work: face, rho along the last dimension;
     centroid (gnomonic-equiangle, where x1v is not the r^2 centroid r_c): also
     -grav1 (r_c - x1v) rho (derivation sec 12)"""
     from test_gravity_work_radial_exact import centroid_offset, slope, variance
@@ -115,13 +107,11 @@ def run(scheme, dt, w0, nstep, device, integ="rk3"):
     zz = z.to(w)
 
     x1f = torch.arange(NZ + 1, dtype=torch.float64) * DZ
-    exact = radial_exact()
 
     def epe():
         u = block_vars["hydro_u"][interior]
         e = u[kIPR] + u[kIDN] * GRAV * zz
-        if exact:
-            e = e + corrected_pe(u[kIDN], x1f, zz, -GRAV)
+        e = e + corrected_pe(u[kIDN], x1f, zz, -GRAV)
         return e.sum().item()
 
     e0 = epe()
@@ -149,8 +139,7 @@ def main():
 
     cs = math.sqrt(GAMMA * RD * T0)
     failures = []
-    print("SNAP_GRAVITY_WORK_RADIAL_EXACT %s: E+PE is E + %s" % (
-        ("on", "P") if radial_exact() else ("off", "PE_d")), flush=True)
+    print("gravity-work: face, E+PE is E + P", flush=True)
     for scheme, sname in SCHEMES:
         for dt, w0_moving in RUNGS:
             for w0 in (0.0, w0_moving):

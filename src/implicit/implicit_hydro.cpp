@@ -10,7 +10,6 @@
 #include <snap/snap.h>
 
 #include <snap/coord/coord_utils.hpp>
-#include <snap/hydro/gravity_work.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/hydro/hydro.hpp>
 #include <snap/input/check_keys.hpp>
@@ -284,25 +283,29 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   int nc1 = w.size(-1);
 
   //// -------- Solve block-tridiagonal matrix --------- ////
-  auto iter = at::TensorIteratorConfig()
-                  .resize_outputs(false)
-                  .check_all_same_dtype(true)
-                  .declare_static_shape(du.index(interior).sizes(),
-                                        /*squash_dims=*/{0, 3})
-                  .add_owned_output(du.index(interior))
-                  .add_owned_output(_mass_corr.index(interior))
-                  .add_owned_input(w.index(interior))
-                  .add_owned_input(gamma.unsqueeze(0).index(interior))
-                  .add_owned_input(area.unsqueeze(0).index(interior))
-                  .add_owned_input(volume.unsqueeze(0).index(interior))
-                  .add_input(_a)
-                  .add_input(_b)
-                  .add_input(_c)
-                  .add_input(_delta)
-                  .add_owned_input(mask.unsqueeze(0).index(interior))
-                  .add_owned_input(_g_work_lo.index(interior))
-                  .add_owned_input(_g_work_hi.index(interior))
-                  .build();
+  // one config for the solve iterators; Woodbury appends its z0, z1
+  auto vic_config = [&]() {
+    at::TensorIteratorConfig cfg;
+    cfg.resize_outputs(false)
+        .check_all_same_dtype(true)
+        .declare_static_shape(du.index(interior).sizes(),
+                              /*squash_dims=*/{0, 3})
+        .add_owned_output(du.index(interior))
+        .add_owned_output(_mass_corr.index(interior))
+        .add_owned_input(w.index(interior))
+        .add_owned_input(gamma.unsqueeze(0).index(interior))
+        .add_owned_input(area.unsqueeze(0).index(interior))
+        .add_owned_input(volume.unsqueeze(0).index(interior))
+        .add_input(_a)
+        .add_input(_b)
+        .add_input(_c)
+        .add_input(_delta)
+        .add_owned_input(mask.unsqueeze(0).index(interior))
+        .add_owned_input(_g_work_lo.index(interior))
+        .add_owned_input(_g_work_hi.index(interior));
+    return cfg;
+  };
+  auto iter = vic_config().build();
 
   // Linearize the FULL gravity: du always carries it (body force + rho_grav
   // sum to grav1); scaling by non_hydrostatic() drops the gravity coupling
@@ -317,26 +320,30 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
       grav1 != 0. && phydro->options->grav()->gravity_work() == "cell";
   if (diffusive_work) adir |= kVicDiffusiveCell;
 
-  // SNAP_GRAVITY_WORK_RADIAL_EXACT: the energy row also carries the corrected
+  // gravity-work: face: the energy row also carries the corrected
   // potential energy's work g1 sigma^2 s[drho] of the mass this solve moves
   // (derivation sec 7, eq. 7). Booked only after the solve, that work is
   // explicit in a fixed fraction of the face work of a grid-scale density
   // change, and a rest column grows from round-off at vertical acoustic
-  // Courant ~200 (#296). The matrix holds s as a tridiagonal stencil (the
-  // one-sided wall slope's third point lumped onto the neighbour), coupled to
-  // the solved minus the explicit density change; the post-solve term books
-  // the rest, so the total stays g1 sigma^2 s[du - du0].
+  // Courant ~200 (#296). The matrix holds the exact 3-point slope s: its
+  // tridiagonal part in the blocks and the two wall third points by Woodbury
+  // (below), coupled to the solved minus the explicit density change; the
+  // post-solve term books the rest, so the total stays g1 sigma^2 s[du - du0].
   bool radial_exact = phydro->radial_exact_work();
   auto in3 =
       phydro->pmb->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
   int nx1 = pcoord->options->nx1();
-  torch::Tensor rx_lo, rx_mid, rx_hi, rx_fluid, rx_mass0;
+  torch::Tensor rx_lo, rx_mid, rx_hi, rx_t0, rx_t1, rx_fluid, rx_mass0;
+  // the full corrected-PE operator: tridiagonal part plus the two wall
+  // third points of the exact 3-point slope (no lumping)
   auto rx_tri = [&](torch::Tensor const& q) {  // q: [nx3, nx2, nx1]
     auto s = rx_mid * q;
     s.narrow(-1, 1, nx1 - 1) +=
         rx_lo.narrow(-1, 1, nx1 - 1) * q.narrow(-1, 0, nx1 - 1);
     s.narrow(-1, 0, nx1 - 1) +=
         rx_hi.narrow(-1, 0, nx1 - 1) * q.narrow(-1, 1, nx1 - 1);
+    s.select(-1, 0) += rx_t0 * q.select(-1, 2);
+    s.select(-1, nx1 - 1) += rx_t1 * q.select(-1, nx1 - 3);
     return no_solid ? s : rx_fluid * s;  // 1 * s == s
   };
   auto couple_radial_exact = [&]() {
@@ -367,18 +374,20 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
       rx_hi = torch::zeros_like(rx_mid);
       rx_lo.narrow(0, 1, nx1 - 1).copy_(S.diagonal(1));
       rx_hi.narrow(0, 0, nx1 - 1).copy_(S.diagonal(-1));
-      rx_hi[0] += S[2][0];
-      rx_lo[nx1 - 1] += S[nx1 - 3][nx1 - 1];
       rx_lo *= gv;
       rx_hi *= gv;
       _rx_key = key;
       _rx_lo = rx_lo;
       _rx_mid = rx_mid;
       _rx_hi = rx_hi;
+      _rx_t0 = gv[0] * S[2][0];
+      _rx_t1 = gv[nx1 - 1] * S[nx1 - 3][nx1 - 1];
     }
     rx_lo = _rx_lo;
     rx_mid = _rx_mid;
     rx_hi = _rx_hi;
+    rx_t0 = _rx_t0;
+    rx_t1 = _rx_t1;
     if (!no_solid) rx_fluid = (mask.index(in3) == 0).to(w.options());
     // row IPR, column 0 (the total mass) of each cell's blocks; Eigen stores
     // them column-major
@@ -401,17 +410,51 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     du[IPR].index(in3).sub_(rx_tri(rx_mass0));
   };
 
-  if ((options->scheme() >> 3) & 1) {
+  bool full = (options->scheme() >> 3) & 1;
+  if (full) {
     at::native::vic_assemble_full(du.device().type(), iter, dt, grav1, adir);
-    couple_radial_exact();
-    at::native::vic_solve_full(du.device().type(), iter, dt, grav1, 0);
-
   } else {
     // Match the full-VIC pipeline: assemble coefficients, run the column
     // solve + reductions, then apply the per-cell redistribution map.
     at::native::vic_assemble_partial(du.device().type(), iter, dt, grav1, adir);
-    couple_radial_exact();
-    at::native::vic_solve_partial(du.device().type(), iter, dt, grav1, 0);
+  }
+  couple_radial_exact();
+  // Woodbury: the wall third points (E row of cells 0 and n-1, mass column of
+  // cells 2 and n-3) are a rank-2 update U V^T of the block-tridiagonal T:
+  // x = y - Z (I + V^T Z)^{-1} V^T y, T y = r, T Z = U. One factorisation of
+  // T per column solves y and both columns of Z (they depend on T only)
+  bool woodbury = radial_exact && nx1 >= 3;
+  if (!woodbury) {
+    if (full)
+      at::native::vic_solve_full(du.device().type(), iter, dt, grav1, 0);
+    else
+      at::native::vic_solve_partial(du.device().type(), iter, dt, grav1, 0);
+  } else {
+    int m = options->size(), nx2 = pcoord->options->nx2(),
+        nx3 = pcoord->options->nx3();
+    auto z0 = torch::empty_like(_delta), z1 = torch::empty_like(_delta);
+    auto it = vic_config().add_input(z0).add_input(z1).build();
+    if (full)
+      at::native::vic_solve_woodbury_full(du.device().type(), it, dt, grav1, 0);
+    else
+      at::native::vic_solve_woodbury_partial(du.device().type(), it, dt, grav1,
+                                             0);
+    auto y = _delta.view({nx3, nx2, nx1, m});
+    z0 = z0.view({nx3, nx2, nx1, m}), z1 = z1.view({nx3, nx2, nx1, m});
+    auto k0 = -rx_t0 / dt, k1 = -rx_t1 / dt;
+    if (!no_solid) {
+      k0 = k0 * rx_fluid.select(-1, 0), k1 = k1 * rx_fluid.select(-1, nx1 - 1);
+    }
+    auto pick = [&](torch::Tensor const& v, int cell) {
+      return v.select(-2, cell).select(-1, 0);
+    };
+    auto m00 = 1. + k0 * pick(z0, 2), m01 = k0 * pick(z1, 2);
+    auto m10 = k1 * pick(z0, nx1 - 3), m11 = 1. + k1 * pick(z1, nx1 - 3);
+    auto r0 = k0 * pick(y, 2), r1 = k1 * pick(y, nx1 - 3);
+    auto det = m00 * m11 - m01 * m10;
+    auto al0 = (m11 * r0 - m01 * r1) / det, al1 = (m00 * r1 - m10 * r0) / det;
+    y.copy_(y - z0 * al0.unsqueeze(-1).unsqueeze(-1) -
+            z1 * al1.unsqueeze(-1).unsqueeze(-1));
   }
 
   // Both dispatches share the same rejection sentinel. This also catches
@@ -503,32 +546,12 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   w[IVY] -= w[IVZ] * cos_theta;
   pcoord->flux2global1_(du);
 
-  // face-wallc retains its legacy post-solve swap. Face mode already books
-  // the metric-weighted work inside the matrix on every coordinate system.
-  if (grav1 != 0. && phydro->options->grav()->gravity_work() != "cell" &&
-      !face_work) {
-    int is = pcoord->il();
-    int ie = pcoord->iu() + 1;
-
-    auto face_mass = _mass_corr[IVZ];
-    auto volume = pcoord->cell_volume();
-    auto face_gravity_work = gravity_work_from_face_mass(
-        face_mass, pcoord->x1f, pcoord->x1v, volume, is, ie, grav1);
-    auto matrix_gravity_work = dt * grav1 * du[IVX].slice(-1, is, ie);
-    auto swap = face_gravity_work - matrix_gravity_work;
-    // face-wallc: the x1 wall cells keep the matrix's cell work
-    if (phydro->options->grav()->gravity_work() == "face-wallc") {
-      if (phydro->is_x1_wall(0)) swap.select(-1, 0).zero_();
-      if (phydro->is_x1_wall(1)) swap.select(-1, ie - is - 1).zero_();
-    }
-    du[IPR].slice(-1, is, ie) += swap;
-  }
-
-  // SNAP_GRAVITY_WORK_RADIAL_EXACT: the matrix books the face form for the
-  // mass this solve moved and the tridiagonal part of the corrected potential
-  // energy's remainder (derivation sec 7) for its raw density change; add the
-  // rest, so the remainder is g1 sigma^2 s[du - du0] and E + P closes over the
-  // explicit and implicit parts
+  // gravity-work: face: the matrix books the face form for the
+  // mass this solve moved and the corrected potential energy's remainder
+  // (derivation sec 7) for its raw density change, with the exact 3-point
+  // slope s (tridiagonal part in the blocks, the two wall third points by
+  // Woodbury); add the rest, so the remainder is g1 sigma^2 s[du - du0] and
+  // E + P closes over the explicit and implicit parts
   if (radial_exact) {
     int is = pcoord->il(), ie = pcoord->iu() + 1;
     auto moved = du[IDN] - _du0[IDN];

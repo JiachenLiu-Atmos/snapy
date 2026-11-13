@@ -6,11 +6,11 @@
 //
 // The arm is read from the environment, one ctest entry each
 // (tests/CMakeLists.txt): switches off checks the cross-rank split against
-// the in-process split only; SNAP_GRAVITY_WORK_RADIAL_EXACT (1, or 0 for the
-// control; its seam slope is centred across ranks, #303),
+// the in-process split only; X1_SEAM_ARM=face (gravity-work: face with its
+// corrected-PE work, whose seam slope is centred across ranks, #303),
 // SNAP_X1_CENTROID_EXACT and SNAP_WB_REF4 check it against the in-process
 // split and against one block.
-// The radial arm, on, also checks the split E + P summed over the two ranks.
+// The face arm also checks the split E + P summed over the two ranks.
 //
 // Run: torchrun --no-python --nproc-per-node=2 test_x1_seam_split_mp.<build>
 
@@ -165,7 +165,8 @@ torch::Tensor allreduce_sum(Mesh mesh, torch::Tensor t) {
 }
 
 // sum V [E + rho phi(x1v) - g1 <(x1 - x1v)^2> s[rho]] over the local blocks:
-// the E + P that SNAP_GRAVITY_WORK_RADIAL_EXACT conserves (meshblock.cpp pe=)
+// the E + P that the corrected-PE work of gravity-work: face conserves
+// (meshblock.cpp pe=)
 double energy_p(Mesh mesh, MeshVariables const& vars) {
   double total = 0.;
   for (size_t b = 0; b < mesh->blocks.size(); ++b) {
@@ -252,12 +253,12 @@ Gaps split_gaps(int rank, int nx1, double nh, char const* gw, int nstep,
 
 TEST(X1SeamSplitMp, split_across_two_ranks_matches_one_process) {
   bool centroid = std::getenv("SNAP_X1_CENTROID_EXACT") != nullptr;
-  bool radial = std::getenv("SNAP_GRAVITY_WORK_RADIAL_EXACT") != nullptr;
+  char const* seam_arm = std::getenv("X1_SEAM_ARM");
+  bool radial = seam_arm && std::string(seam_arm) == "face";
   bool wb_ref4 = std::getenv("SNAP_WB_REF4") != nullptr;
   ASSERT_LE(centroid + radial + wb_ref4, 1) << "one switch per arm";
   ASSERT_EQ(x1_centroid_exact_enabled(), centroid);
   if (wb_ref4) ASSERT_TRUE(wb_ref4_enabled());
-  bool on = radial && HydroImpl::gravity_work_radial_exact();
   torch::set_num_threads(1);
 
   auto probe = make_column(2, true, 16, 1., "cell");
@@ -268,8 +269,7 @@ TEST(X1SeamSplitMp, split_across_two_ranks_matches_one_process) {
       << "the two x1 blocks must be in two processes";
   int rank = layout->options->process_rank();
   char const* arm = centroid  ? "SNAP_X1_CENTROID_EXACT"
-                    : radial  ? (on ? "SNAP_GRAVITY_WORK_RADIAL_EXACT=1"
-                                    : "SNAP_GRAVITY_WORK_RADIAL_EXACT=0")
+                    : radial  ? "X1_SEAM_ARM=face"
                     : wb_ref4 ? "SNAP_WB_REF4"
                               : "switches off";
 
@@ -287,7 +287,7 @@ TEST(X1SeamSplitMp, split_across_two_ranks_matches_one_process) {
         // to the round-off of the other arms
         EXPECT_LE(g.one, 1e-13) << "nz " << nx1;
       }
-      if (on) EXPECT_LE(g.drift, 1e-13) << "rank " << rank << ", nz " << nx1;
+      EXPECT_LE(g.drift, 1e-13) << "rank " << rank << ", nz " << nx1;
     }
     return;
   }

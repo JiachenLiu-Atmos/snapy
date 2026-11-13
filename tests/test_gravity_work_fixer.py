@@ -7,8 +7,6 @@ w0/c = 1e-2) runs NSTEP explicit rk3 steps (weno5, lmars) between reflecting x1 
 E+PE = sum (E + rho g z) dV must stay constant:
   gravity-work: cell + gravity-work-fixer (its default)  |d(E+PE)| / |E+PE| <= TOL, explicit and
                                                          implicit (vic-partial)
-  gravity-work: face-wallc                                 reported only: its two wall cells keep the
-                                                         cell work, so E+PE is not exact there
   gravity-work: cell, gravity-work-fixer: false            drift > 100 TOL (planted control: the
                                                          defect the fixer removes is real)
 The fixer's energy (buffers hydro.gwfix_total + gwfix_pending, printed as fixgrav= in the cycle diagnostics) is
@@ -16,8 +14,8 @@ reported. The fixer accepts any impenetrable x1 boundary, including an unnamed o
 Python, and runs in float32 (its wall-mass bound scales with the dtype's eps). It refuses a step that
 moves mass through an x1 boundary face (outflow, float64 and float32) and a periodic x1 boundary
 (also when the layout wraps x1 and a Python bfuncs round trip has cleared the boundary names).
-Under an implicit scheme, face-wallc keeps the cell work in the x1 wall cells (differs from face
-there). The new keys are reachable from Python, where grav2 != 0 with the fixer is refused at
+gravity-work: face-wallc is no longer a form and is refused at construction. The new keys
+are reachable from Python, where grav2 != 0 with the fixer is refused at
 construction. A non-finite E+PE fails an arm; a NaN in a wall cell goes to the redo check.
 
   python test_gravity_work_fixer.py [--device cpu] [--nstep 200]
@@ -143,35 +141,6 @@ def run(gravity, nstep, device, x1bc="reflecting", scheme=0, pybc=False, dtype=t
     return drift, fix, e0, block_vars["hydro_u"][sl].double()
 
 
-def wallc_work(scheme, device):
-    from snapy import MeshBlock, MeshBlockOptions, kIDN, kIPR, kIV1, kIV3
-
-    with tempfile.NamedTemporaryFile("w", suffix=".yaml", dir=os.getcwd()) as f:
-        yaml.safe_dump(config({"gravity-work": "face-wallc"}, scheme=scheme), f)
-        f.flush()
-        block = MeshBlock(MeshBlockOptions.from_yaml(f.name))
-    block.to(torch.device(device), torch.float64)
-    w = block.buffer("hydro.D").clone().zero_()
-    w[kIDN], w[kIPR] = 1.0, 1.e5
-    du = torch.zeros_like(w)
-    z = (torch.arange(NZ, device=w.device, dtype=w.dtype) + 0.5) / NZ
-    du[kIV1, ..., 3:3 + NZ] = torch.sin(torch.pi * z)
-    dt, g = 10.0, -GRAV
-    block.module("hydro.icorr").forward(du, w, torch.full_like(w[kIDN], GAMMA), dt)
-    raw = block.buffer("hydro.icorr.delta").reshape(NZ, 3 if scheme == 1 else 5)
-    mass = block.buffer("hydro.icorr.mass_corr")
-    if not all(torch.isfinite(x).all().item() for x in (du, raw, mass)):
-        raise AssertionError("non-finite implicit face-wallc result")
-    expected = (0.5 * g * (mass[kIV3, ..., 3:3 + NZ] + mass[kIV3, ..., 4:4 + NZ])
-                - dt * g * du[kIV1, ..., 3:3 + NZ]).flatten()
-    scale = expected[1:-1].abs().max().item()
-    expected[[0, -1]] = 0.0
-    actual = du[kIPR, ..., 3:3 + NZ].flatten() - raw[:, -1]
-    error = (actual - expected).abs().max().item() / scale
-    clamp = block.buffer("hydro.icorr.dry_clamp_step").item()
-    return error, scale, clamp
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="cpu")
@@ -185,7 +154,6 @@ def main():
     failures = []
     arms = (("cell + fixer (default)", {}, 0, "conserves"),
             ("cell + fixer, implicit", {}, 1, "conserves"),
-            ("face-wallc", {"gravity-work": "face-wallc"}, 0, "report"),
             ("cell, fixer off", {"gravity-work": "cell", "gravity-work-fixer": False}, 0, "drifts"))
     arms += (("cell + fixer, Python wall", {}, 0, "conserves"),
              ("cell + fixer, float32", {}, 0, "float32"))
@@ -223,25 +191,15 @@ def main():
             if not ok:
                 failures.append("%s + fixer: unexpected error: %s" % (name, str(e).splitlines()[0]))
 
-    # Compare identical first-stage states before RK feedback changes them.
-    e = [run(g, 1, args.device, first_stage=True)[3][kIPR].flatten() for g in
-         ({"gravity-work": "face"}, {"gravity-work": "face-wallc"},
-          {"gravity-work": "cell", "gravity-work-fixer": False})]
-    contrast = (e[0][[0, -1]] - e[2][[0, -1]]).abs().max().item()
-    error = max((e[1][[0, -1]] - e[2][[0, -1]]).abs().max().item(),
-                (e[1][1:-1] - e[0][1:-1]).abs().max().item())
-    print("explicit face-wallc: work error %.3e, wall contrast %.3e" % (error, contrast))
-    if (not all(torch.isfinite(x).all().item() for x in e)
-            or not contrast > 1.e-3 or not error < TOL * contrast):
-        failures.append("explicit face-wallc wall/interior work mismatch")
-
-    # Compare wallc with its raw VIC energy, not the separately corrected cell operator.
-    for scheme in (1, 9):
-        error, scale, clamp = wallc_work(scheme, args.device)
-        print("implicit face-wallc scheme %d: relative work error %.3e, interior swap %.3e"
-              % (scheme, error, scale))
-        if not error < TOL or not scale > 1.e-3 or clamp != 0:
-            failures.append("face-wallc wall/interior work mismatch, scheme %d" % scheme)
+    # gravity-work: face-wallc is no longer a form: refused at construction
+    try:
+        run({"gravity-work": "face-wallc"}, 1, args.device)
+        failures.append("gravity-work: face-wallc was accepted")
+    except RuntimeError as e:
+        ok = "must be cell or face" in str(e)
+        print("gravity-work: face-wallc: refused (%s)" % ("expected message" if ok else "unexpected message"))
+        if not ok:
+            failures.append("face-wallc: unexpected error: %s" % str(e).splitlines()[0])
 
     # a NaN in a wall cell is left to the redo check (as with the fixer off), not refused
     try:

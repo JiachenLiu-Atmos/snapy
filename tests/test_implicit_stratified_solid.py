@@ -1,7 +1,7 @@
 """Tall columns, solid-wall mass closure, and clamped face-work energy (#283).
 
-With SNAP_GRAVITY_WORK_RADIAL_EXACT on (tall.radial_exact()) every face-work energy check
-measures E + P, the energy that switch conserves (P the corrected PE of
+Every face-work energy check measures E + P (gravity-work: face always books the
+corrected-PE work), the energy that work conserves (P the corrected PE of
 docs/derivations/curved-gravity-work-weight.md sec 7), on the final state; on a
 gnomonic-equiangle face block P also carries the centroid term of sec 12."""
 import json
@@ -54,7 +54,7 @@ def tall_run(nz, heights, scheme, work, steps=1, dt=None, fixer=False):
 
     m0 = u0[kIDN].sum().item()
     phi = tall.GRAV * z.to(u0)
-    exact = work == 'face' and tall.radial_exact()
+    exact = work == 'face'
     x1f = torch.arange(nz + 1) * dz
 
     def energy(u):
@@ -156,7 +156,7 @@ def clamp_energy(scheme, work):
     sl = (Ellipsis, slice(3, 11))
     phi = (torch.arange(8) + 0.5).to(w)
     defect = (du[kIPR][sl] + phi * du[kIDN][sl]).sum().item()
-    if work == 'face' and tall.radial_exact():
+    if work == 'face':
         defect += tall.corrected_pe(du[kIDN][sl], torch.arange(9.), phi, -1.).sum().item()
     raw = b.buffer('hydro.icorr.delta').reshape(8, 5 if scheme == 9 else 3)
     raw_epe = (raw[:, -1] + phi * raw[:, 0]).sum().item()
@@ -205,7 +205,7 @@ def curved_energy(scheme, geometry, work):
     expected=0. if work=='face' else -dt*((momentum*vol).sum()-(faces*(z[1:]-z[:-1])*adv).sum())
     final=((du[kIPR][sl]+z*du[kIDN][sl]-du0[kIPR][sl])*vol).sum()
     error=max((observed-expected).abs().item(),(final-expected).abs().item())
-    if work=='face' and tall.radial_exact():
+    if work=='face':
         # E + P on the final state: the solve books part of the corrected-PE work,
         # the post-solve term the rest, so the raw solve closes neither form alone
         final=final+(tall.corrected_pe(du[kIDN][sl],b.buffer('coord.x1f')[3:12],z,-1.,True,

@@ -9,11 +9,11 @@
 // hydrostatic-split mode. RED before that exchange (one-sided windows at
 // every block edge).
 //
-// SNAP_GRAVITY_WORK_RADIAL_EXACT exchanges the stage's density change across
-// the seam and takes the centred slope there, one-sided only at the walls
-// (#303), so the split column keeps the one-block state; with that switch set
-// in the environment (1, or 0 for the control) the second test checks a zero
-// gap at nz 32/64/128 and, on, E + P (the one-block P) on the split column
+// The corrected-PE work of gravity-work: face exchanges the stage's density
+// change across the seam and takes the centred slope there, one-sided only at
+// the walls (#303), so the split column keeps the one-block state; the second
+// test checks a zero gap at nz 32/64/128 and E + P (the one-block P) on the
+// split column
 // (docs/derivations/curved-gravity-work-weight.md sec 7). An implicit scheme
 // refuses an x1 split, so the VIC row has no seam (vic_refuses_x1_split).
 //
@@ -186,7 +186,8 @@ torch::Tensor column_state(Mesh mesh, MeshVariables const& vars) {
 }
 
 // sum V [E + rho phi(x1v) - g1 <(x1 - x1v)^2> s[rho]] over the blocks: the
-// E + P that SNAP_GRAVITY_WORK_RADIAL_EXACT conserves (meshblock.cpp pe=)
+// E + P that the corrected-PE work of gravity-work: face conserves
+// (meshblock.cpp pe=)
 double energy_p(Mesh mesh, MeshVariables const& vars) {
   double total = 0.;
   for (size_t b = 0; b < mesh->blocks.size(); ++b) {
@@ -240,8 +241,7 @@ double split_gap(int nx1, double nh, char const* gw, int nstep,
 
 void centroid_exact_split_matches_one_block(torch::Device device) {
   ASSERT_TRUE(std::getenv("SNAP_X1_CENTROID_EXACT"));
-  ASSERT_FALSE(std::getenv("SNAP_GRAVITY_WORK_RADIAL_EXACT") ||
-               std::getenv("SNAP_WB_REF4"));
+  ASSERT_FALSE(std::getenv("SNAP_WB_REF4"));
   torch::set_num_threads(1);
   ASSERT_TRUE(x1_centroid_exact_enabled());
   for (double nh : {1., 0.}) {
@@ -254,25 +254,17 @@ void centroid_exact_split_matches_one_block(torch::Device device) {
 }
 
 void radial_exact_split_gap(torch::Device device) {
-  ASSERT_TRUE(std::getenv("SNAP_GRAVITY_WORK_RADIAL_EXACT"));  // 1, or 0
-  bool on = HydroImpl::gravity_work_radial_exact();
   torch::set_num_threads(1);
   for (int nx1 : {32, 64, 128}) {
     double drift = 0.;
     double gap =
         split_gap(nx1, 1., "face", 20 * nx1 / 32, &drift, false, device);
     std::printf(
-        "switch %d, nz %d: 2 blocks vs 1, max rel gap %.3e; split E+P "
-        "drift %.3e\n",
-        on, nx1, gap, drift);
-    if (on) EXPECT_LE(drift, 1e-13) << "nz " << nx1;
-    // switch on: the seam cells take one block's slope (#303), no gap; switch
-    // off: no corrected-PE work, the gap is round-off only (1.9e-14 at nz 128
-    // on CUDA), bounded as in the tests above
-    if (on)
-      EXPECT_EQ(gap, 0.) << "nz " << nx1;
-    else
-      EXPECT_LE(gap, 1e-13) << "nz " << nx1;
+        "nz %d: 2 blocks vs 1, max rel gap %.3e; split E+P drift %.3e\n", nx1,
+        gap, drift);
+    EXPECT_LE(drift, 1e-13) << "nz " << nx1;
+    // the seam cells take one block's slope (#303): no gap
+    EXPECT_EQ(gap, 0.) << "nz " << nx1;
   }
 }
 
@@ -305,7 +297,6 @@ void wb_ref4_flag_at_the_seam_split_matches_one_block(torch::Device device) {
 
 TEST(X1SeamSplit, switches_off_nghost_1_sets_up) {
   ASSERT_FALSE(std::getenv("SNAP_X1_CENTROID_EXACT") ||
-               std::getenv("SNAP_GRAVITY_WORK_RADIAL_EXACT") ||
                std::getenv("SNAP_WB_REF4"));
   // the nghost >= 3 check is the switches' own: the default nghost is 1
   EXPECT_NO_THROW(make_column(1, 16, 1., "cell", 1));

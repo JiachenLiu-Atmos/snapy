@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The tall-column runner fails when a ladder child fails (#299).
 
-test_implicit_gravity_tall_column.py runs its face ladder in two child processes and judges the
+test_implicit_gravity_tall_column.py runs its face ladder in a child process and judges the
 JSON rows they print. A child that dies (an exception exits 1, as a failing rung did) or one that
 prints an incomplete ladder must fail the parent. A sitecustomize.py on PYTHONPATH injects the
 fault into the --ladder children only; the parent is untouched:

@@ -42,11 +42,6 @@ foreach(_arm "wb_ref4;SNAP_WB_REF4=1" "x1_centroid;SNAP_X1_CENTROID_EXACT=1")
   set_tests_properties(test_stretched_x1_ref_${_name}.${buildl}
                        PROPERTIES ENVIRONMENT "${_env}")
 endforeach()
-add_test(NAME test_stretched_x1_ref_radial_exact_off.${buildl}
-         COMMAND test_stretched_x1_ref.${buildl}
-                 --gtest_filter=StretchedX1Ref.refuses_curvature_with_radial_exact_off)
-set_tests_properties(test_stretched_x1_ref_radial_exact_off.${buildl}
-                     PROPERTIES ENVIRONMENT "SNAP_GRAVITY_WORK_RADIAL_EXACT=0")
 add_test(NAME test_stretched_x1_ref_x1_mass_covariance.${buildl}
          COMMAND test_stretched_x1_ref.${buildl}
                  --gtest_filter=StretchedX1Ref.x1_mass_covariance_switch_runs)
@@ -124,10 +119,7 @@ endfunction()
 seam_arm("" "" switches_off_nghost_1_sets_up)
 seam_arm(_x1_centroid "SNAP_X1_CENTROID_EXACT=1"
          centroid_exact_split_matches_one_block)
-seam_arm(_radial_exact "SNAP_GRAVITY_WORK_RADIAL_EXACT=1" radial_exact_split_gap)
-# the control: the face form without the corrected work
-seam_arm(_radial_exact_off "SNAP_GRAVITY_WORK_RADIAL_EXACT=0"
-         radial_exact_split_gap)
+seam_arm(_radial_exact "" radial_exact_split_gap)
 # the VIC row's per-block slope relies on an implicit scheme refusing an x1 split
 seam_arm(_vic_refuses_split "" vic_refuses_x1_split)
 # SNAP_WB_REF4 alone: its resolution flag switching on next to the seam
@@ -142,14 +134,10 @@ if(CUDA)
   # the same arms on the GPU; without one the test skips and so does the entry
   seam_arm(_x1_centroid_cuda "SNAP_X1_CENTROID_EXACT=1"
            centroid_exact_split_matches_one_block_cuda)
-  seam_arm(_radial_exact_cuda "SNAP_GRAVITY_WORK_RADIAL_EXACT=1"
-           radial_exact_split_gap_cuda)
-  seam_arm(_radial_exact_off_cuda "SNAP_GRAVITY_WORK_RADIAL_EXACT=0"
-           radial_exact_split_gap_cuda)
+  seam_arm(_radial_exact_cuda "" radial_exact_split_gap_cuda)
   seam_arm(_wb_ref4_cuda "SNAP_WB_REF4=1"
            wb_ref4_flag_at_the_seam_split_matches_one_block_cuda)
-  foreach(_a _x1_centroid_cuda _radial_exact_cuda _radial_exact_off_cuda
-             _wb_ref4_cuda)
+  foreach(_a _x1_centroid_cuda _radial_exact_cuda _wb_ref4_cuda)
     set_tests_properties(
       test_x1_seam_split${_a}.${buildl}
       PROPERTIES SKIP_REGULAR_EXPRESSION "\\[  SKIPPED \\] 1 test")
@@ -164,8 +152,7 @@ function(seam_arm_mp name env)
   set_tests_properties(${_n} PROPERTIES ENVIRONMENT "${env}")
 endfunction()
 seam_arm_mp(_x1_centroid "SNAP_X1_CENTROID_EXACT=1")
-seam_arm_mp(_radial_exact "SNAP_GRAVITY_WORK_RADIAL_EXACT=1")
-seam_arm_mp(_radial_exact_off "SNAP_GRAVITY_WORK_RADIAL_EXACT=0")
+seam_arm_mp(_radial_exact "X1_SEAM_ARM=face")
 seam_arm_mp(_wb_ref4 "SNAP_WB_REF4=1")
 setup_test(test_wb_wall_corner)
 setup_test(test_face_floor)
@@ -351,18 +338,16 @@ snapy_add_python_test(test_implicit_gravity_tall_column TIMEOUT 120 LABELS "pyth
 snapy_add_python_test(test_implicit_gravity_tall_column_cubed SCRIPT test_implicit_gravity_tall_column.py
                       ARGS --geometry gnomonic-equiangle TIMEOUT 120
                       LABELS "python;hydro;implicit;gravity;cubed-sphere")
+# past the wall mode of a lumped wall row: vertical acoustic Courant 1000 and 2000
+# (N dt 113 and 227), where both corrected-PE wall rows must be inside the operator
+snapy_add_python_test(test_implicit_gravity_tall_column_large_courant
+                      SCRIPT test_implicit_gravity_tall_column.py
+                      ARGS --courants 1000 2000 TIMEOUT 300
+                      LABELS "python;hydro;implicit;gravity")
 # #299: the runner above fails when a ladder child dies or prints an incomplete ladder
 snapy_add_python_test(test_tall_column_runner_child_failure TIMEOUT 120 LABELS "python;hydro;implicit")
 snapy_add_python_test(test_implicit_face_work_operator TIMEOUT 300 LABELS "python;hydro;implicit;gravity")
 snapy_add_python_test(test_implicit_stratified_solid TIMEOUT 300 LABELS "python;hydro;implicit;gravity")
-# the same two tests with the corrected-PE work on (#296): they detect the switch and
-# measure E + P; the tall column runs both arms itself
-foreach(_t test_implicit_face_work_operator test_implicit_stratified_solid)
-  snapy_add_python_test(${_t}_radial_exact SCRIPT ${_t}.py TIMEOUT 300
-                        LABELS "python;hydro;implicit;gravity")
-  set_tests_properties(${_t}_radial_exact_python PROPERTIES ENVIRONMENT
-                       "SNAP_GRAVITY_WORK_RADIAL_EXACT=1")
-endforeach()
 snapy_add_python_test(test_gravity_work_fixer TIMEOUT 120 LABELS "python;hydro;gravity;energy")
 snapy_add_python_test(test_gravity_work_radial_exact TIMEOUT 300 LABELS "python;hydro;gravity")
 snapy_add_python_test(test_implicit_options_type TIMEOUT 60 LABELS "python;implicit")
@@ -443,16 +428,6 @@ set_tests_properties(test_scalar_cov_x1_split_python
                      PROPERTIES ENVIRONMENT "SNAP_FLUX_COVARIANCE=1")
 # #298: the x1 stencil caches on blocks with too few x1 cells
 snapy_add_python_test(test_stencil_cache_small_block TIMEOUT 300 LABELS "python;hydro")
-# these check the plain face work (E+PE_d, or values recorded with it); the
-# corrected work, on by default with gravity-work: face, conserves E+P instead
-set_tests_properties(
-  test_forcing.${buildl} test_gravity_work_fixer_python
-  test_horizontal_flux_covariance_python test_flux_covariance_rows_python
-  PROPERTIES ENVIRONMENT "SNAP_GRAVITY_WORK_RADIAL_EXACT=0")
-# their switch-off arms; the _radial_exact entries run them with it on
-set_tests_properties(
-  test_implicit_face_work_operator_python test_implicit_stratified_solid_python
-  PROPERTIES ENVIRONMENT "SNAP_GRAVITY_WORK_RADIAL_EXACT=0")
 
 # CUDA variants reuse the same scripts and assertions.
 if(CUDA)
@@ -478,6 +453,9 @@ if(CUDA)
     TIMEOUT 300 LABELS "python;positivity;cubed-sphere;cuda")
   snapy_add_python_test(test_implicit_face_work_operator_cuda SCRIPT test_implicit_face_work_operator.py
     ARGS --device cuda TIMEOUT 300 LABELS "python;hydro;implicit;gravity;cuda")
+  snapy_add_python_test(test_implicit_gravity_tall_column_large_courant_cuda
+    SCRIPT test_implicit_gravity_tall_column.py ARGS --device cuda --courants 1000 2000
+    TIMEOUT 300 LABELS "python;hydro;implicit;gravity;cuda")
   snapy_add_python_test(test_vic_moist_device
     TIMEOUT 120 LABELS "python;implicit;cuda")
   snapy_add_python_test(test_wb_ref4_order_cuda
@@ -514,6 +492,7 @@ if(CUDA)
     test_flux_positivity_cubedsphere_moist_cuda_python
     test_vic_moist_device_python
     test_conversion_order_cuda_python
+    test_implicit_gravity_tall_column_large_courant_cuda_python
     test_wb_ref4_order_cuda_python
     test_x1_centroid_rest_cuda_python
     test_radial_order_cuda_python
@@ -808,17 +787,17 @@ foreach(_t IN ITEMS
     test_hydro_ref_x1 test_hydro_ref_x1_rf_wall test_gravity_work_cache_to
     test_implicit_face_work_jacobian test_riemann test_stretched_x1_ref
     test_stretched_x1_ref_wb_ref4 test_stretched_x1_ref_x1_centroid
-    test_stretched_x1_ref_radial_exact_off test_stretched_x1_ref_x1_mass_covariance
+    test_stretched_x1_ref_x1_mass_covariance
     test_wb_ref_wall test_wb_wall_corner test_x1_seam_split
     test_x1_seam_split_x1_centroid test_x1_seam_split_radial_exact
-    test_x1_seam_split_radial_exact_off test_x1_seam_split_vic_refuses_split
+    test_x1_seam_split_vic_refuses_split
     test_x1_seam_split_wb_ref4 test_x1_seam_split_wb_ref4_gravity_0
     test_x1_seam_split_x1_mass_covariance)
   set_property(TEST ${_t}.${buildl} APPEND PROPERTY LABELS "fp32-foundations")
 endforeach()
 foreach(_t IN ITEMS
     test_anomaly_storage test_gravity_work_fixer test_gravity_work_radial_exact
-    test_implicit_face_work_operator test_implicit_face_work_operator_radial_exact
+    test_implicit_face_work_operator
     test_implicit_gravity_tall_column test_implicit_gravity_tall_column_cubed)
   set_property(TEST ${_t}_python APPEND PROPERTY LABELS "fp32-foundations")
 endforeach()

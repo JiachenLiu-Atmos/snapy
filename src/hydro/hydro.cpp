@@ -71,10 +71,9 @@ void HydroImpl::reset() {
   // gravity-work options, checked here so YAML and Python construction agree
   if (options->grav()) {
     auto const& gw = options->grav()->gravity_work();
-    TORCH_CHECK(gw == "cell" || gw == "face-wallc" || gw == "face",
-                "const-gravity gravity-work must be cell, face-wallc or face, "
-                "got '",
-                gw, "'");
+    TORCH_CHECK(gw == "cell" || gw == "face",
+                "const-gravity gravity-work must be cell or face, got '", gw,
+                "'");
     // the fixer runs with gravity-work: cell only; record the effective value
     // (a face form set from Python keeps the default true otherwise)
     if (gw != "cell") options->grav()->gravity_work_fixer() = false;
@@ -97,29 +96,24 @@ void HydroImpl::reset() {
     }
     // the corrected PE needs a single-valued potential; -grav1 * x1 jumps at
     // a periodic x1 face (read as for the fixer above): warn, no change
-    if (gravity_work_radial_exact() && options->grav()->grav1() != 0. &&
-        gw == "face") {
+    if (options->grav()->grav1() != 0. && gw == "face") {
       bool periodic_x1 = wrap;
       for (int f : {0, 1})
         periodic_x1 = periodic_x1 || (f < static_cast<int>(nm.size()) &&
                                       nm[f].compare(0, 8, "periodic") == 0);
       if (periodic_x1)
         TORCH_WARN_ONCE(
-            "SNAP_GRAVITY_WORK_RADIAL_EXACT with periodic x1: -grav1*x1 jumps "
-            "at the periodic face, so the corrected PE is not defined; set the "
-            "switch to 0 or use walls");
+            "gravity-work: face with periodic x1: -grav1*x1 jumps at the "
+            "periodic face, so the corrected PE its work books is not defined "
+            "there; use x1 walls or gravity-work: cell");
     }
     // the corrected-PE work has no form on other grids: plain face work there
-    if (gravity_work_radial_exact() && options->grav()->grav1() != 0. &&
-        gw == "face" && pmb && pmb->pcoord) {
+    if (options->grav()->grav1() != 0. && gw == "face" && pmb && pmb->pcoord) {
       auto const& type = pmb->pcoord->options->type();
       if (x1_measure(type) == X1Measure::none)
         TORCH_WARN_ONCE(
-            "SNAP_GRAVITY_WORK_RADIAL_EXACT (on by default with "
-            "gravity-work: face) has no form on a '",
-            type,
-            "' grid: the x1 wall cells keep the first-order plain "
-            "face work");
+            "the corrected-PE work of gravity-work: face has no form on a '",
+            type, "' grid: it books the plain face work there");
     }
     // the wb4 resolution flag is computed per block from scan pressures up to
     // three cells away, so x1 seam sides agree only with nghost >= 3
@@ -308,23 +302,11 @@ bool HydroImpl::x1_mass_covariance() {
   return on;
 }
 
-bool HydroImpl::gravity_work_radial_exact() {
-  // read once, like SNAP_FLUX_COVARIANCE: every block must make the same choice
-  // on unless set to 0/false/off/no (it acts with gravity-work: face only)
-  static const bool on = [] {
-    auto v = get_env("SNAP_GRAVITY_WORK_RADIAL_EXACT", "1");
-    std::transform(v.begin(), v.end(), v.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-    return !(v == "0" || v == "false" || v == "off" || v == "no");
-  }();
-  return on;
-}
-
 bool HydroImpl::radial_exact_work() const {
   auto g = options->grav();
   auto const& type = pmb->pcoord->options->type();
-  return gravity_work_radial_exact() && g && g->grav1() != 0. &&
-         g->gravity_work() == "face" && x1_measure(type) != X1Measure::none;
+  return g && g->grav1() != 0. && g->gravity_work() == "face" &&
+         x1_measure(type) != X1Measure::none;
 }
 
 std::pair<int, int> HydroImpl::x1_neighbors() const {

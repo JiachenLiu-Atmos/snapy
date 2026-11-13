@@ -1103,10 +1103,9 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
                                 potential_flux_div);
     }
 
-    // SNAP_GRAVITY_WORK_RADIAL_EXACT: add the work of the corrected potential
-    // energy for this stage's x1 density change (derivation sec 7); it
-    // already removes the dx^2/12 m'' part, so the curvature flux below stays
-    // off
+    // gravity-work: face adds the work of the corrected potential energy for
+    // this stage's x1 density change (derivation sec 7), where the grid has a
+    // form for it
     bool radial_exact = !gw_cell && radial_exact_work();
     if (radial_exact) {
       auto drho = -dt * vertical_mass_div;
@@ -1134,39 +1133,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       }
     }
 
-    // cp3/cp5/weno5 faces: the face average exceeds m = rho*v by
-    // dx^2/12 (m'' + rho'v'); remove the m'' part as div H,
-    // H = dx/12 (m_i - m_{i-1}), zeroed at every physical x1 boundary
-    // (walls, outflow and periodic alike); rho'v' is no divergence
-    auto type1 = precon1->pinterp1->options->type();
-    if (!gw_cell && !radial_exact &&
-        (type1 == "cp3" || type1 == "cp5" || type1 == "weno5")) {
-      // no two-point H is exact on unequal cells; option F is (#280)
-      TORCH_CHECK(!pmb->pcoord->options->stretched_x1(),
-                  "the dx^2/12 x1 curvature flux H of cp3/cp5/weno5 is a "
-                  "uniform-grid device: a stretched x1 uses option F, "
-                  "gravity-work: face with SNAP_GRAVITY_WORK_RADIAL_EXACT on "
-                  "(the default), fourth order there; or use gravity-work: "
-                  "cell (#280)");
-      int n = ie - is;
-      auto x1v = pmb->pcoord->x1v;
-      auto rhov = w[IDN] * w[IVX];
-      auto curv_flux1 =
-          (x1v.narrow(0, is, n + 1) - x1v.narrow(0, is - 1, n + 1)) / 12. *
-          (rhov.narrow(-1, is, n + 1) - rhov.narrow(-1, is - 1, n + 1));
-      if (pmb->options->is_physical_boundary(0, 0, -1)) {
-        curv_flux1.select(-1, 0).zero_();
-      }
-      if (pmb->options->is_physical_boundary(0, 0, 1)) {
-        curv_flux1.select(-1, n).zero_();
-      }
-      auto area = area1.narrow(-1, is, n + 1);
-      face_gravity_work -=
-          dt * grav1 *
-          (area.narrow(-1, 1, n) * curv_flux1.narrow(-1, 1, n) -
-           area.narrow(-1, 0, n) * curv_flux1.narrow(-1, 0, n)) /
-          volume.slice(-1, is, ie);
-    }
     auto original_gravity_work = dt * w[IDN].slice(-1, is, ie) *
                                  w[IVX].slice(-1, is, ie) * grav1 *
                                  non_hydrostatic;
@@ -1209,12 +1175,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       }
     } else {
       gravity_energy_correction = face_gravity_work - original_gravity_work;
-      // face-wallc: the x1 wall cells keep the cell work
-      if (options->grav()->gravity_work() == "face-wallc") {
-        if (is_x1_wall(0)) gravity_energy_correction.select(-1, 0).zero_();
-        if (is_x1_wall(1))
-          gravity_energy_correction.select(-1, ie - is - 1).zero_();
-      }
     }
   }
 

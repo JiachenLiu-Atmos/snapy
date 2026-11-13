@@ -14,7 +14,7 @@ source. Checked, each arm in its own process because the switch is read once per
      exactly the offset times the tracer rows');
   4. dry Cartesian limit: with the term on, the one-step eps_eff nz^2 of
      test_horizontal_flux_covariance stays within 2e-3 of its value recorded with the x1 wall
-     continuation of the default reference at nz 16, 32, 64.
+     continuation of the default reference and the corrected-PE face work at nz 16, 32, 64.
 
   python test_flux_covariance_rows.py [--device cpu]
 """
@@ -35,7 +35,8 @@ UNIFORM_TOL = 1e-13   # max |q - q0|
 OFFSET_TOL = 1e-10    # max relative primitive difference between the two offsets
 NREST, NFLOW = 20, 20
 # eps_eff nz^2 of the dry Cartesian one-step test, term on, with the x1 wall continuation
-CART_REF = {16: 0.034750, 32: 0.021184, 64: 0.013718}
+# and the corrected-PE face work (gravity-work: face; no dx^2/12 curvature flux)
+CART_REF = {16: 0.003339, 32: 0.005166, 64: 0.005633}
 CART_TOL = 2e-3
 P0, RHO0, G = 1.0e5, 0.1, 10.0
 

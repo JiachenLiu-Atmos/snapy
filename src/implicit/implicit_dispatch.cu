@@ -142,7 +142,9 @@ void vic_assemble_full_cuda(at::TensorIterator &iter, double dt, double grav,
   });
 }
 
-template <int N>
+// K = 2 (Woodbury, operands 13 and 14): the same factorisation also solves the
+// unit E rows at the column's two wall cells
+template <int N, int K>
 void vic_solve_cuda(at::TensorIterator &iter, double dt, double grav, int dir) {
   at::cuda::CUDAGuard device_guard(iter.device());
 
@@ -159,25 +161,38 @@ void vic_solve_cuda(at::TensorIterator &iter, double dt, double grav, int dir) {
     using Matrix = Eigen::Matrix<scalar_t, N, N>;
     using Vector = Eigen::Matrix<scalar_t, N, 1>;
 
-    native::gpu_kernel<13>(
-        iter, [=] GPU_LAMBDA(char *const data[13], unsigned int strides[13]) {
+    native::gpu_kernel<13 + K>(
+        iter, [=] GPU_LAMBDA(char *const data[13 + K],
+                             unsigned int strides[13 + K]) {
           auto du = reinterpret_cast<scalar_t *>(data[0] + strides[0]);
           auto a = reinterpret_cast<Matrix *>(data[6] + strides[6]);
           auto b = reinterpret_cast<Matrix *>(data[7] + strides[7]);
           auto c = reinterpret_cast<Matrix *>(data[8] + strides[8]);
           auto delta = reinterpret_cast<Vector *>(data[9] + strides[9]);
+          Vector *z0 = nullptr, *z1 = nullptr;
+          if constexpr (K == 2) {
+            z0 = reinterpret_cast<Vector *>(data[13] + strides[13]);
+            z1 = reinterpret_cast<Vector *>(data[14] + strides[14]);
+          }
 
           // partial: delta holds the assembly's m_t right-hand-side term
-          if (!ForwardSweep(a, b, c, delta, du, dt, 0, nlayer - 1, dir, ny,
-                            stride1, stride2, first_block, last_block, N == 3))
+          if (!ForwardSweep<K>(a, b, c, delta, du, dt, 0, nlayer - 1, dir, ny,
+                               stride1, stride2, first_block, last_block,
+                               N == 3, z0, z1, 0, nlayer - 1))
             return;
           vic_backward_substitute(a, delta, 0, nlayer - 1);
+          if constexpr (K == 2) {
+            vic_backward_substitute(a, z0, 0, nlayer - 1);
+            vic_backward_substitute(a, z1, 0, nlayer - 1);
+          }
         });
   });
 }
 
-template void vic_solve_cuda<3>(at::TensorIterator &, double, double, int);
-template void vic_solve_cuda<5>(at::TensorIterator &, double, double, int);
+template void vic_solve_cuda<3, 0>(at::TensorIterator &, double, double, int);
+template void vic_solve_cuda<5, 0>(at::TensorIterator &, double, double, int);
+template void vic_solve_cuda<3, 2>(at::TensorIterator &, double, double, int);
+template void vic_solve_cuda<5, 2>(at::TensorIterator &, double, double, int);
 
 template <int N>
 void vic_redistribute_cuda(at::TensorIterator &iter, double /*dt*/,
@@ -282,8 +297,11 @@ namespace at::native {
 
 REGISTER_CUDA_DISPATCH(vic_assemble_partial, &snap::vic_assemble_partial_cuda);
 REGISTER_CUDA_DISPATCH(vic_assemble_full, &snap::vic_assemble_full_cuda);
-REGISTER_CUDA_DISPATCH(vic_solve_partial, &snap::vic_solve_cuda<3>);
-REGISTER_CUDA_DISPATCH(vic_solve_full, &snap::vic_solve_cuda<5>);
+REGISTER_CUDA_DISPATCH(vic_solve_partial, (&snap::vic_solve_cuda<3, 0>));
+REGISTER_CUDA_DISPATCH(vic_solve_full, (&snap::vic_solve_cuda<5, 0>));
+REGISTER_CUDA_DISPATCH(vic_solve_woodbury_partial,
+                       (&snap::vic_solve_cuda<3, 2>));
+REGISTER_CUDA_DISPATCH(vic_solve_woodbury_full, (&snap::vic_solve_cuda<5, 2>));
 REGISTER_CUDA_DISPATCH(vic_redistribute_partial,
                        &snap::vic_redistribute_cuda<3>);
 REGISTER_CUDA_DISPATCH(vic_redistribute_full, &snap::vic_redistribute_cuda<5>);
