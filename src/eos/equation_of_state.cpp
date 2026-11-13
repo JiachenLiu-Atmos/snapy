@@ -26,6 +26,7 @@
 #include "equation_of_state.hpp"
 #include "ideal_gas.hpp"
 #include "ideal_moist.hpp"
+#include "moist_base.hpp"
 #include "moist_mixture.hpp"
 #include "shallow_water.hpp"
 
@@ -399,8 +400,7 @@ void EquationOfStateImpl::apply_primitive_limiter_(torch::Tensor const& prim) {
   prim[IDN].clamp_min_(options->density_floor());
 
   if (options->thermo()) {
-    int ny = options->thermo()->vapor_ids().size() +
-             options->thermo()->cloud_ids().size() - 1;
+    int ny = thermo_species_rows(options->thermo());
     if (limiter_marks_.defined()) {  // floor_hit sees no species row
       auto interior =
           phydro->pmb->part({0, 0, 0}, PartOptions().exterior(false));
@@ -428,6 +428,15 @@ EquationOfState EquationOfStateImpl::create(EquationOfStateOptions const& opts,
   TORCH_CHECK(opts, "[EquationOfState] Options pointer is null.");
 
   if (opts->type() == "ideal-gas") {
+    // an ideal gas has no species rows and no "U->K": a moist card would fail
+    // in the first limiter or saturation adjustment instead of here
+    TORCH_CHECK(!opts->thermo() || (thermo_species_rows(opts->thermo()) == 0 &&
+                                    opts->thermo()->reactions().empty()),
+                "[EquationOfState] ideal-gas has no vapor, cloud or reaction "
+                "support; use ideal-moist or moist-mixture for a card with ",
+                thermo_species_rows(opts->thermo()), " species and ",
+                opts->thermo() ? opts->thermo()->reactions().size() : 0,
+                " reactions");
     return p->register_module(name, IdealGas(opts, p));
   } else if (opts->type() == "ideal-moist") {
     return p->register_module(name, IdealMoist(opts, p));

@@ -347,34 +347,37 @@ void OutputType::ResetStats(double current_time) {
   stat_initialized_ = true;
 }
 
+namespace {
+// the running mean, or the current value before any time has accumulated
+torch::Tensor stat_mean(torch::Tensor const &mean, torch::Tensor const &current,
+                        double elapsed) {
+  if (elapsed <= 0.0 || !mean.defined()) return current;
+  return mean;
+}
+
+// sqrt(M2 / elapsed) (Welford), zero before any time has accumulated
+torch::Tensor stat_std(torch::Tensor const &m2, torch::Tensor const &current,
+                       double elapsed) {
+  if (elapsed <= 0.0 || !m2.defined()) return torch::zeros_like(current);
+  auto variance = m2 / elapsed;
+  return torch::sqrt(torch::clamp_min(variance, 0.0));
+}
+}  // namespace
+
 torch::Tensor OutputType::PrimStatMean(torch::Tensor const &current) const {
-  if (stat_elapsed_ <= 0.0 || !prim_stat_mean_.defined()) {
-    return current;
-  }
-  return prim_stat_mean_;
+  return stat_mean(prim_stat_mean_, current, stat_elapsed_);
 }
 
 torch::Tensor OutputType::PrimStatStd(torch::Tensor const &current) const {
-  if (stat_elapsed_ <= 0.0 || !prim_stat_m2_.defined()) {
-    return torch::zeros_like(current);
-  }
-  auto variance = prim_stat_m2_ / stat_elapsed_;
-  return torch::sqrt(torch::clamp_min(variance, 0.0));
+  return stat_std(prim_stat_m2_, current, stat_elapsed_);
 }
 
 torch::Tensor OutputType::ScalarStatMean(torch::Tensor const &current) const {
-  if (stat_elapsed_ <= 0.0 || !scalar_stat_mean_.defined()) {
-    return current;
-  }
-  return scalar_stat_mean_;
+  return stat_mean(scalar_stat_mean_, current, stat_elapsed_);
 }
 
 torch::Tensor OutputType::ScalarStatStd(torch::Tensor const &current) const {
-  if (stat_elapsed_ <= 0.0 || !scalar_stat_m2_.defined()) {
-    return torch::zeros_like(current);
-  }
-  auto variance = scalar_stat_m2_ / stat_elapsed_;
-  return torch::sqrt(torch::clamp_min(variance, 0.0));
+  return stat_std(scalar_stat_m2_, current, stat_elapsed_);
 }
 
 void OutputType::appendTensorOutput(std::string type, std::string name,

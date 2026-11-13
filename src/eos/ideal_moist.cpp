@@ -20,12 +20,10 @@ void IdealMoistImpl::reset() {
   pthermo = kintera::ThermoYImpl::create(options->thermo(), this);
 
   // make gammad and weight consistent
-  options->gammad(1. + 1. / options->thermo()->cref_R()[0]);
-  options->weight(1. / pthermo->inv_mu[0].item<double>());
+  sync_dry_options_();
 
   // populate buffers
-  int ny = pthermo->options->vapor_ids().size() +
-           pthermo->options->cloud_ids().size() - 1;
+  int ny = nspecies();
 
   inv_mu_ratio_m1 =
       register_buffer("inv_mu_ratio_m1", torch::zeros({ny}, torch::kFloat64));
@@ -51,26 +49,15 @@ void IdealMoistImpl::reset() {
   u0 *= kintera::constants::Rgas * pthermo->inv_mu;
 }
 
-double IdealMoistImpl::species_weight(int n) const {
-  return 1. / pthermo->inv_mu[n].item<double>();
-}
-
-double IdealMoistImpl::species_cv_ref(int n) const {
-  auto Ri = kintera::constants::Rgas * pthermo->inv_mu[n];
-  return (options->thermo()->cref_R()[n] * Ri).item<double>();
-}
-
 torch::Tensor IdealMoistImpl::specific_heat_cv(torch::Tensor prim,
                                                torch::Tensor temp) {
-  int ny = pthermo->options->vapor_ids().size() +
-           pthermo->options->cloud_ids().size() - 1;
+  int ny = nspecies();
   return species_cv_ref() * f_sig(prim.narrow(0, ICY, ny));
 }
 
 torch::Tensor IdealMoistImpl::internal_energy_offset(
     torch::Tensor hydro_like) const {
-  int ny = pthermo->options->vapor_ids().size() +
-           pthermo->options->cloud_ids().size() - 1;
+  int ny = nspecies();
 
   auto offset = hydro_like[IDN] * u0[0];
   if (ny == 0) return offset;
@@ -142,17 +129,8 @@ IdealMoistPerturbations IdealMoistImpl::perturbations(
 
 torch::Tensor IdealMoistImpl::compute(std::string ab,
                                       std::vector<torch::Tensor> const& args) {
-  if (ab == "W->U") {
-    auto w = args[0];
-    auto u = args.size() > 1 ? args[1] : torch::empty_like(w);
-    _prim2cons(w, u);
-    return u;
-  } else if (ab == "U->W") {
-    auto u = args[0];
-    auto w = args.size() > 1 ? args[1] : torch::empty_like(u);
-    _cons2prim(u, w);
-    return w;
-  } else if (ab == "W->U'") {
+  torch::Tensor out;
+  if (ab == "W->U'") {
     // the stored representation: totals, then rows {IDN, IPR} minus the
     // reference (fp32 roadmap Step 1); totals when there is no reference
     auto w = args[0];
@@ -172,28 +150,13 @@ torch::Tensor IdealMoistImpl::compute(std::string ab,
     apply_conserved_limiter_(u);
     _cons2prim(phydro->total_u(u), w, /*limit=*/false);
     return w;
-  } else if (ab == "W->I") {
-    auto w = args[0];
-    return _prim2intEng(w);
-  } else if (ab == "W->T") {
-    auto w = args[0];
-    return _prim2temp(w);
-  } else if (ab == "W->E") {
-    auto w = args[0];
-    return _prim2speciesEng(w);
-  } else if (ab == "U->K") {
-    auto u = args[0];
-    return _cons2ke(u);
-  } else if (ab == "UT->I") {
-    auto u = args[0];
-    auto temp = args[1];
-    return _temp2intEng(u, temp);
+  } else if (compute_common_(ab, args, &out)) {
+    return out;
   } else if (ab == "W->A") {
     auto w = args[0];
     auto gammad =
         (pthermo->options->cref_R()[0] + 1) / pthermo->options->cref_R()[0];
-    int ny = pthermo->options->vapor_ids().size() +
-             pthermo->options->cloud_ids().size() - 1;
+    int ny = nspecies();
     auto feps = f_eps(w.narrow(0, ICY, ny));
     auto fsig = f_sig(w.narrow(0, ICY, ny));
     return 1. + (gammad - 1.) * feps / fsig;
@@ -208,64 +171,11 @@ torch::Tensor IdealMoistImpl::compute(std::string ab,
   }
 }
 
-void IdealMoistImpl::_prim2cons(torch::Tensor prim, torch::Tensor& cons) {
-  apply_primitive_limiter_(prim);
-  auto pcoord = phydro->pmb->pcoord;
-
-  int ny = pthermo->options->vapor_ids().size() +
-           pthermo->options->cloud_ids().size() - 1;
-
-  // den -> den
-  auto out = cons[IDN];
-  torch::mul_out(out, (1. - prim.narrow(0, ICY, ny).sum(0)), prim[IDN]);
-
-  // mixr -> den
-  out = cons.narrow(0, ICY, ny);
-  torch::mul_out(out, prim.narrow(0, ICY, ny), prim[IDN]);
-
-  // vel -> mom
-  out = cons.narrow(0, IVX, 3);
-  torch::mul_out(out, prim.narrow(0, IVX, 3), prim[IDN]);
-
-  coord_vec_lower_(out, pcoord->cosine_cell_kj);
-
-  // KE
-  auto ke = 0.5 * (prim.narrow(0, IVX, 3) * cons.narrow(0, IVX, 3)).sum(0);
-
-  // IE
-  cons[IPR] = _prim2intEng(prim);
-  cons[IPR] += ke;
-
-  apply_conserved_limiter_(cons, /*whole_column=*/false, /*totals=*/true);
-}
-
 void IdealMoistImpl::_cons2prim(torch::Tensor cons, torch::Tensor& prim,
                                 bool limit) {
-  if (limit) {
-    apply_conserved_limiter_(cons, /*whole_column=*/false, /*totals=*/true);
-  }
-  auto pcoord = phydro->pmb->pcoord;
-
-  int ny = pthermo->options->vapor_ids().size() +
-           pthermo->options->cloud_ids().size() - 1;
-
-  // den -> den
-  auto out = prim[IDN];
-  torch::sum_out(out, cons.narrow(0, ICY, ny), /*dim=*/0);
-  out += cons[IDN];
-
-  // den -> mixr
-  out = prim.narrow(0, ICY, ny);
-  torch::div_out(out, cons.narrow(0, ICY, ny), prim[IDN]);
-
-  // mom -> vel
-  out = prim.narrow(0, IVX, 3);
-  torch::div_out(out, cons.narrow(0, IVX, 3), prim[IDN]);
-
-  coord_vec_raise_(out, pcoord->cosine_cell_kj);
-
-  auto ke = 0.5 * (prim.narrow(0, IVX, 3) * cons.narrow(0, IVX, 3)).sum(0);
-  auto ie = cons[IPR] - ke;
+  if (limit) limit_totals_(cons);
+  auto ie = _cons2prim_layout(cons, prim);
+  int ny = nspecies();
 
   // subtract the internal energy offset
   ie -= cons[IDN] * u0[0];
@@ -286,8 +196,7 @@ void IdealMoistImpl::_cons2prim(torch::Tensor cons, torch::Tensor& prim,
 }
 
 torch::Tensor IdealMoistImpl::_prim2intEng(torch::Tensor prim) {
-  int ny = pthermo->options->vapor_ids().size() +
-           pthermo->options->cloud_ids().size() - 1;
+  int ny = nspecies();
 
   auto yfrac = prim.narrow(0, ICY, ny);
 
@@ -315,8 +224,7 @@ torch::Tensor IdealMoistImpl::_prim2intEng(torch::Tensor prim) {
 
 torch::Tensor IdealMoistImpl::_prim2temp(torch::Tensor prim) {
   // Recompute so each public call owns its autograd graph.
-  int ny = pthermo->options->vapor_ids().size() +
-           pthermo->options->cloud_ids().size() - 1;
+  int ny = nspecies();
   auto Rd = kintera::constants::Rgas / options->weight();
   auto yfrac = prim.narrow(0, ICY, ny);
   auto t = prim[IPR] / (prim[IDN] * Rd * f_eps(yfrac));
@@ -325,8 +233,7 @@ torch::Tensor IdealMoistImpl::_prim2temp(torch::Tensor prim) {
 
 torch::Tensor IdealMoistImpl::_prim2speciesEng(torch::Tensor prim) {
   auto pcoord = phydro->pmb->pcoord;
-  int ny = pthermo->options->vapor_ids().size() +
-           pthermo->options->cloud_ids().size() - 1;
+  int ny = nspecies();
 
   auto mud = options->weight();
   auto Rd = kintera::constants::Rgas / mud;
@@ -371,21 +278,9 @@ torch::Tensor IdealMoistImpl::species_enthalpy(torch::Tensor prim) {
   return u0.narrow(0, 1, ny).view(vec) + c.view(vec) * _prim2temp(prim) + ke;
 }
 
-torch::Tensor IdealMoistImpl::_cons2ke(torch::Tensor cons) {
-  auto pcoord = phydro->pmb->pcoord;
-  int ny = pthermo->options->vapor_ids().size() +
-           pthermo->options->cloud_ids().size() - 1;
-  auto rho = cons[IDN] + cons.narrow(0, ICY, ny).sum(0);
-
-  auto mom = cons.narrow(0, IVX, 3).clone();
-  coord_vec_raise_(mom, pcoord->cosine_cell_kj);
-  return 0.5 * (cons.narrow(0, IVX, 3) * mom).sum(0) / rho;
-}
-
 torch::Tensor IdealMoistImpl::_temp2intEng(torch::Tensor cons,
                                            torch::Tensor temp) {
-  int ny = pthermo->options->vapor_ids().size() +
-           pthermo->options->cloud_ids().size() - 1;
+  int ny = nspecies();
 
   auto mud = options->weight();
   auto Rd = kintera::constants::Rgas / mud;
@@ -400,11 +295,11 @@ torch::Tensor IdealMoistImpl::_temp2intEng(torch::Tensor cons,
   auto rho_cv =
       cons[IDN] * cvd + (cons.narrow(0, ICY, ny) * cvy.view(vec)).sum(0);
 
-  // u0 is an energy per unit mass, not a heat capacity: the offset is ADDED to
-  // the thermal energy, never scaled by temperature. This is the same offset
-  // _prim2intEng adds and _cons2prim subtracts, so "UT->I" at a state's own
-  // temperature now reproduces "W->I" at that state, which is the identity the
-  // temperature-floor clamp in EquationOfStateImpl relies on.
+  // u0 is an energy per unit mass, not a heat capacity: the offset is ADDED
+  // to the thermal energy, never scaled by temperature. This is the same
+  // offset _prim2intEng adds and _cons2prim subtracts, so "UT->I" at a
+  // state's own temperature now reproduces "W->I" at that state, which is the
+  // identity the temperature-floor clamp in EquationOfStateImpl relies on.
   return internal_energy_offset(cons) + rho_cv * temp;
 }
 
@@ -424,8 +319,7 @@ torch::Tensor IdealMoistImpl::f_eps(torch::Tensor const& yfrac) const {
 }
 
 torch::Tensor IdealMoistImpl::f_sig(torch::Tensor const& yfrac) const {
-  int ny = pthermo->options->vapor_ids().size() +
-           pthermo->options->cloud_ids().size() - 1;
+  int ny = nspecies();
 
   if (ny == 0) {
     auto vec = yfrac.sizes().vec();

@@ -1,5 +1,8 @@
 // to be included in athena_array.hpp
 
+// The blobs below wrap pdata_ (T*), so they carry T's dtype; copy_ converts a
+// tensor of another dtype instead of writing its bytes into T storage.
+
 namespace snap {
 template <typename T>
 void AthenaArray<T>::InitFromTensor(torch::Tensor const& tensor, int dim) {
@@ -60,9 +63,9 @@ void AthenaArray<T>::initFromTensor4D(torch::Tensor const& tensor, int index,
   pdata_ = new T[nvar * str4];
 
   // create a temporary tensor holder
-  torch::Tensor tmp = torch::from_blob(pdata_, {nvar, nx3_, nx2_, nx1_},
-                                       {str4, str3, str2, str1}, nullptr,
-                                       torch::dtype(tensor.dtype()));
+  torch::Tensor tmp = torch::from_blob(
+      pdata_, {nvar, nx3_, nx2_, nx1_}, {str4, str3, str2, str1}, nullptr,
+      torch::dtype(c10::CppTypeToScalarType<T>::value));
   auto tmp1 = tensor.slice(0, index, index + nvar).to(torch::kCPU);
   tmp.copy_(tmp1);
   state_ = DataStatus::allocated;
@@ -88,7 +91,7 @@ void AthenaArray<T>::initFromTensor3D(torch::Tensor const& tensor, int index,
   // create a temporary tensor holder
   torch::Tensor tmp =
       torch::from_blob(pdata_, {nvar, nx2_, nx1_}, {str3, str2, str1}, nullptr,
-                       torch::dtype(tensor.dtype()));
+                       torch::dtype(c10::CppTypeToScalarType<T>::value));
   auto tmp1 = tensor.slice(0, index, index + nvar).to(torch::kCPU);
   tmp.copy_(tmp1);
   state_ = DataStatus::allocated;
@@ -111,8 +114,9 @@ void AthenaArray<T>::initFromTensor2D(torch::Tensor const& tensor, int index,
   pdata_ = new T[nvar * str2];
 
   // create a temporary tensor holder
-  torch::Tensor tmp = torch::from_blob(pdata_, {nvar, nx1_}, {str2, str1},
-                                       nullptr, torch::dtype(tensor.dtype()));
+  torch::Tensor tmp =
+      torch::from_blob(pdata_, {nvar, nx1_}, {str2, str1}, nullptr,
+                       torch::dtype(c10::CppTypeToScalarType<T>::value));
   auto tmp1 = tensor.slice(0, index, index + nvar).to(torch::kCPU);
   tmp.copy_(tmp1);
   state_ = DataStatus::allocated;
@@ -138,7 +142,7 @@ void AthenaArray<T>::copyFromTensor3D(torch::Tensor const& tensor) {
   // create a temporary tensor holder
   torch::Tensor tmp =
       torch::from_blob(pdata_, {nx3_, nx2_, nx1_}, {str3, str2, str1}, nullptr,
-                       torch::dtype(tensor.dtype()));
+                       torch::dtype(c10::CppTypeToScalarType<T>::value));
   auto tmp1 = tensor.to(torch::kCPU);
   tmp.copy_(tmp1);
   state_ = DataStatus::allocated;
@@ -161,8 +165,9 @@ void AthenaArray<T>::copyFromTensor2D(torch::Tensor const& tensor) {
   pdata_ = new T[str3];
 
   // create a temporary tensor holder
-  torch::Tensor tmp = torch::from_blob(pdata_, {nx2_, nx1_}, {str2, str1},
-                                       nullptr, torch::dtype(tensor.dtype()));
+  torch::Tensor tmp =
+      torch::from_blob(pdata_, {nx2_, nx1_}, {str2, str1}, nullptr,
+                       torch::dtype(c10::CppTypeToScalarType<T>::value));
   auto tmp1 = tensor.to(torch::kCPU);
   tmp.copy_(tmp1);
   state_ = DataStatus::allocated;
@@ -184,8 +189,9 @@ void AthenaArray<T>::copyFromTensor1D(torch::Tensor const& tensor) {
   pdata_ = new T[str2];
 
   // create a temporary tensor holder
-  torch::Tensor tmp = torch::from_blob(pdata_, {nx1_}, {str1}, nullptr,
-                                       torch::dtype(tensor.dtype()));
+  torch::Tensor tmp =
+      torch::from_blob(pdata_, {nx1_}, {str1}, nullptr,
+                       torch::dtype(c10::CppTypeToScalarType<T>::value));
   auto tmp1 = tensor.to(torch::kCPU);
   tmp.copy_(tmp1);
   state_ = DataStatus::allocated;

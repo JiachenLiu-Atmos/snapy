@@ -1,11 +1,7 @@
 // C/C++ headers
-#include <glob.h>
-
 #include <cstdio>
 #include <cstring>
 #include <iostream>
-#include <map>
-#include <mutex>
 #include <sstream>  // stringstream
 #include <stdexcept>
 
@@ -16,25 +12,11 @@
 #include <snap/mesh/meshblock.hpp>
 
 #include "output_formats.hpp"
+#include "writer_core.hpp"
 
 int mppnccombine(int argc, char* argv[]);
 
 namespace snap {
-namespace {
-std::mutex combine_mutex;
-std::map<std::string, int> combine_counts;
-
-bool ready_to_combine(Layout const& layout, std::string const& key) {
-  std::lock_guard<std::mutex> lock(combine_mutex);
-  int& count = combine_counts[key];
-  count += 1;
-  if (count < layout->options->blocks_per_process()) {
-    return false;
-  }
-  combine_counts.erase(key);
-  return true;
-}
-}  // namespace
 
 void NetcdfOutput::combine_blocks(MeshBlockImpl* pmb, bool) {
 // Only proceed if NETCDF output enabled
@@ -51,30 +33,8 @@ void NetcdfOutput::combine_blocks(MeshBlockImpl* pmb, bool) {
   key.append(options->file_id());
   key.append("|");
   key.append(number);
-  if (!ready_to_combine(layout, key)) {
-    return;
-  }
 
-  /*c10d::BarrierOptions op;
-  op.device_ids = {layout->options->local_rank()};
-  layout->pg->barrier(op)->wait();*/
-  if (layout->has_process_group()) {
-    layout->comm->barrier();
-  }
-
-  std::stringstream msg;
-
-  // Mirror of the barrier above, in a scope guard: no rank may return before
-  // the combined file exists, and the root's throw below must still release the
-  // others instead of leaving them in a collective it never reaches.
-  struct ReleaseOnExit {
-    Layout mirror;
-    ~ReleaseOnExit() {
-      if (mirror->has_process_group()) mirror->comm->barrier();
-    }
-  } release{layout};
-
-  if (layout->options->process_rank() == layout->options->process_root_rank()) {
+  combine_on_root(layout, key, [&] {
     std::string infile;
     infile.assign(pmb->options->output_dir());
     infile.append("/");
@@ -84,16 +44,7 @@ void NetcdfOutput::combine_blocks(MeshBlockImpl* pmb, bool) {
     infile.append(".");
     infile.append(number);
     infile.append(".nc");
-
-    glob_t glob_result;
-    int err = glob(infile.c_str(), GLOB_TILDE, NULL, &glob_result);
-    if (err != 0) {
-      globfree(&glob_result);
-      msg << "### FATAL ERROR in function [NetcdfOutput::combine_blocks]"
-          << std::endl
-          << "glob() failed with error " << err << std::endl;
-      throw std::runtime_error(msg.str().c_str());
-    }
+    auto files = glob_block_files(infile, "NetcdfOutput::combine_blocks");
 
     std::string outfile;
     outfile.assign(pmb->options->output_dir());
@@ -105,33 +56,32 @@ void NetcdfOutput::combine_blocks(MeshBlockImpl* pmb, bool) {
     outfile.append(number);
     outfile.append(".nc");
 
+    int err = 0;
     remove(outfile.c_str());
-    if (glob_result.gl_pathc == 1) {
-      err = std::rename(glob_result.gl_pathv[0], outfile.c_str());
+    if (files.size() == 1) {
+      err = std::rename(files.front().c_str(), outfile.c_str());
     } else {
-      int argc = 3 + glob_result.gl_pathc;
+      int argc = 3 + files.size();
       char** argv = new char*[argc];
       for (int i = 0; i < argc; ++i) argv[i] = new char[2048];
       snprintf(argv[0], 2048, "%s", "CombineBlocks");
       snprintf(argv[1], 2048, "%s", "-r");
       snprintf(argv[2], 2048, "%s", outfile.c_str());
       for (int i = 3; i < argc; ++i)
-        snprintf(argv[i], 2048, "%s", glob_result.gl_pathv[i - 3]);
+        snprintf(argv[i], 2048, "%s", files[i - 3].c_str());
 
       err = mppnccombine(argc, argv);
       for (int i = 0; i < argc; ++i) delete[] argv[i];
       delete[] argv;
     }
     if (err) {
+      std::stringstream msg;
       msg << "### FATAL ERROR in function [NetcdfOutput::combine_blocks]"
           << std::endl
           << "NetCDF block combine failed with error " << err << std::endl;
       throw std::runtime_error(msg.str().c_str());
     }
-
-    globfree(&glob_result);
-  }
-
+  });
 #endif  // NETCDFOUTPUT
 }
 }  // namespace snap

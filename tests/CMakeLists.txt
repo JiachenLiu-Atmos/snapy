@@ -6,6 +6,8 @@ enable_testing()
 
 setup_test(test_eos)
 setup_test(test_fp32_storage)
+# ideal-gas refuses a moist card; AthenaArray keeps float32 values
+setup_test(test_eos_io_core)
 setup_test(test_implicit_cfl)
 setup_test(test_implicit_face_work_jacobian)
 setup_test(test_vic_partial_tangential)
