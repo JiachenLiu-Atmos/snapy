@@ -181,12 +181,11 @@ torch::Tensor CoriolisXYZImpl::forward(torch::Tensor du, torch::Tensor w,
     // along x1 is the term those equations leave out.
     if (phydro->axial_flux_form()) {
       auto pcoord = phydro->pmb->pcoord;
-      auto const& mf = phydro->axial_mass_fluxes();
+      auto const &mf = phydro->axial_mass_fluxes();
       auto f1 = traditional ? torch::Tensor() : mf[0];
       if (f1.defined() || mf[1].defined() || mf[2].defined()) {
-        auto target =
-            pcoord->axial_coriolis_rate(f1, mf[1], mf[2], options->omega1(),
-                                        phydro->axial_mass_species());
+        auto target = pcoord->axial_coriolis_rate(
+            f1, mf[1], mf[2], options->omega1(), phydro->axial_mass_species());
         pcoord->axial_rate_to_rows_(force[VEL2], force[VEL3], target);
       }
     }

@@ -1085,12 +1085,11 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     auto on = [](bool off, torch::Tensor const& f) {
       return off ? torch::Tensor() : f;
     };
-    _aam_mass_flux = {mass_w ? torch::Tensor()
-                             : on(options->disable_flux_x1() ||
-                                      u.size(DIM1) == 1,
-                                  _flux1),
-                      on(options->disable_flux_x2(), _flux2),
-                      on(options->disable_flux_x3(), _flux3)};
+    _aam_mass_flux = {
+        mass_w ? torch::Tensor()
+               : on(options->disable_flux_x1() || u.size(DIM1) == 1, _flux1),
+        on(options->disable_flux_x2(), _flux2),
+        on(options->disable_flux_x3(), _flux3)};
     _aam_mass_ny = ny;
   }
   for (auto& f : forcings)
@@ -1341,8 +1340,9 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     if (aam) {
       // the x1 faces' share of the planetary AAM, from the same transfers:
       // one flux row (IDN) per unit area, no species rows
-      _aam_mass_flux = {(phi / mw.area.narrow(-1, 0, phi.size(-1))).unsqueeze(0),
-                        torch::Tensor(), torch::Tensor()};
+      _aam_mass_flux = {
+          (phi / mw.area.narrow(-1, 0, phi.size(-1))).unsqueeze(0),
+          torch::Tensor(), torch::Tensor()};
       _aam_mass_ny = 0;
     }
     for (auto& f : forcings)
@@ -1369,8 +1369,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     auto src = torch::zeros_like(du);
     pmb->pcoord->x1_mass_source_(src, w, w[IDN] * w[IVX], dt);
     // conserve-axial-momentum: no K component, as in the branch above
-    if (aam)
-      pmb->pcoord->axial_x1_source_(src[IVY], src[IVZ], torch::Tensor());
+    if (aam) pmb->pcoord->axial_x1_source_(src[IVY], src[IVZ], torch::Tensor());
     du.index(interior) += src.index(interior);
   }
 

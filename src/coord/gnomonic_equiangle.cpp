@@ -199,11 +199,13 @@ void GnomonicEquiangleImpl::reset() {
       return (k * fac.unsqueeze(0)).unsqueeze(-1);
     };
     auto f2 = torch::meshgrid({x3v, x2f}, "ij");
-    aam_k_f2 = face_avg(pc.slice(1, 0, op->nc3()), pc.slice(1, 1, op->nc3() + 1),
-                        dx3f_ang_face2_kj.squeeze(-1), f2[1], f2[0], aam_c2_f2);
+    aam_k_f2 =
+        face_avg(pc.slice(1, 0, op->nc3()), pc.slice(1, 1, op->nc3() + 1),
+                 dx3f_ang_face2_kj.squeeze(-1), f2[1], f2[0], aam_c2_f2);
     auto f3 = torch::meshgrid({x3f, x2v}, "ij");
-    aam_k_f3 = face_avg(pc.slice(2, 0, op->nc2()), pc.slice(2, 1, op->nc2() + 1),
-                        dx2f_ang_face3_kj.squeeze(-1), f3[1], f3[0], aam_c2_f3);
+    aam_k_f3 =
+        face_avg(pc.slice(2, 0, op->nc2()), pc.slice(2, 1, op->nc2() + 1),
+                 dx2f_ang_face3_kj.squeeze(-1), f3[1], f3[0], aam_c2_f3);
     register_buffer("aam_k_c", aam_k_c);
     register_buffer("aam_kl_c", aam_kl_c);
     register_buffer("aam_kk_c", aam_kk_c);
@@ -483,8 +485,8 @@ void GnomonicEquiangleImpl::flux2global3_(torch::Tensor const& flux) const {
 }
 
 void GnomonicEquiangleImpl::axial_rate_to_rows_(torch::Tensor row2,
-                                                 torch::Tensor row3,
-                                                 torch::Tensor target) const {
+                                                torch::Tensor row3,
+                                                torch::Tensor target) const {
   int si = il(), ei = iu() + 1;
   int sj = jl(), ej = ju() + 1;
   int sk = kl(), ek = ku() + 1;
@@ -548,9 +550,11 @@ void GnomonicEquiangleImpl::axial_x1_source_(torch::Tensor row2,
   axial_rate_to_rows_(row2, row3, target);
 }
 
-torch::Tensor GnomonicEquiangleImpl::axial_coriolis_rate(
-    torch::Tensor flux1, torch::Tensor flux2, torch::Tensor flux3,
-    double omega, int ny) const {
+torch::Tensor GnomonicEquiangleImpl::axial_coriolis_rate(torch::Tensor flux1,
+                                                         torch::Tensor flux2,
+                                                         torch::Tensor flux3,
+                                                         double omega,
+                                                         int ny) const {
   int si = il(), ei = iu() + 1;
   int sj = jl(), ej = ju() + 1;
   int sk = kl(), ek = ku() + 1;
@@ -569,28 +573,34 @@ torch::Tensor GnomonicEquiangleImpl::axial_coriolis_rate(
   };
 
   // -(Omega / V) sum_f M_f (s_f^2 - s_c^2), M_f the outward face mass flux
-  auto rate = torch::zeros(
-      {n3, n2, n1}, (flux1.defined() ? flux1
-                                     : flux2.defined() ? flux2 : flux3)
-                        .options());
+  auto rate = torch::zeros({n3, n2, n1}, (flux1.defined()   ? flux1
+                                          : flux2.defined() ? flux2
+                                                            : flux3)
+                                             .options());
   if (flux1.defined()) {
-    auto A = face_area1().slice(0, sk, ek).slice(1, sj, ej).slice(2, si, ei + 1);
-    auto M = A * mass(flux1.slice(1, sk, ek).slice(2, sj, ej).slice(3, si, ei + 1));
+    auto A =
+        face_area1().slice(0, sk, ek).slice(1, sj, ej).slice(2, si, ei + 1);
+    auto M =
+        A * mass(flux1.slice(1, sk, ek).slice(2, sj, ej).slice(3, si, ei + 1));
     auto rf = x1f.slice(0, si, ei + 1);
     auto s2f = rf * rf * kk;  // the cell's own cos^2(lat) along its column
     rate += M.slice(2, 1, n1 + 1) * (s2f.slice(2, 1, n1 + 1) - s2c) -
             M.slice(2, 0, n1) * (s2f.slice(2, 0, n1) - s2c);
   }
   if (flux2.defined()) {
-    auto A = face_area2().slice(0, sk, ek).slice(1, sj, ej + 1).slice(2, si, ei);
-    auto M = A * mass(flux2.slice(1, sk, ek).slice(2, sj, ej + 1).slice(3, si, ei));
+    auto A =
+        face_area2().slice(0, sk, ek).slice(1, sj, ej + 1).slice(2, si, ei);
+    auto M =
+        A * mass(flux2.slice(1, sk, ek).slice(2, sj, ej + 1).slice(3, si, ei));
     auto s2f = r * r * aam_c2_f2.slice(0, sk, ek).slice(1, sj, ej + 1);
     rate += M.slice(1, 1, n2 + 1) * (s2f.slice(1, 1, n2 + 1) - s2c) -
             M.slice(1, 0, n2) * (s2f.slice(1, 0, n2) - s2c);
   }
   if (flux3.defined()) {
-    auto A = face_area3().slice(0, sk, ek + 1).slice(1, sj, ej).slice(2, si, ei);
-    auto M = A * mass(flux3.slice(1, sk, ek + 1).slice(2, sj, ej).slice(3, si, ei));
+    auto A =
+        face_area3().slice(0, sk, ek + 1).slice(1, sj, ej).slice(2, si, ei);
+    auto M =
+        A * mass(flux3.slice(1, sk, ek + 1).slice(2, sj, ej).slice(3, si, ei));
     auto s2f = r * r * aam_c2_f3.slice(0, sk, ek + 1).slice(1, sj, ej);
     rate += M.slice(0, 1, n3 + 1) * (s2f.slice(0, 1, n3 + 1) - s2c) -
             M.slice(0, 0, n3) * (s2f.slice(0, 0, n3) - s2c);
@@ -607,8 +617,8 @@ void GnomonicEquiangleImpl::conserve_axial_momentum_(
   int n1 = ei - si, n2 = ej - sj, n3 = ek - sk;
 
   // interior cells: rotation field, radius and volume
-  auto kc = aam_k_c.slice(1, sk, ek).slice(2, sj, ej);    // [3, n3, n2, 1]
-  auto r = x1v.slice(0, si, ei);                          // [n1]
+  auto kc = aam_k_c.slice(1, sk, ek).slice(2, sj, ej);  // [3, n3, n2, 1]
+  auto r = x1v.slice(0, si, ei);                        // [n1]
   auto vol = cell_volume().slice(0, sk, ek).slice(1, sj, ej).slice(2, si, ei);
   // the exact area-weighted radius of a lateral face, 2 (r+^3 - r-^3) /
   // (3 (r+^2 - r-^2)): with the unit-radius face average of k this is the
@@ -623,26 +633,29 @@ void GnomonicEquiangleImpl::conserve_axial_momentum_(
   // serves; K_f is single-valued on every face, so the sums telescope.
   auto phidiv = torch::zeros({n3, n2, n1}, div.options());
   if (flux1.defined()) {
-    auto A = face_area1().slice(0, sk, ek).slice(1, sj, ej).slice(2, si, ei + 1);
+    auto A =
+        face_area1().slice(0, sk, ek).slice(1, sj, ej).slice(2, si, ei + 1);
     auto f = flux1.slice(1, sk, ek).slice(2, sj, ej).slice(3, si, ei + 1);
-    auto phi = A * x1f.slice(0, si, ei + 1) *
-               (f[IVY] * kc[VEL2] + f[IVZ] * kc[VEL3]);
+    auto phi =
+        A * x1f.slice(0, si, ei + 1) * (f[IVY] * kc[VEL2] + f[IVZ] * kc[VEL3]);
     phidiv += phi.slice(2, 1, n1 + 1) - phi.slice(2, 0, n1);
   }
   if (flux2.defined()) {
-    auto A = face_area2().slice(0, sk, ek).slice(1, sj, ej + 1).slice(2, si, ei);
+    auto A =
+        face_area2().slice(0, sk, ek).slice(1, sj, ej + 1).slice(2, si, ei);
     auto kf = aam_k_f2.slice(1, sk, ek).slice(2, sj, ej + 1);
     auto f = flux2.slice(1, sk, ek).slice(2, sj, ej + 1).slice(3, si, ei);
-    auto phi = A * reff *
-               (f[IVX] * kf[VEL1] + f[IVY] * kf[VEL2] + f[IVZ] * kf[VEL3]);
+    auto phi =
+        A * reff * (f[IVX] * kf[VEL1] + f[IVY] * kf[VEL2] + f[IVZ] * kf[VEL3]);
     phidiv += phi.slice(1, 1, n2 + 1) - phi.slice(1, 0, n2);
   }
   if (flux3.defined()) {
-    auto A = face_area3().slice(0, sk, ek + 1).slice(1, sj, ej).slice(2, si, ei);
+    auto A =
+        face_area3().slice(0, sk, ek + 1).slice(1, sj, ej).slice(2, si, ei);
     auto kf = aam_k_f3.slice(1, sk, ek + 1).slice(2, sj, ej);
     auto f = flux3.slice(1, sk, ek + 1).slice(2, sj, ej).slice(3, si, ei);
-    auto phi = A * reff *
-               (f[IVX] * kf[VEL1] + f[IVY] * kf[VEL2] + f[IVZ] * kf[VEL3]);
+    auto phi =
+        A * reff * (f[IVX] * kf[VEL1] + f[IVY] * kf[VEL2] + f[IVZ] * kf[VEL3]);
     phidiv += phi.slice(0, 1, n3 + 1) - phi.slice(0, 0, n3);
   }
   phidiv /= vol;
