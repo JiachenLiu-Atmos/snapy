@@ -50,7 +50,9 @@ __global__ void reduce_kernel(int64_t numel, func_t f) {
   }
 }
 
-template <int Arity, typename func_t>
+// NT: threads per block. launch_legacy_kernel bounds a kernel to 4 blocks of
+// NT threads per SM, so NT also sets the per-thread register budget
+template <int Arity, int NT = 128, typename func_t>
 void gpu_kernel(at::TensorIterator& iter, const func_t& f) {
   TORCH_CHECK(iter.ninputs() + iter.noutputs() == Arity);
 
@@ -62,7 +64,7 @@ void gpu_kernel(at::TensorIterator& iter, const func_t& f) {
   auto offset_calc = ::make_offset_calculator<Arity>(iter);
   int64_t numel = iter.numel();
 
-  at::native::launch_legacy_kernel<128, 1>(numel, [=] __device__(int idx) {
+  at::native::launch_legacy_kernel<NT, 1>(numel, [=] __device__(int idx) {
     auto offsets = offset_calc.get(idx);
     f(data.data(), offsets.data());
   });

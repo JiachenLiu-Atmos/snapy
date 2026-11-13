@@ -24,15 +24,30 @@ namespace snap {
 // (forward_sweep_impl.h). Backward substitution and the donor-upwinded
 // constituent transport both retain their required serial layer dependency;
 // the final per-cell update is exposed separately so CUDA can parallelize it.
+// The Woodbury solve (K = 2) passes its unit solves z0 and z1 too: one pass
+// reads each a[i] once for all of them, with each vector's arithmetic as in a
+// pass of its own.
 template <typename T, int N>
-void DISPATCH_MACRO vic_backward_substitute(Eigen::Matrix<T, N, N>* a,
-                                            Eigen::Matrix<T, N, 1>* delta,
-                                            int il, int iu) {
+void DISPATCH_MACRO vic_backward_substitute(
+    Eigen::Matrix<T, N, N>* a, Eigen::Matrix<T, N, 1>* delta, int il, int iu,
+    Eigen::Matrix<T, N, 1>* z0 = nullptr,
+    Eigen::Matrix<T, N, 1>* z1 = nullptr) {
   // CUDA uses the shared failed-column sentinel instead of a second status
-  // buffer. Do not back-substitute a rejected forward sweep on either device.
-  for (int row = 0; row < N; ++row)
-    if (!std::isfinite(delta[il](row))) return;
-  for (int i = iu - 1; i >= il; --i) delta[i] -= a[i] * delta[i + 1];
+  // buffer. Do not back-substitute a rejected forward sweep on either device;
+  // each vector has its own test
+  auto finite = [&](Eigen::Matrix<T, N, 1> const* v) {
+    if (v == nullptr) return false;
+    for (int row = 0; row < N; ++row)
+      if (!std::isfinite(v[il](row))) return false;
+    return true;
+  };
+  bool fd = finite(delta), f0 = finite(z0), f1 = finite(z1);
+  for (int i = iu - 1; i >= il; --i) {
+    Eigen::Matrix<T, N, N> const ai = a[i];
+    if (fd) delta[i] -= ai * delta[i + 1];
+    if (f0) z0[i] -= ai * z0[i + 1];
+    if (f1) z1[i] -= ai * z1[i + 1];
+  }
 }
 
 // Component B: implicit constituent transport in FLUX form (serial per

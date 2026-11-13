@@ -451,8 +451,8 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     auto r0 = k0 * pick(y, 2), r1 = k1 * pick(y, nx1 - 3);
     auto det = m00 * m11 - m01 * m10;
     auto al0 = (m11 * r0 - m01 * r1) / det, al1 = (m00 * r1 - m10 * r0) / det;
-    y.copy_(y - z0 * al0.unsqueeze(-1).unsqueeze(-1) -
-            z1 * al1.unsqueeze(-1).unsqueeze(-1));
+    y.sub_(z0 * al0.unsqueeze(-1).unsqueeze(-1))
+        .sub_(z1 * al1.unsqueeze(-1).unsqueeze(-1));
   }
 
   // Both dispatches share the same rejection sentinel. This also catches
