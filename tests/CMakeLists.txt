@@ -31,6 +31,8 @@ setup_test(test_rectify)
 setup_test(test_flip_zero_count)
 setup_test(test_cubed_sphere_exchange)
 setup_test(test_coordinate)
+# cubed-sphere seams
+setup_test(test_cubed_sphere_seams)
 setup_test(test_cp5_nghost)
 setup_test(test_stretched_x1)
 setup_test(test_deck_x1_wiring)

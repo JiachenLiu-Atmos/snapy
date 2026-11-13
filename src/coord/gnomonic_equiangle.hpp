@@ -70,6 +70,9 @@ class GnomonicEquiangleImpl
  private:
   torch::Tensor _interp_ghost_LR(torch::Tensor buf, bool flip) const;
   torch::Tensor _interp_ghost_BT(torch::Tensor buf, bool flip) const;
+  //! linear interpolation of a received strip along the edge (dim -3 or -2)
+  torch::Tensor _interp_ghost(torch::Tensor buf, torch::Tensor usrc_t,
+                              int shift, int dim) const;
 
   //! set metric terms at face 2
   void _set_face2_metric() const;

@@ -166,6 +166,8 @@ LocalExchangeKey make_local_exchange_key(LayoutImpl const& layout,
   };
 }
 
+}  // namespace
+
 std::string exchange_buffer_key(SyncOptions const& opts,
                                 Variables const& vars) {
   std::ostringstream key;
@@ -184,7 +186,33 @@ bool buffer_matches(torch::Tensor const& buffer, torch::Tensor const& source) {
          buffer.device() == source.device();
 }
 
-}  // namespace
+void LayoutImpl::for_each_direction(
+    SyncOptions const& opts,
+    std::function<void(int, int, int)> const& fn) const {
+  auto [dz_min, dz_max] = exchange_dz_bounds(*this, opts);
+  for (int dz = dz_min; dz <= dz_max; ++dz)
+    for (int dy = opts.dy_min(); dy <= opts.dy_max(); ++dy)
+      for (int dx = opts.dx_min(); dx <= opts.dx_max(); ++dx) {
+        if (dz == 0 && dy == 0 && dx == 0) continue;
+        if (opts.skip_corner() &&
+            std::abs(dz) + std::abs(dy) + std::abs(dx) > 1)
+          continue;
+        fn(dy, dx, dz);
+      }
+}
+
+bool LayoutImpl::_skips_direction(MeshBlockImpl const* pmb,
+                                  std::tuple<int, int, int> offset) const {
+  auto [dy, dx, dz] = offset;
+  return pmb->options->is_physical_boundary(dy, dx, dz);
+}
+
+bool LayoutImpl::_in_phase(std::tuple<int, int, int> iloc, int nb,
+                           SyncOptions const& opts) const {
+  if (!opts.cross_panel_only() && !opts.intra_panel_only()) return true;
+  bool same_panel = std::get<2>(iloc) == std::get<2>(loc_of(nb));
+  return opts.cross_panel_only() ? !same_panel : same_panel;
+}
 
 LayoutOptionsImpl::LayoutOptionsImpl() {
   backend(get_env("BACKEND", default_backend()));
@@ -421,63 +449,47 @@ void LayoutImpl::_copy_local_exchange_buffers(
   for (auto* layout : layouts) {
     auto rank = layout->options->rank();
     auto iloc = layout->loc_of(rank);
-    auto [dz_min, dz_max] = exchange_dz_bounds(*layout, opts);
 
-    for (int dz_ = dz_min; dz_ <= dz_max; ++dz_) {
-      for (int dy_ = opts.dy_min(); dy_ <= opts.dy_max(); ++dy_) {
-        for (int dx_ = opts.dx_min(); dx_ <= opts.dx_max(); ++dx_) {
-          if (dz_ == 0 && dy_ == 0 && dx_ == 0) continue;
-          if (opts.skip_corner() &&
-              std::abs(dz_) + std::abs(dy_) + std::abs(dx_) > 1)
-            continue;
+    layout->for_each_direction(opts, [&](int dy_, int dx_, int dz_) {
+      auto offset = layout->_remap_exchange_offset(iloc, dy_, dx_, dz_);
+      int nb = layout->neighbor_rank(iloc, offset);
+      if (nb < 0 || nb == rank) return;
 
-          auto offset = layout->_remap_exchange_offset(iloc, dy_, dx_, dz_);
-          int nb = layout->neighbor_rank(iloc, offset);
-          if (nb < 0 || nb == rank) continue;
-
-          // this phase's peers only (cubed sphere; inert elsewhere)
-          if (opts.cross_panel_only() || opts.intra_panel_only()) {
-            bool same_panel =
-                std::get<2>(iloc) == std::get<2>(layout->loc_of(nb));
-            if (opts.cross_panel_only() && same_panel) continue;
-            if (opts.intra_panel_only() && !same_panel) continue;
-          }
-          if (layout->options->owner_process_rank(nb) !=
-              layout->options->process_rank()) {
-            continue;
-          }
-
-          int bid = get_buffer_id(offset);
-          auto peer = layouts.at(layout->options->local_block_index(nb));
-          auto peer_offset =
-              layout->_peer_exchange_offset(nb, rank, opts, offset);
-          int peer_bid = get_buffer_id(peer_offset);
-
-          auto& send_bufs = layout->owner()->send_bufs;
-          auto& peer_recv_bufs = peer->owner()->recv_bufs;
-          // a block that packed different variables than its peer would make
-          // the copy below read past the peer's buffers
-          TORCH_CHECK(peer_recv_bufs[peer_bid].size() == send_bufs[bid].size(),
-                      "local exchange: block ", rank, " sends ",
-                      send_bufs[bid].size(), " variables to block ", nb,
-                      ", which expects ", peer_recv_bufs[peer_bid].size(),
-                      "; every block must exchange the same variables");
-          for (int n = 0; n < send_bufs[bid].size(); ++n) {
-            TORCH_CHECK(peer_recv_bufs[peer_bid][n].numel() ==
-                            send_bufs[bid][n].numel(),
-                        "local exchange size mismatch from rank ", rank,
-                        " to rank ", nb, " send_offset=(", std::get<0>(offset),
-                        ",", std::get<1>(offset), ",", std::get<2>(offset),
-                        ") recv_offset=(", std::get<0>(peer_offset), ",",
-                        std::get<1>(peer_offset), ",", std::get<2>(peer_offset),
-                        ") send_shape=", send_bufs[bid][n].sizes(),
-                        " recv_shape=", peer_recv_bufs[peer_bid][n].sizes());
-            peer_recv_bufs[peer_bid][n].view({-1}).copy_(
-                send_bufs[bid][n].reshape({-1}));
-          }
-        }
+      // this phase's peers only
+      if (!layout->_in_phase(iloc, nb, opts)) return;
+      if (layout->options->owner_process_rank(nb) !=
+          layout->options->process_rank()) {
+        return;
       }
-    }
+
+      int bid = get_buffer_id(offset);
+      auto peer = layouts.at(layout->options->local_block_index(nb));
+      auto peer_offset = layout->_peer_exchange_offset(nb, rank, opts, offset);
+      int peer_bid = get_buffer_id(peer_offset);
+
+      auto& send_bufs = layout->owner()->send_bufs;
+      auto& peer_recv_bufs = peer->owner()->recv_bufs;
+      // a block that packed different variables than its peer would make
+      // the copy below read past the peer's buffers
+      TORCH_CHECK(peer_recv_bufs[peer_bid].size() == send_bufs[bid].size(),
+                  "local exchange: block ", rank, " sends ",
+                  send_bufs[bid].size(), " variables to block ", nb,
+                  ", which expects ", peer_recv_bufs[peer_bid].size(),
+                  "; every block must exchange the same variables");
+      for (int n = 0; n < send_bufs[bid].size(); ++n) {
+        TORCH_CHECK(
+            peer_recv_bufs[peer_bid][n].numel() == send_bufs[bid][n].numel(),
+            "local exchange size mismatch from rank ", rank, " to rank ", nb,
+            " send_offset=(", std::get<0>(offset), ",", std::get<1>(offset),
+            ",", std::get<2>(offset), ") recv_offset=(",
+            std::get<0>(peer_offset), ",", std::get<1>(peer_offset), ",",
+            std::get<2>(peer_offset),
+            ") send_shape=", send_bufs[bid][n].sizes(),
+            " recv_shape=", peer_recv_bufs[peer_bid][n].sizes());
+        peer_recv_bufs[peer_bid][n].view({-1}).copy_(
+            send_bufs[bid][n].reshape({-1}));
+      }
+    });
   }
 }
 
@@ -490,58 +502,42 @@ void LayoutImpl::serialize(MeshBlockImpl const* pmb, Variables& vars,
   // Get my logical location
   auto iloc = loc_of(options->rank());
 
-  // Iterate over all 3D neighbor directions
-  auto [dz_min, dz_max] = exchange_dz_bounds(*this, opts);
-  int dy_min = opts.dy_min();
-  int dy_max = opts.dy_max();
-  int dx_min = opts.dx_min();
-  int dx_max = opts.dx_max();
   auto& cache = pmb->exchange_buffer_cache[exchange_buffer_key(opts, vars)];
   cache.send.resize(num_exchange_buffers());
   cache.recv.resize(num_exchange_buffers());
 
-  for (int dz = dz_min; dz <= dz_max; ++dz)
-    for (int dy = dy_min; dy <= dy_max; ++dy)
-      for (int dx = dx_min; dx <= dx_max; ++dx) {
-        // Skip the center (self)
-        if (dz == 0 && dy == 0 && dx == 0) continue;
-        // In 3D, skip_corner keeps only face-normal directions (one non-zero
-        // component)
-        if (opts.skip_corner() &&
-            std::abs(dz) + std::abs(dy) + std::abs(dx) > 1)
-          continue;
-        if (pmb->options->is_physical_boundary(dy, dx, dz)) continue;
+  for_each_direction(opts, [&](int dy, int dx, int dz) {
+    std::tuple<int, int, int> offset(dy, dx, dz);
+    if (_skips_direction(pmb, offset)) return;
+    int nb = neighbor_rank(iloc, offset);
+    if (nb < 0) return;  // no neighbor
 
-        std::tuple<int, int, int> offset(dy, dx, dz);
-        int nb = neighbor_rank(iloc, offset);
-        if (nb < 0) continue;  // no neighbor
+    // Get the interior part for this direction
+    auto sub = pmb->part(offset, PartOptions().exterior(false));
 
-        // Get the interior part for this direction
-        auto sub = pmb->part(offset, PartOptions().exterior(false));
-
-        // Copy data from mesh to send buffer
-        int bid = get_buffer_id(offset);
-        int count = 0;
-        auto& cached_send = cache.send[bid];
-        auto& cached_recv = cache.recv[bid];
-        cached_send.resize(vars.size());
-        cached_recv.resize(vars.size());
-        for (auto& [name, var] : vars) {
-          auto source = var.index(sub);
-          if (!buffer_matches(cached_send[count], source)) {
-            cached_send[count] = torch::empty(source.sizes(), source.options());
-          }
-          cached_send[count].copy_(source);
-
-          if (!buffer_matches(cached_recv[count], cached_send[count])) {
-            cached_recv[count] = torch::empty(cached_send[count].sizes(),
-                                              cached_send[count].options());
-          }
-          count++;
-        }
-        pmb->send_bufs[bid] = cached_send;
-        pmb->recv_bufs[bid] = cached_recv;
+    // Copy data from mesh to send buffer
+    int bid = get_buffer_id(offset);
+    int count = 0;
+    auto& cached_send = cache.send[bid];
+    auto& cached_recv = cache.recv[bid];
+    cached_send.resize(vars.size());
+    cached_recv.resize(vars.size());
+    for (auto& [name, var] : vars) {
+      auto source = var.index(sub);
+      if (!buffer_matches(cached_send[count], source)) {
+        cached_send[count] = torch::empty(source.sizes(), source.options());
       }
+      cached_send[count].copy_(source);
+
+      if (!buffer_matches(cached_recv[count], cached_send[count])) {
+        cached_recv[count] = torch::empty(cached_send[count].sizes(),
+                                          cached_send[count].options());
+      }
+      count++;
+    }
+    pmb->send_bufs[bid] = cached_send;
+    pmb->recv_bufs[bid] = cached_recv;
+  });
 }
 
 void LayoutImpl::launch_exchange(MeshBlockImpl const* pmb,
@@ -570,68 +566,46 @@ void LayoutImpl::exchange_remote(MeshBlockImpl const* pmb,
   // Get my logical location
   auto iloc = loc_of(rank);
 
-  auto [dz_min, dz_max] = exchange_dz_bounds(*this, opts);
-  int dy_min = opts.dy_min();
-  int dy_max = opts.dy_max();
-  int dx_min = opts.dx_min();
-  int dx_max = opts.dx_max();
-  int dx_sgn = 1;
-  int dy_sgn = 1;
-  int dz_sgn = 1;
-
-  // swap the order of first block for periodic condition
-  if (options->periodic_x() && options->px() == 2 && std::get<0>(iloc) == 0) {
-    dx_sgn = -1;
-  }
-
-  if (options->periodic_y() && options->py() == 2 && std::get<1>(iloc) == 0) {
-    dy_sgn = -1;
-  }
-
-  if (options->periodic_z() && options->pz() == 2 && std::get<2>(iloc) == 0) {
-    dz_sgn = -1;
-  }
-
   std::vector<RemoteExchangeOp> remote_ops;
 
-  for (int dz_ = dz_min; dz_ <= dz_max; ++dz_)
-    for (int dy_ = dy_min; dy_ <= dy_max; ++dy_)
-      for (int dx_ = dx_min; dx_ <= dx_max; ++dx_) {
-        int dz = dz_sgn * dz_;
-        int dy = dy_sgn * dy_;
-        int dx = dx_sgn * dx_;
+  // the order of the first block is swapped for a periodic axis of two blocks
+  // (_remap_exchange_offset); a cubed-sphere sync keeps this phase's peers
+  for_each_direction(opts, [&](int dy_, int dx_, int dz_) {
+    auto offset = _remap_exchange_offset(iloc, dy_, dx_, dz_);
+    auto [dy, dx, dz] = offset;
+    if (_skips_direction(pmb, offset)) return;
+    int nb = neighbor_rank(iloc, offset);
+    if (nb < 0) return;  // no neighbor
+    if (!_in_phase(iloc, nb, opts)) return;
 
-        // skip the center (self)
-        if (dz == 0 && dy == 0 && dx == 0) continue;
-        if (opts.skip_corner() &&
-            std::abs(dz) + std::abs(dy) + std::abs(dx) > 1)
-          continue;
-        if (pmb->options->is_physical_boundary(dy, dx, dz)) continue;
+    int r = get_buffer_id(offset);
+    int remote_process = options->owner_process_rank(nb);
+    bool is_remote = remote_process != options->process_rank();
 
-        std::tuple<int, int, int> offset(dy, dx, dz);
-        int nb = neighbor_rank(iloc, offset);
-        if (nb < 0) continue;  // no neighbor
-
-        int r = get_buffer_id(offset);
-        int remote_process = options->owner_process_rank(nb);
-        bool is_remote = remote_process != options->process_rank();
-
-        if (is_remote) {
-          int remote_local_block = options->local_block_index(nb);
-          int local_block = options->local_block_index(rank);
-          auto peer_offset = _peer_exchange_offset(nb, rank, opts, offset);
-          int send_id =
-              make_comm_tag(remote_local_block, peer_offset, opts.phyid());
-          int recv_id = make_comm_tag(local_block, offset, opts.phyid());
-          remote_ops.push_back({this, remote_process, local_block,
-                                remote_local_block, r, send_id, recv_id, offset,
-                                peer_offset});
-        } else if (nb == rank) {  // self-send
-          int r1 = get_buffer_id(std::tuple<int, int, int>(-dy, -dx, -dz));
-          for (int n = 0; n < pmb->recv_bufs[r].size(); ++n)
-            pmb->recv_bufs[r1][n].copy_(pmb->send_bufs[r][n]);
-        }
-      }
+    if (is_remote) {
+      int remote_local_block = options->local_block_index(nb);
+      int local_block = options->local_block_index(rank);
+      auto peer_offset = _peer_exchange_offset(nb, rank, opts, offset);
+      int send_id =
+          make_comm_tag(remote_local_block, peer_offset, opts.phyid());
+      int recv_id = make_comm_tag(local_block, offset, opts.phyid());
+      remote_ops.push_back({this, remote_process, local_block,
+                            remote_local_block, r, send_id, recv_id, offset,
+                            peer_offset});
+    } else if (nb == rank) {  // self-send
+      // the reversed direction is the receiving slot only on a flat layout;
+      // across a cubed-sphere seam the peer's offset is rotated
+      // (_peer_exchange_offset), so this copy would fill the wrong ghosts
+      TORCH_CHECK(dynamic_cast<CubedSphereLayoutImpl const*>(this) == nullptr,
+                  "exchange_remote: cubed-sphere block ", rank,
+                  " is its own neighbour in direction (", dy, ",", dx, ",", dz,
+                  "); a self-send across a panel seam is unsupported, since "
+                  "its receiving slot is not the reversed direction");
+      int r1 = get_buffer_id(std::tuple<int, int, int>(-dy, -dx, -dz));
+      for (int n = 0; n < pmb->recv_bufs[r].size(); ++n)
+        pmb->recv_bufs[r1][n].copy_(pmb->send_bufs[r][n]);
+    }
+  });
 
   if (remote_ops.empty()) return;
   TORCH_CHECK(has_process_group(),
@@ -681,37 +655,22 @@ void LayoutImpl::deserialize(MeshBlockImpl const* pmb, Variables& vars,
   // Get my logical location
   auto iloc = loc_of(options->rank());
 
-  auto [dz_min, dz_max] = exchange_dz_bounds(*this, opts);
-  int dy_min = opts.dy_min();
-  int dy_max = opts.dy_max();
-  int dx_min = opts.dx_min();
-  int dx_max = opts.dx_max();
+  for_each_direction(opts, [&](int dy, int dx, int dz) {
+    std::tuple<int, int, int> offset(dy, dx, dz);
+    if (_skips_direction(pmb, offset)) return;
+    int nb = neighbor_rank(iloc, offset);
+    if (nb < 0) return;  // no neighbor
 
-  // Iterate over all 3D neighbor directions
-  for (int dz = dz_min; dz <= dz_max; ++dz)
-    for (int dy = dy_min; dy <= dy_max; ++dy)
-      for (int dx = dx_min; dx <= dx_max; ++dx) {
-        // Skip the center (self)
-        if (dz == 0 && dy == 0 && dx == 0) continue;
-        if (opts.skip_corner() &&
-            std::abs(dz) + std::abs(dy) + std::abs(dx) > 1)
-          continue;
-        if (pmb->options->is_physical_boundary(dy, dx, dz)) continue;
+    // Get the exterior (ghost zone) part for this direction
+    auto sub = pmb->part(offset, PartOptions().exterior(true));
 
-        std::tuple<int, int, int> offset(dy, dx, dz);
-        int nb = neighbor_rank(iloc, offset);
-        if (nb < 0) continue;  // no neighbor
-
-        // Get the exterior (ghost zone) part for this direction
-        auto sub = pmb->part(offset, PartOptions().exterior(true));
-
-        // Copy data from receive buffer to mesh ghost zones
-        int bid = get_buffer_id(offset);
-        int count = 0;
-        for (auto& [name, var] : vars) {
-          var.index_put_(sub, pmb->recv_bufs[bid][count++]);
-        }
-      }
+    // Copy data from receive buffer to mesh ghost zones
+    int bid = get_buffer_id(offset);
+    int count = 0;
+    for (auto& [name, var] : vars) {
+      var.index_put_(sub, pmb->recv_bufs[bid][count++]);
+    }
+  });
 }
 
 void LayoutImpl::fill_corners(MeshBlockImpl const* pmb, Variables& vars) const {

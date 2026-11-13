@@ -294,8 +294,8 @@ TEST(GnomonicEquiangle, l2g) {
 
   for (int f = 0; f < 6; ++f)
     for (int i = 0; i < 3; ++i) {
-      EXPECT_EQ(l2g[f][i].idx, CS_L2G_VEL[f][i].idx);
-      EXPECT_EQ(l2g[f][i].sgn, CS_L2G_VEL[f][i].sgn);
+      EXPECT_EQ(l2g[f][i].idx, CS_LOCAL_TO_CART_VEL[f][i].idx);
+      EXPECT_EQ(l2g[f][i].sgn, CS_LOCAL_TO_CART_VEL[f][i].sgn);
     }
 }
 

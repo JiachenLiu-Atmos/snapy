@@ -4,6 +4,7 @@
 #include <torch/torch.h>
 
 #include <algorithm>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <torch/csrc/distributed/c10d/Backend.hpp>
@@ -158,6 +159,12 @@ struct SyncOptions {
 
 using Variables = std::map<std::string, torch::Tensor>;
 
+//! Cache key of the send/receive buffers of one exchange.
+std::string exchange_buffer_key(SyncOptions const& opts, Variables const& vars);
+
+//! A cached buffer can take `source`: same shape, dtype and device.
+bool buffer_matches(torch::Tensor const& buffer, torch::Tensor const& source);
+
 //! exchange_each_var adds n * 65536 for variable n, so the tag must stay in
 //! [0, 65536) for the tags of different variables to stay distinct.
 inline int make_comm_tag(int local_block_index,
@@ -217,6 +224,12 @@ class LayoutImpl {
 
   //! Number of directional exchange slots required by this layout geometry.
   virtual int num_exchange_buffers() const { return 9; }
+
+  //! Every neighbour direction of one exchange, as fn(dy, dx, dz) in dz, dy,
+  //! dx order: the centre is left out, and with skip_corner every direction
+  //! with more than one nonzero component; dz moves only with 27 buffers.
+  void for_each_direction(SyncOptions const& opts,
+                          std::function<void(int, int, int)> const& fn) const;
 
   virtual int rank_of(std::tuple<int, int, int> iloc) const {
     auto [rx, ry, rz] = iloc;
@@ -313,6 +326,15 @@ class LayoutImpl {
       std::tuple<int, int, int> offset) const;
   virtual void _copy_local_exchange_buffers(
       std::vector<LayoutImpl*> const& layouts, SyncOptions const& opts) const;
+  //! The exchange skips this direction before asking for a neighbour: a
+  //! physical boundary of the block.
+  virtual bool _skips_direction(MeshBlockImpl const* pmb,
+                                std::tuple<int, int, int> offset) const;
+  //! Neighbour nb takes part in this exchange phase: a cubed-sphere sync runs
+  //! an intra-panel and a cross-panel phase (loc_of's third index is the
+  //! panel); without either flag every neighbour does.
+  bool _in_phase(std::tuple<int, int, int> iloc, int nb,
+                 SyncOptions const& opts) const;
 
   std::vector<Coord2> _coords2;
   std::vector<Coord3> _coords3;

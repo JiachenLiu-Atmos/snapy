@@ -90,16 +90,22 @@ void GnomonicEquiangleImpl::reset() {
   register_buffer("cosine_face3_kj", cosine_face3_kj);
   register_buffer("sine_face3_kj", sine_face3_kj);
 
+  // the angle between the panel points (e, a) and (e, b) (tangents, e held
+  // fixed) seen from the centre, written once: a seam face is then the same
+  // number on both panels, whichever of x2/x3 is held fixed on each side
+  auto arc = [](torch::Tensor const& e, torch::Tensor const& a,
+                torch::Tensor const& b) {
+    auto e2 = e * e;
+    return ((1. + e2 + a * b) /
+            ((1. + e2 + a * a).sqrt() * (1. + e2 + b * b).sqrt()))
+        .acos();
+  };
+
   auto x1 = x2f.slice(0, 0, op->nc2()).tan().unsqueeze(0).unsqueeze(-1);
   auto x2 = x2f.slice(0, 1, op->nc2() + 1).tan().unsqueeze(0).unsqueeze(-1);
 
-  auto delta1 = (1. + x1 * x1 + y * y).sqrt();
-  auto delta2 = (1. + x2 * x2 + y * y).sqrt();
-  auto delta1f = (1. + x1 * x1 + yf * yf).sqrt();
-  auto delta2f = (1. + x2 * x2 + yf * yf).sqrt();
-
-  dx2f_ang_kj = ((1. + x1 * x2 + y * y) / (delta1 * delta2)).acos();
-  dx2f_ang_face3_kj = ((1. + x1 * x2 + yf * yf) / (delta1f * delta2f)).acos();
+  dx2f_ang_kj = arc(y, x1, x2);
+  dx2f_ang_face3_kj = arc(yf, x1, x2);
 
   register_buffer("dx2f_ang_kj", dx2f_ang_kj);
   register_buffer("dx2f_ang_face3_kj", dx2f_ang_face3_kj);
@@ -107,13 +113,8 @@ void GnomonicEquiangleImpl::reset() {
   auto y1 = x3f.slice(0, 0, op->nc3()).tan().unsqueeze(-1).unsqueeze(-1);
   auto y2 = x3f.slice(0, 1, op->nc3() + 1).tan().unsqueeze(-1).unsqueeze(-1);
 
-  delta1 = (1. + x * x + y1 * y1).sqrt();
-  delta2 = (1. + x * x + y2 * y2).sqrt();
-  delta1f = (1. + xf * xf + y1 * y1).sqrt();
-  delta2f = (1. + xf * xf + y2 * y2).sqrt();
-
-  dx3f_ang_kj = ((1. + x * x + y1 * y2) / (delta1 * delta2)).acos();
-  dx3f_ang_face2_kj = ((1. + xf * xf + y1 * y2) / (delta1f * delta2f)).acos();
+  dx3f_ang_kj = arc(x, y1, y2);
+  dx3f_ang_face2_kj = arc(xf, y1, y2);
 
   register_buffer("dx3f_ang_kj", dx3f_ang_kj);
   register_buffer("dx3f_ang_face2_kj", dx3f_ang_face2_kj);
@@ -469,10 +470,9 @@ torch::Tensor GnomonicEquiangleImpl::forward(torch::Tensor prim,
   return div;
 }
 
-torch::Tensor GnomonicEquiangleImpl::_interp_ghost_LR(torch::Tensor buf,
-                                                      bool flip) const {
-  auto usrc_t = flip ? usrc_LR : usrc_LR.flip(1);
-
+torch::Tensor GnomonicEquiangleImpl::_interp_ghost(torch::Tensor buf,
+                                                   torch::Tensor usrc_t,
+                                                   int shift, int dim) const {
   auto vec = usrc_t.sizes().vec();
   vec.push_back(1);
   for (int n = 0; n < buf.dim() - 3; n++) {
@@ -483,7 +483,7 @@ torch::Tensor GnomonicEquiangleImpl::_interp_ghost_LR(torch::Tensor buf,
   // only
   auto u0f = usrc_t.floor();
   auto x = (usrc_t - u0f).view(vec);
-  auto u0 = u0f.to(torch::kInt64).view(vec) + usrc_shift_LR;
+  auto u0 = u0f.to(torch::kInt64).view(vec) + shift;
   auto u1 = u0 + 1;
 
   // set the correct output dimensions
@@ -492,63 +492,24 @@ torch::Tensor GnomonicEquiangleImpl::_interp_ghost_LR(torch::Tensor buf,
     vec[n] = buf.size(n);
   }
 
-  auto buf0 = buf.gather(-3, u0.expand(vec));
-  auto buf1 = buf.gather(-3, u1.expand(vec));
+  auto buf0 = buf.gather(dim, u0.expand(vec));
+  auto buf1 = buf.gather(dim, u1.expand(vec));
 
-  if (options->interp_order() == 2) {
-    return x * buf1 + (1.0 - x) * buf0;
-  } else {
-    auto u2 = u1 + 1;
-    auto um = u0 - 1;
-    auto bufm = buf.gather(-3, um.expand(vec));
-    auto buf2 = buf.gather(-3, u2.expand(vec));
-    auto wm = (-x * (x - 1) * (x - 2)) / 6.0;
-    auto w0 = ((x + 1) * (x - 1) * (x - 2)) / 2.0;
-    auto w1 = (-(x + 1) * x * (x - 2)) / 2.0;
-    auto w2 = (x * (x + 1) * (x - 1)) / 6.0;
-    return wm * bufm + w0 * buf0 + w1 * buf1 + w2 * buf2;
-  }
+  // linear, written about buf0 so that equal neighbours give buf0 exactly
+  // (interp_order 2; reset() refuses any other order)
+  return buf0 + x * (buf1 - buf0);
+}
+
+torch::Tensor GnomonicEquiangleImpl::_interp_ghost_LR(torch::Tensor buf,
+                                                      bool flip) const {
+  return _interp_ghost(buf, flip ? usrc_LR : usrc_LR.flip(1), usrc_shift_LR,
+                       -3);
 }
 
 torch::Tensor GnomonicEquiangleImpl::_interp_ghost_BT(torch::Tensor buf,
                                                       bool flip) const {
-  auto usrc_t = flip ? usrc_BT : usrc_BT.flip(0);
-
-  auto vec = usrc_t.sizes().vec();
-  vec.push_back(1);
-  for (int n = 0; n < buf.dim() - 3; n++) {
-    vec.insert(vec.begin(), 1);
-  }
-
-  // weight from the GLOBAL coordinate; block shift applied to the integer index
-  // only
-  auto u0f = usrc_t.floor();
-  auto x = (usrc_t - u0f).view(vec);
-  auto u0 = u0f.to(torch::kInt64).view(vec) + usrc_shift_BT;
-  auto u1 = u0 + 1;
-
-  // set the correct output dimensions
-  vec.back() = buf.size(-1);
-  for (int n = 0; n < buf.dim() - 3; n++) {
-    vec[n] = buf.size(n);
-  }
-
-  auto buf0 = buf.gather(-2, u0.expand(vec));
-  auto buf1 = buf.gather(-2, u1.expand(vec));
-
-  if (options->interp_order() == 2) {
-    return x * buf1 + (1.0 - x) * buf0;
-  } else {
-    auto u2 = u1 + 1;
-    auto um = u0 - 1;
-    auto bufm = buf.gather(-2, um.expand(vec));
-    auto buf2 = buf.gather(-2, u2.expand(vec));
-    auto wm = (-x * (x - 1) * (x - 2)) / 6.0;
-    auto w0 = ((x + 1) * (x - 1) * (x - 2)) / 2.0;
-    auto w1 = (-(x + 1) * x * (x - 2)) / 2.0;
-    auto w2 = (x * (x + 1) * (x - 1)) / 6.0;
-    return wm * bufm + w0 * buf0 + w1 * buf1 + w2 * buf2;
-  }
+  return _interp_ghost(buf, flip ? usrc_BT : usrc_BT.flip(0), usrc_shift_BT,
+                       -2);
 
   /*auto iter = at::TensorIteratorConfig()
                   .resize_outputs(false)

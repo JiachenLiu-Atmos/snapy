@@ -78,24 +78,55 @@ static int face_state_x1_extent(MeshBlockImpl const* pmb) {
 
 namespace {
 
-std::mutex g_cubed_sphere_comm_mutex;
-
-std::string exchange_buffer_key(SyncOptions const& opts,
-                                Variables const& vars) {
-  std::ostringstream key;
-  key << opts.dim() << ':' << opts.phyid() << ':' << opts.type() << ':'
-      << opts.intra_panel_only() << ':' << opts.cross_panel_only() << ':'
-      << opts.skip_corner() << ':' << opts.interpolate();
-  for (auto const& [name, _] : vars) {
-    key << ':' << name;
-  }
-  return key.str();
+//! A variable named "name:+" is sent only towards +x2/+x3 and received only
+//! from -x2/-x3; "name:-" the other way round.
+bool skips_partial(std::string const& name, int dy, int dx, bool send) {
+  auto pos = name.find(":");
+  if (pos == std::string::npos) return false;
+  auto suffix = name.substr(pos + 1);
+  bool up = dy > 0 || dx > 0, down = dy < 0 || dx < 0;
+  return send ? (suffix == "+" && down) || (suffix == "-" && up)
+              : (suffix == "+" && up) || (suffix == "-" && down);
 }
 
-bool buffer_matches(torch::Tensor const& buffer, torch::Tensor const& source) {
-  return buffer.defined() && buffer.sizes() == source.sizes() &&
-         buffer.scalar_type() == source.scalar_type() &&
-         buffer.device() == source.device();
+//! The cross-panel strip of one direction: a face-state sync (dim 2 or 3)
+//! moves one face layer, extended over the x1 ghost rows; `widen` adds the
+//! tangential margin an interpolating receiver reads (cs_interp_margin).
+PartOptions strip_part(MeshBlockImpl const* pmb, SyncOptions const& opts,
+                       int dy, int dx, bool exterior, bool widen) {
+  auto part_opts = PartOptions().exterior(exterior);
+  if (opts.dim() == SyncOptions::DIM2) {
+    part_opts.depth(1).exterior(dx > 0).extend_x1(face_state_x1_extent(pmb));
+  } else if (opts.dim() == SyncOptions::DIM3) {
+    part_opts.depth(1).exterior(dy > 0).extend_x1(face_state_x1_extent(pmb));
+  }
+  if (widen && opts.interpolate()) {
+    int margin = cs_interp_margin(pmb->options->coord()->nghost());
+    if (dy != 0 && dx == 0) {
+      part_opts.extend_x2(margin);
+    } else if (dx != 0 && dy == 0) {
+      part_opts.extend_x3(margin);
+    }
+  }
+  return part_opts;
+}
+
+//! Panel angles (x3, x2) and metric cosine where a sync's values live: cell
+//! centres, or the x2 (x3) faces of a dim-2 (dim-3) face-state sync.
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> strip_coords(
+    Coordinate const& pcoord, SyncOptions const& opts) {
+  int nc1 = pcoord->options->nc1();
+  int nc2 = pcoord->options->nc2();
+  int nc3 = pcoord->options->nc3();
+  if (opts.dim() == SyncOptions::DIM3) {
+    return {pcoord->x3f, pcoord->x2v,
+            pcoord->cosine_face3_kj.expand({nc3 + 1, nc2, nc1})};
+  } else if (opts.dim() == SyncOptions::DIM2) {
+    return {pcoord->x3v, pcoord->x2f,
+            pcoord->cosine_face2_kj.expand({nc3, nc2 + 1, nc1})};
+  }
+  return {pcoord->x3v, pcoord->x2v,
+          pcoord->cosine_cell_kj.expand({nc3, nc2, nc1})};
 }
 
 std::string velocity_transform_key(SyncOptions const& opts, int buffer_id,
@@ -281,34 +312,6 @@ const CSVel CS_LOCAL_TO_CART_VEL[6][3] = {
     {cs_local_to_cart_vel(5, VEL1), cs_local_to_cart_vel(5, VEL2),
      cs_local_to_cart_vel(5, VEL3)}};
 
-const CSVel CS_G2L_VEL[6][3] = {
-    {cs_cart_to_local_vel(0, VEL1), cs_cart_to_local_vel(0, VEL2),
-     cs_cart_to_local_vel(0, VEL3)},
-    {cs_cart_to_local_vel(1, VEL1), cs_cart_to_local_vel(1, VEL2),
-     cs_cart_to_local_vel(1, VEL3)},
-    {cs_cart_to_local_vel(2, VEL1), cs_cart_to_local_vel(2, VEL2),
-     cs_cart_to_local_vel(2, VEL3)},
-    {cs_cart_to_local_vel(3, VEL1), cs_cart_to_local_vel(3, VEL2),
-     cs_cart_to_local_vel(3, VEL3)},
-    {cs_cart_to_local_vel(4, VEL1), cs_cart_to_local_vel(4, VEL2),
-     cs_cart_to_local_vel(4, VEL3)},
-    {cs_cart_to_local_vel(5, VEL1), cs_cart_to_local_vel(5, VEL2),
-     cs_cart_to_local_vel(5, VEL3)}};
-
-const CSVel CS_L2G_VEL[6][3] = {
-    {cs_local_to_cart_vel(0, VEL1), cs_local_to_cart_vel(0, VEL2),
-     cs_local_to_cart_vel(0, VEL3)},
-    {cs_local_to_cart_vel(1, VEL1), cs_local_to_cart_vel(1, VEL2),
-     cs_local_to_cart_vel(1, VEL3)},
-    {cs_local_to_cart_vel(2, VEL1), cs_local_to_cart_vel(2, VEL2),
-     cs_local_to_cart_vel(2, VEL3)},
-    {cs_local_to_cart_vel(3, VEL1), cs_local_to_cart_vel(3, VEL2),
-     cs_local_to_cart_vel(3, VEL3)},
-    {cs_local_to_cart_vel(4, VEL1), cs_local_to_cart_vel(4, VEL2),
-     cs_local_to_cart_vel(4, VEL3)},
-    {cs_local_to_cart_vel(5, VEL1), cs_local_to_cart_vel(5, VEL2),
-     cs_local_to_cart_vel(5, VEL3)}};
-
 /*!
  * Sides: 0=L, 1=R, 2=B, 3=T  (left, right, bottom, top)
  * Each entry says: leaving face F via side S,
@@ -350,9 +353,9 @@ void populate_cs_l2g_vel(CSVel l2g[6][3]) {
   for (int f = 0; f < 6; ++f) {
     for (int c = 0; c < 3; ++c) {
       for (int gc = 0; gc < 3; ++gc) {
-        if (CS_G2L_VEL[f][gc].idx == c) {
+        if (CS_CART_TO_LOCAL_VEL[f][gc].idx == c) {
           l2g[f][c].idx = gc;
-          l2g[f][c].sgn = CS_G2L_VEL[f][gc].sgn;
+          l2g[f][c].sgn = CS_CART_TO_LOCAL_VEL[f][gc].sgn;
         }
       }
     }
@@ -565,12 +568,6 @@ void CubedSphereLayoutImpl::serialize(MeshBlockImpl const* pmb, Variables& vars,
   // Get my logical location
   auto iloc = loc_of(options->rank());
 
-  // Iterate over all face-adjacent neighbor directions
-  int dy_min = opts.dy_min();
-  int dy_max = opts.dy_max();
-  int dx_min = opts.dx_min();
-  int dx_max = opts.dx_max();
-
   auto& buffers = pmb->exchange_buffer_cache[exchange_buffer_key(opts, vars)];
   buffers.send.resize(num_exchange_buffers());
   buffers.recv.resize(num_exchange_buffers());
@@ -578,56 +575,44 @@ void CubedSphereLayoutImpl::serialize(MeshBlockImpl const* pmb, Variables& vars,
 
   // Serialize over all intra-panel neighbors first
   if (!opts.cross_panel_only()) {
-    for (int dy = dy_min; dy <= dy_max; ++dy)
-      for (int dx = dx_min; dx <= dx_max; ++dx) {
-        // skip the center (self)
-        if (dy == 0 && dx == 0) continue;
-        if (opts.skip_corner() && std::abs(dy) + std::abs(dx) == 2) continue;
+    for_each_direction(opts, [&](int dy, int dx, int) {
+      std::tuple<int, int, int> offset(dy, dx, 0);
+      int nb = neighbor_rank(iloc, offset);
+      if (nb < 0) return;  // no neighbor
 
-        std::tuple<int, int, int> offset(dy, dx, 0);
-        int nb = neighbor_rank(iloc, offset);
-        if (nb < 0) continue;  // no neighbor
+      // skip inter-panel neighbors
+      if (std::get<2>(iloc) != std::get<2>(loc_of(nb))) return;
 
-        // skip inter-panel neighbors
-        if (std::get<2>(iloc) != std::get<2>(loc_of(nb))) continue;
+      // Get the interior part for this direction
+      auto sub = pmb->part(offset, PartOptions().exterior(false));
 
-        // Get the interior part for this direction
-        auto sub = pmb->part(offset, PartOptions().exterior(false));
+      // Copy data from mesh to send buffer
+      int bid = get_buffer_id(offset);
 
-        // Copy data from mesh to send buffer
-        int bid = get_buffer_id(offset);
+      auto& send_bufs = buffers.send[bid];
+      auto& recv_bufs = buffers.recv[bid];
+      send_bufs.resize(vars.size());
+      recv_bufs.resize(vars.size());
 
-        auto& send_bufs = buffers.send[bid];
-        auto& recv_bufs = buffers.recv[bid];
-        send_bufs.resize(vars.size());
-        recv_bufs.resize(vars.size());
+      size_t ivar = 0;
+      for (auto& [name, var] : vars) {
+        if (skips_partial(name, dy, dx, /*send=*/true)) continue;
 
-        size_t ivar = 0;
-        for (auto& [name, var] : vars) {
-          // do partial send if name string contains ':'
-          auto pos = name.find(":");
-          if (pos != std::string::npos) {
-            auto suffix = name.substr(pos + 1);
-            if ((suffix == "+" && (dy < 0 || dx < 0)) ||
-                (suffix == "-" && (dy > 0 || dx > 0)))
-              continue;
-          }
-
-          auto source = var.index(sub);
-          if (!buffer_matches(send_bufs[ivar], source)) {
-            send_bufs[ivar] = torch::empty_like(source);
-          }
-          if (!buffer_matches(recv_bufs[ivar], source)) {
-            recv_bufs[ivar] = torch::empty_like(source);
-          }
-          send_bufs[ivar].copy_(source);
-          ++ivar;
+        auto source = var.index(sub);
+        if (!buffer_matches(send_bufs[ivar], source)) {
+          send_bufs[ivar] = torch::empty_like(source);
         }
-        send_bufs.resize(ivar);
-        recv_bufs.resize(ivar);
-        pmb->send_bufs[bid] = send_bufs;
-        pmb->recv_bufs[bid] = recv_bufs;
+        if (!buffer_matches(recv_bufs[ivar], source)) {
+          recv_bufs[ivar] = torch::empty_like(source);
+        }
+        send_bufs[ivar].copy_(source);
+        ++ivar;
       }
+      send_bufs.resize(ivar);
+      recv_bufs.resize(ivar);
+      pmb->send_bufs[bid] = send_bufs;
+      pmb->recv_bufs[bid] = recv_bufs;
+    });
   }
 
   // Phase 1 of the two-phase ghost sync stops here. The cross-panel strip
@@ -637,169 +622,122 @@ void CubedSphereLayoutImpl::serialize(MeshBlockImpl const* pmb, Variables& vars,
   // one-sync-stale margin cells, which is exactly the defect this split fixes.
   if (opts.intra_panel_only()) return;
 
-  // get mesh
-  torch::Tensor x2_coord, x3_coord, cosine_cell;
-  int nc1 = pcoord->options->nc1();
-  int nc2 = pcoord->options->nc2();
-  int nc3 = pcoord->options->nc3();
-
-  if (opts.dim() == SyncOptions::DIM3) {
-    x3_coord = pcoord->x3f;
-    x2_coord = pcoord->x2v;
-    cosine_cell = pcoord->cosine_face3_kj.expand({nc3 + 1, nc2, nc1});
-  } else if (opts.dim() == SyncOptions::DIM2) {
-    x3_coord = pcoord->x3v;
-    x2_coord = pcoord->x2f;
-    cosine_cell = pcoord->cosine_face2_kj.expand({nc3, nc2 + 1, nc1});
-  } else {
-    x3_coord = pcoord->x3v;
-    x2_coord = pcoord->x2v;
-    cosine_cell = pcoord->cosine_cell_kj.expand({nc3, nc2, nc1});
-  }
-
+  auto [x3_coord, x2_coord, cosine_cell] = strip_coords(pcoord, opts);
   auto mesh = torch::meshgrid({x3_coord, x2_coord, pcoord->x1v}, "ij");
 
   // Serialize over all inter-panel neighbors
-  for (int dy = dy_min; dy <= dy_max; ++dy)
-    for (int dx = dx_min; dx <= dx_max; ++dx) {
-      // skip the center (self)
-      if (dy == 0 && dx == 0) continue;
-      if (opts.skip_corner() && std::abs(dy) + std::abs(dx) == 2) continue;
+  for_each_direction(opts, [&](int dy, int dx, int) {
+    std::tuple<int, int, int> offset(dy, dx, 0);
+    int nb = neighbor_rank(iloc, offset);
+    if (nb < 0) return;  // no neighbor
 
-      std::tuple<int, int, int> offset(dy, dx, 0);
-      int nb = neighbor_rank(iloc, offset);
-      if (nb < 0) continue;  // no neighbor
+    // skip intra-panel neighbors
+    if (std::get<2>(iloc) == std::get<2>(loc_of(nb))) return;
 
-      // skip intra-panel neighbors
-      if (std::get<2>(iloc) == std::get<2>(loc_of(nb))) continue;
+    // Get the interior part for this direction, widened by cs_interp_margin
+    // for an interpolating receiver (the halo is fresh only because phase 1
+    // completed -- see the early return above)
+    auto part_opts = strip_part(pmb, opts, dy, dx, /*exterior=*/false,
+                                /*widen=*/true);
+    auto sub = pmb->part(offset, part_opts);
+    auto sub3 = pmb->part(offset, part_opts.ndim(3));
 
-      // Get the interior part for this direction
-      auto part_opts = PartOptions().exterior(false);
-      if (opts.dim() == SyncOptions::DIM2) {
-        part_opts.depth(1).exterior(dx > 0).extend_x1(
-            face_state_x1_extent(pmb));
-      } else if (opts.dim() == SyncOptions::DIM3) {
-        part_opts.depth(1).exterior(dy > 0).extend_x1(
-            face_state_x1_extent(pmb));
+    // Copy data from mesh to send buffer
+    int bid = get_buffer_id(offset);
+
+    auto& send_bufs = buffers.send[bid];
+    auto& recv_bufs = buffers.recv[bid];
+    auto& work_bufs = buffers.work[bid];
+    send_bufs.resize(vars.size());
+    recv_bufs.resize(vars.size());
+    work_bufs.resize(vars.size());
+
+    int my_side = get_side(offset);
+    int nb_side = CS_FACE_EDGES[std::get<2>(iloc)][my_side].nside;
+
+    bool rev_flag = CS_FACE_EDGES[std::get<2>(iloc)][my_side].rev;
+    bool trans_flag = (my_side - 1.5) * (nb_side - 1.5) < 0;
+    bool flip_flag = (my_side % 2) == (nb_side % 2);
+
+    auto alpha = mesh[1].index(sub3);
+    auto beta = mesh[0].index(sub3);
+
+    size_t ivar = 0;
+    for (auto& [name, var] : vars) {
+      if (skips_partial(name, dy, dx, /*send=*/true)) continue;
+
+      auto source = var.index(sub);
+      if (!buffer_matches(send_bufs[ivar], source)) {
+        send_bufs[ivar] = torch::empty_like(source);
+      }
+      if (!buffer_matches(recv_bufs[ivar], source)) {
+        recv_bufs[ivar] = torch::empty_like(source);
+      }
+      if (!buffer_matches(work_bufs[ivar], source)) {
+        work_bufs[ivar] = torch::empty_like(source);
       }
 
-      // interpolating receiver: widen by cs_interp_margin (halo is fresh only
-      // because phase 1 completed -- see the early return above)
-      if (opts.interpolate()) {
-        int margin = cs_interp_margin(pmb->options->coord()->nghost());
-        if (dy != 0 && dx == 0) {
-          part_opts.extend_x2(margin);
-        } else if (dx != 0 && dy == 0) {
-          part_opts.extend_x3(margin);
-        }
+      send_bufs[ivar].copy_(source);
+      auto var_send = send_bufs[ivar];
+      auto scratch = work_bufs[ivar];
+
+      switch (opts.type()) {
+        case kConserved: {
+          auto vel = var_send.narrow(0, IVX, 3);
+          auto const& matrix =
+              _velocity_transform(opts, bid, /*to_spherical=*/true, alpha, beta,
+                                  cosine_cell.index(sub3), vel);
+          cs_apply_velocity_transform_(vel, matrix);
+        } break;
+        case kPrimitive: {
+          auto vel = var_send.narrow(0, IVX, 3);
+          auto const& matrix =
+              _velocity_transform(opts, bid, /*to_spherical=*/true, alpha, beta,
+                                  torch::Tensor(), vel);
+          cs_apply_velocity_transform_(vel, matrix);
+        } break;
+        case kScalar:
+          break;
       }
 
-      auto sub = pmb->part(offset, part_opts);
-      auto sub3 = pmb->part(offset, part_opts.ndim(3));
-
-      // Copy data from mesh to send buffer
-      int bid = get_buffer_id(offset);
-
-      auto& send_bufs = buffers.send[bid];
-      auto& recv_bufs = buffers.recv[bid];
-      auto& work_bufs = buffers.work[bid];
-      send_bufs.resize(vars.size());
-      recv_bufs.resize(vars.size());
-      work_bufs.resize(vars.size());
-
-      int my_side = get_side(offset);
-      int nb_side = CS_FACE_EDGES[std::get<2>(iloc)][my_side].nside;
-
-      bool rev_flag = CS_FACE_EDGES[std::get<2>(iloc)][my_side].rev;
-      bool trans_flag = (my_side - 1.5) * (nb_side - 1.5) < 0;
-      bool flip_flag = (my_side % 2) == (nb_side % 2);
-
-      auto alpha = mesh[1].index(sub3);
-      auto beta = mesh[0].index(sub3);
-
-      size_t ivar = 0;
-      for (auto& [name, var] : vars) {
-        // do partial send if name string contains ':'
-        auto pos = name.find(":");
-        if (pos != std::string::npos) {
-          auto suffix = name.substr(pos + 1);
-          if ((suffix == "+" && (dy < 0 || dx < 0)) ||
-              (suffix == "-" && (dy > 0 || dx > 0)))
-            continue;
+      // check reverse flag
+      if (rev_flag) {
+        if (dy != 0) {
+          at::flip_out(scratch, var_send, {-2});
+        } else if (dx != 0) {
+          at::flip_out(scratch, var_send, {-3});
         }
-
-        auto source = var.index(sub);
-        if (!buffer_matches(send_bufs[ivar], source)) {
-          send_bufs[ivar] = torch::empty_like(source);
-        }
-        if (!buffer_matches(recv_bufs[ivar], source)) {
-          recv_bufs[ivar] = torch::empty_like(source);
-        }
-        if (!buffer_matches(work_bufs[ivar], source)) {
-          work_bufs[ivar] = torch::empty_like(source);
-        }
-
-        send_bufs[ivar].copy_(source);
-        auto var_send = send_bufs[ivar];
-        auto scratch = work_bufs[ivar];
-
-        switch (opts.type()) {
-          case kConserved: {
-            auto vel = var_send.narrow(0, IVX, 3);
-            auto const& matrix =
-                _velocity_transform(opts, bid, /*to_spherical=*/true, alpha,
-                                    beta, cosine_cell.index(sub3), vel);
-            cs_apply_velocity_transform_(vel, matrix);
-          } break;
-          case kPrimitive: {
-            auto vel = var_send.narrow(0, IVX, 3);
-            auto const& matrix =
-                _velocity_transform(opts, bid, /*to_spherical=*/true, alpha,
-                                    beta, torch::Tensor(), vel);
-            cs_apply_velocity_transform_(vel, matrix);
-          } break;
-          case kScalar:
-            break;
-        }
-
-        // check reverse flag
-        if (rev_flag) {
-          if (dy != 0) {
-            at::flip_out(scratch, var_send, {-2});
-          } else if (dx != 0) {
-            at::flip_out(scratch, var_send, {-3});
-          }
-          std::swap(var_send, scratch);
-        }
-
-        // check flip flag
-        if (flip_flag) {
-          if (dy != 0) {
-            at::flip_out(scratch, var_send, {-3});
-          } else if (dx != 0) {
-            at::flip_out(scratch, var_send, {-2});
-          }
-          std::swap(var_send, scratch);
-        }
-
-        // check transpose flag
-        if (trans_flag) {
-          auto sizes = var_send.sizes();
-          scratch.copy_(var_send.transpose(-2, -3).reshape(sizes));
-          std::swap(var_send, scratch);
-        }
-
-        if (var_send.data_ptr() != send_bufs[ivar].data_ptr()) {
-          send_bufs[ivar].copy_(var_send);
-        }
-        ++ivar;
+        std::swap(var_send, scratch);
       }
-      send_bufs.resize(ivar);
-      recv_bufs.resize(ivar);
-      work_bufs.resize(ivar);
-      pmb->send_bufs[bid] = send_bufs;
-      pmb->recv_bufs[bid] = recv_bufs;
+
+      // check flip flag
+      if (flip_flag) {
+        if (dy != 0) {
+          at::flip_out(scratch, var_send, {-3});
+        } else if (dx != 0) {
+          at::flip_out(scratch, var_send, {-2});
+        }
+        std::swap(var_send, scratch);
+      }
+
+      // check transpose flag
+      if (trans_flag) {
+        auto sizes = var_send.sizes();
+        scratch.copy_(var_send.transpose(-2, -3).reshape(sizes));
+        std::swap(var_send, scratch);
+      }
+
+      if (var_send.data_ptr() != send_bufs[ivar].data_ptr()) {
+        send_bufs[ivar].copy_(var_send);
+      }
+      ++ivar;
     }
+    send_bufs.resize(ivar);
+    recv_bufs.resize(ivar);
+    work_bufs.resize(ivar);
+    pmb->send_bufs[bid] = send_bufs;
+    pmb->recv_bufs[bid] = recv_bufs;
+  });
 }
 
 void CubedSphereLayoutImpl::deserialize(MeshBlockImpl const* pmb,
@@ -814,251 +752,100 @@ void CubedSphereLayoutImpl::deserialize(MeshBlockImpl const* pmb,
   // Get my logical location
   auto iloc = loc_of(options->rank());
 
-  int dy_min = opts.dy_min();
-  int dy_max = opts.dy_max();
-  int dx_min = opts.dx_min();
-  int dx_max = opts.dx_max();
-
   // Deserialize over all intra-panel neighbors first
   if (!opts.cross_panel_only()) {
-    for (int dy = dy_min; dy <= dy_max; ++dy)
-      for (int dx = dx_min; dx <= dx_max; ++dx) {
-        // skip the center (self)
-        if (dy == 0 && dx == 0) continue;
-        if (opts.skip_corner() && std::abs(dy) + std::abs(dx) == 2) continue;
-
-        std::tuple<int, int, int> offset(dy, dx, 0);
-        int nb = neighbor_rank(iloc, offset);
-        if (nb < 0) continue;  // no neighbor
-
-        // skip inter-panel neighbors
-        if (std::get<2>(iloc) != std::get<2>(loc_of(nb))) continue;
-
-        // Get the exterior (ghost zone) part for this direction
-        auto sub = pmb->part(offset, PartOptions().exterior(true));
-
-        // Copy data from receive buffer to mesh ghost zones
-        int bid = get_buffer_id(offset);
-        int count = 0;
-        for (auto& [name, var] : vars) {
-          // do partial recv if name string contains ':'
-          auto pos = name.find(":");
-          if (pos != std::string::npos) {
-            auto suffix = name.substr(pos + 1);
-            if ((suffix == "+" && (dy > 0 || dx > 0)) ||
-                (suffix == "-" && (dy < 0 || dx < 0)))
-              continue;
-          }
-          var.index_put_(sub, pmb->recv_bufs[bid][count++]);
-        }
-      }
-  }
-
-  // Phase 1 of the two-phase ghost sync: intra-panel halo only.
-  if (opts.intra_panel_only()) return;
-
-  // get mesh
-  torch::Tensor x2_coord, x3_coord, cosine_cell;
-  int nc1 = pcoord->options->nc1();
-  int nc2 = pcoord->options->nc2();
-  int nc3 = pcoord->options->nc3();
-
-  if (opts.dim() == SyncOptions::DIM3) {
-    x3_coord = pcoord->x3f;
-    x2_coord = pcoord->x2v;
-    cosine_cell = pcoord->cosine_face3_kj.expand({nc3 + 1, nc2, nc1});
-  } else if (opts.dim() == SyncOptions::DIM2) {
-    x3_coord = pcoord->x3v;
-    x2_coord = pcoord->x2f;
-    cosine_cell = pcoord->cosine_face2_kj.expand({nc3, nc2 + 1, nc1});
-  } else {
-    x3_coord = pcoord->x3v;
-    x2_coord = pcoord->x2v;
-    cosine_cell = pcoord->cosine_cell_kj.expand({nc3, nc2, nc1});
-  }
-
-  auto mesh = torch::meshgrid({x3_coord, x2_coord, pcoord->x1v}, "ij");
-
-  // Deserialize over all inter-panel neighbors
-  for (int dy = dy_min; dy <= dy_max; ++dy)
-    for (int dx = dx_min; dx <= dx_max; ++dx) {
-      // skip the center (self)
-      if (dy == 0 && dx == 0) continue;
-      if (opts.skip_corner() && std::abs(dy) + std::abs(dx) == 2) continue;
-
+    for_each_direction(opts, [&](int dy, int dx, int) {
       std::tuple<int, int, int> offset(dy, dx, 0);
       int nb = neighbor_rank(iloc, offset);
-      if (nb < 0) continue;  // no neighbor
+      if (nb < 0) return;  // no neighbor
 
-      // skip intra-panel neighbors
-      if (std::get<2>(iloc) == std::get<2>(loc_of(nb))) continue;
+      // skip inter-panel neighbors
+      if (std::get<2>(iloc) != std::get<2>(loc_of(nb))) return;
 
       // Get the exterior (ghost zone) part for this direction
-      auto part_opts = PartOptions().exterior(true);
-      if (opts.dim() == SyncOptions::DIM2) {
-        part_opts.depth(1).exterior(dx > 0).extend_x1(
-            face_state_x1_extent(pmb));
-      } else if (opts.dim() == SyncOptions::DIM3) {
-        part_opts.depth(1).exterior(dy > 0).extend_x1(
-            face_state_x1_extent(pmb));
-      }
-
-      auto sub = pmb->part(offset, part_opts);
-      auto sub3 = pmb->part(offset, part_opts.ndim(3));
-
-      // Wide landing zone for the raw copy, mirroring serialize()'s wider send
-      // strip. The velocity transform below deliberately stays on the NARROW
-      // `sub`: the extra cells are only interpolation SOURCE for interp_ghost,
-      // never ghost values in their own right, and interp_ghost runs while the
-      // whole strip is still in the neighbour's frame.
-      auto part_opts_w = PartOptions().exterior(true);
-      if (opts.dim() == SyncOptions::DIM2) {
-        part_opts_w.depth(1).exterior(dx > 0).extend_x1(
-            face_state_x1_extent(pmb));
-      } else if (opts.dim() == SyncOptions::DIM3) {
-        part_opts_w.depth(1).exterior(dy > 0).extend_x1(
-            face_state_x1_extent(pmb));
-      }
-      if (opts.interpolate()) {
-        int margin = cs_interp_margin(pmb->options->coord()->nghost());
-        if (dy != 0 && dx == 0) {
-          part_opts_w.extend_x2(margin);
-        } else if (dx != 0 && dy == 0) {
-          part_opts_w.extend_x3(margin);
-        }
-      }
-      auto sub_w = pmb->part(offset, part_opts_w);
-
-      auto alpha = mesh[1].index(sub3);
-      auto beta = mesh[0].index(sub3);
+      auto sub = pmb->part(offset, PartOptions().exterior(true));
 
       // Copy data from receive buffer to mesh ghost zones
       int bid = get_buffer_id(offset);
       int count = 0;
       for (auto& [name, var] : vars) {
-        // do partial recv if name string contains ':'
-        auto pos = name.find(":");
-        if (pos != std::string::npos) {
-          auto suffix = name.substr(pos + 1);
-          if ((suffix == "+" && (dy > 0 || dx > 0)) ||
-              (suffix == "-" && (dy < 0 || dx < 0)))
-            continue;
-        }
+        if (skips_partial(name, dy, dx, /*send=*/false)) continue;
+        var.index_put_(sub, pmb->recv_bufs[bid][count++]);
+      }
+    });
+  }
 
-        var.index_put_(sub_w, pmb->recv_bufs[bid][count++]);
-        if (opts.interpolate()) {
-          pcoord->interp_ghost(var, offset);
-        }
+  // Phase 1 of the two-phase ghost sync: intra-panel halo only.
+  if (opts.intra_panel_only()) return;
 
-        switch (opts.type()) {
-          case kConserved: {
-            auto vel = var.index(sub).narrow(0, IVX, 3);
-            auto const& matrix =
-                _velocity_transform(opts, bid, /*to_spherical=*/false, alpha,
-                                    beta, cosine_cell.index(sub3), vel);
-            cs_apply_velocity_transform_(vel, matrix);
-          } break;
-          case kPrimitive: {
-            auto vel = var.index(sub).narrow(0, IVX, 3);
-            auto const& matrix =
-                _velocity_transform(opts, bid, /*to_spherical=*/false, alpha,
-                                    beta, torch::Tensor(), vel);
-            cs_apply_velocity_transform_(vel, matrix);
-          } break;
-          case kScalar:
-            break;
-        }
+  auto [x3_coord, x2_coord, cosine_cell] = strip_coords(pcoord, opts);
+  auto mesh = torch::meshgrid({x3_coord, x2_coord, pcoord->x1v}, "ij");
+
+  // Deserialize over all inter-panel neighbors
+  for_each_direction(opts, [&](int dy, int dx, int) {
+    std::tuple<int, int, int> offset(dy, dx, 0);
+    int nb = neighbor_rank(iloc, offset);
+    if (nb < 0) return;  // no neighbor
+
+    // skip intra-panel neighbors
+    if (std::get<2>(iloc) == std::get<2>(loc_of(nb))) return;
+
+    // Get the exterior (ghost zone) part for this direction
+    auto part_opts = strip_part(pmb, opts, dy, dx, /*exterior=*/true,
+                                /*widen=*/false);
+    auto sub = pmb->part(offset, part_opts);
+    auto sub3 = pmb->part(offset, part_opts.ndim(3));
+
+    // Wide landing zone for the raw copy, mirroring serialize()'s wider send
+    // strip. The velocity transform below deliberately stays on the NARROW
+    // `sub`: the extra cells are only interpolation SOURCE for interp_ghost,
+    // never ghost values in their own right, and interp_ghost runs while the
+    // whole strip is still in the neighbour's frame.
+    auto sub_w = pmb->part(offset, strip_part(pmb, opts, dy, dx,
+                                              /*exterior=*/true,
+                                              /*widen=*/true));
+
+    auto alpha = mesh[1].index(sub3);
+    auto beta = mesh[0].index(sub3);
+
+    // Copy data from receive buffer to mesh ghost zones
+    int bid = get_buffer_id(offset);
+    int count = 0;
+    for (auto& [name, var] : vars) {
+      if (skips_partial(name, dy, dx, /*send=*/false)) continue;
+
+      var.index_put_(sub_w, pmb->recv_bufs[bid][count++]);
+      if (opts.interpolate()) {
+        pcoord->interp_ghost(var, offset);
+      }
+
+      switch (opts.type()) {
+        case kConserved: {
+          auto vel = var.index(sub).narrow(0, IVX, 3);
+          auto const& matrix =
+              _velocity_transform(opts, bid, /*to_spherical=*/false, alpha,
+                                  beta, cosine_cell.index(sub3), vel);
+          cs_apply_velocity_transform_(vel, matrix);
+        } break;
+        case kPrimitive: {
+          auto vel = var.index(sub).narrow(0, IVX, 3);
+          auto const& matrix =
+              _velocity_transform(opts, bid, /*to_spherical=*/false, alpha,
+                                  beta, torch::Tensor(), vel);
+          cs_apply_velocity_transform_(vel, matrix);
+        } break;
+        case kScalar:
+          break;
       }
     }
+  });
 }
 
-void CubedSphereLayoutImpl::exchange_remote(MeshBlockImpl const* pmb,
-                                            SyncOptions const& opts,
-                                            std::vector<CommWorkPtr>& works) {
-  TORCH_CHECK(
-      owner() != nullptr,
-      "[CubedSphereLayout:exchange_remote] layout has no owning MeshBlock");
-  TORCH_CHECK(pmb != nullptr,
-              "[CubedSphereLayout:exchange_remote] MeshBlock pointer is null");
-
-  if (options->verbose()) {
-    SINFO(CubedSphereLayout) << "performing communication\n";
-  }
-
-  // Get my rank
-  auto rank = options->rank();
-
-  // Get my logical location
-  auto iloc = loc_of(rank);
-
-  int dy_min = opts.dy_min();
-  int dy_max = opts.dy_max();
-  int dx_min = opts.dx_min();
-  int dx_max = opts.dx_max();
-
-  struct RemoteExchangeOp {
-    int remote_process;
-    int buffer_id;
-    int send_tag;
-    int recv_tag;
-    int local_block;
-    int remote_local_block;
-    std::tuple<int, int, int> offset;
-    std::tuple<int, int, int> remote_offset;
-  };
-  std::vector<RemoteExchangeOp> remote_ops;
-
-  for (int dy = dy_min; dy <= dy_max; ++dy)
-    for (int dx = dx_min; dx <= dx_max; ++dx) {
-      // skip the center (self)
-      if (dy == 0 && dx == 0) continue;
-      if (opts.skip_corner() && std::abs(dy) + std::abs(dx) == 2) continue;
-
-      std::tuple<int, int, int> offset(dy, dx, 0);
-      int nb = neighbor_rank(iloc, offset);
-      if (nb < 0) continue;  // no neighbor
-
-      // Only this phase's peers; both peers of a pair agree because "same
-      // panel" is symmetric. Required, not just tidy: serialize() leaves the
-      // other class's send buffers untouched, so without this the intra-panel
-      // phase would ship cross-panel buffers that do not exist yet on the first
-      // call. It also stops a cross-panel-only sync from sending the stale
-      // intra-panel buffers of an earlier sync, which the receiver has always
-      // discarded.
-      bool same_panel = std::get<2>(iloc) == std::get<2>(loc_of(nb));
-      if (opts.cross_panel_only() && same_panel) continue;
-      if (opts.intra_panel_only() && !same_panel) continue;
-
-      int r = get_buffer_id(offset);
-      int remote_process = options->owner_process_rank(nb);
-      bool is_remote = remote_process != options->process_rank();
-
-      if (is_remote) {
-        int remote_local_block = options->local_block_index(nb);
-        int local_block = options->local_block_index(rank);
-        auto remote_offset = find_peer_offset(*this, nb, rank);
-        int send_tag =
-            make_comm_tag(remote_local_block, remote_offset, opts.phyid());
-        int recv_tag = make_comm_tag(local_block, offset, opts.phyid());
-        remote_ops.push_back({remote_process, r, send_tag, recv_tag,
-                              local_block, remote_local_block, offset,
-                              remote_offset});
-      } else if (nb == rank) {  // self-send
-        TORCH_CHECK(false, "I should not be here");
-      }
-    }
-
-  if (remote_ops.empty()) return;
-  TORCH_CHECK(has_process_group(),
-              "[CubedSphereLayout:exchange_remote] remote communication "
-              "requires an initialized process group");
-
-  std::lock_guard<std::mutex> lock(g_cubed_sphere_comm_mutex);
-  for (auto const& op : remote_ops) {
-    exchange_each_var(*comm, pmb->send_bufs[op.buffer_id],
-                      pmb->recv_bufs[op.buffer_id], op.remote_process,
-                      op.send_tag, op.recv_tag, works);
-  }
+bool CubedSphereLayoutImpl::_skips_direction(
+    MeshBlockImpl const* pmb, std::tuple<int, int, int> offset) const {
+  (void)pmb;
+  (void)offset;
+  return false;  // a panel edge is a seam, never a physical boundary
 }
 
 std::tuple<int, int, int> CubedSphereLayoutImpl::_remap_exchange_offset(
