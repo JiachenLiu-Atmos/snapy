@@ -174,11 +174,7 @@ void vic_solve_cpu(at::TensorIterator& iter, double dt, double grav, int dir) {
                                  stride1, stride2, first_block, last_block,
                                  N == 3, z0, z1, 0, nlayer - 1))
               continue;
-            vic_backward_substitute(a, delta, 0, nlayer - 1);
-            if constexpr (K == 2) {
-              vic_backward_substitute(a, z0, 0, nlayer - 1);
-              vic_backward_substitute(a, z1, 0, nlayer - 1);
-            }
+            vic_backward_substitute(a, delta, 0, nlayer - 1, z0, z1);
           }
         },
         grain_size);

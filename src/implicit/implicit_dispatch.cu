@@ -161,7 +161,8 @@ void vic_solve_cuda(at::TensorIterator &iter, double dt, double grav, int dir) {
     using Matrix = Eigen::Matrix<scalar_t, N, N>;
     using Vector = Eigen::Matrix<scalar_t, N, 1>;
 
-    native::gpu_kernel<13 + K>(
+    // K = 2: 64 threads per block leave each thread a larger register budget
+    native::gpu_kernel<13 + K, K == 2 ? 64 : 128>(
         iter, [=] GPU_LAMBDA(char *const data[13 + K],
                              unsigned int strides[13 + K]) {
           auto du = reinterpret_cast<scalar_t *>(data[0] + strides[0]);
@@ -180,11 +181,7 @@ void vic_solve_cuda(at::TensorIterator &iter, double dt, double grav, int dir) {
                                stride1, stride2, first_block, last_block,
                                N == 3, z0, z1, 0, nlayer - 1))
             return;
-          vic_backward_substitute(a, delta, 0, nlayer - 1);
-          if constexpr (K == 2) {
-            vic_backward_substitute(a, z0, 0, nlayer - 1);
-            vic_backward_substitute(a, z1, 0, nlayer - 1);
-          }
+          vic_backward_substitute(a, delta, 0, nlayer - 1, z0, z1);
         });
   });
 }
