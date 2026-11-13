@@ -15,6 +15,7 @@ struct Case {  // gw: cell (+ fixer) or face; per: periodic x2/x3; vsed: rain
   int scheme;
   bool per, pocket;
   double vsed = 0., qv = 0.01;
+  int key = 2;  // dynamics/conversion-order
 };
 double const C = 4., kEps = 2.220446049250313e-16, g = 10.;
 bool const kMp = getenv("SNAP_BUDGET_MP") != nullptr;  // E2: three ranks
@@ -30,6 +31,7 @@ std::string card(Case const& c) {  // the in-tree deck, closed and small
           c.per ? "periodic" : "reflecting";
   d["forcing"]["const-gravity"]["grav1"] = -g;
   d["forcing"]["const-gravity"]["gravity-work"] = c.gw;
+  d["dynamics"]["conversion-order"] = c.key;
   if (c.vsed != 0.)
     d["sedimentation"] =
         YAML::Load("{radius: {}, density: {}, const-vsed: {rain: " +
@@ -182,6 +184,7 @@ Case const kDecks[] = {{"a_cell_s0", A, "cell", 0},
                        {"a_per", A, "face", 0, true},
                        {"b_moist_slab", B, "face", 0, true, true},
                        {"b_sat", B, "face", 0, true, false, 0., 0.03},
+                       {"b_key4", B, "face", 0, true, false, 0., 0.01, 4},
                        {"c_face_s0", Cs, "face", 0, false, false, -0.5},
                        {"c_face_s9", Cs, "face", 9},
                        {"c_cell_s9", Cs, "cell", 9},
