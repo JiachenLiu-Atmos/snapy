@@ -520,16 +520,6 @@ torch::Tensor GnomonicEquiangleImpl::_interp_ghost_BT(torch::Tensor buf,
                                                       bool flip) const {
   return _interp_ghost(buf, flip ? usrc_BT : usrc_BT.flip(0), usrc_shift_BT,
                        -2);
-
-  /*auto iter = at::TensorIteratorConfig()
-                  .resize_outputs(false)
-                  .check_all_same_dtype(true)
-                  .declare_static_shape(var.sizes())
-                  .add_output(var)
-                  .add_input(buf)
-                  .build();
-
-  at::native::call_cs_interp_BT(var.device().type(), iter, usrc);*/
 }
 
 }  // namespace snap
