@@ -1,6 +1,7 @@
 # The default well-balanced x1 reference at a physical wall
 
-This is the default reference, with `SNAP_WB_REF4` off and `dynamics/wb-wall-clamp` on (the default). With the
+This is the default reference (conversion-order 2, without the face density of `wb-ref4.md`), with
+`dynamics/wb-wall-clamp` on (the default). With the
 repeated wall cell, the face density reference has an $O(\Delta z)$ error at the first three faces next to each
 wall, against $O(\Delta z^2)$ elsewhere. Continuing $\rho/p$ past the wall, linearly or ln-linearly, restores the
 interior order there and leaves every other face bit for bit. The code is `src/hydro/hydro_ref_x1_impl.h`
@@ -122,8 +123,9 @@ plus their ghost rows. $p_{\rm sf}$, $p_{\rm ref}$ and every other face and cell
 (compared at nz 16–128). The rest balance does not involve $\rho_{\rm sf}$ or $\rho_{\rm ref}$ (§1 of
 `wb-ref4.md`), so `balance_column` and the discrete rest state are unchanged.
 
-**Why not the `SNAP_WB_REF4` closure.**
-- `SNAP_WB_REF4` (`wb_ref4.cpp`) is a post-pass that replaces $\rho_{\rm sf}$ with a fourth-order face value on
+**Why not the `wb_ref4.cpp` closure.**
+- The face density of `wb_ref4.cpp` (run by `dynamics/conversion-order: 4`; also by the switch `SNAP_WB_REF4`
+  until that switch was removed) is a post-pass that replaces $\rho_{\rm sf}$ with a fourth-order face value on
   *every* face, so applying it would change every interior face. It also needs four owned cells.
 - A cubic (or quadratic) continuation inside $B$ would also restore second order, with weights of 10–20 against
   $1+k$; it was not chosen.
@@ -144,7 +146,7 @@ $\Delta T = -15(1 + k\epsilon)$:
 
 With $\epsilon = 10^{-12}$ the runs of this closure stay on one trajectory, ending within $10^{-4}$ in kinetic
 energy, so that column says little beyond the test deck itself. The $\epsilon = 10^{-4}$ column does not separate
-the four references. With `SNAP_WB_REF4` on, the $10^{-12}$ ensemble gives 8/10 on the clamp-only reference and
+the four references. With `SNAP_WB_REF4` on (when that switch existed), the $10^{-12}$ ensemble gave 8/10 on the clamp-only reference and
 9/10 on the linear one.
 
 Resolution scan with the test deck (nx2 = 4 nx1):

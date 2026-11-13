@@ -11,13 +11,13 @@ namespace snap {
 //! uniform-measure formula. With the switch:
 //! (i)+(ii) every x1 reconstruction input is first converted from r^2 means to
 //!   plain means (x1_plain_means), so the reconstruction, the scan step
-//!   g dx1f <rho> and the well-balanced reference (SNAP_WB_REF4 included) see
-//!   the values their formulas assume;
+//!   g dx1f <rho> and the well-balanced reference see the values their
+//!   formulas assume;
 //! (iii) the x1 pressure source is (2/V) int r p~ dr, p~ the quintic
 //!   through the six nearest face pressures, so the pressure force is the r^2
 //!   average of -d_r p~ and a hydrostatic column of r^2 means is at rest.
 //! See docs/derivations/x1-centroid-spherical.md.
-//! Read once per process; off unless it is set. Implies SNAP_WB_REF4.
+//! Read once per process; off unless it is set.
 bool x1_centroid_exact_enabled();
 
 //! plain mean of cell i from the r^2 means of five cells, exact for

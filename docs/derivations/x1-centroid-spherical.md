@@ -1,8 +1,9 @@
 # #289: $r^2$-exact x1 cell-to-face maps on spherical-polar grids (`SNAP_X1_CENTROID_EXACT`)
 
 This file derives the switch `SNAP_X1_CENTROID_EXACT` (off unless set, read once per process; it acts on
-spherical-polar blocks only) and states the oracle it is tested against. It extends the fourth-order
-well-balanced reference of `wb-ref4.md` (`SNAP_WB_REF4`) to the $r^2$ cell measure. The exact identities used
+spherical-polar blocks only) and states the oracle it is tested against. It was written as an extension of
+the fourth-order well-balanced reference of `wb-ref4.md` to the $r^2$ cell measure; that face density now runs
+only with `dynamics/conversion-order: 4` (the switch `SNAP_WB_REF4` is gone). The exact identities used
 below are checked by `docs/derivations/verify_x1_centroid.py` (sympy, exact rational arithmetic). The code is
 `src/coord/x1_centroid.cpp`, called from `HydroImpl::forward` (`src/hydro/hydro_forward.cpp`, the x1 block),
 `HydroImpl::_hydro_ref_x1` (`src/hydro/hydro.cpp`) and `SphericalPolarImpl::forward`
@@ -80,12 +81,17 @@ $$
 
 On plain means the Leg W reference (`wb-ref4.md`: the quartic-primitive face
 value and the range and resolution guards) is exactly the
-Cartesian algorithm, whose $O(\Delta z^4)$ face-density error is derived there. The switch implies
-`SNAP_WB_REF4`: `wb_ref4_enabled()` is true with either, and the solver (`hydro.cpp`), `balance_column` and the
-tests read that one predicate, so a Cartesian column balanced outside the solver is at the solver's fixed point
-(ctest `test_balance_column_x1_centroid`, `test_face_floor_x1_centroid`); the one switch gives the whole design.
+Cartesian algorithm, whose $O(\Delta z^4)$ face-density error is derived there. That face density now runs only
+with `dynamics/conversion-order: 4`. The switch implied `SNAP_WB_REF4` until that switch was removed: on its own
+it no longer turns the `wb-ref4.md` face density on (its face density is then the x1 reconstruction's own
+linear rows on the plain-mean reference), and it keeps only its nghost >= 3 requirement (ctest
+`test_x1_seam_split_nghost_check_x1_centroid`). A Cartesian column
+balanced outside the solver is at the solver's fixed point (ctest `test_balance_column_x1_centroid`,
+`test_face_floor_x1_centroid`).
 `balance_column` has no $r^2$-to-plain-mean conversion, so under the switch it balances only a column declared
-`geometry='cartesian'` and refuses any other: a spherical-polar column's rest state is the solver's own reference. Its face density is then fourth order in the interior. At the three faces
+`geometry='cartesian'` and refuses any other: a spherical-polar column's rest state is the solver's own reference. With the `wb-ref4.md`
+face density on (conversion-order 4; the numbers below were measured when the switch implied it), the face
+density is fourth order in the interior. At the three faces
 next to a wall the error is $O(h^3)$, Leg W's own property, the same in Cartesian: the anchor's $O(h^2)$
 constant $c$ enters $\rho' = \rho - p_{\rm ref} F[\rho/p]$ as $-c\,F[\rho/p]$, and the even-parity ghosts of
 $\rho'$ turn its slope into an $O(h c)$ face value. The base clamped binomial is $O(h)$ there; in a Python replica of the x1
@@ -191,8 +197,8 @@ $-0.004 \ldots -0.012$, in the replica as in the code: the volume weight carries
   switch is read once per process.
 - **Cubed sphere.** Not implemented: the gnomonic grids store $x_{1v}$ at the mid-radius, and their x1 maps
   would need the same conversion with the panel's own radial measure. The switch does nothing there.
-- **Cartesian.** No conversion and the base source; since the switch implies `SNAP_WB_REF4`, a Cartesian block
-  runs exactly as with `SNAP_WB_REF4` alone.
+- **Cartesian.** No conversion and the base source: a Cartesian block runs as with the switch off, apart from
+  the nghost >= 3 check.
 - **Off.** With the switch off every line of the base runs as before.
 - **Small blocks.** With fewer than five cells to fit (the plain means) or six faces (the pressure source) the
   stencils are not usable and the base maps stay. Such a cache holds no weights, and its device/dtype check

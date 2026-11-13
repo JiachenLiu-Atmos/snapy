@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <fstream>
 #include <limits>
+#include <snap/coord/x1_centroid.hpp>
 #include <snap/forcing/forcing.hpp>
 #include <snap/hydro/balance_column.hpp>
 #include <snap/hydro/hydro.hpp>
@@ -290,8 +291,10 @@ TEST(StretchedX1Ref, refuses_the_off_pole_block_of_a_pole_deck) {
   }
 }
 
-TEST(StretchedX1Ref, wb_ref4_switch_runs) {
-  if (!HydroImpl::wb_ref4()) GTEST_SKIP() << "SNAP_WB_REF4 is not set";
+// ctest test_stretched_x1_ref_x1_centroid: SNAP_X1_CENTROID_EXACT=1
+TEST(StretchedX1Ref, x1_centroid_switch_runs) {
+  if (!x1_centroid_exact_enabled())
+    GTEST_SKIP() << "SNAP_X1_CENTROID_EXACT is not set";
   EXPECT_NO_THROW(build_and_step(card(true)));
   EXPECT_NO_THROW(build_and_step(card(false)));
 }
@@ -329,9 +332,10 @@ TEST(StretchedX1Ref, keyed_column_balances_to_1e13) {
   EXPECT_LT(err, 1.e-13);
 }
 
-// ctest test_stretched_x1_ref_wb_ref4 (and _x1_centroid) runs this with it set
-TEST(StretchedX1Ref, balance_column_wb_ref4_runs) {
-  if (!HydroImpl::wb_ref4()) GTEST_SKIP() << "SNAP_WB_REF4 is not set";
+// ctest test_stretched_x1_ref_x1_centroid runs this with the switch set
+TEST(StretchedX1Ref, balance_column_x1_centroid_runs) {
+  if (!x1_centroid_exact_enabled())
+    GTEST_SKIP() << "SNAP_X1_CENTROID_EXACT is not set";
   auto [w, dx1f] = column(32, 1.058, 3.e5);
   auto [wb, err, sweeps] = balance_column(w, dx1f, 22., true, 1.e-13, 400,
                                           "cartesian", /*stretched=*/true);

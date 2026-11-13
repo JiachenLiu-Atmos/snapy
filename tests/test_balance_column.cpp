@@ -17,7 +17,6 @@
 #include <snap/coord/x1_centroid.hpp>
 #include <snap/hydro/balance_column.hpp>
 #include <snap/hydro/hydro_dispatch.hpp>
-#include <snap/hydro/wb_ref4.hpp>
 #include <snap/mesh/meshblock.hpp>
 
 namespace {
@@ -336,17 +335,6 @@ TEST(BalanceColumn, it_refuses_what_it_cannot_deliver) {
   // and an unconverged sweep budget is an error, never a quiet return
   EXPECT_THROW(balance(c.w, c.dx1f, kGrav, true, 1.e-10, /*max_iter=*/1),
                c10::Error);
-}
-
-// ctest test_balance_column_x1_centroid: SNAP_X1_CENTROID_EXACT alone switches
-// the solver's fourth-order reference on (hydro.cpp), so balance_column must
-// see the same predicate, or it balances a column against the operator the
-// solver no longer applies (RED on 18e48c96, where only the solver keyed on it)
-TEST(BalanceColumn, x1_centroid_switch_implies_the_ref4_predicate) {
-  bool g = std::getenv("SNAP_X1_CENTROID_EXACT"),
-       w = std::getenv("SNAP_WB_REF4");
-  ASSERT_EQ(snap::x1_centroid_exact_enabled(), g);
-  EXPECT_EQ(snap::wb_ref4_enabled(), g || w);
 }
 
 // under SNAP_X1_CENTROID_EXACT a spherical-polar column's reference converts

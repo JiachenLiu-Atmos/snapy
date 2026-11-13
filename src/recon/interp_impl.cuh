@@ -5,6 +5,8 @@
 // snap
 #include <snap/snap.h>
 
+#include "x1_coeffs_device.h"
+
 #define INP(j, i) (inp[(j) * stride_in2 + (i) * stride_in1])
 #define OUT(j, i) (out[(j) * stride_out2 + (i) * stride_out1])
 #define SQR(x) ((x) * (x))
@@ -41,8 +43,7 @@ __device__ T interp_shared_weno3_coeff_impl(T const *line, T const *coeff,
   T const *src = line + v * axis_size + start;
   T vscale = scale ? (fabs(src[0]) + fabs(src[1]) + fabs(src[2])) / 3.0 : 1.0;
 
-  if (vscale == 0.0)
-    return 0.0;
+  if (vscale == 0.0) return 0.0;
 
   T phi[3];
   phi[0] = src[0] / vscale;
@@ -61,7 +62,10 @@ __device__ T interp_shared_weno3_coeff_impl(T const *line, T const *coeff,
   return (alpha0 * p0 + alpha1 * p1) / (alpha0 + alpha1) * vscale;
 }
 
-template <typename T>
+// Nu: coeff is one face's row of a per-face x1 table (kWeno5NuCoeff values),
+// its three linear weights d after the nine stencils; otherwise the uniform
+// table with the weights .3, .6, .1
+template <typename T, bool Nu = false>
 __device__ T interp_shared_weno5_coeff_impl(T const *line, T const *coeff,
                                             int v, int start, int axis_size,
                                             bool scale) {
@@ -80,8 +84,7 @@ __device__ T interp_shared_weno5_coeff_impl(T const *line, T const *coeff,
                          5.0
                    : 1.0;
 
-  if (vscale == 0.0)
-    return 0.0;
+  if (vscale == 0.0) return 0.0;
 
   T phi[5];
   for (int k = 0; k < 5; ++k) {
@@ -96,17 +99,26 @@ __device__ T interp_shared_weno5_coeff_impl(T const *line, T const *coeff,
   T beta1 = 13. / 12. * SQR(_vvdot<5>(phi, c6)) + .25 * SQR(_vvdot<5>(phi, c7));
   T beta2 = 13. / 12. * SQR(_vvdot<5>(phi, c8)) + .25 * SQR(_vvdot<5>(phi, c9));
 
-  T alpha0 = .3 / SQR(beta0 + 1e-6);
-  T alpha1 = .6 / SQR(beta1 + 1e-6);
-  T alpha2 = .1 / SQR(beta2 + 1e-6);
+  T alpha0, alpha1, alpha2;
+  if constexpr (Nu) {
+    T const *d = c9 + 5;
+    alpha0 = d[0] / SQR(beta0 + 1e-6);
+    alpha1 = d[1] / SQR(beta1 + 1e-6);
+    alpha2 = d[2] / SQR(beta2 + 1e-6);
+  } else {
+    alpha0 = .3 / SQR(beta0 + 1e-6);
+    alpha1 = .6 / SQR(beta1 + 1e-6);
+    alpha2 = .1 / SQR(beta2 + 1e-6);
+  }
 
   return vscale * (alpha0 * p0 + alpha1 * p1 + alpha2 * p2) /
          (alpha0 + alpha1 + alpha2);
 }
 
-// polynomial
-template <typename T, int N>
-__device__ void interp_poly_impl(T *out, T *inp, T *coeff, int nvar,
+// polynomial. Nu: coeff is a per-face x1 table, one row of N per output,
+// read from global memory; otherwise one table, loaded into shared memory
+template <typename T, int N, bool Nu = false>
+__device__ void interp_poly_impl(T *out, T *inp, T const *coeff, int nvar,
                                  int stride_in1, int stride_in2,
                                  int stride_out1, int stride_out2, T *smem) {
   int id = threadIdx.x;
@@ -119,9 +131,15 @@ __device__ void interp_poly_impl(T *out, T *inp, T *coeff, int nvar,
   }
 
   // Load coefficient into shared memory
-  T *scoeff = smem + nt * nvar;
-  for (int i = id; i < N; i += nt) {
-    scoeff[i] = coeff[i];
+  T const *row;
+  if constexpr (Nu) {
+    row = coeff + static_cast<int64_t>(id) * N;
+  } else {
+    T *scoeff = smem + nt * nvar;
+    for (int i = id; i < N; i += nt) {
+      scoeff[i] = coeff[i];
+    }
+    row = scoeff;
   }
 
   bool active = id <= nt - N;
@@ -129,11 +147,10 @@ __device__ void interp_poly_impl(T *out, T *inp, T *coeff, int nvar,
   __syncthreads();
 
   // drop last few threads
-  if (!active)
-    return;
+  if (!active) return;
 
   for (int j = 0; j < nvar; ++j) {
-    OUT(j, id) = interp_shared_poly_coeff_impl<T, N>(sinp, scoeff, j, id, nt);
+    OUT(j, id) = interp_shared_poly_coeff_impl<T, N>(sinp, row, j, id, nt);
   }
 };
 
@@ -154,7 +171,7 @@ __device__ void interp_weno3_impl(T *out, T *inp, T *coeff, int nvar,
 
   // Load coefficient into shared memory
   T *scoeff = smem + nt * nvar;
-  constexpr int N = 12; // Number of coefficients for WENO3
+  constexpr int N = 12;  // Number of coefficients for WENO3
   for (int i = id; i < N; i += nt) {
     scoeff[i] = coeff[i];
   }
@@ -164,17 +181,18 @@ __device__ void interp_weno3_impl(T *out, T *inp, T *coeff, int nvar,
   __syncthreads();
 
   // drop last few threads
-  if (!active)
-    return;
+  if (!active) return;
 
   for (int j = 0; j < nvar; ++j) {
     OUT(j, id) = interp_shared_weno3_coeff_impl(sinp, scoeff, j, id, nt, scale);
   }
 };
 
-// weno5
-template <typename T>
-__device__ void interp_weno5_impl(T *out, T *inp, T *coeff, int nvar,
+// weno5. Nu: coeff is a per-face x1 table, one row of kWeno5NuCoeff per
+// output, read from global memory; otherwise one table, loaded into shared
+// memory
+template <typename T, bool Nu = false>
+__device__ void interp_weno5_impl(T *out, T *inp, T const *coeff, int nvar,
                                   int stride_in1, int stride_in2,
                                   int stride_out1, int stride_out2, bool scale,
                                   T *smem) {
@@ -188,10 +206,16 @@ __device__ void interp_weno5_impl(T *out, T *inp, T *coeff, int nvar,
   }
 
   // Load coefficient into shared memory
-  T *scoeff = smem + nt * nvar;
-  constexpr int N = 45; // Number of coefficients for WENO5
-  for (int i = id; i < N; i += nt) {
-    scoeff[i] = coeff[i];
+  T const *row;
+  if constexpr (Nu) {
+    row = coeff + static_cast<int64_t>(id) * kWeno5NuCoeff;
+  } else {
+    T *scoeff = smem + nt * nvar;
+    constexpr int N = 45;  // Number of coefficients for WENO5
+    for (int i = id; i < N; i += nt) {
+      scoeff[i] = coeff[i];
+    }
+    row = scoeff;
   }
 
   bool active = id <= nt - 5;
@@ -199,19 +223,30 @@ __device__ void interp_weno5_impl(T *out, T *inp, T *coeff, int nvar,
   __syncthreads();
 
   // drop last few threads
-  if (!active)
-    return;
-
-  // first thread print shared memory array
-  // if (id == 0) {
-  // for (int i = 0; i < nvar * nt + N; ++i)
-  //   printf("smem[%d] = %f\n", i, smem[i]);
-  //}
+  if (!active) return;
 
   for (int j = 0; j < nvar; ++j) {
-    OUT(j, id) = interp_shared_weno5_coeff_impl(sinp, scoeff, j, id, nt, scale);
+    OUT(j, id) =
+        interp_shared_weno5_coeff_impl<T, Nu>(sinp, row, j, id, nt, scale);
   }
 };
+
+// one thread per output of a per-face x1 table: weno5 rows, or poly rows of
+// NCoeff weights
+template <int NCoeff, typename T>
+__device__ void interp_nu_untiled(T *out, T *inp, T const *coeff, int nvar,
+                                  int stride_in1, int stride_in2,
+                                  int stride_out1, int stride_out2, bool scale,
+                                  T *smem) {
+  if constexpr (NCoeff == kWeno5NuCoeff) {
+    interp_weno5_impl<T, true>(out, inp, coeff, nvar, stride_in1, stride_in2,
+                               stride_out1, stride_out2, scale, smem);
+  } else {
+    interp_poly_impl<T, NCoeff, true>(out, inp, coeff, nvar, stride_in1,
+                                      stride_in2, stride_out1, stride_out2,
+                                      smem);
+  }
+}
 
 // Coeff counts of the matrices in weno3.cpp / weno5.cpp. Polynomial
 // reconstruction uses Stencil coefficients, so it does not need one.
@@ -236,6 +271,16 @@ struct Weno5Op {
   }
 };
 
+// one face's row of a per-face x1 weno5 table
+struct Weno5NuOp {
+  template <typename T>
+  __device__ static T eval(T const *line, T const *row, int v, int start,
+                           int axis, bool scale) {
+    return interp_shared_weno5_coeff_impl<T, true>(line, row, v, start, axis,
+                                                   scale);
+  }
+};
+
 template <int N>
 struct PolyOp {
   template <typename T>
@@ -248,9 +293,10 @@ struct PolyOp {
 // One CUDA block cannot hold a line longer than 1024 threads. Walk that
 // line in tiles of blockDim.x outputs. A tile loads blockDim.x + Stencil - 1
 // inputs (the overhang) and calls the same shared-memory weights as the
-// one-thread-per-cell kernel.
-template <typename T, int Stencil, int NCoeff, typename Op>
-__device__ void interp_line_tiled(T *out, T *inp, T *coeff, int nvar,
+// one-thread-per-cell kernel. Nu: coeff is a per-face x1 table, one row of
+// NCoeff per output, read from global memory.
+template <typename T, int Stencil, int NCoeff, typename Op, bool Nu = false>
+__device__ void interp_line_tiled(T *out, T *inp, T const *coeff, int nvar,
                                   int stride_in1, int stride_in2,
                                   int stride_out1, int stride_out2, bool scale,
                                   int nline, T *smem) {
@@ -261,8 +307,10 @@ __device__ void interp_line_tiled(T *out, T *inp, T *coeff, int nvar,
   int nout = nline - overhang;
 
   T *scoeff = smem + window_max * nvar;
-  for (int i = id; i < NCoeff; i += nt) {
-    scoeff[i] = coeff[i];
+  if constexpr (!Nu) {
+    for (int i = id; i < NCoeff; i += nt) {
+      scoeff[i] = coeff[i];
+    }
   }
 
   for (int start = 0; start < nout; start += nt) {
@@ -280,9 +328,11 @@ __device__ void interp_line_tiled(T *out, T *inp, T *coeff, int nvar,
     __syncthreads();
 
     if (id < n_out) {
+      T const *row = scoeff;
+      if constexpr (Nu) row = coeff + static_cast<int64_t>(start + id) * NCoeff;
       for (int j = 0; j < nvar; ++j) {
         OUT(j, start + id) =
-            Op::template eval<T>(sinp, scoeff, j, id, window, scale);
+            Op::template eval<T>(sinp, row, j, id, window, scale);
       }
     }
 
@@ -290,7 +340,7 @@ __device__ void interp_line_tiled(T *out, T *inp, T *coeff, int nvar,
   }
 }
 
-} // namespace snap
+}  // namespace snap
 
 #undef SQR
 #undef INP

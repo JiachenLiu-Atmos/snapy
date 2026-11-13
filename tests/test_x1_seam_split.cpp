@@ -17,11 +17,12 @@
 // (docs/derivations/curved-gravity-work-weight.md sec 7). An implicit scheme
 // refuses an x1 split, so the VIC row has no seam (vic_refuses_x1_split).
 //
-// SNAP_WB_REF4 alone (ctest test_x1_seam_split_wb_ref4): each block computes
-// the resolution flag from its own scan pressures, ghosts included, and only
-// (pref, dref) are exchanged; on a column cold enough that the flag switches
-// on one cell above the seam, the split column must still keep the one-block
-// state (docs/derivations/wb-ref4.md sec 7).
+// conversion-order 4 (ctest test_x1_seam_split_co4_face_density): the
+// fourth-order face density (wb_ref4.cpp) computes its resolution flag per
+// block from its own scan pressures, ghosts included, and only (pref, dref)
+// are exchanged; on a column cold enough that the flag switches on one cell
+// above the seam, the split column must still keep the one-block state
+// (docs/derivations/wb-ref4.md sec 7).
 //
 // Each ctest entry (tests/CMakeLists.txt) runs one test with its switch set,
 // and passes only if that test ran and passed: a missing switch is a failure.
@@ -52,7 +53,6 @@
 #include <snap/coord/x1_centroid.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/hydro/hydro.hpp>
-#include <snap/hydro/wb_ref4.hpp>
 #include <snap/mesh/mesh.hpp>
 
 using namespace snap;
@@ -63,6 +63,10 @@ constexpr double kR0 = 5.0, kLz = 2.0, kGamma = 1.4, kSeed = 0.05;
 
 // implicit-scheme of the columns: 0 explicit, 9 the full VIC solve
 int g_scheme = 0;
+// dynamics/conversion-order of the next make_column
+int g_conv_order = 2;
+// x1 and x2/x3 reconstruction of the next make_column (nullptr: the card's)
+char const* g_recon = nullptr;
 
 std::string column_yaml(int nx1, double nh, char const* gw, int ng = 3) {
   char buf[2048];
@@ -116,6 +120,11 @@ Mesh make_column(int nb1, int nx1, double nh, char const* gw, int ng = 3,
   auto block_opts = MeshBlockOptionsImpl::from_yaml(fname);
   std::remove(fname);
   block_opts->hydro()->grav()->grav1(g1);
+  block_opts->hydro()->conversion_order(g_conv_order);
+  if (g_recon) {
+    block_opts->hydro()->recon1()->interp()->type(g_recon);
+    block_opts->hydro()->recon23()->interp()->type(g_recon);
+  }
   if (g1 == 0. || ng < 3) {  // donor cell: weno5 needs nghost >= 3 (S184)
     block_opts->hydro()->recon1()->interp()->type("dc");
     block_opts->hydro()->recon23()->interp()->type("dc");
@@ -241,7 +250,6 @@ double split_gap(int nx1, double nh, char const* gw, int nstep,
 
 void centroid_exact_split_matches_one_block(torch::Device device) {
   ASSERT_TRUE(std::getenv("SNAP_X1_CENTROID_EXACT"));
-  ASSERT_FALSE(std::getenv("SNAP_WB_REF4"));
   torch::set_num_threads(1);
   ASSERT_TRUE(x1_centroid_exact_enabled());
   for (double nh : {1., 0.}) {
@@ -272,36 +280,43 @@ void radial_exact_split_gap(torch::Device device) {
   }
 }
 
-void wb_ref4_flag_at_the_seam_split_matches_one_block(torch::Device device) {
-  ASSERT_TRUE(std::getenv("SNAP_WB_REF4"));
+// plm at conversion-order 4: the face density post-pass decides every x1 face
+// (with weno5 it decides only the guard-fallback faces, and this column has
+// none), so the one-block state also pins it being applied: m1 max after 20
+// steps, recorded with it; without it the value moves by 3e-5 relative
+void co4_face_density_at_the_seam_split_matches_one_block(
+    torch::Device device) {
   ASSERT_FALSE(std::getenv("SNAP_X1_CENTROID_EXACT"));
-  ASSERT_TRUE(wb_ref4_enabled());
-  ASSERT_FALSE(x1_centroid_exact_enabled());
   torch::set_num_threads(1);
+  g_conv_order = 4;
+  g_recon = "plm";
+  double const pinned[2] = {0.017118506058974511, 0.03667996579309097};
+  int k = 0;
   for (double nh : {1., 0.}) {
+    auto one = make_column(1, 16, nh, "cell", 3, device);
+    MeshVariables v1(1);
+    fill_column(one, v1, /*cold=*/true);
+    one->initialize(v1);
+    double dt = 0.3 * (kLz / 16) / std::sqrt(kGamma);
+    for (int n = 0; n < 20; ++n) step(one, v1, dt);
+    double m1 = column_state(one, v1)[IVX].abs().max().item<double>();
     double gap = split_gap(16, nh, "cell", 20, nullptr, /*cold=*/true, device);
     std::printf(
-        "SNAP_WB_REF4, cold, non-hydrostatic %g: 2 blocks vs 1, max rel gap "
-        "%.3e\n",
-        nh, gap);
+        "conversion-order 4, plm, cold, non-hydrostatic %g: 2 blocks vs 1, "
+        "max rel gap %.3e; one block max|m1| %.17g\n",
+        nh, gap, m1);
     EXPECT_LE(gap, 1e-13) << "non-hydrostatic " << nh;
+    EXPECT_NEAR(m1, pinned[k], 1e-9 * pinned[k]) << "non-hydrostatic " << nh;
+    ++k;
   }
-  // the flag reads scan pressures three cells away: fewer ghosts is an error
-  for (int ng : {1, 2}) try {
-      make_column(2, 16, 1., "cell", ng, device);
-      ADD_FAILURE() << "nghost " << ng << " accepted";
-    } catch (c10::Error const& e) {
-      EXPECT_NE(std::string(e.what()).find("needs nghost >= 3"),
-                std::string::npos)
-          << e.what();
-    }
+  g_conv_order = 2;
+  g_recon = nullptr;
 }
 
 }  // namespace
 
 TEST(X1SeamSplit, switches_off_nghost_1_sets_up) {
-  ASSERT_FALSE(std::getenv("SNAP_X1_CENTROID_EXACT") ||
-               std::getenv("SNAP_WB_REF4"));
+  ASSERT_FALSE(std::getenv("SNAP_X1_CENTROID_EXACT"));
   // the nghost >= 3 check is the switches' own: the default nghost is 1
   EXPECT_NO_THROW(make_column(1, 16, 1., "cell", 1));
   EXPECT_NO_THROW(make_column(2, 16, 1., "cell", 1));
@@ -313,6 +328,31 @@ TEST(X1SeamSplit, centroid_exact_split_matches_one_block) {
 
 TEST(X1SeamSplit, radial_exact_split_gap) {
   radial_exact_split_gap(torch::kCPU);
+}
+
+// the nghost >= 3 check of SNAP_X1_CENTROID_EXACT and of conversion-order 4
+// with gravity: one ctest entry each
+// (test_x1_seam_split_nghost_check_x1_centroid with the switch set,
+// _conversion_order_4 without it). Fewer ghosts is an error naming the setting;
+// nghost 3, or no gravity, sets up
+TEST(X1SeamSplit, nghost_check_refuses_fewer_than_3_ghosts) {
+  bool centroid = std::getenv("SNAP_X1_CENTROID_EXACT") != nullptr;
+  ASSERT_EQ(x1_centroid_exact_enabled(), centroid);
+  g_conv_order = centroid ? 2 : 4;
+  char const* setting =
+      centroid ? "SNAP_X1_CENTROID_EXACT" : "dynamics/conversion-order 4";
+  for (int ng : {1, 2}) try {
+      make_column(1, 16, 1., "cell", ng);
+      ADD_FAILURE() << setting << ": nghost " << ng << " accepted";
+    } catch (c10::Error const& e) {
+      std::string what = e.what();
+      EXPECT_NE(what.find("needs nghost >= 3"), std::string::npos) << what;
+      EXPECT_NE(what.find(setting), std::string::npos) << what;
+    }
+  EXPECT_NO_THROW(make_column(1, 16, 1., "cell", 3));
+  // no gravity, no reference: the check stays off
+  EXPECT_NO_THROW(make_column(1, 16, 1., "cell", 1, torch::kCPU, 0.));
+  g_conv_order = 2;
 }
 
 // the VIC row's slope is per block (implicit_hydro.cpp); that is the one-block
@@ -338,10 +378,6 @@ TEST(X1SeamSplit, vic_refuses_x1_split) {
   }
 }
 
-TEST(X1SeamSplit, wb_ref4_flag_at_the_seam_split_matches_one_block) {
-  wb_ref4_flag_at_the_seam_split_matches_one_block(torch::kCPU);
-}
-
 TEST(X1SeamSplit, centroid_exact_split_matches_one_block_cuda) {
   if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
   centroid_exact_split_matches_one_block(torch::Device(torch::kCUDA, 0));
@@ -352,9 +388,13 @@ TEST(X1SeamSplit, radial_exact_split_gap_cuda) {
   radial_exact_split_gap(torch::Device(torch::kCUDA, 0));
 }
 
-TEST(X1SeamSplit, wb_ref4_flag_at_the_seam_split_matches_one_block_cuda) {
+TEST(X1SeamSplit, co4_face_density_at_the_seam_split_matches_one_block) {
+  co4_face_density_at_the_seam_split_matches_one_block(torch::kCPU);
+}
+
+TEST(X1SeamSplit, co4_face_density_at_the_seam_split_matches_one_block_cuda) {
   if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
-  wb_ref4_flag_at_the_seam_split_matches_one_block(
+  co4_face_density_at_the_seam_split_matches_one_block(
       torch::Device(torch::kCUDA, 0));
 }
 
@@ -373,24 +413,4 @@ TEST(X1SeamSplit, x1_mass_covariance_needs_3_x1_cells) {
         << e.what();
   }
   EXPECT_NO_THROW(make_column(1, 3, 1., "cell", 2));
-}
-
-// SNAP_WB_REF4 with grav1 = 0: no reference is built, so the nghost >= 3
-// check stays off and a donor-cell column on nghost 1 must set up and step
-TEST(X1SeamSplit, wb_ref4_gravity_0_nghost_1_steps) {
-  ASSERT_TRUE(std::getenv("SNAP_WB_REF4"));
-  ASSERT_TRUE(wb_ref4_enabled());
-  torch::set_num_threads(1);
-  for (int nb1 : {1, 2}) {
-    Mesh mesh = nullptr;
-    ASSERT_NO_THROW(mesh =
-                        make_column(nb1, 16, 1., "cell", 1, torch::kCPU, 0.));
-    MeshVariables vars(nb1);
-    fill_column(mesh, vars);
-    mesh->initialize(vars);
-    double dt = 0.3 * (kLz / 16) / std::sqrt(kGamma);
-    for (int n = 0; n < 5; ++n) ASSERT_NO_THROW(step(mesh, vars, dt));
-    EXPECT_TRUE(torch::isfinite(column_state(mesh, vars)).all().item<bool>())
-        << "nb1 " << nb1;
-  }
 }

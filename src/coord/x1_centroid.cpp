@@ -10,6 +10,7 @@
 #include <snap/layout/layout.hpp>
 
 #include "x1_centroid.hpp"
+#include "x1_stencil.hpp"
 
 namespace snap {
 
@@ -54,31 +55,6 @@ double lagrange(std::vector<double> const& X, int j, double x) {
     if (m != j) prod *= (x - X[m]) / (X[j] - X[m]);
   }
   return prod;
-}
-
-torch::Tensor to_index(std::vector<std::vector<int64_t>> const& rows, int k) {
-  auto t = torch::zeros({(int64_t)rows.size(), k}, torch::kInt64);
-  auto a = t.accessor<int64_t, 2>();
-  for (size_t i = 0; i < rows.size(); ++i)
-    for (size_t j = 0; j < rows[i].size(); ++j) a[i][j] = rows[i][j];
-  return t;
-}
-
-torch::Tensor to_weight(std::vector<std::vector<double>> const& rows, int k) {
-  auto t = torch::zeros({(int64_t)rows.size(), k}, torch::kFloat64);
-  auto a = t.accessor<double, 2>();
-  for (size_t i = 0; i < rows.size(); ++i)
-    for (size_t j = 0; j < rows[i].size(); ++j) a[i][j] = rows[i][j];
-  return t;
-}
-
-// sum_k v[..., idx[n, k]] * wt[n, k] over k: (..., n)
-torch::Tensor apply(torch::Tensor const& v, torch::Tensor const& idx,
-                    torch::Tensor const& wt) {
-  auto sizes = v.sizes().vec();
-  sizes.back() = idx.size(0);
-  sizes.push_back(idx.size(1));
-  return (v.index_select(-1, idx.flatten()).view(sizes) * wt).sum(-1);
 }
 
 std::vector<double> faces_of(torch::Tensor const& x1f) {
@@ -149,8 +125,8 @@ X1PlainMeanStencils x1_plain_mean_stencils(
     ci.push_back(idx);
     cw.push_back(wgt);
   }
-  st.idx = to_index(ci, 5).to(options.device());
-  st.wt = to_weight(cw, 5).to(options);
+  st.idx = x1_stencil_index(ci, 5).to(options.device());
+  st.wt = x1_stencil_weight(cw, 5).to(options);
   return st;
 }
 
@@ -158,7 +134,7 @@ torch::Tensor x1_plain_means(X1PlainMeanStencils const& st,
                              torch::Tensor const& w, int ivx, bool odd_in,
                              bool odd_out) {
   if (!st.usable) return w.clone();
-  auto out = apply(w, st.idx, st.wt);
+  auto out = x1_stencil_apply(w, st.idx, st.wt);
   auto parity = [&](bool odd) {
     std::vector<int64_t> shape(w.dim(), 1);
     shape[0] = w.size(0);
@@ -216,14 +192,14 @@ X1PressureSourceStencils x1_pressure_source_stencils(
     si.push_back(idx);
     sw.push_back(wt);
   }
-  st.idx = to_index(si, 6).to(options.device());
-  st.wt = to_weight(sw, 6).to(options);
+  st.idx = x1_stencil_index(si, 6).to(options.device());
+  st.wt = x1_stencil_weight(sw, 6).to(options);
   return st;
 }
 
 torch::Tensor x1_pressure_source(X1PressureSourceStencils const& st,
                                  torch::Tensor const& face_pressure1) {
-  return apply(face_pressure1, st.idx, st.wt);
+  return x1_stencil_apply(face_pressure1, st.idx, st.wt);
 }
 
 }  // namespace snap

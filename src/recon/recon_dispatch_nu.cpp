@@ -6,7 +6,9 @@
 #include <ATen/native/cpu/Loops.h>
 #include <torch/torch.h>
 
-#include "interp_impl_nu.h"
+#include <type_traits>
+
+#include "interp_impl.h"
 #include "x1_coeffs.hpp"
 
 namespace snap {
@@ -68,8 +70,9 @@ void call_weno5_nu_cpu(at::TensorIterator& iter, torch::Tensor coeff, int dim,
       iter, coeff, dim, "weno5_nu",
       [scale](auto* out, auto const* w, auto const* c, int stride1, int stride2,
               int stride_out, int nvar) {
-        interp_weno5_nu_impl(out, w, c, stride1, stride2, stride_out, nvar,
-                             scale);
+        using T = std::remove_pointer_t<decltype(out)>;
+        interp_weno5_impl<T, true>(out, w, c, stride1, stride2, stride_out,
+                                   nvar, scale);
       });
 }
 
@@ -78,7 +81,9 @@ void call_poly5_nu_cpu(at::TensorIterator& iter, torch::Tensor coeff, int dim) {
       iter, coeff, dim, "poly5_nu",
       [](auto* out, auto const* w, auto const* c, int stride1, int stride2,
          int stride_out, int nvar) {
-        interp_poly5_nu_impl(out, w, c, stride1, stride2, stride_out, nvar);
+        using T = std::remove_pointer_t<decltype(out)>;
+        interp_poly_impl<T, kPoly5NuCoeff>(out, w, c, stride1, stride2,
+                                           stride_out, nvar);
       });
 }
 

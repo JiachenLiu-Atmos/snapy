@@ -33,15 +33,11 @@ setup_test(test_cp5_nghost)
 setup_test(test_stretched_x1)
 setup_test(test_deck_x1_wiring)
 setup_test(test_stretched_x1_ref)
-foreach(_arm "wb_ref4;SNAP_WB_REF4=1" "x1_centroid;SNAP_X1_CENTROID_EXACT=1")
-  list(GET _arm 0 _name)
-  list(GET _arm 1 _env)
-  add_test(NAME test_stretched_x1_ref_${_name}.${buildl}
-           COMMAND test_stretched_x1_ref.${buildl}
-                   --gtest_filter=StretchedX1Ref.wb_ref4_switch_runs:StretchedX1Ref.balance_column_wb_ref4_runs)
-  set_tests_properties(test_stretched_x1_ref_${_name}.${buildl}
-                       PROPERTIES ENVIRONMENT "${_env}")
-endforeach()
+add_test(NAME test_stretched_x1_ref_x1_centroid.${buildl}
+         COMMAND test_stretched_x1_ref.${buildl}
+                 --gtest_filter=StretchedX1Ref.x1_centroid_switch_runs:StretchedX1Ref.balance_column_x1_centroid_runs)
+set_tests_properties(test_stretched_x1_ref_x1_centroid.${buildl}
+                     PROPERTIES ENVIRONMENT "SNAP_X1_CENTROID_EXACT=1")
 add_test(NAME test_stretched_x1_ref_x1_mass_covariance.${buildl}
          COMMAND test_stretched_x1_ref.${buildl}
                  --gtest_filter=StretchedX1Ref.x1_mass_covariance_switch_runs)
@@ -120,13 +116,15 @@ seam_arm("" "" switches_off_nghost_1_sets_up)
 seam_arm(_x1_centroid "SNAP_X1_CENTROID_EXACT=1"
          centroid_exact_split_matches_one_block)
 seam_arm(_radial_exact "" radial_exact_split_gap)
+# conversion-order 4: its face-density flag switching on next to the seam
+seam_arm(_co4_face_density "" co4_face_density_at_the_seam_split_matches_one_block)
+# the nghost >= 3 check of SNAP_X1_CENTROID_EXACT and of conversion-order 4
+seam_arm(_nghost_check_conversion_order_4 ""
+         nghost_check_refuses_fewer_than_3_ghosts)
+seam_arm(_nghost_check_x1_centroid "SNAP_X1_CENTROID_EXACT=1"
+         nghost_check_refuses_fewer_than_3_ghosts)
 # the VIC row's per-block slope relies on an implicit scheme refusing an x1 split
 seam_arm(_vic_refuses_split "" vic_refuses_x1_split)
-# SNAP_WB_REF4 alone: its resolution flag switching on next to the seam
-seam_arm(_wb_ref4 "SNAP_WB_REF4=1"
-         wb_ref4_flag_at_the_seam_split_matches_one_block)
-# SNAP_WB_REF4 with grav1 = 0 on nghost 1: no reference, so no nghost check
-seam_arm(_wb_ref4_gravity_0 "SNAP_WB_REF4=1" wb_ref4_gravity_0_nghost_1_steps)
 # SNAP_X1_MASS_COVARIANCE refuses a block with fewer than 3 x1 cells
 seam_arm(_x1_mass_covariance "SNAP_X1_MASS_COVARIANCE=1"
          x1_mass_covariance_needs_3_x1_cells)
@@ -135,9 +133,9 @@ if(CUDA)
   seam_arm(_x1_centroid_cuda "SNAP_X1_CENTROID_EXACT=1"
            centroid_exact_split_matches_one_block_cuda)
   seam_arm(_radial_exact_cuda "" radial_exact_split_gap_cuda)
-  seam_arm(_wb_ref4_cuda "SNAP_WB_REF4=1"
-           wb_ref4_flag_at_the_seam_split_matches_one_block_cuda)
-  foreach(_a _x1_centroid_cuda _radial_exact_cuda _wb_ref4_cuda)
+  seam_arm(_co4_face_density_cuda ""
+           co4_face_density_at_the_seam_split_matches_one_block_cuda)
+  foreach(_a _x1_centroid_cuda _radial_exact_cuda _co4_face_density_cuda)
     set_tests_properties(
       test_x1_seam_split${_a}.${buildl}
       PROPERTIES SKIP_REGULAR_EXPRESSION "\\[  SKIPPED \\] 1 test")
@@ -153,17 +151,13 @@ function(seam_arm_mp name env)
 endfunction()
 seam_arm_mp(_x1_centroid "SNAP_X1_CENTROID_EXACT=1")
 seam_arm_mp(_radial_exact "X1_SEAM_ARM=face")
-seam_arm_mp(_wb_ref4 "SNAP_WB_REF4=1")
+seam_arm_mp(_co4_face_density "X1_SEAM_ARM=co4")
 setup_test(test_wb_wall_corner)
 setup_test(test_face_floor)
 setup_test(test_wb_ref_wall)
-# #289: these two pin values of the kernel's x1 reference; run them again with
-# SNAP_WB_REF4 set, where each checks the switched reference instead
+# these two pin values of the kernel's x1 reference; run them again with
+# SNAP_X1_CENTROID_EXACT set: the same checks hold on their Cartesian columns
 foreach(_t test_balance_column test_face_floor)
-  add_test(NAME ${_t}_wb_ref4.${buildl} COMMAND ${_t}.${buildl})
-  set_tests_properties(${_t}_wb_ref4.${buildl} PROPERTIES ENVIRONMENT
-                                                          "SNAP_WB_REF4=1")
-  # SNAP_X1_CENTROID_EXACT alone implies SNAP_WB_REF4: the same checks hold
   add_test(NAME ${_t}_x1_centroid.${buildl} COMMAND ${_t}.${buildl})
   set_tests_properties(${_t}_x1_centroid.${buildl}
                        PROPERTIES ENVIRONMENT "SNAP_X1_CENTROID_EXACT=1")
@@ -792,15 +786,14 @@ endif()
 # Jupiter/production-GPU acceptance runs in FP32_ROADMAP.md.
 foreach(_t IN ITEMS
     test_eos test_coordinate test_fp32_storage test_balance_column
-    test_balance_column_wb_ref4 test_balance_column_x1_centroid
+    test_balance_column_x1_centroid
     test_hydro_ref_x1 test_hydro_ref_x1_rf_wall test_gravity_work_cache_to
     test_implicit_face_work_jacobian test_riemann test_stretched_x1_ref
-    test_stretched_x1_ref_wb_ref4 test_stretched_x1_ref_x1_centroid
+    test_stretched_x1_ref_x1_centroid
     test_stretched_x1_ref_x1_mass_covariance
     test_wb_ref_wall test_wb_wall_corner test_x1_seam_split
     test_x1_seam_split_x1_centroid test_x1_seam_split_radial_exact
     test_x1_seam_split_vic_refuses_split
-    test_x1_seam_split_wb_ref4 test_x1_seam_split_wb_ref4_gravity_0
     test_x1_seam_split_x1_mass_covariance)
   set_property(TEST ${_t}.${buildl} APPEND PROPERTY LABELS "fp32-foundations")
 endforeach()

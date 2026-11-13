@@ -115,14 +115,16 @@ void HydroImpl::reset() {
             "the corrected-PE work of gravity-work: face has no form on a '",
             type, "' grid: it books the plain face work there");
     }
-    // the wb4 resolution flag is computed per block from scan pressures up to
-    // three cells away, so x1 seam sides agree only with nghost >= 3
-    if ((wb_ref4_enabled() || options->conversion_order() == 4) &&
+    // the conversion-order 4 resolution flag (wb_ref4.cpp) reads scan pressures
+    // three cells away, so x1 seam sides agree only with nghost >= 3;
+    // SNAP_X1_CENTROID_EXACT keeps the requirement it had while it switched
+    // that flag on
+    if ((x1_centroid_exact_enabled() || options->conversion_order() == 4) &&
         options->grav()->grav1() != 0. && pmb && pmb->pcoord) {
       int ng = pmb->pcoord->options->nghost();
       TORCH_CHECK(ng >= 3,
-                  "SNAP_WB_REF4 (or SNAP_X1_CENTROID_EXACT, which implies "
-                  "it, or dynamics/conversion-order 4) needs nghost >= 3, got ",
+                  "SNAP_X1_CENTROID_EXACT (or dynamics/conversion-order 4) "
+                  "needs nghost >= 3, got ",
                   ng);
     }
     // the one-sided rho_1 at a wall spans three cells: fewer reads the ghost
@@ -289,8 +291,6 @@ bool HydroImpl::flux_covariance() {
   }();
   return on;
 }
-
-bool HydroImpl::wb_ref4() { return wb_ref4_enabled(); }
 
 bool HydroImpl::x1_mass_covariance() {
   static const bool on = [] {
@@ -596,16 +596,16 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w) const {
   x1_reference_->evaluate(w, g, anchor, reference);
   auto& [psf_lo, psf_hi, pref, dsf, dref] = reference;
 
-  // #289 (SNAP_WB_REF4), and conversion-order 4, which needs it: the only
-  // fourth-order part is the face density below, the face value of the
-  // kernel's own cell dref -- that is what makes the O(dz^2) face offset
-  // vanish, whatever dref's own accuracy (wb-ref4.md section 2), and
-  // replacing dref broke the theta bound of a density current at a wall. psf
-  // is never changed, so the rest balance is the kernel's. Only the
-  // resolution flag is wanted here; the face part follows the seam exchange,
-  // so a column split along x1 gets one block's faces.
+  // dynamics/conversion-order 4 (#289): the only fourth-order part is the
+  // face density below, the face value of the kernel's own cell dref -- that
+  // is what makes the O(dz^2) face offset vanish, whatever dref's own accuracy
+  // (wb-ref4.md section 2), and replacing dref broke the theta bound of a
+  // density current at a wall. psf is never changed, so the rest balance is
+  // the kernel's. Only the resolution flag is wanted here; the face part
+  // follows the seam exchange, so a column split along x1 gets one block's
+  // faces.
   torch::Tensor wb4_flag;
-  if (wb_ref4() || options->conversion_order() == 4) {
+  if (options->conversion_order() == 4) {
     if (!wb_ref4_ || wb_ref4_->stale(w)) {
       bool clamp = options->wb_wall_clamp();
       wb_ref4_ = std::make_shared<WbRef4Stencils>(
@@ -680,7 +680,7 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w) const {
     for (auto& sw : sends) sw->wait();
   }
 
-  // #289 (SNAP_WB_REF4): the face density is the fourth-order face value of
+  // conversion-order 4: the face density is the fourth-order face value of
   // the (exchanged) cell density reference, so a split column gets the same
   // faces as one block
   if (wb4_flag.defined()) wb_ref4_faces(*wb_ref4_, dref, dsf, wb4_flag);
