@@ -689,8 +689,9 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
               .narrow(-1, iu + 1, ng)
               .copy_(wx1[c].narrow(-1, iu + 1 - ng, ng).flip(-1));
         }
-        // key 4 one-sided rho', p', v ghosts: this path runs only with gravity
-        fill4(wx1[c], c == IPR ? 2 : 0, true, c == IPR ? pref : dref);
+        // key 4 one-sided rho', v ghosts (p' keeps the even mirror the implicit
+        // solver's wall rows assume): this path runs only with gravity
+        if (c == IDN) fill4(wx1[c], 0, true, dref);
       }
 
       torch::Tensor velocity;

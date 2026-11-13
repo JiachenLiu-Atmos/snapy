@@ -40,7 +40,7 @@ W_TOL = 1.0e-7  # m/s
 EPE_TOL = 1.0e-11
 
 
-def config(scheme, integ="rk3"):
+def config(scheme, integ="rk3", key=2):
     rgas = 8.31446261815324
     return {
         "geometry": {"type": "cartesian",
@@ -53,7 +53,7 @@ def config(scheme, integ="rk3"):
                                   "temperature-floor": 1.e-6, "limiter": True},
             "reconstruct": {"vertical": {"type": "weno5", "scale": True, "shock": False},
                             "horizontal": {"type": "weno5", "scale": True, "shock": False}},
-            "riemann-solver": {"type": "lmars"}},
+            "riemann-solver": {"type": "lmars"}, "conversion-order": key},
         "boundary-condition": {"external": {"x1-inner": "reflecting", "x1-outer": "reflecting",
                                             "x2-inner": "periodic", "x2-outer": "periodic",
                                             "x3-inner": "periodic", "x3-outer": "periodic"}},
@@ -74,13 +74,13 @@ def corrected_pe(rho, x1f, x1v, grav1, spherical=False, centroid=False):
     return pe
 
 
-def run(scheme, dt, w0, nstep, device, integ="rk3"):
+def run(scheme, dt, w0, nstep, device, integ="rk3", key=2):
     """Returns (finite, steps run, max |w|, relative E+PE drift)."""
     import snapy
     from snapy import MeshBlock, MeshBlockOptions, kIDN, kIPR, kIV1
 
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=os.getcwd()) as f:
-        yaml.safe_dump(config(scheme, integ), f)
+        yaml.safe_dump(config(scheme, integ, key), f)
         tmp = f.name
     try:
         block = MeshBlock(MeshBlockOptions.from_yaml(tmp))
@@ -94,7 +94,8 @@ def run(scheme, dt, w0, nstep, device, integ="rk3"):
     col = torch.zeros(kIPR + 1, 1, 1, NZ, dtype=torch.float64)
     col[kIDN, 0, 0] = p / (RD * T0)
     col[kIPR, 0, 0] = p
-    wb, _, _ = snapy.balance_column(col, torch.full((NZ,), DZ, dtype=torch.float64), GRAV)
+    wb, _, _ = snapy.balance_column(col.to(device), torch.full((NZ,), DZ, dtype=torch.float64, device=device), GRAV,
+                                     conversion_order=key, eos=block.module("hydro.eos") if key == 4 else None)
     w = dict(block.named_buffers())["hydro.D"].clone().zero_()
     for c in (kIDN, kIPR):
         w[c][..., ng:ng + NZ] = wb[c, 0, 0].to(w)
@@ -103,7 +104,7 @@ def run(scheme, dt, w0, nstep, device, integ="rk3"):
     w[kIV1][..., ng:ng + NZ] = (w0 * torch.sin(math.pi * z / (NZ * DZ))).to(w)
     block_vars, _ = block.initialize({"hydro_w": w})
 
-    interior = (Ellipsis, slice(ng, ng + NX2), slice(ng, ng + NZ))
+    interior = (Ellipsis, slice(ng, ng + NX2) if NX2 > 1 else 0, slice(ng, ng + NZ))
     zz = z.to(w)
 
     x1f = torch.arange(NZ + 1, dtype=torch.float64) * DZ
@@ -160,6 +161,13 @@ def main():
           % (e["rk3", 4], e["rk3", 8], e["rk3s4", 4], e["rk3s4", 8]))
     if math.log2(e["rk3s4", 4] / e["rk3s4", 8]) < math.log2(e["rk3", 4] / e["rk3", 8]):
         failures.append("rk3s4 converges slower than rk3 with implicit-scheme 9")
+    # key 4, one column of 23 cells (dz = 0.49 H) at Courant 200: one-sided p' wall ghosts grew to |w|/c 4e-3
+    globals().update(NZ=23, DZ=NZ * DZ / 23, NX2=1)
+    for scheme, sname in SCHEMES:
+        finite, n, wmax, _, _ = run(scheme, 200 * DZ / cs, 0., 1000, args.device, key=4)
+        print("%s key 4 dz/H 0.49 Courant 200: steps %d max|w|/c %.3e" % (sname, n, wmax / cs))
+        if not (finite and wmax / cs < 1.e-10):
+            failures.append("%s key 4 dz/H 0.49 Courant 200: max|w|/c %.3e" % (sname, wmax / cs))
     for f in failures:
         print("FAIL", f)
     return 1 if failures else 0

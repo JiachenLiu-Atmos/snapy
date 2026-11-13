@@ -292,7 +292,7 @@ void co4_face_density_at_the_seam_split_matches_one_block(
   torch::set_num_threads(1);
   g_conv_order = 4;
   g_recon = "plm";
-  double const pinned[2] = {0.017152242355721214, 0.036682174165461559};
+  double const pinned[2] = {0.017152234664085421, 0.0366766650972154};
   int k = 0;
   for (double nh : {1., 0.}) {
     auto one = make_column(1, 16, nh, "cell", 3, device);
