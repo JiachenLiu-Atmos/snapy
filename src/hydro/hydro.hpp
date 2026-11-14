@@ -1,8 +1,5 @@
 #pragma once
 
-// C/C++
-#include <array>
-
 // torch
 #include <torch/nn/cloneable.h>
 #include <torch/nn/module.h>
@@ -80,33 +77,23 @@ struct HydroOptionsImpl {
   //! least 3 x1 cells per block. Same every-block rule as flux_covariance.
   ADD_ARG(bool, x1_mass_covariance) = false;
 
-  //! dynamics/conserve-axial-momentum: off (default), transport or full.
+  //! dynamics/conserve-axial-momentum: off (default) or transport.
   //! Axial angular momentum (AAM) in flux form on the gnomonic-equiangle grid:
-  //! the component of each cell's momentum tendency along the rotation about
-  //! the omega1 axis is the divergence of face AAM fluxes, so the global AAM
-  //! changes only through physical boundary faces (see GnomonicEquiangle). It
-  //! needs no Coriolis force or one of type xyz about omega1, and does nothing
-  //! on other grids (Hydro::axial_flux_form).
-  //!  - transport: the flux divergence and the x1 metric source. The Coriolis
-  //!    force stays in cell form, which does no work. The relative AAM is
-  //!    exact without rotation. With rotation the Coriolis exchange with the
-  //!    planetary AAM is left open. Measured with one jet, for Omega / (u / a)
-  //!    of 0.5 to 1: the drift is 110 to 290 times smaller than off at C8 and
-  //!    50 to 130 times at C16 (the gain shrinks with resolution). At a ratio
-  //!    of 14 it was larger than off, where the two errors of off cancel in
-  //!    part. Shallow-water noise decays as with off (what is left after 4000
-  //!    steps is within x1.4 of off up to 4 Omega).
-  //!  - full: also the axial component of the Coriolis force, from the face
-  //!    mass fluxes, so relative plus planetary AAM is exact. That force is
-  //!    then built from two different velocities and is not skew-symmetric:
-  //!    with rotation it does work and grid-scale noise gains energy. Linear
-  //!    f-plane growth is about 0.1 to 0.15 f^2 dx / c, whatever the wind.
-  //!    Shallow water at C16 over 4000 steps: noise on a state of rest keeps
-  //!    2.5 times the kinetic energy of off at Omega / 4, grows 30-fold at
-  //!    Omega and goes NaN at 4 Omega; a Williamson-2 flow gains the same
-  //!    amount, x10 at u0 = 3 m/s with or without noise, 5 % at 38.6 m/s. It
-  //!    is unstable at fast rotation: use it without rotation. A run with a
-  //!    Coriolis force prints a warning.
+  //! the component of each cell's flux divergence and x1 metric source along
+  //! the rotation about the omega1 axis is the divergence of face AAM fluxes,
+  //! so transport changes the global AAM only through physical boundary faces
+  //! (see GnomonicEquiangle). It needs no Coriolis force or one of type xyz
+  //! about omega1, and does nothing on other grids (Hydro::axial_flux_form).
+  //! The Coriolis force stays in cell form, which does no work. The relative
+  //! AAM is exact without rotation. With rotation the Coriolis exchange with
+  //! the planetary AAM is left open. Measured in 3D with one jet, for
+  //! Omega / (u / a) of 0.5 to 1: the drift is 110 to 290 times smaller than
+  //! off at C8 and 50 to 130 times at C16 (the gain shrinks with resolution).
+  //! At a ratio of 14 it was larger than off, where the two errors of off
+  //! cancel in part. In 2D shallow water (Williamson 2, C16) the gain with
+  //! rotation is small: 1.7 times at a ratio of 1, 1.1 at 12. Shallow-water
+  //! noise decays as with off (what is left after 4000 steps is within x1.4 of
+  //! off up to 4 Omega).
   ADD_ARG(std::string, conserve_axial_momentum) = "off";
 
   //! forcing options
@@ -195,19 +182,6 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! is set, the grid is gnomonic-equiangle and the Coriolis force, if any,
   //! is of type xyz about omega1
   bool axial_flux_form() const;
-  //! conserve-axial-momentum: full, and it applies: the Coriolis force takes
-  //! its axial component from the face mass fluxes
-  bool axial_coriolis_form() const;
-
-  //! dynamics/conserve-axial-momentum: the face mass fluxes the Coriolis
-  //! call in progress closes the planetary AAM with (x1, x2, x3; undefined
-  //! entries are skipped) and their number of species rows. The call before
-  //! the implicit solve takes the x2 and x3 faces, the call after it the x1
-  //! faces with the stage's final x1 mass transfer.
-  std::array<torch::Tensor, 3> const& axial_mass_fluxes() const {
-    return _aam_mass_flux;
-  }
-  int axial_mass_species() const { return _aam_mass_ny; }
 
   //! dynamics/flux-covariance (#289): the face-flux covariance rows a passive
   //! scalar carries on this stage's x2 (dim 2) or x3 (dim 1) faces, the rows a
@@ -425,10 +399,6 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
     int64_t ver = -1;
   };
   MassW _mass_w;
-
-  //! see axial_mass_fluxes()
-  std::array<torch::Tensor, 3> _aam_mass_flux;
-  int _aam_mass_ny = 0;
 
   torch::Tensor _flux1, _flux2, _flux3, _face_pressure1, _div, _forcing_dry;
   torch::Tensor _positivity_hits, _positivity_severe, _positivity_min;

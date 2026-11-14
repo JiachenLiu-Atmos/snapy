@@ -30,9 +30,7 @@ class GnomonicEquiangleImpl
   //                      x3v) and on the x3 faces (x2v, x3f), contravariant
   //                      in each face's own basis, the basis of its covariant
   //                      face fluxes
-  //   aam_c2_f2, aam_c2_f3 cos^2(lat) at those faces, [nk, nj(+1), 1]
   torch::Tensor aam_k_c, aam_kl_c, aam_kk_c, aam_k_f2, aam_k_f3;
-  torch::Tensor aam_c2_f2, aam_c2_f3;
 
   // local ghost cell usrc -- GLOBAL source coordinates, NOT rebased onto this
   // block. The block offset is applied to the integer index instead; see
@@ -113,21 +111,6 @@ class GnomonicEquiangleImpl
   //! lateral neighbours (see the source).
   void axial_rate_to_rows_(torch::Tensor row2, torch::Tensor row3,
                            torch::Tensor target) const override;
-
-  //! the Coriolis torque on the relative AAM in flux form (#314)
-  /*!
-   * The east component of -2 Omega x v makes the relative and the planetary
-   * AAM exchange: per volume, -Omega rho v . grad(s^2), s = r cos(lat). With
-   * the same face mass fluxes M_f (outward, times area) that move the
-   * planetary AAM Omega rho s^2 V, the exchange closes exactly when the
-   * torque is -(Omega / V) sum_f M_f (s_f^2 - s_c^2): the cell's planetary
-   * change -Omega s_c^2 sum_f M_f and this torque sum to -Omega sum_f M_f
-   * s_f^2, a face flux, so the absolute AAM telescopes. s_f^2 is single
-   * valued on every face. `ny` is the number of species rows after IDN.
-   */
-  torch::Tensor axial_coriolis_rate(torch::Tensor flux1, torch::Tensor flux2,
-                                    torch::Tensor flux3, double omega,
-                                    int ny) const override;
 
  private:
   //! guards K . K = 0 in a cell centred exactly on the rotation axis

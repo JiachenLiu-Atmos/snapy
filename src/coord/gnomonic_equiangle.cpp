@@ -183,14 +183,10 @@ void GnomonicEquiangleImpl::reset() {
     auto pc = torch::zeros({3, op->nc3() + 1, op->nc2() + 1}, x1v.options());
     pc[VEL1].fill_(1.);
     cs_contra_to_cart_(pc, corner[1], corner[0], face_id);  // unit positions
-    // the face mid-direction also gives cos^2(lat) = n_x^2 + n_y^2 there, the
-    // planetary AAM per unit mass and radius^2 used by axial_coriolis_rate
     auto face_avg = [&](torch::Tensor p1, torch::Tensor p2, torch::Tensor dth,
-                        torch::Tensor alpha, torch::Tensor beta,
-                        torch::Tensor& c2) {
+                        torch::Tensor alpha, torch::Tensor beta) {
       auto pm = p1 + p2;
       pm = pm / pm.square().sum(0, true).sqrt();
-      c2 = (pm[VEL2].square() + pm[VEL3].square()).unsqueeze(-1);
       auto k = torch::zeros_like(pm);  // z_hat x p_mid, ordered (z, x, y)
       k[VEL2] = -pm[VEL3];
       k[VEL3] = pm[VEL2];
@@ -201,18 +197,16 @@ void GnomonicEquiangleImpl::reset() {
     auto f2 = torch::meshgrid({x3v, x2f}, "ij");
     aam_k_f2 =
         face_avg(pc.slice(1, 0, op->nc3()), pc.slice(1, 1, op->nc3() + 1),
-                 dx3f_ang_face2_kj.squeeze(-1), f2[1], f2[0], aam_c2_f2);
+                 dx3f_ang_face2_kj.squeeze(-1), f2[1], f2[0]);
     auto f3 = torch::meshgrid({x3f, x2v}, "ij");
     aam_k_f3 =
         face_avg(pc.slice(2, 0, op->nc2()), pc.slice(2, 1, op->nc2() + 1),
-                 dx2f_ang_face3_kj.squeeze(-1), f3[1], f3[0], aam_c2_f3);
+                 dx2f_ang_face3_kj.squeeze(-1), f3[1], f3[0]);
     register_buffer("aam_k_c", aam_k_c);
     register_buffer("aam_kl_c", aam_kl_c);
     register_buffer("aam_kk_c", aam_kk_c);
     register_buffer("aam_k_f2", aam_k_f2);
     register_buffer("aam_k_f3", aam_k_f3);
-    register_buffer("aam_c2_f2", aam_c2_f2);
-    register_buffer("aam_c2_f3", aam_c2_f3);
     // only guards 0/0 in a cell centred exactly on the axis (odd nx2): that
     // cell holds no AAM, its correction is zero, and the AAM flux through its
     // faces is the one leak of the flux form (one cell per polar panel)
@@ -548,64 +542,6 @@ void GnomonicEquiangleImpl::axial_x1_source_(torch::Tensor row2,
     target = ((rlo - r) * Plo - (rhi - r) * Phi) / vol;
   }
   axial_rate_to_rows_(row2, row3, target);
-}
-
-torch::Tensor GnomonicEquiangleImpl::axial_coriolis_rate(torch::Tensor flux1,
-                                                         torch::Tensor flux2,
-                                                         torch::Tensor flux3,
-                                                         double omega,
-                                                         int ny) const {
-  int si = il(), ei = iu() + 1;
-  int sj = jl(), ej = ju() + 1;
-  int sk = kl(), ek = ku() + 1;
-  int n1 = ei - si, n2 = ej - sj, n3 = ek - sk;
-
-  auto kk = aam_kk_c.slice(0, sk, ek).slice(1, sj, ej);  // cos^2(lat), cell
-  auto r = x1v.slice(0, si, ei);
-  auto vol = cell_volume().slice(0, sk, ek).slice(1, sj, ej).slice(2, si, ei);
-  auto s2c = r * r * kk;  // [n3, n2, n1]
-
-  // total mass flux rows: dry plus the species
-  auto mass = [&](torch::Tensor const& f) {
-    auto m = f[IDN].clone();
-    if (ny > 0) m += f.narrow(0, ICY, ny).sum(0);
-    return m;
-  };
-
-  // -(Omega / V) sum_f M_f (s_f^2 - s_c^2), M_f the outward face mass flux
-  auto rate = torch::zeros({n3, n2, n1}, (flux1.defined()   ? flux1
-                                          : flux2.defined() ? flux2
-                                                            : flux3)
-                                             .options());
-  if (flux1.defined()) {
-    auto A =
-        face_area1().slice(0, sk, ek).slice(1, sj, ej).slice(2, si, ei + 1);
-    auto M =
-        A * mass(flux1.slice(1, sk, ek).slice(2, sj, ej).slice(3, si, ei + 1));
-    auto rf = x1f.slice(0, si, ei + 1);
-    auto s2f = rf * rf * kk;  // the cell's own cos^2(lat) along its column
-    rate += M.slice(2, 1, n1 + 1) * (s2f.slice(2, 1, n1 + 1) - s2c) -
-            M.slice(2, 0, n1) * (s2f.slice(2, 0, n1) - s2c);
-  }
-  if (flux2.defined()) {
-    auto A =
-        face_area2().slice(0, sk, ek).slice(1, sj, ej + 1).slice(2, si, ei);
-    auto M =
-        A * mass(flux2.slice(1, sk, ek).slice(2, sj, ej + 1).slice(3, si, ei));
-    auto s2f = r * r * aam_c2_f2.slice(0, sk, ek).slice(1, sj, ej + 1);
-    rate += M.slice(1, 1, n2 + 1) * (s2f.slice(1, 1, n2 + 1) - s2c) -
-            M.slice(1, 0, n2) * (s2f.slice(1, 0, n2) - s2c);
-  }
-  if (flux3.defined()) {
-    auto A =
-        face_area3().slice(0, sk, ek + 1).slice(1, sj, ej).slice(2, si, ei);
-    auto M =
-        A * mass(flux3.slice(1, sk, ek + 1).slice(2, sj, ej).slice(3, si, ei));
-    auto s2f = r * r * aam_c2_f3.slice(0, sk, ek + 1).slice(1, sj, ej);
-    rate += M.slice(0, 1, n3 + 1) * (s2f.slice(0, 1, n3 + 1) - s2c) -
-            M.slice(0, 0, n3) * (s2f.slice(0, 0, n3) - s2c);
-  }
-  return -omega * rate / vol;
 }
 
 void GnomonicEquiangleImpl::conserve_axial_momentum_(

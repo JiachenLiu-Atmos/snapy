@@ -1164,19 +1164,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     mw.wc1[IDN].copy_(w[IDN]);
     mw.wc1.narrow(0, IVY, 2).copy_(w.narrow(0, IVY, 2));
   }
-  // conserve-axial-momentum: this Coriolis call closes the planetary AAM
-  // over the x2 and x3 faces; the x1 faces wait for step 8 with the w rows
-  if (aam) {
-    auto on = [](bool off, torch::Tensor const& f) {
-      return off ? torch::Tensor() : f;
-    };
-    _aam_mass_flux = {
-        mass_w ? torch::Tensor()
-               : on(options->disable_flux_x1() || u.size(DIM1) == 1, _flux1),
-        on(options->disable_flux_x2(), _flux2),
-        on(options->disable_flux_x3(), _flux3)};
-    _aam_mass_ny = ny;
-  }
   for (auto& f : forcings)
     f.forward(du, mass_w && coriolis(f) ? mw.wc1 : w, temp, dt);
   _forcing_dry = track_dry ? du[IDN] - dry_before : torch::Tensor();
@@ -1422,14 +1409,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     auto m1i = m1.slice(-1, is, ie);
     torch::mul_out(m1i, phi.slice(-1, is, ie), mw.lo);
     m1i.addcmul_(phi.slice(-1, is + 1, ie + 1), mw.hi);
-    if (aam) {
-      // the x1 faces' share of the planetary AAM, from the same transfers:
-      // one flux row (IDN) per unit area, no species rows
-      _aam_mass_flux = {
-          (phi / mw.area.narrow(-1, 0, phi.size(-1))).unsqueeze(0),
-          torch::Tensor(), torch::Tensor()};
-      _aam_mass_ny = 0;
-    }
     for (auto& f : forcings)
       if (coriolis(f)) f.forward(du, mw.wc2, temp, dt);
     if (!aam) {

@@ -9,25 +9,29 @@ computed here from the coordinate buffers, independently of the option's own ari
   (a) a solid-body wind u_east = w r cos(lat) with the pressure of a rigidly rotating isothermal gas
       (an exact steady state of the continuum equations, so the tendency is zero up to the
       discrete balance): over NSTEP rk3 steps
-        off    |dL| / |L| > 100 TOL   (the drift this option removes is real)
-        full   |dL| / |L| <= TOL;
+        off        |dL| / |L| > 100 TOL   (the drift this option removes is real)
+        transport  |dL| / |L| <= TOL;
       the same with a wavenumber-2 perturbation on top (a flow with a tendency), to compare the
       drift of the steady and the evolving flow with the option off;
-  (b) a discretely balanced rest state with full stays at rest (max |v| / c_s <= REST_TOL)
+  (b) a discretely balanced rest state with transport stays at rest (max |v| / c_s <= REST_TOL)
       and keeps L at zero to TOL;
-  (c) a longer run of the perturbed jet with full stays finite with bounded |v| / c_s;
+  (c) a longer run of the perturbed jet with transport stays finite with bounded |v| / c_s;
   (d) the key is off by default, and a Cartesian block, where it does nothing, builds with it on;
-  (e)-(i) an odd grid with a cell on the axis, Coriolis, the vertically implicit solve with and
-      without a vapor species, the traditional approximation, and 2D shallow water;
-  (j) transport (flux-form transport, cell-form Coriolis): exact without rotation; with slow
-      rotation, Omega = the wind's rotation rate, at least 10 times less drift than off on the
-      production path (the same at the deck's Omega, 14 times the wind's rate, is reported only);
-  (k) shallow water at rest plus grid-scale noise, NENERGY steps: with transport the noise decays
-      and the kinetic energy left stays within KE_BAND of off, at Omega and at 4 Omega. A state of
-      rest is used because a background flow hides the gain in its own energy. Full is reported
-      only: it keeps 2.5 times the energy of off at Omega / 4 and grows at Omega.
-The arms pass False and True for off and full where they predate the transport value: the key
-reads them that way. Each arm builds its own Mesh and frees it before the next.
+  (e) an odd grid with a cell on the axis;
+  (f)-(h) with a Coriolis force, which stays in cell form, the exchange with the planetary AAM
+      is left open and the absolute AAM (relative plus planetary) is not exact. At slow rotation,
+      Omega = the wind's rotation rate, transport must drift at least GAIN times less than off:
+      explicit, the traditional approximation on a shallow shell, and the vertically implicit
+      solve with a vertical wind, dry and with a vapor species. At the deck's Omega, 14 times the
+      wind's rate, the two errors of off cancel in part and the drifts are reported only;
+  (i) 2D shallow water, the steady zonal flow of Williamson et al. (1992) test 2: exact without
+      rotation. With rotation the gain is small here (measured 1.7 at Omega = u0 / a, 1.1 at the
+      Earth's rate): the drift must not exceed that of off at Omega = u0 / a and is reported only
+      at the Earth's rate. The balanced-flow error must not grow;
+  (j) shallow water at rest plus grid-scale noise, NENERGY steps: the noise decays and the kinetic
+      energy left stays within KE_BAND of off, at Omega and at 4 Omega. A state of rest is used
+      because a background flow hides a gain in its own energy.
+Each arm builds its own Mesh and frees it before the next.
 
   python test_axial_momentum_flux_form.py [--device cuda] [--nstep 20] [--nlong 200] [--nenergy 4000]
 """
@@ -44,8 +48,8 @@ import yaml
 
 TOL = 1.0e-12
 REST_TOL = 1.0e-6
-TRAD_TOL = 1.0e-10  # traditional approximation on a shallow shell: what the equations leave out
-KE_BAND = 2.0  # arm (k): noise energy left against off (measured 1.06 at Omega, 1.37 at 4 Omega)
+GAIN = 10.0  # arms (f)-(h): drift of off over drift of transport at slow rotation (measured 83 to 128)
+KE_BAND = 2.0  # arm (j): noise energy left against off (measured 1.06 at Omega, 1.37 at 4 Omega)
 W_SB = 5.0e-6  # solid-body rate of the test wind, u_east ~ 30 m/s
 U_PERT = 10.0  # wavenumber-2 perturbation amplitude (m/s)
 W_UP = 5.0  # vertical wind amplitude of the implicit arm (m/s)
@@ -190,14 +194,14 @@ def run(mesh, blocks, mesh_vars, nstep, omega=0.0):
 SW_OMEGA, SW_U0, SW_PHI0 = 7.292e-5, 38.6, 2.94e4  # Williamson et al. (1992) test 2
 
 
-def sw_config(on, omega=None):
+def sw_config(mode, omega=None):
     edge = {"x2min_pi": -0.25, "x2max_pi": 0.25, "x3min_pi": -0.25, "x3max_pi": 0.25}
     return {
         "geometry": {"type": "gnomonic-equiangle",
                      "bounds": dict(x1min=6371000.0, x1max=6371001.0, **edge),
                      "cells": {"nx1": 1, "nx2": 16, "nx3": 16, "nghost": 3}},
         "distribute": {"layout": "cubed-sphere", "nb2": 1, "nb3": 1, "blocks_per_process": 6, "verbose": False},
-        "dynamics": {"conserve-axial-momentum": on,
+        "dynamics": {"conserve-axial-momentum": mode,
                      "equation-of-state": {"type": "shallow-water"},
                      "reconstruct": {"vertical": {"type": "weno5", "scale": False, "shock": False},
                                      "horizontal": {"type": "weno5", "scale": False, "shock": False}},
@@ -210,7 +214,7 @@ def sw_config(on, omega=None):
     }
 
 
-def sw_state(blocks):
+def sw_state(blocks, omega):
     """Steady zonal flow u = u0 cos(lat) with phi = phi0 - (a omega u0 + u0^2 / 2) sin^2(lat)."""
     from snapy import kIDN, kIV2, kIV3
 
@@ -221,7 +225,7 @@ def sw_state(blocks):
         lat = coord.buffer("latitude").to(w)
         a = coord.buffer("x1v").to(w)
         k = coord.buffer("aam_k_c").to(w)
-        w[kIDN] = SW_PHI0 - (a * SW_OMEGA * SW_U0 + 0.5 * SW_U0 ** 2) * torch.sin(lat) ** 2
+        w[kIDN] = SW_PHI0 - (a * omega * SW_U0 + 0.5 * SW_U0 ** 2) * torch.sin(lat) ** 2
         w[kIV2] = SW_U0 * k[1] + 0.0 * a  # u_east k / cos(lat), u_east = u0 cos(lat)
         w[kIV3] = SW_U0 * k[2] + 0.0 * a
         mesh_vars.append({"hydro_w": w})
@@ -272,12 +276,12 @@ def run_sw_rest_noise(mode, omega, nstep, device, amp=0.2):
     return ke
 
 
-def run_sw(mesh, blocks, mesh_vars, nstep):
+def run_sw(mesh, blocks, mesh_vars, nstep, omega):
     from snapy import kIDN
 
     mesh_vars, _ = mesh.initialize(mesh_vars)
     intg = blocks[0].module("intg")
-    l0 = aam(blocks, mesh_vars, SW_OMEGA)
+    l0 = aam(blocks, mesh_vars, omega)
     phi0 = [mesh_vars[ib]["hydro_u"][kIDN][interior(b)].clone() for ib, b in enumerate(blocks)]
     drift = 0.0
     for cycle in range(1, nstep + 1):
@@ -285,7 +289,7 @@ def run_sw(mesh, blocks, mesh_vars, nstep):
         dt = mesh.max_time_step(mesh_vars)
         for stage in range(len(intg.stages)):
             mesh.forward(mesh_vars, dt, stage)
-        d = abs(aam(blocks, mesh_vars, SW_OMEGA) - l0) / abs(l0)
+        d = abs(aam(blocks, mesh_vars, omega) - l0) / abs(l0)
         drift = max(drift, d) if math.isfinite(d) else math.inf
     err = max(((mesh_vars[ib]["hydro_u"][kIDN][interior(b)] - phi0[ib]).abs().max().item())
               for ib, b in enumerate(blocks)) / SW_PHI0
@@ -325,9 +329,9 @@ def main(argv=None):
         base = yaml.safe_load(f)
     failures = []
 
-    def config(on):
+    def config(mode):
         cfg = yaml.safe_load(yaml.safe_dump(base))
-        cfg["dynamics"]["conserve-axial-momentum"] = on
+        cfg["dynamics"]["conserve-axial-momentum"] = mode
         return cfg
 
     def solid_body(lon, lat, rc):
@@ -336,11 +340,11 @@ def main(argv=None):
     def jet(lon, lat, rc):
         return W_SB * rc + U_PERT * torch.cos(lat) ** 2 * torch.sin(2.0 * lon)
 
-    # (a) steady solid body and perturbed jet, option off and on
+    # (a) steady solid body and perturbed jet, off and transport
     l_scale = None  # |L| of the solid-body wind, the scale for the rest arm
     for name, wind, balanced in (("solid body", solid_body, True), ("perturbed jet", jet, True)):
-        for on in (False, True):
-            cfg = config(on)
+        for mode in ("off", "transport"):
+            cfg = config(mode)
             mesh, blocks = build(cfg, args.device)
             mesh_vars, l0, drift, final, de = run(mesh, blocks, initial_state(cfg, blocks, wind, balanced), args.nstep)
             if l_scale is None:
@@ -348,44 +352,44 @@ def main(argv=None):
             v = vmax_over_cs(blocks, mesh_vars)
             del mesh, blocks, mesh_vars
             gc.collect()
-            print("(a) %-13s option %-5s max |dL| / |L| over %d steps = %.3e (final dL / L = %+.3e)  dE / E = %+.3e  max |v| / c_s = %.3e"
-                  % (name, on, args.nstep, drift, final, de, v))
+            print("(a) %-13s %-9s max |dL| / |L| over %d steps = %.3e (final dL / L = %+.3e)  dE / E = %+.3e  max |v| / c_s = %.3e"
+                  % (name, mode, args.nstep, drift, final, de, v))
             if not math.isfinite(drift):
-                failures.append("%s, option %s: L is not finite" % (name, on))
-            elif on and not drift <= TOL:
-                failures.append("%s, option on: L drifts %.3e > %.0e" % (name, drift, TOL))
-            elif not on and not drift > 100 * TOL:
-                failures.append("%s, option off: drift %.3e <= %.0e, the option would not be load-bearing" % (name, drift, 100 * TOL))
+                failures.append("%s, %s: L is not finite" % (name, mode))
+            elif mode == "transport" and not drift <= TOL:
+                failures.append("%s, transport: L drifts %.3e > %.0e" % (name, drift, TOL))
+            elif mode == "off" and not drift > 100 * TOL:
+                failures.append("%s, off: drift %.3e <= %.0e, the option would not be load-bearing" % (name, drift, 100 * TOL))
 
-    # (b) rest with the option on
-    cfg = config(True)
+    # (b) rest with transport
+    cfg = config("transport")
     mesh, blocks = build(cfg, args.device)
     mesh_vars, _, drift, _, _ = run(mesh, blocks, initial_state(cfg, blocks, None, False), args.nstep)
     v = vmax_over_cs(blocks, mesh_vars)
     del mesh, blocks, mesh_vars
     gc.collect()
     drift /= l_scale  # L starts at zero: measure it against the solid-body wind's AAM
-    print("(b) rest + option on: max |v| / c_s after %d steps = %.3e, max |L| / |L_solid body| = %.3e"
+    print("(b) rest + transport: max |v| / c_s after %d steps = %.3e, max |L| / |L_solid body| = %.3e"
           % (args.nstep, v, drift))
     if not v < REST_TOL:
-        failures.append("rest state moved with the option on: max |v| / c_s = %g" % v)
+        failures.append("rest state moved with transport: max |v| / c_s = %g" % v)
     if not drift <= TOL:
-        failures.append("rest + option on: |L| / |L_solid body| = %.3e > %.0e" % (drift, TOL))
+        failures.append("rest + transport: |L| / |L_solid body| = %.3e > %.0e" % (drift, TOL))
 
-    # (c) a longer perturbed-jet run with the option on stays finite and bounded
+    # (c) a longer perturbed-jet run with transport stays finite and bounded
     if args.nlong > 0:
-        cfg = config(True)
+        cfg = config("transport")
         mesh, blocks = build(cfg, args.device)
         mesh_vars, _, drift, final, de = run(mesh, blocks, initial_state(cfg, blocks, jet, True), args.nlong)
         v = vmax_over_cs(blocks, mesh_vars)
         del mesh, blocks, mesh_vars
         gc.collect()
-        print("(c) perturbed jet, option on, %d steps: max |dL| / |L| = %.3e, dE / E = %+.3e, max |v| / c_s = %.3e"
+        print("(c) perturbed jet, transport, %d steps: max |dL| / |L| = %.3e, dE / E = %+.3e, max |v| / c_s = %.3e"
               % (args.nlong, drift, de, v))
         if not (math.isfinite(v) and v < 1.0):
-            failures.append("long run with the option on: max |v| / c_s = %g" % v)
+            failures.append("long run with transport: max |v| / c_s = %g" % v)
         if not drift <= TOL:
-            failures.append("long run with the option on: L drifts %.3e > %.0e" % (drift, TOL))
+            failures.append("long run with transport: L drifts %.3e > %.0e" % (drift, TOL))
 
     # (e) an odd grid: one cell per polar panel is centred on the axis; its face AAM budget goes
     #     to its neighbours. Solid body plus a seeded random horizontal wind of about 1 m/s.
@@ -398,8 +402,8 @@ def main(argv=None):
             noise[key] = torch.randn(lon.shape, dtype=lon.dtype, device=lon.device)
         return W_SB * rc + 1.0 * noise[key]
 
-    for on in (False, True):
-        cfg = config(on)
+    for mode in ("off", "transport"):
+        cfg = config(mode)
         for key in ("nx2", "nx3"):
             cfg["geometry"]["cells"][key] = 9
         mesh, blocks = build(cfg, args.device)
@@ -407,159 +411,118 @@ def main(argv=None):
         v = vmax_over_cs(blocks, mesh_vars)
         del mesh, blocks, mesh_vars
         gc.collect()
-        print("(e) 9x9 noisy wind option %-5s max |dL| / |L| over %d steps = %.3e  dE / E = %+.3e  max |v| / c_s = %.3e"
-              % (on, args.nstep, drift, de, v))
-        if on and not drift <= TOL:
-            failures.append("9x9, option on: L drifts %.3e > %.0e (pole cell)" % (drift, TOL))
-        if not on and not drift > 100 * TOL:
-            failures.append("9x9, option off: drift %.3e <= %.0e" % (drift, 100 * TOL))
+        print("(e) 9x9 noisy wind %-9s max |dL| / |L| over %d steps = %.3e  dE / E = %+.3e  max |v| / c_s = %.3e"
+              % (mode, args.nstep, drift, de, v))
+        if mode == "transport" and not drift <= TOL:
+            failures.append("9x9, transport: L drifts %.3e > %.0e (pole cell)" % (drift, TOL))
+        if mode == "off" and not drift > 100 * TOL:
+            failures.append("9x9, off: drift %.3e <= %.0e" % (drift, 100 * TOL))
 
-    # (f) with Coriolis (omega1 about z): the absolute AAM, relative plus planetary, with the
-    #     Coriolis K component in flux form from the mass fluxes. Solid body in the rotating frame
-    #     with its balanced pressure, plus the wavenumber-2 perturbation.
+    # (f)-(h) with a Coriolis force (omega1 about z), which stays in cell form: the absolute AAM,
+    #     relative plus planetary, of the perturbed jet in the rotating frame with its balanced
+    #     pressure. The exchange with the planetary AAM is not in flux form, so the drift is not
+    #     zero; at Omega = the wind's rotation rate it must be GAIN times below off. At the deck's
+    #     Omega the two errors of off cancel in part and transport drifts more (reported only).
     OMEGA = 7.0e-5
-    for on in (False, True):
-        cfg = config(on)
-        cfg["forcing"]["coriolis"] = {"type": "xyz", "omega1": OMEGA}
-        mesh, blocks = build(cfg, args.device)
-        mesh_vars, l0, drift, final, de = run(mesh, blocks, initial_state(cfg, blocks, jet, True, OMEGA),
-                                              args.nstep, OMEGA)
-        v = vmax_over_cs(blocks, mesh_vars)
-        del mesh, blocks, mesh_vars
-        gc.collect()
-        print("(f) Coriolis, absolute AAM, option %-5s max |dL| / |L| over %d steps = %.3e (final %+.3e)  "
-              "dE / E = %+.3e  max |v| / c_s = %.3e" % (on, args.nstep, drift, final, de, v))
-        if on and not drift <= TOL:
-            failures.append("Coriolis, option on: absolute L drifts %.3e > %.0e" % (drift, TOL))
-        if not on and not drift > 100 * TOL:
-            failures.append("Coriolis, option off: drift %.3e <= %.0e" % (drift, 100 * TOL))
+    RATES = (("Omega = wind rate", W_SB, True), ("Omega = 14 wind rates", OMEGA, False))
 
-    # (h) the production path: vertically implicit solve (implicit-scheme 9) with Coriolis and a
-    #     vertical wind, so the x1 mass transfers of the solve carry tangential momentum and
-    #     planetary AAM between cells. Absolute AAM.
-    #     The moist arm adds a vapor species with a vertical gradient: the solve then moves
-    #     species mass through the x1 faces and its tangential momentum with it.
-    for moist in (False, True):
-        for on in (False, True):
-            cfg = config(on)
-            cfg["forcing"]["coriolis"] = {"type": "xyz", "omega1": OMEGA}
-            cfg["integration"]["implicit-scheme"] = 9
-            if moist:
-                cfg["species"] = cfg["species"][:1] + MOIST_SPECIES
-                cfg["reactions"] = MOIST_REACTIONS
-                cfg["dynamics"]["equation-of-state"]["type"] = "ideal-moist"
-            mesh, blocks = build(cfg, args.device)
-            mesh_vars, l0, drift, final, de = run(
-                mesh, blocks, initial_state(cfg, blocks, jet, True, OMEGA, w_up=W_UP, vapor=QV if moist else 0.0),
-                args.nstep, OMEGA)
-            v = vmax_over_cs(blocks, mesh_vars)
-            del mesh, blocks, mesh_vars
-            gc.collect()
-            name = "implicit 9 + Coriolis + vertical wind" + (" + vapor" if moist else "")
-            print("(h) %s, option %-5s max |dL| / |L| over %d steps = %.3e (final %+.3e)  "
-                  "dE / E = %+.3e  max |v| / c_s = %.3e" % (name, on, args.nstep, drift, final, de, v))
-            if on and not drift <= TOL:
-                failures.append("%s, option on: absolute L drifts %.3e > %.0e" % (name, drift, TOL))
-            if not on and not drift > 100 * TOL:
-                failures.append("%s, option off: drift %.3e <= %.0e" % (name, drift, 100 * TOL))
+    def with_rotation(tag, name, edit, **state):
+        for label, om, check in RATES:
+            d = {}
+            for mode in ("off", "transport"):
+                cfg = config(mode)
+                cfg["forcing"]["coriolis"] = {"type": "xyz", "omega1": om}
+                edit(cfg)
+                mesh, blocks = build(cfg, args.device)
+                _, _, d[mode], _, _ = run(mesh, blocks, initial_state(cfg, blocks, jet, True, om, **state),
+                                          args.nstep, om)
+                del mesh, blocks
+                gc.collect()
+            print("(%s) %s, %s, absolute AAM: max |dL| / |L| over %d steps = %.3e with transport, %.3e with off"
+                  % (tag, name, label, args.nstep, d["transport"], d["off"]))
+            if check and not GAIN * d["transport"] <= d["off"]:
+                failures.append("%s, %s: the drift with transport, %.3e, is not %g times below off, %.3e"
+                                % (name, label, d["transport"], GAIN, d["off"]))
 
-    # (g) the traditional approximation in 3D. Its Coriolis force has no w rows, so only the x2
-    #     and x3 faces close the planetary AAM, and the absolute AAM changes by the planetary AAM
-    #     of the mass moved along x1: the cos(lat) term those equations leave out, of relative
-    #     size (shell depth / radius). On the deep shell of the deck that term is the whole change,
-    #     option on or off (reported only). On a shallow shell (8 m, vertically implicit) it is
-    #     negligible and the option must close the budget.
-    for name, depth, check in (("deep shell", None, False), ("8 m shell", 8.0, True)):
-        drift_trad = {}
-        for on in (False, True):
-            cfg = config(on)
-            cfg["forcing"]["coriolis"] = {"type": "xyz", "omega1": OMEGA, "traditional": True}
-            if depth is not None:
-                cfg["geometry"]["bounds"]["x1max"] = float(cfg["geometry"]["bounds"]["x1min"]) + depth
-                cfg["integration"]["implicit-scheme"] = 9
-            mesh, blocks = build(cfg, args.device)
-            mesh_vars, l0, drift, final, de = run(mesh, blocks, initial_state(cfg, blocks, jet, True, OMEGA),
-                                                  args.nstep, OMEGA)
-            del mesh, blocks, mesh_vars
-            gc.collect()
-            drift_trad[on] = drift
-            print("(g) traditional Coriolis, 3D, %s, absolute AAM, option %-5s max |dL| / |L| over %d steps = %.3e (final %+.3e)"
-                  % (name, on, args.nstep, drift, final))
-        if check and not drift_trad[True] <= TRAD_TOL:
-            failures.append("traditional, %s, option on: absolute L drifts %.3e > %.0e" % (name, drift_trad[True], TRAD_TOL))
-        if check and not drift_trad[False] > 100 * TRAD_TOL:
-            failures.append("traditional, %s, option off: drift %.3e <= %.0e" % (name, drift_trad[False], 100 * TRAD_TOL))
+    # (f) explicit
+    with_rotation("f", "Coriolis", lambda cfg: None)
+
+    # (g) the traditional approximation in 3D on a shallow shell (8 m, vertically implicit), where
+    #     the cos(lat) terms it leaves out are negligible
+    def traditional(cfg):
+        cfg["forcing"]["coriolis"]["traditional"] = True
+        cfg["geometry"]["bounds"]["x1max"] = float(cfg["geometry"]["bounds"]["x1min"]) + 8.0
+        cfg["integration"]["implicit-scheme"] = 9
+
+    with_rotation("g", "traditional Coriolis, 8 m shell", traditional)
+
+    # (h) the production path: vertically implicit solve (implicit-scheme 9) and a vertical wind,
+    #     so the x1 mass transfers of the solve carry tangential momentum between cells. The moist
+    #     arm adds a vapor species with a vertical gradient: the solve then moves species mass
+    #     through the x1 faces and its tangential momentum with it.
+    def implicit(cfg):
+        cfg["integration"]["implicit-scheme"] = 9
+
+    def implicit_moist(cfg):
+        implicit(cfg)
+        cfg["species"] = cfg["species"][:1] + MOIST_SPECIES
+        cfg["reactions"] = MOIST_REACTIONS
+        cfg["dynamics"]["equation-of-state"]["type"] = "ideal-moist"
+
+    with_rotation("h", "implicit 9 + Coriolis + vertical wind", implicit, w_up=W_UP)
+    with_rotation("h", "implicit 9 + Coriolis + vertical wind + vapor", implicit_moist, w_up=W_UP, vapor=QV)
 
     # (i) 2D: shallow water on the six panels (one x1 cell, traditional Coriolis by construction),
-    #     the steady zonal flow of Williamson et al. (1992) test 2. No mass moves along x1, so the
-    #     absolute AAM is exact; the geopotential error measures the balanced flow.
-    phi_err = {}
-    for on in (False, True):
-        cfg = sw_config(on)
-        mesh, blocks = build(cfg, args.device)
-        drift, err = run_sw(mesh, blocks, sw_state(blocks), args.nstep)
-        del mesh, blocks
-        gc.collect()
-        phi_err[on] = err
-        print("(i) shallow water, Williamson 2, option %-5s max |dL| / |L| over %d steps = %.3e  max |dphi| / phi0 = %.3e"
-              % (on, args.nstep, drift, err))
-        if on and not drift <= TOL:
-            failures.append("shallow water, option on: absolute L drifts %.3e > %.0e" % (drift, TOL))
-        if not on and not drift > 100 * TOL:
-            failures.append("shallow water, option off: drift %.3e <= %.0e" % (drift, 100 * TOL))
-    if not phi_err[True] <= 1.5 * phi_err[False]:
-        failures.append("shallow water: the balanced-flow error grows with the option on, %.3e against %.3e"
-                        % (phi_err[True], phi_err[False]))
-
-    # (j) transport: flux-form transport with the Coriolis force in cell form. Without rotation it
-    #     is full. With rotation the exchange with the planetary AAM stays open: on the production
-    #     path (implicit 9, vertical wind) at Omega = the wind's rotation rate it must still beat
-    #     off by 10; at the deck's Omega the two errors of off cancel in part (reported only).
-    cfg = config("transport")
-    mesh, blocks = build(cfg, args.device)
-    _, _, drift, _, _ = run(mesh, blocks, initial_state(cfg, blocks, jet, True), args.nstep)
-    del mesh, blocks
-    gc.collect()
-    print("(j) transport, no Coriolis, perturbed jet: max |dL| / |L| over %d steps = %.3e" % (args.nstep, drift))
-    if not drift <= TOL:
-        failures.append("transport, no Coriolis: L drifts %.3e > %.0e" % (drift, TOL))
-    for name, om, check in (("Omega = wind rate", W_SB, True), ("Omega = 14 wind rates", OMEGA, False)):
-        d = {}
+    #     the steady zonal flow of Williamson et al. (1992) test 2. Without rotation the AAM is
+    #     exact. With rotation the open Coriolis exchange is most of the drift of off here, so the
+    #     gain is small: at Omega = u0 / a transport must not drift more than off (measured 0.60 of
+    #     it); at the Earth's rate the drifts are reported (0.93). The geopotential error, which
+    #     measures the balanced flow, must not grow.
+    for label, om, exact, check in (("no rotation", 0.0, True, False),
+                                    ("Omega = u0 / a", SW_U0 / 6371000.0, False, True),
+                                    ("Omega of the Earth", SW_OMEGA, False, False)):
+        d, phi_err = {}, {}
         for mode in ("off", "transport"):
-            cfg = config(mode)
-            cfg["forcing"]["coriolis"] = {"type": "xyz", "omega1": om}
-            cfg["integration"]["implicit-scheme"] = 9
+            cfg = sw_config(mode, om)
             mesh, blocks = build(cfg, args.device)
-            _, _, d[mode], _, _ = run(mesh, blocks, initial_state(cfg, blocks, jet, True, om, w_up=W_UP),
-                                      args.nstep, om)
+            d[mode], phi_err[mode] = run_sw(mesh, blocks, sw_state(blocks, om), args.nstep, om)
             del mesh, blocks
             gc.collect()
-        print("(j) transport, implicit 9 + Coriolis + vertical wind, %s: max |dL| / |L| over %d steps = %.3e, off %.3e"
-              % (name, args.nstep, d["transport"], d["off"]))
-        if check and not 10.0 * d["transport"] <= d["off"]:
-            failures.append("transport, %s: drift %.3e is not 10 times below off, %.3e" % (name, d["transport"], d["off"]))
+        print("(i) shallow water, Williamson 2, %s: max |dL| / |L| over %d steps = %.3e with transport, %.3e with off; "
+              "max |dphi| / phi0 = %.3e and %.3e"
+              % (label, args.nstep, d["transport"], d["off"], phi_err["transport"], phi_err["off"]))
+        if exact and not d["transport"] <= TOL:
+            failures.append("shallow water, %s, transport: L drifts %.3e > %.0e" % (label, d["transport"], TOL))
+        if exact and not d["off"] > 100 * TOL:
+            failures.append("shallow water, %s, off: drift %.3e <= %.0e" % (label, d["off"], 100 * TOL))
+        if check and not d["transport"] <= d["off"]:
+            failures.append("shallow water, %s: the drift with transport, %.3e, exceeds off, %.3e"
+                            % (label, d["transport"], d["off"]))
+        if not phi_err["transport"] <= 1.5 * phi_err["off"]:
+            failures.append("shallow water, %s: the balanced-flow error grows with transport, %.3e against %.3e"
+                            % (label, phi_err["transport"], phi_err["off"]))
 
-    # (k) the Coriolis force must not feed grid-scale noise. Shallow water at rest plus noise, so
-    #     the noise is all of the kinetic energy (a background flow hides the gain in its own
-    #     energy). Transport has the Coriolis force of off: its noise must decay, and what is left
-    #     stay within KE_BAND of off. Full is reported only: its Coriolis force does work.
+    # (j) the option must not feed grid-scale noise. Shallow water at rest plus noise, so the noise
+    #     is all of the kinetic energy (a background flow hides a gain in its own energy). Transport
+    #     has the Coriolis force of off: its noise must decay, and what is left stay within KE_BAND
+    #     of off.
     if args.nenergy > 0:
-        for mode, mult, check in (("transport", 1.0, True), ("transport", 4.0, True), ("full", 0.25, False)):
+        for mult in (1.0, 4.0):
             om = mult * SW_OMEGA
             ke_off = run_sw_rest_noise("off", om, args.nenergy, args.device)
-            ke = run_sw_rest_noise(mode, om, args.nenergy, args.device)
-            print("(k) noise on rest, %-9s at %4.2f Omega: KE / KE0 = %.3e at %d steps and %.3e at %d; off %.3e; "
-                  "ratio to off %.3f" % (mode, mult, ke[0], args.nenergy // 2, ke[1], args.nenergy, ke_off[1],
+            ke = run_sw_rest_noise("transport", om, args.nenergy, args.device)
+            print("(j) noise on rest, transport at %4.2f Omega: KE / KE0 = %.3e at %d steps and %.3e at %d; off %.3e; "
+                  "ratio to off %.3f" % (mult, ke[0], args.nenergy // 2, ke[1], args.nenergy, ke_off[1],
                                          ke[1] / ke_off[1]))
-            if check and not ke[1] < ke[0] < 1.0:
-                failures.append("noise on rest, %s at %.2f Omega: the kinetic energy does not decay, %.3e then %.3e of "
-                                "the initial one" % (mode, mult, ke[0], ke[1]))
-            if check and not ke[1] <= KE_BAND * ke_off[1]:
-                failures.append("noise on rest, %s at %.2f Omega: KE is %.3f of off > %.1f"
-                                % (mode, mult, ke[1] / ke_off[1], KE_BAND))
+            if not ke[1] < ke[0] < 1.0:
+                failures.append("noise on rest, transport at %.2f Omega: the kinetic energy does not decay, %.3e then "
+                                "%.3e of the initial one" % (mult, ke[0], ke[1]))
+            if not ke[1] <= KE_BAND * ke_off[1]:
+                failures.append("noise on rest, transport at %.2f Omega: KE is %.3f of off > %.1f"
+                                % (mult, ke[1] / ke_off[1], KE_BAND))
 
     # (d) off by default, and no effect where it is not defined: a Cartesian block builds with it on
-    cfg = config(True)
+    cfg = config("transport")
     cfg["geometry"] = {"type": "cartesian",
                        "bounds": {"x1min": 0., "x1max": 1.e3, "x2min": 0., "x2max": 1.e3, "x3min": 0., "x3max": 1.e3},
                        "cells": {"nx1": 8, "nx2": 8, "nx3": 8, "nghost": 3}}

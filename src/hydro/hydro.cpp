@@ -32,10 +32,6 @@ bool HydroImpl::axial_flux_form() const {
   return !c || (c->type() == "xyz" && c->omega2() == 0. && c->omega3() == 0.);
 }
 
-bool HydroImpl::axial_coriolis_form() const {
-  return options->conserve_axial_momentum() == "full" && axial_flux_form();
-}
-
 void HydroImpl::reset() {
   TORCH_CHECK(pmb, "[Hydro] Parent MeshBlock is null");
   TORCH_CHECK(
@@ -55,10 +51,9 @@ void HydroImpl::reset() {
   // so when a Coriolis force about another axis turns it off on the cubed
   // sphere
   auto const& aam_mode = options->conserve_axial_momentum();
-  TORCH_CHECK(
-      aam_mode == "off" || aam_mode == "transport" || aam_mode == "full",
-      "[Hydro] conserve_axial_momentum must be off, transport or full, got '",
-      aam_mode, "'");
+  TORCH_CHECK(aam_mode == "off" || aam_mode == "transport",
+              "[Hydro] conserve_axial_momentum must be off or transport, got '",
+              aam_mode, "'");
   if (aam_mode != "off" && pmb->pcoord &&
       pmb->pcoord->options->type() == "gnomonic-equiangle" &&
       !axial_flux_form())
@@ -66,13 +61,6 @@ void HydroImpl::reset() {
         "dynamics/conserve-axial-momentum is off for this run: it needs "
         "coriolis type xyz with omega2 = omega3 = 0 (the AAM is about the "
         "omega1 axis)");
-  // full with rotation: its Coriolis force does work (see the option)
-  if (axial_coriolis_form() && options->coriolis() &&
-      options->coriolis()->omega1() != 0.)
-    TORCH_WARN_ONCE(
-        "dynamics/conserve-axial-momentum: full with a Coriolis force gains "
-        "energy at grid scale and is unstable at fast rotation; use "
-        "transport, or full only without rotation");
 
   //// ---- (1) set up equation-of-state model ---- ////
   peos = EquationOfStateImpl::create(options->eos(), this);

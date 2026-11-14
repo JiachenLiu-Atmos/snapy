@@ -390,15 +390,6 @@ class CoordinateImpl {
   virtual void axial_x1_source_(torch::Tensor row2, torch::Tensor row3,
                                 torch::Tensor const& corr) const {}
 
-  //! the Coriolis torque on the relative AAM in flux form, from the face
-  //! mass fluxes; see GnomonicEquiangle. Undefined here.
-  virtual torch::Tensor axial_coriolis_rate(torch::Tensor flux1,
-                                            torch::Tensor flux2,
-                                            torch::Tensor flux3, double omega,
-                                            int ny) const {
-    return torch::Tensor();
-  }
-
   virtual torch::Tensor forward(torch::Tensor prim, torch::Tensor flux1,
                                 torch::Tensor flux2, torch::Tensor flux3,
                                 torch::Tensor face_pressure1 = torch::Tensor());

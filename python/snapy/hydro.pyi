@@ -206,22 +206,16 @@ class HydroOptions:
     @overload
     def conserve_axial_momentum(self) -> str:
         """Axial angular momentum (AAM) in flux form on the gnomonic-equiangle
-        cubed sphere, `dynamics: {conserve-axial-momentum: off | transport |
-        full}`, default `off`. 3D and 2D shallow water. It does nothing on
-        other grids, or with a Coriolis force that is not `type: xyz` about
-        `omega1`.
+        cubed sphere, `dynamics: {conserve-axial-momentum: off | transport}`,
+        default `off`. 3D and 2D shallow water. It does nothing on other
+        grids, or with a Coriolis force that is not `type: xyz` about `omega1`.
 
         `transport`: the rotation component of each cell's flux divergence is
         the divergence of face AAM fluxes; the Coriolis force stays in cell
         form and does no work. Exact without rotation; with slow rotation,
         Omega / (u / a) of 0.5 to 1, the drift was 50 to 290 times smaller
-        than `off` in one test (C8 and C16), and larger than `off` at 14.
-
-        `full`: also the axial component of the Coriolis force, from the face
-        mass fluxes. Relative plus planetary AAM is exact, but grid-scale
-        noise gains energy with rotation and the run is unstable at fast
-        rotation (see the note in hydro.hpp). Use it without rotation; with a
-        Coriolis force it prints a warning."""
+        than `off` in one 3D test (C8 and C16), and larger than `off` at 14.
+        In 2D shallow water the gain with rotation was 1.7 times or less."""
         ...
 
     @overload
