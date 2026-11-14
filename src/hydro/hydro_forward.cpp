@@ -338,21 +338,23 @@ torch::Tensor wall4_weights(torch::Tensor x1f, int is, int iu, int ng) {
   return E;
 }
 
-torch::Tensor wall4_fill(torch::Tensor a, torch::Tensor const& E, int c, int i0,
-                         int i1, bool const* wall, bool pos,
-                         torch::Tensor ref) {
-  auto trips = torch::zeros({}, a.options().dtype(torch::kLong));
+void wall4_fill(torch::Tensor a, torch::Tensor const& E, int c, int i0, int i1,
+                bool const* wall, bool pos, torch::Tensor ref,
+                torch::Tensor rows, torch::Tensor trips) {
   for (int s : {0, 1}) {
     if (!wall[s]) continue;
     int g = E.size(2);
     auto old = a.narrow(-1, s ? i1 + 1 : i0 - g, g);
     auto x = a.narrow(-1, s ? i1 - 3 : i0, 4).matmul(E[s][c].t());
+    if (!pos) {  // no positivity guard: the ghosts are the polynomial's
+      old.copy_(x);
+      continue;
+    }
     auto t = ref.defined() ? x + ref.narrow(-1, s ? i1 + 1 : i0 - g, g) : x;
-    auto bad = pos ? t <= 0. : torch::zeros_like(t, torch::kBool);
-    trips += bad.sum();
+    auto bad = rows.defined() ? (t <= 0.) & rows : t <= 0.;
+    if (trips.defined()) trips.add_(bad.sum());  // on the device
     old.copy_(torch::where(bad, old, x));
   }
-  return trips;
 }
 
 torch::Tensor conv4_admissible(torch::Tensor const& a, bool prim,
@@ -394,9 +396,10 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       TORCH_WARN_ONCE("fewer than 4 x1 cells: wall ghosts stay mirrored");
     wall4[f] = wall4[f] && i1 - i0 >= 3;
   }
-  auto fill4 = [&](torch::Tensor a, int c, bool pos, torch::Tensor ref) {
+  auto fill4 = [&](torch::Tensor a, int c, bool pos, torch::Tensor ref,
+                   torch::Tensor rows = {}) {
     if (wall4[0] || wall4[1])  // key 2 and wall-less blocks never enter
-      _conv4_trips += wall4_fill(a, wall4_E_, c, i0, i1, wall4, pos, ref);
+      wall4_fill(a, wall4_E_, c, i0, i1, wall4, pos, ref, rows, _conv4_trips);
   };
   bool split_flux = options->perturbation_flux();
   IdealMoistPerturbations perturb;
@@ -422,6 +425,9 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         k[0].scalar_type() != w.scalar_type()) {
       conv4_x1_weights(x1f, u.size(DIM1), w.options(), k), conv4_x1_at_ = at;
       wall4_E_ = wall4_weights(x1f, i0, i1, ng).to(w.options());
+      wall4_pos_ =
+          torch::zeros({u.size(0), 1, 1, 1}, w.options().dtype(torch::kBool));
+      wall4_pos_[IDN].fill_(true), wall4_pos_[IPR].fill_(true);  // guarded rows
     }
     int n = u.size(DIM1) - 2;
     // centred everywhere, reading the u ghosts the boundary condition or the
@@ -449,11 +455,10 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // the wall cell's row reads one-sided ghosts, m odd parity (m(0) = 0); W(u)
     // has no wall condition (m/rho = v + O(h^2), not zero at the wall)
     if (wall4[0] || wall4[1]) {
-      averages = averages.clone();
-      for (int c = 0; c < u.size(0); ++c) {
-        fill4(averages[c], c == IVX, c == IDN || c == IPR, {});
-        fill4(w0[c], 0, c == IDN || c == IPR, {});
-      }
+      averages = averages.clone();  // all rows at once, then m on its slot
+      fill4(averages, 0, true, {}, wall4_pos_);
+      fill4(averages.narrow(0, IVX, 1), 1, false, {});
+      fill4(w0, 0, true, {}, wall4_pos_);
     }
     auto up = averages - lap(averages);
     auto good = ok(up, false);
