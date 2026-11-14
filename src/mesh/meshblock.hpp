@@ -153,6 +153,11 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   explicit MeshBlockImpl(MeshBlockOptions const& options_);
   ~MeshBlockImpl() override;
   void reset() override;
+  //! An explicit precision policy owns dtypes; Module::to still moves devices.
+  using torch::nn::Module::to;
+  void to(torch::Device device, torch::Dtype dtype,
+          bool non_blocking = false) override;
+  void to(torch::Dtype dtype, bool non_blocking = false) override;
 
   //! \brief return an index tensor for part of the meshblock
   /*!

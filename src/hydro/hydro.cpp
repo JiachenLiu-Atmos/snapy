@@ -40,6 +40,11 @@ void HydroImpl::reset() {
         "SNAP_X1_MASS_COVARIANCE is ignored; set the deck key "
         "dynamics/x1-mass-covariance instead");
 
+  TORCH_CHECK(options->precision() == "float64" || fp32(),
+              "dynamics/precision must be float64 or float32");
+  TORCH_CHECK(!fp32() || options->perturbation_flux(),
+              "dynamics/precision float32 requires perturbation-flux");
+
   //// ---- (1) set up equation-of-state model ---- ////
   peos = EquationOfStateImpl::create(options->eos(), this);
   if (options->verbose()) {
@@ -205,9 +210,10 @@ void HydroImpl::reset() {
   int nc3 = pmb->options->coord()->nc3();
   int nvar = peos->nvar();
 
+  auto flux_dtype = fp32() ? torch::kFloat32 : torch::kFloat64;
   if (nc1 > 1) {
-    _flux1 = register_buffer(
-        "F1", torch::zeros({nvar, nc3, nc2, nc1}, torch::kFloat64));
+    _flux1 =
+        register_buffer("F1", torch::zeros({nvar, nc3, nc2, nc1}, flux_dtype));
     _face_pressure1 =
         register_buffer("P1", torch::zeros({nc3, nc2, nc1}, torch::kFloat64));
   } else {
@@ -216,15 +222,15 @@ void HydroImpl::reset() {
   }
 
   if (nc2 > 1) {
-    _flux2 = register_buffer(
-        "F2", torch::zeros({nvar, nc3, nc2, nc1}, torch::kFloat64));
+    _flux2 =
+        register_buffer("F2", torch::zeros({nvar, nc3, nc2, nc1}, flux_dtype));
   } else {
     _flux2 = register_buffer("F2", torch::Tensor());
   }
 
   if (nc3 > 1) {
-    _flux3 = register_buffer(
-        "F3", torch::zeros({nvar, nc3, nc2, nc1}, torch::kFloat64));
+    _flux3 =
+        register_buffer("F3", torch::zeros({nvar, nc3, nc2, nc1}, flux_dtype));
   } else {
     _flux3 = register_buffer("F3", torch::Tensor());
   }
@@ -457,24 +463,53 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
     wi = w;
   }
 
+  auto destination = du;
+  bool solve_float = options->icorr()->precision() == "float32" ||
+                     (options->icorr()->precision() == "auto" && fp32());
+  TORCH_CHECK(
+      !solve_float || (options->eos()->type() == "ideal-moist" &&
+                       pmb->pcoord->options->type() == "cartesian"),
+      "FP32 vertical implicit correction requires Cartesian ideal-moist");
+  bool boundary = fp32() || solve_float;
+  if (boundary) du = du.to(torch::kFloat64);
   du[IPR].sub_(peos->internal_energy_offset(du));
-
-  torch::Tensor gamma;
-  if (options->eos()->type() == "aneos") {
-    auto cs = peos->compute("W->L", {w});
-    gamma = peos->compute("WL->A", {w, cs});
-  } else {
-    gamma = peos->compute("W->A", {wi});
+  auto rhs64 = solve_float ? du.clone() : torch::Tensor();
+  auto wi64 = wi;
+  bool failed_before = solve_float && picorr->solve_failed();
+  if (solve_float) {
+    du = du.to(torch::kFloat32);
+    wi = wi.to(torch::kFloat32);
   }
-  auto correction = picorr->forward_masked(
-      du, wi, gamma, dt,
-      other.count("solid") ? other.at("solid") : torch::Tensor());
+  auto gamma_for = [&](torch::Tensor const& state) {
+    if (options->eos()->type() == "aneos") {
+      auto cs = peos->compute("W->L", {w});
+      return peos->compute("WL->A", {w, cs});
+    }
+    return peos->compute("W->A", {state});
+  };
+  auto solid = other.count("solid") ? other.at("solid") : torch::Tensor();
+  auto correction = picorr->forward_masked(du, wi, gamma_for(wi), dt, solid);
+  // The existing solve rejects a whole block. Retry that same block in FP64,
+  // from its pre-solve RHS, rather than keeping partly corrected columns.
+  if (solve_float && !failed_before && options->icorr()->fallback_fp64() &&
+      picorr->solve_failed() && torch::isfinite(rhs64).all().item<bool>()) {
+    picorr->reset_solve_failure();
+    picorr->record_fp64_fallback();
+    du = rhs64;
+    correction = picorr->forward_masked(du, wi64, gamma_for(wi64), dt, solid);
+  }
+  // Restore energy offsets in FP64, then write the increment to state dtype.
+  if (boundary) {
+    du = du.to(torch::kFloat64);
+    correction = correction.to(torch::kFloat64);
+  }
   du[IPR].add_(peos->internal_energy_offset(du));
-  // picorr measured its delta after removing the EOS reference energy.
-  // Diagnostics expose a conserved-state delta, so restore that reference
-  // contribution using the corrected density and species tendencies.
   correction[IPR].add_(peos->internal_energy_offset(correction));
-
+  if (boundary) {
+    destination.copy_(du);
+    du = destination;
+    return correction.to(du.options());
+  }
   return correction;
 }
 
@@ -565,7 +600,8 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w, torch::Tensor const& dw,
     below = layout->neighbor_rank(iloc, {0, 0, -1});  // toward x1-inner
     anchor = layout->take_x1_anchor(
         above,
-        torch::empty({w.size(1), w.size(2), paired ? 2 : 1}, w.options()),
+        torch::empty({w.size(1), w.size(2), paired ? (fp32() ? 3 : 2) : 1},
+                     w.options()),
         kWbRefTag);
   }
 
@@ -582,7 +618,9 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w, torch::Tensor const& dw,
   if (paired) {
     HydroReferenceX1 pairs;
     x1_reference_->evaluate_split(
-        w, dw, g, anchor.defined() ? anchor.unsqueeze(-2) : anchor, pairs);
+        w, dw, g,
+        anchor.defined() ? anchor.narrow(-1, 0, 2).unsqueeze(-2) : anchor,
+        pairs);
     auto total = [](torch::Tensor const& p) {
       return p.select(-1, 0) + p.select(-1, 1);
     };
@@ -595,6 +633,10 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w, torch::Tensor const& dw,
     split->face_delta = pairs.psf_lo.select(-1, 1).contiguous();
     split->cell0 = pairs.pref.select(-1, 0).contiguous();
     split->cell_delta = pairs.pref.select(-1, 1).contiguous();
+    if (fp32())
+      split->gauge = anchor.defined()
+                         ? anchor.narrow(-1, 2, 1).clone()
+                         : (w[IPR] - split->cell0).narrow(-1, iu, 1).clone();
   } else {
     reference = HydroReferenceX1(w);
     x1_reference_->evaluate(w, g, anchor, reference);
@@ -625,13 +667,14 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w, torch::Tensor const& dw,
   }
 
   if (below >= 0) {
-    layout->pass_x1_anchor(
-        below,
-        paired ? torch::cat({split->face0.narrow(-1, is, 1),
-                             split->face_delta.narrow(-1, is, 1)},
-                            -1)
-               : psf_lo.narrow(-1, is, 1),
-        kWbRefTag);
+    auto outgoing = psf_lo.narrow(-1, is, 1);
+    if (paired) {
+      std::vector<torch::Tensor> fields = {split->face0.narrow(-1, is, 1),
+                                           split->face_delta.narrow(-1, is, 1)};
+      if (fp32()) fields.push_back(split->gauge);
+      outgoing = torch::cat(fields, -1);
+    }
+    layout->pass_x1_anchor(below, outgoing, kWbRefTag);
   }
 
   // Ghost-row reference exchange across x1 seams: overwrite this block's

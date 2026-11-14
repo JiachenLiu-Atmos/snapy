@@ -103,3 +103,7 @@ rounding, mass/energy checks, exact restart continuation and same-process split
 columns. The foundation label also protects the default path. CUDA variants of
 the reference tests are registered but skip when CUDA is unavailable. CPU
 validation does not establish GPU performance or a true FP32 dtype contract.
+
+M4 adds explicit `dynamics/precision: float32` on top of this mode. See the
+[compute policy](fp32-compute-policy.md) for FP32 reconstruction, vertical
+implicit correction and retained FP64 boundaries. The default remains FP64.

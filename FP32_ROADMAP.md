@@ -111,18 +111,22 @@ supported scope. CPU validation is recorded in FP32_PROGRESS.md; CUDA execution
 and performance still require suitable hardware. True FP32 computation remains
 M4, including split reconstruction or an explicit FP64 reconstruction boundary.
 
-### M4 — True FP32 with explicit boundaries
+### M4 — True FP32 with explicit boundaries (implemented; CPU validated)
 
 FP32 storage, reconstruction, fluxes and tendencies; FP64 background/geometry
 masters, sensitive nonlinear reference calculations, reductions and time.
 Kernel geometry views match compute dtype. Lazy buffers follow their compute
-policy. Cast before reductions. Initially assemble/solve implicit columns and
-chemistry/saturation in FP64, applying their increments without a lossy FP32
-total-state round trip. Audit forcing, diffusion, sedimentation, boundaries,
+policy. Cast before reductions. Assemble/solve vertical implicit columns in
+FP32 under the FP32 policy, retaining pivot/nonfinite checks and retrying rejected
+blocks from the original RHS in FP64. Allow an explicit FP64 solve override and
+count fallbacks. Keep chemistry/saturation in FP64, applying their increments
+without a lossy FP32 total-state round trip. Audit forcing, diffusion, sedimentation, boundaries,
 scalar transport and rollback. Test dtype contracts with an explicit allowlist.
 Keep Python's global default unchanged; driver precision is explicit.
 Gate: reduced full physics completes 1000 steps without dtype/nonfinite failures
-or precision-induced retry exhaustion.
+or precision-induced retry exhaustion. CPU results and retained hardware limits
+are recorded in FP32_PROGRESS.md; see the
+[compute policy](docs/derivations/fp32-compute-policy.md) for configuration.
 
 ### M5 — Restart and coupled workflow
 

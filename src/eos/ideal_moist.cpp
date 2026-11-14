@@ -142,7 +142,12 @@ torch::Tensor IdealMoistImpl::compute(std::string ab,
     // limit the stored anomalies in place (anomaly-space floors), then
     // convert the totals they stand for; `u` itself keeps anomalies
     auto u = args[0];
-    auto w = args.size() > 1 ? args[1] : torch::empty_like(u);
+    auto w =
+        args.size() > 1
+            ? args[1]
+            : torch::empty(u.sizes(), phydro->fp32()
+                                          ? u.options().dtype(torch::kFloat64)
+                                          : u.options());
     if (!phydro->has_reference()) {
       _cons2prim(u, w);
       return w;
@@ -217,8 +222,9 @@ torch::Tensor IdealMoistImpl::_prim2intEng(torch::Tensor prim) {
   // add the internal energy offset
   auto yd = 1. - yfrac.sum(0);
   ie += prim[IDN] * yd * u0[0];
-  ie +=
-      prim[IDN] * yfrac.unfold(0, ny, 1).matmul(u0.narrow(0, 1, ny)).squeeze(0);
+  ie += prim[IDN] * yfrac.unfold(0, ny, 1)
+                        .matmul(u0.narrow(0, 1, ny).to(yfrac.options()))
+                        .squeeze(0);
   return ie;
 }
 
@@ -314,7 +320,9 @@ torch::Tensor IdealMoistImpl::f_eps(torch::Tensor const& yfrac) const {
   }
 
   auto yu = yfrac.narrow(0, 0, nvapor).unfold(0, nvapor, 1);
-  return 1. + yu.matmul(inv_mu_ratio_m1.narrow(0, 0, nvapor)).squeeze(0) -
+  return 1. +
+         yu.matmul(inv_mu_ratio_m1.narrow(0, 0, nvapor).to(yfrac.options()))
+             .squeeze(0) -
          yfrac.narrow(0, nvapor, ncloud).sum(0);
 }
 
@@ -328,7 +336,7 @@ torch::Tensor IdealMoistImpl::f_sig(torch::Tensor const& yfrac) const {
   }
 
   auto yu = yfrac.unfold(0, ny, 1);
-  return 1. + yu.matmul(cv_ratio_m1).squeeze(0);
+  return 1. + yu.matmul(cv_ratio_m1.to(yfrac.options())).squeeze(0);
 }
 
 }  // namespace snap

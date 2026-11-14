@@ -11,18 +11,24 @@ from snapy import MeshBlock, MeshBlockOptions, kIDN, kIPR, kIV1, balance_column
 
 test_covariance = False
 
-def make(split, order=2, scheme=0, nh=1., gravity=True, outputs=None, stretched=False, sediment=False, anomaly=True, solver="hllc"):
+def make(split, order=2, scheme=0, nh=1., gravity=True, outputs=None, stretched=False, sediment=False, anomaly=True, solver="hllc", precision="float64", one_column=False, implicit_precision=None, outflow=False):
     with open(os.path.join(os.path.dirname(__file__), "test_anomaly_storage.yaml")) as f:
         cfg = yaml.safe_load(f)
     cfg["dynamics"].update({"anomaly": anomaly, "perturbation-flux": split,
                             "x1-mass-covariance": test_covariance,
-                            "conversion-order": order, "riemann-solver": {"type": solver}})
+                            "conversion-order": order, "precision": precision, "riemann-solver": {"type": solver}})
     if stretched:
         cfg["geometry"]["cells"]["x1rat"] = 1.02
     cfg["geometry"]["cells"]["nx3"] = 4
     cfg["geometry"]["bounds"]["x3max"] = 4000.
     cfg["boundary-condition"]["external"].update({"x3-inner": "periodic", "x3-outer": "periodic"})
+    if one_column:
+        cfg["geometry"]["cells"].update({"nx2": 1, "nx3": 1})
+    if outflow:
+        cfg["boundary-condition"]["external"].update({"x1-inner": "outflow", "x1-outer": "outflow"})
     cfg["integration"]["implicit-scheme"] = scheme
+    if implicit_precision is not None:
+        cfg["integration"]["implicit-precision"] = implicit_precision
     if sediment:
         cfg["sedimentation"] = {"radius": {}, "density": {}, "const-vsed": {"H2O(l)": -2.}}
     if outputs is not None:

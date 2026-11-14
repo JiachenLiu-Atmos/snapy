@@ -27,7 +27,7 @@ struct WbRef4Stencils;
 class HydroReferenceX1Operator;
 struct X1PlainMeanStencils;
 struct HydroPressureSplit {
-  torch::Tensor face0, face_delta, cell0, cell_delta;
+  torch::Tensor face0, face_delta, cell0, cell_delta, gauge;
 };
 struct X1PressureSourceStencils;
 
@@ -43,6 +43,7 @@ struct HydroOptionsImpl {
   void report(std::ostream& os) const {
     os << "-- hydro options --\n";
     os << "* verbose = " << verbose() << "\n"
+       << "* precision = " << precision() << "\n"
        << "* disable_flux_x1 = " << disable_flux_x1() << "\n"
        << "* disable_flux_x2 = " << disable_flux_x2() << "\n"
        << "* disable_flux_x3 = " << disable_flux_x3() << "\n"
@@ -68,6 +69,7 @@ struct HydroOptionsImpl {
   //! overridden by SNAP_ANOMALY=0|1. Off: every path is unchanged.
   ADD_ARG(bool, anomaly) = false;
   ADD_ARG(bool, perturbation_flux) = false;
+  ADD_ARG(std::string, precision) = "float64";
 
   //! dynamics/flux-covariance: the O(dx1^2) x1 covariance term of the x2/x3
   //! face fluxes (#289). A scheme choice: every block of a run must make the
@@ -258,6 +260,7 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   Fp64Store pref = nullptr;
 
   //! anomaly storage is on for this block
+  bool fp32() const { return options->precision() == "float32"; }
   bool anomaly() const { return options->anomaly(); }
   //! the reference has been built (anomaly on and initialization done)
   bool has_reference() const { return pref && pref->has("u0"); }

@@ -30,7 +30,7 @@ void Center3InterpImpl::left(torch::Tensor w, int dim,
                   .add_input(w)
                   .build();
 
-  at::native::call_poly3(out.device().type(), iter, cm, dim);
+  at::native::call_poly3(out.device().type(), iter, cm.to(w.options()), dim);
 }
 
 void Center3InterpImpl::right(torch::Tensor w, int dim,
@@ -48,6 +48,6 @@ void Center3InterpImpl::right(torch::Tensor w, int dim,
                   .add_input(w)
                   .build();
 
-  at::native::call_poly3(out.device().type(), iter, cp, dim);
+  at::native::call_poly3(out.device().type(), iter, cp.to(w.options()), dim);
 }
 }  // namespace snap

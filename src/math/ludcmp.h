@@ -26,7 +26,8 @@
 //!
 //! \note Adapted from Numerical Recipes in C, 2nd Ed., p. 46.
 //! \note A pivot must exceed 8*N*epsilon times its original row magnitude.
-template <typename T, int N>
+//! \note Implicit=false pivots on the rows as given (the caller scaled them).
+template <typename T, int N, bool Implicit = true>
 inline DISPATCH_MACRO int ludcmp(Eigen::Matrix<T, N, N, Eigen::RowMajor> &a,
                                  int *indx) {
   int i, imax = 0, j, k, d;
@@ -44,7 +45,7 @@ inline DISPATCH_MACRO int ludcmp(Eigen::Matrix<T, N, N, Eigen::RowMajor> &a,
       if ((temp = fabs(a(i, j))) > big) big = temp;
     if (big == 0.0) return 0;
     scale[i] = big;
-    vv[i] = 1.0 / big;
+    vv[i] = Implicit ? 1.0 / big : 1.0;
     if (!std::isfinite(vv[i])) return 0;
   }
   for (j = 0; j < N; j++) {

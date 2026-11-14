@@ -43,7 +43,7 @@ void Center5InterpImpl::left(torch::Tensor w, int dim,
 
   auto iter = x1_uniform_iterator(w, dim, out);
 
-  at::native::call_poly5(out.device().type(), iter, cm, dim);
+  at::native::call_poly5(out.device().type(), iter, cm.to(w.options()), dim);
 }
 
 void Center5InterpImpl::right(torch::Tensor w, int dim,
@@ -55,6 +55,6 @@ void Center5InterpImpl::right(torch::Tensor w, int dim,
 
   auto iter = x1_uniform_iterator(w, dim, out);
 
-  at::native::call_poly5(out.device().type(), iter, cp, dim);
+  at::native::call_poly5(out.device().type(), iter, cp.to(w.options()), dim);
 }
 }  // namespace snap
