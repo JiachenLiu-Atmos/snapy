@@ -16,6 +16,13 @@ class EquationOfStateImpl;
 torch::Tensor conv4_admissible(torch::Tensor const& a, bool prim,
                                EquationOfStateImpl* eos, bool limiter);
 
+//! key 4 at a reflecting x1 wall (hydro_forward.cpp): E = wall4_weights(x1f,
+//! is, iu, ng); wall4_fill overwrites a's ghosts at the flagged walls with
+//! E[side][c] . (4 owned cells), the mirror kept where pos and ref + ghost <= 0
+torch::Tensor wall4_weights(torch::Tensor x1f, int is, int iu, int ng);
+torch::Tensor wall4_fill(torch::Tensor a, torch::Tensor const& E, int c, int i0,
+                         int i1, bool const* wall, bool pos, torch::Tensor ref);
+
 enum X1RefGrid : int {
   kX1RefNonUniform = 0,
   kX1RefUniform = 1,
