@@ -5,6 +5,7 @@
 #include <torch/nn/module.h>
 #include <torch/nn/modules/common.h>
 
+#include <array>
 #include <vector>
 
 // snap
@@ -347,6 +348,10 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   mutable std::shared_ptr<WbRef4Stencils> wb_ref4_;
   //! the x1 reconstruction's optimal-linear rows (cp5) for the face density
   mutable std::shared_ptr<Center5InterpImpl> dsf_lin_;
+  //! key 4: (side, face) rows of the reflecting x1 walls that keep wb_ref4's
+  //! face density, and the block layout they were built for
+  mutable torch::Tensor wb4_lr_side_, wb4_lr_col_;
+  mutable std::array<int64_t, 3> wb4_lr_at_{-1, -1, -1};
   //! SNAP_X1_CENTROID_EXACT r^2 -> plain-mean stencils, built on first use
   mutable std::shared_ptr<X1PlainMeanStencils> x1pm_;
   //! and its pressure-force stencils, for the hydrostatic correction
