@@ -12,6 +12,47 @@
 
 namespace snap {
 
+void hydro_pressure_scan_x1_cpu(torch::Tensor const& rho,
+                                torch::Tensor const& dx1f,
+                                torch::Tensor const& anchor,
+                                torch::Tensor const& lo,
+                                torch::Tensor const& hi, int iu, double grav) {
+  int nc1 = rho.size(-1), columns = rho.numel() / nc1;
+  AT_DISPATCH_FLOATING_TYPES(
+      rho.scalar_type(), "hydro_pressure_scan_x1_cpu", [&] {
+        at::parallel_for(0, columns, 0, [&](int64_t begin, int64_t end) {
+          for (int64_t c = begin; c < end; ++c)
+            hydro_ref_x1_pressure_scan_impl<scalar_t, false>(
+                rho.data_ptr<scalar_t>(), dx1f.data_ptr<scalar_t>(),
+                anchor.data_ptr<scalar_t>()[c], lo.data_ptr<scalar_t>(),
+                hi.data_ptr<scalar_t>(), c, nc1, iu, scalar_t(grav));
+        });
+      });
+}
+
+void hydro_pressure_scan_x1_tensor(torch::Tensor const& rho,
+                                   torch::Tensor const& dx1f,
+                                   torch::Tensor const& anchor,
+                                   torch::Tensor const& lo,
+                                   torch::Tensor const& hi, int iu,
+                                   double grav) {
+  // One running face per column, without subtracting two cumulative totals.
+  auto face = anchor.squeeze(-1);
+  for (int i = iu; i >= 0; --i) {
+    auto dp = grav * rho.select(-1, i) * dx1f[i];
+    hi.select(-1, i).copy_(face);
+    face = face + dp;
+    lo.select(-1, i).copy_(face);
+  }
+  face = anchor.squeeze(-1);
+  for (int i = iu + 1; i < rho.size(-1); ++i) {
+    auto dp = grav * rho.select(-1, i) * dx1f[i];
+    lo.select(-1, i).copy_(face);
+    face = face - dp;
+    hi.select(-1, i).copy_(face);
+  }
+}
+
 void hydro_ref_x1_cpu(torch::Tensor const& w, torch::Tensor const& dx1f,
                       torch::Tensor const& anchor, torch::Tensor const& psf_lo,
                       torch::Tensor const& psf_hi, torch::Tensor const& pref,
@@ -23,6 +64,23 @@ void hydro_ref_x1_cpu(torch::Tensor const& w, torch::Tensor const& dx1f,
               "hydro_ref_x1: a stretched x1 needs its six-face rows");
   int ncolumns = w.size(1) * w.size(2);
   int nc1 = w.size(3);
+  // A trailing pair dimension selects finite-increment reference arithmetic.
+  if (w.dim() == 5) {
+    TORCH_CHECK(w.scalar_type() == torch::kFloat64 && w.size(4) == 2,
+                "split reference requires packed FP64 pairs");
+    auto ptr = [](torch::Tensor const& t) -> SRS* {
+      return t.defined() ? reinterpret_cast<SRS*>(t.data_ptr<double>())
+                         : nullptr;
+    };
+    at::parallel_for(0, ncolumns, 0, [&](int64_t begin, int64_t end) {
+      for (int column = begin; column < end; ++column)
+        hydro_ref_x1_impl(ptr(w), ptr(dx1f), ptr(anchor), ptr(psf_lo),
+                          ptr(psf_hi), ptr(pref), ptr(dsf), ptr(dref), column,
+                          ncolumns, nc1, iu, SRS(grav), x1_grid, phys_in,
+                          phys_out, wall_clamp, ptr(rows));
+    });
+    return;
+  }
   AT_DISPATCH_FLOATING_TYPES(w.scalar_type(), "hydro_ref_x1_cpu", [&] {
     auto anchor_ptr = anchor.defined() ? anchor.data_ptr<scalar_t>() : nullptr;
     auto rows_ptr = rows.defined() ? rows.data_ptr<scalar_t>() : nullptr;
@@ -257,6 +315,11 @@ torch::Tensor hydro_ref_x1_stretched_rows(torch::Tensor const& dx1f, int iu,
 
 namespace at::native {
 
+DEFINE_DISPATCH(call_hydro_pressure_scan_x1);
+REGISTER_ALL_CPU_DISPATCH(call_hydro_pressure_scan_x1,
+                          &snap::hydro_pressure_scan_x1_cpu);
+REGISTER_MPS_DISPATCH(call_hydro_pressure_scan_x1,
+                      &snap::hydro_pressure_scan_x1_tensor);
 DEFINE_DISPATCH(call_hydro_ref_x1);
 REGISTER_ALL_CPU_DISPATCH(call_hydro_ref_x1, &snap::hydro_ref_x1_cpu);
 REGISTER_MPS_DISPATCH(call_hydro_ref_x1, &snap::hydro_ref_x1_mps);

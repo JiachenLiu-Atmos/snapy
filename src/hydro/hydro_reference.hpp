@@ -2,6 +2,8 @@
 
 #include <torch/torch.h>
 
+#include <utility>
+
 #include "hydro_dispatch.hpp"
 
 namespace snap {
@@ -11,6 +13,7 @@ namespace snap {
 struct HydroReferenceX1 {
   torch::Tensor psf_lo, psf_hi, pref, dsf, dref;
 
+  HydroReferenceX1() = default;
   explicit HydroReferenceX1(torch::Tensor const& w) {
     auto shape = w.sizes().slice(1);
     psf_lo = torch::empty(shape, w.options());
@@ -61,6 +64,68 @@ class HydroReferenceX1Operator {
   }
 
   int grid() const { return grid_; }
+
+  //! Linear pressure scan with an explicit upper face anchor at cell iu.
+  //! rho is mixture density (or its increment), [nc3,nc2,nc1]; anchor has
+  //! shape [nc3,nc2,1]. Signed values and zero are retained without floors.
+  //! This does not linearize pref/dref, wall continuation, or nonlinear guards.
+  //! Caller owns anchor relay and any background cache. Output dtype/device
+  //! follow rho; geometry and anchor are converted before scanning. Returns
+  //! {lower, upper} face pressure for each cell, including ghosts.
+  std::pair<torch::Tensor, torch::Tensor> scan_pressure(
+      torch::Tensor const& rho, double grav,
+      torch::Tensor const& anchor) const {
+    TORCH_CHECK(rho.dim() == 3 && rho.numel() > 0 && dx1f_.dim() == 1 &&
+                    rho.size(-1) == dx1f_.numel() && iu_ >= 0 &&
+                    iu_ < rho.size(-1),
+                "hydro pressure scan: density and grid shapes disagree");
+    TORCH_CHECK(rho.scalar_type() == torch::kFloat32 ||
+                    rho.scalar_type() == torch::kFloat64,
+                "hydro pressure scan: density must be float32 or float64");
+    TORCH_CHECK(
+        anchor.defined() && anchor.dim() == 3 &&
+            anchor.size(0) == rho.size(0) && anchor.size(1) == rho.size(1) &&
+            anchor.size(2) == 1,
+        "hydro pressure scan: explicit anchor must have shape [nc3,nc2,1]");
+    auto lo = torch::empty(rho.sizes(), rho.options());
+    auto hi = torch::empty_like(lo);
+    at::native::call_hydro_pressure_scan_x1(
+        rho.device().type(), rho.contiguous(),
+        dx1f_.to(rho.options()).contiguous(),
+        anchor.to(rho.options()).contiguous(), lo, hi, iu_, grav);
+    return {lo, hi};
+  }
+
+  //! Packed [base, finite increment] evaluation of the SAME nonlinear kernel.
+  //! Geometry alone is cached. Branch-dependent reference values are rebuilt
+  //! each sweep, avoiding stale guards after heating, restart or regridding.
+  void evaluate_split(torch::Tensor const& w0, torch::Tensor const& dw,
+                      double grav, torch::Tensor const& anchor,
+                      HydroReferenceX1& out) const {
+    TORCH_CHECK(w0.dim() == 4 && w0.sizes() == dw.sizes() &&
+                    w0.size(-1) == dx1f_.numel(),
+                "split hydro reference: incompatible state shapes");
+    TORCH_CHECK(w0.device().is_cpu() || w0.device().is_cuda(),
+                "split hydro reference requires FP64 on CPU or CUDA");
+    TORCH_CHECK(!anchor.defined() ||
+                    (anchor.dim() == 4 && anchor.size(0) == w0.size(1) &&
+                     anchor.size(1) == w0.size(2) && anchor.size(2) == 1 &&
+                     anchor.size(3) == 2),
+                "split hydro reference: anchor must be [nc3,nc2,1,2]");
+    auto op = w0.options().dtype(torch::kFloat64);
+    auto pair = [&](torch::Tensor const& a) {
+      auto d = a.to(op);
+      return torch::stack({d, torch::zeros_like(d)}, -1).contiguous();
+    };
+    auto w = torch::stack({w0.to(op), dw.to(op)}, -1).contiguous();
+    out = HydroReferenceX1(w);
+    at::native::call_hydro_ref_x1(
+        w.device().type(), w, pair(dx1f_),
+        anchor.defined() ? anchor.to(op).contiguous() : torch::Tensor(),
+        out.psf_lo, out.psf_hi, out.pref, out.dsf, out.dref, iu_, grav, grid_,
+        phys_in_, phys_out_, wall_clamp_,
+        rows_.defined() ? pair(rows_) : torch::Tensor());
+  }
 
   void evaluate(torch::Tensor const& w, double grav,
                 torch::Tensor const& anchor, HydroReferenceX1& out) const {

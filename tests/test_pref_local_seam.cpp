@@ -50,7 +50,7 @@ struct RefPeek : HydroImpl {
 
 // Return is (psf_lo, pref, dsf, dref). The seam check uses pref.
 torch::Tensor pref_of(Hydro const& hydro, torch::Tensor const& w) {
-  return std::get<1>(((*hydro).*RefPeek::ptr())(w));
+  return std::get<1>(((*hydro).*RefPeek::ptr())(w, torch::Tensor(), nullptr));
 }
 
 Mesh make_mesh(int nb1) {

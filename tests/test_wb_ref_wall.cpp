@@ -143,7 +143,8 @@ Faces face_errors(int nx1, Profile const& prof,
   // the reference HydroImpl::_hydro_ref_x1 builds for this block (two
   // physical walls; wb-wall-clamp is on by default); dsf is (ILT, IRT)
   w = w.to(device);
-  auto [psf_lo, pref, dsf, dref] = ((*block->phydro).*RefPeek::ptr())(w);
+  auto [psf_lo, pref, dsf, dref] =
+      ((*block->phydro).*RefPeek::ptr())(w, torch::Tensor(), nullptr);
 
   // the solver's face densities (hydro_forward.cpp): reconstruct rho - dref
   // with even-parity wall ghosts, then add dsf back

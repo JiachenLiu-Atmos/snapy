@@ -1,11 +1,13 @@
 // C/C++
 #include <chrono>
+#include <limits>
 #include <typeinfo>
 
 // snap
 #include <snap/snap.h>
 
 #include <snap/coord/x1_centroid.hpp>
+#include <snap/eos/ideal_moist.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/utils/log.hpp>
 
@@ -389,6 +391,18 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     if (wall4[0] || wall4[1])  // key 2 and wall-less blocks never enter
       _conv4_trips += wall4_fill(a, wall4_E_, c, i0, i1, wall4, pos, ref);
   };
+  bool split_flux = options->perturbation_flux();
+  IdealMoistPerturbations perturb;
+  torch::Tensor raw_primitive;
+  if (split_flux) {
+    TORCH_CHECK(!has_solid,
+                "perturbation-flux does not support immersed solids");
+    TORCH_CHECK(
+        w.scalar_type() == torch::kFloat64,
+        "perturbation-flux currently requires FP64 compute (M4 enables FP32)");
+    perturb = dynamic_cast<IdealMoistImpl&>(*peos).perturbations(u);
+    if (options->conversion_order() == 4) raw_primitive = w.clone();
+  }
   // x1 point values u - L u, the primitives there, and back to cell averages:
   // w = W(u - L u) + L W(u), fourth order where W(u) is second
   if (options->conversion_order() == 4 && u.size(DIM1) > 1) {
@@ -482,12 +496,65 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     start = std::chrono::high_resolution_clock::now();
   }
 
+  if (split_flux && raw_primitive.defined()) {
+    // Conversion and its admissibility/ghost decisions remain FP64. Apply its
+    // finite correction to the algebraic EOS increment, not to rounded totals.
+    perturb.pressure_delta =
+        perturb.pressure_delta + (w[IPR] - raw_primitive[IPR]);
+    perturb.density_delta =
+        perturb.density_delta + (w[IDN] - raw_primitive[IDN]);
+  }
+
   if (has_solid) {
     pmb->pib->mark_prim_solid_(w, other.at("solid"));
   }
 
   // hydrostatic pressure correction
   torch::Tensor rho_grav = torch::zeros_like(w[IDN]);
+  torch::Tensor rho_grav_delta;
+  torch::Tensor pressure_base1, pressure_base1_before_seam;
+  torch::Tensor pressure_base2, pressure_base3;
+  torch::Tensor background_force1;
+  auto face_gradient = [&](torch::Tensor const& p, int dim) {
+    auto out = torch::zeros_like(w[IDN]);
+    int axis = dim - 1, n = p.size(axis) - 1;
+    auto dx = dim == DIM1   ? pmb->pcoord->dx1f
+              : dim == DIM2 ? pmb->pcoord->dx2f
+                            : pmb->pcoord->dx3f;
+    std::vector<int64_t> shape(3, 1);
+    shape[axis] = n;
+    out.narrow(axis, 0, n)
+        .copy_((p.narrow(axis, 1, n) - p.narrow(axis, 0, n)) /
+               dx.narrow(0, 0, n).view(shape));
+    return out;
+  };
+  auto solve = [&](torch::Tensor lr, int dim, torch::Tensor flux,
+                   torch::Tensor face_pressure, torch::Tensor& background) {
+    if (!split_flux) {
+      priemann->forward(lr[ILT], lr[IRT], dim, flux, face_pressure);
+      return;
+    }
+    if (!background.defined()) {
+      // Horizontal (or gravity-free) sweeps: the shared face gauge need not
+      // be hydrostatic. Its full gradient is retained in the momentum source.
+      // A static gauge keeps physical pressure increments in the Riemann
+      // flux instead of moving them into a difference of large backgrounds.
+      int axis = dim - 1;
+      auto p0 = perturb.pressure0;
+      int n = p0.size(axis);
+      auto below =
+          torch::cat({p0.narrow(axis, 0, 1), p0.narrow(axis, 0, n - 1)}, axis);
+      background = 0.5 * (p0 + below);
+      lr = lr.clone();
+      lr[ILT][IPR] -= background;
+      lr[IRT][IPR] -= background;
+    }
+    dynamic_cast<HLLCSolverImpl&>(*priemann).forward_perturbations(
+        lr[ILT], lr[IRT], dim, flux, background, face_pressure);
+    // Public face pressure and all implicit/energy consumers keep TOTALS.
+    if (face_pressure.defined() && face_pressure.numel())
+      face_pressure += background;
+  };
   int ny = u.size(0) - ICY;
   // the settling part of the x1 species flux, for the positivity carry
   torch::Tensor fsed1;
@@ -552,11 +619,39 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     }
     torch::Tensor wtmp;
     if (wb_x1) {
-      auto [psf_lo, pref, dsf, dref] = _hydro_ref_x1(wx1);
+      HydroPressureSplit split;
+      auto base = wx1;
+      torch::Tensor delta;
+      if (split_flux) {
+        base = wx1.clone();
+        base[IPR].copy_(perturb.pressure0);
+        base[IDN].copy_(perturb.density0);
+        delta = torch::zeros_like(base);
+        delta[IPR].copy_(perturb.pressure_delta);
+        delta[IDN].copy_(perturb.density_delta);
+      }
+      auto [psf_lo, pref, dsf, dref] =
+          _hydro_ref_x1(base, delta, split_flux ? &split : nullptr);
+      if (split_flux) {
+        pressure_base1 = split.face0;
+        // The unclamped scan satisfies grad(p0)=g*rho0 analytically. Retain
+        // the exceptional floor residual, rather than imposing rest balance.
+        auto grad = face_gradient(pressure_base1, DIM1);
+        auto floor = pressure_base1 <= std::numeric_limits<double>::min();
+        auto clamped = floor | torch::roll(floor, {-1}, {-1});
+        background_force1 = torch::where(
+            clamped, options->grav()->grav1() * perturb.density0 - grad,
+            torch::zeros_like(grad));
+        pressure_base1_before_seam = pressure_base1.clone();
+      }
       auto pressure = wx1[IPR].clone();
       auto density = wx1[IDN].clone();
 
-      wx1[IPR] -= pref;
+      if (split_flux)
+        wx1[IPR].copy_((perturb.pressure0 - split.cell0) +
+                       (perturb.pressure_delta - split.cell_delta));
+      else
+        wx1[IPR] -= pref;
       wx1[IDN] -= dref;
 
       // Even-parity ghost perturbations at the walls: p'(is-m) =
@@ -625,8 +720,15 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       // fires and well-balancing is preserved.
       auto pl = wtmp[ILT][IPR] + psf_lo;
       auto pr = wtmp[IRT][IPR] + psf_lo;
-      wtmp[ILT][IPR].copy_(torch::where(pl > 0., pl, psf_lo));
-      wtmp[IRT][IPR].copy_(torch::where(pr > 0., pr, psf_lo));
+      if (split_flux) {
+        wtmp[ILT][IPR].copy_(torch::where(
+            pl > 0., wtmp[ILT][IPR] + split.face_delta, split.face_delta));
+        wtmp[IRT][IPR].copy_(torch::where(
+            pr > 0., wtmp[IRT][IPR] + split.face_delta, split.face_delta));
+      } else {
+        wtmp[ILT][IPR].copy_(torch::where(pl > 0., pl, psf_lo));
+        wtmp[IRT][IPR].copy_(torch::where(pr > 0., pr, psf_lo));
+      }
 
       auto dl = wtmp[ILT][IDN] + dsf[ILT];
       auto dr = wtmp[IRT][IDN] + dsf[IRT];
@@ -672,12 +774,17 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
                                   pmb->pcoord->dx1f.slice(0, is, ie);
     }
 
+    if (pressure_base1.defined()) {
+      rho_grav_delta = rho_grav.clone();
+      rho_grav += face_gradient(pressure_base1, DIM1);
+    }
+
     // riemann solver
     if (!options->disable_flux_x1()) {
       auto face_pressure1 = options->eos()->type() == "shallow-water"
                                 ? torch::Tensor()
                                 : _face_pressure1;
-      priemann->forward(wlr1[ILT], wlr1[IRT], DIM1, _flux1, face_pressure1);
+      solve(wlr1, DIM1, _flux1, face_pressure1, pressure_base1);
       if (gw_cell) {
         bflux1 = _flux1[IDN].clone();
         if (ny > 0) bflux1 += _flux1.narrow(0, ICY, ny).sum(0);
@@ -740,6 +847,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
           if (has_fp)
             rows.push_back(_face_pressure1.select(-1, face).unsqueeze(0));
           if (has_bf) rows.push_back(bflux1.select(-1, face).unsqueeze(0));
+          if (pressure_base1.defined())
+            rows.push_back(pressure_base1.select(-1, face).unsqueeze(0));
           if (rows.size() == 1) return rows[0].clone();
           return torch::cat(rows, 0);
         };
@@ -747,7 +856,9 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
           _flux1.select(-1, face).copy_(avg.narrow(0, 0, nv));
           int row = nv;
           if (has_fp) _face_pressure1.select(-1, face).copy_(avg[row++]);
-          if (has_bf) bflux1.select(-1, face).copy_(avg[row]);
+          if (has_bf) bflux1.select(-1, face).copy_(avg[row++]);
+          if (pressure_base1.defined())
+            pressure_base1.select(-1, face).copy_(avg[row]);
         };
 
         std::vector<CommWorkPtr> seam_sends;
@@ -921,7 +1032,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         _cov_wr[0] = cwr.clone();
         _cov_dry[0] = cov_dry(dcov, cwl);
       }
-      priemann->forward(wlr2[ILT], wlr2[IRT], DIM2, _flux2);
+      solve(wlr2, DIM2, _flux2, torch::Tensor(), pressure_base2);
       if (dcov.defined()) add_cov(_flux2, dcov);
       cov2 = dcov.defined();
       if (options->verbose()) {
@@ -953,7 +1064,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         _cov_wr[1] = cwr.clone();
         _cov_dry[1] = cov_dry(dcov, cwl);
       }
-      priemann->forward(wlr3[ILT], wlr3[IRT], DIM3, _flux3);
+      solve(wlr3, DIM3, _flux3, torch::Tensor(), pressure_base3);
       if (dcov.defined()) add_cov(_flux3, dcov);
       cov3 = dcov.defined();
       if (options->verbose()) {
@@ -1153,8 +1264,31 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     mw.wc1[IDN].copy_(w[IDN]);
     mw.wc1.narrow(0, IVY, 2).copy_(w.narrow(0, IVY, 2));
   }
-  for (auto& f : forcings)
-    f.forward(du, mass_w && coriolis(f) ? mw.wc1 : w, temp, dt);
+  bool split_gravity =
+      background_force1.defined() && !options->disable_flux_x1();
+  for (auto& f : forcings) {
+    auto gravity = std::dynamic_pointer_cast<ConstGravityImpl>(f.ptr());
+    if (split_gravity && gravity)
+      gravity->forward_split(du, w, dt, perturb.density_delta);
+    else
+      f.forward(du, mass_w && coriolis(f) ? mw.wc1 : w, temp, dt);
+  }
+  if (split_flux) {
+    auto force = torch::zeros_like(du);
+    if (!options->disable_flux_x1() && pressure_base1.defined()) {
+      if (split_gravity) {
+        force[IVX] =
+            background_force1 * options->grav()->non_hydrostatic() -
+            face_gradient(pressure_base1 - pressure_base1_before_seam, DIM1);
+      } else
+        force[IVX] = -face_gradient(pressure_base1, DIM1);
+    }
+    if (pressure_base2.defined())
+      force[IVY] = -face_gradient(pressure_base2, DIM2);
+    if (pressure_base3.defined())
+      force[IVZ] = -face_gradient(pressure_base3, DIM3);
+    du.index(interior) += dt * force.index(interior);
+  }
   _forcing_dry = track_dry ? du[IDN] - dry_before : torch::Tensor();
 
   // Face work uses the x1 mass flux after positivity limiting and
@@ -1286,7 +1420,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
 
   // apply hydrostatic correction
   if (options->grav() && (options->grav()->non_hydrostatic() < 1.)) {
-    du[IVX] += dt * rho_grav * (1. - options->grav()->non_hydrostatic());
+    du[IVX] += dt * (split_gravity ? rho_grav_delta : rho_grav) *
+               (1. - options->grav()->non_hydrostatic());
     du[IPR] +=
         dt * w[IVX] * rho_grav * (1. - options->grav()->non_hydrostatic());
   }

@@ -164,6 +164,11 @@ void HydroImpl::reset() {
     pref = register_module("ref", Fp64Store());
   }
 
+  if (options->perturbation_flux()) {
+    TORCH_CHECK(options->anomaly() && options->riemann()->type() == "hllc",
+                "dynamics/perturbation-flux requires anomaly storage and HLLC");
+  }
+
   //// ---- (6) set up implicit solver ---- ////
   if (options->icorr()) {
     picorr = ImplicitHydroImpl::create(options->icorr(), this);
@@ -528,7 +533,9 @@ void HydroImpl::_revise_x1outer_ghost(torch::Tensor const& w) {
 }
 
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
-HydroImpl::_hydro_ref_x1(torch::Tensor const& w) const {
+HydroImpl::_hydro_ref_x1(torch::Tensor const& w, torch::Tensor const& dw,
+                         HydroPressureSplit* split) const {
+  bool paired = split != nullptr;
   auto pcoord = pmb->pcoord;
   int is = pcoord->il();
   int iu = pcoord->iu();
@@ -557,7 +564,9 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w) const {
     above = layout->neighbor_rank(iloc, {0, 0, 1});   // toward x1-outer
     below = layout->neighbor_rank(iloc, {0, 0, -1});  // toward x1-inner
     anchor = layout->take_x1_anchor(
-        above, torch::empty({w.size(1), w.size(2), 1}, w.options()), kWbRefTag);
+        above,
+        torch::empty({w.size(1), w.size(2), paired ? 2 : 1}, w.options()),
+        kWbRefTag);
   }
 
   bool stretched = pcoord->options->stretched_x1();
@@ -569,9 +578,32 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w) const {
     x1_reference_ = std::make_shared<HydroReferenceX1Operator>(
         pcoord->dx1f, iu, stretched, phys_in, phys_out, clamp);
   }
-  HydroReferenceX1 reference(w);
-  x1_reference_->evaluate(w, g, anchor, reference);
-  auto& [psf_lo, psf_hi, pref, dsf, dref] = reference;
+  HydroReferenceX1 reference;
+  if (paired) {
+    HydroReferenceX1 pairs;
+    x1_reference_->evaluate_split(
+        w, dw, g, anchor.defined() ? anchor.unsqueeze(-2) : anchor, pairs);
+    auto total = [](torch::Tensor const& p) {
+      return p.select(-1, 0) + p.select(-1, 1);
+    };
+    reference.psf_lo = total(pairs.psf_lo);
+    reference.psf_hi = total(pairs.psf_hi);
+    reference.pref = total(pairs.pref);
+    reference.dsf = total(pairs.dsf);
+    reference.dref = total(pairs.dref);
+    split->face0 = pairs.psf_lo.select(-1, 0).contiguous();
+    split->face_delta = pairs.psf_lo.select(-1, 1).contiguous();
+    split->cell0 = pairs.pref.select(-1, 0).contiguous();
+    split->cell_delta = pairs.pref.select(-1, 1).contiguous();
+  } else {
+    reference = HydroReferenceX1(w);
+    x1_reference_->evaluate(w, g, anchor, reference);
+  }
+  auto& psf_lo = reference.psf_lo;
+  auto& psf_hi = reference.psf_hi;
+  auto& pref = reference.pref;
+  auto& dsf = reference.dsf;
+  auto& dref = reference.dref;
 
   // dynamics/conversion-order 4 (#289): the only fourth-order part is the
   // face density below, the face value of the kernel's own cell dref -- that
@@ -593,7 +625,13 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w) const {
   }
 
   if (below >= 0) {
-    layout->pass_x1_anchor(below, psf_lo.narrow(-1, is, 1), kWbRefTag);
+    layout->pass_x1_anchor(
+        below,
+        paired ? torch::cat({split->face0.narrow(-1, is, 1),
+                             split->face_delta.narrow(-1, is, 1)},
+                            -1)
+               : psf_lo.narrow(-1, is, 1),
+        kWbRefTag);
   }
 
   // Ghost-row reference exchange across x1 seams: overwrite this block's
@@ -625,35 +663,37 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w) const {
     auto take = [&](int from, int tag) {
       if (layout->is_local_block(from))
         return layout->take_from_local_block(from, tag);
-      std::vector<torch::Tensor> rbuf = {
-          torch::empty({w.size(1), w.size(2), 2 * ng}, w.options())};
+      std::vector<torch::Tensor> rbuf = {torch::empty(
+          {w.size(1), w.size(2), (paired ? 4 : 2) * ng}, w.options())};
       layout->recv_from_block(rbuf, from, tag)->wait();
       return rbuf[0];
+    };
+    auto pack = [&](int start) {
+      std::vector<torch::Tensor> fields = {pref.narrow(-1, start, ng),
+                                           dref.narrow(-1, start, ng)};
+      if (paired) {
+        fields.push_back(split->cell0.narrow(-1, start, ng));
+        fields.push_back(split->cell_delta.narrow(-1, start, ng));
+      }
+      return torch::cat(fields, -1);
+    };
+    auto unpack = [&](torch::Tensor const& rows, int start) {
+      pref.narrow(-1, start, ng).copy_(rows.narrow(-1, 0, ng));
+      dref.narrow(-1, start, ng).copy_(rows.narrow(-1, ng, ng));
+      if (paired) {
+        split->cell0.narrow(-1, start, ng).copy_(rows.narrow(-1, 2 * ng, ng));
+        split->cell_delta.narrow(-1, start, ng)
+            .copy_(rows.narrow(-1, 3 * ng, ng));
+      }
     };
     sbufs.reserve(2);
     if (above >= 0) {  // my top interior rows are the above block's lower
                        // ghosts
-      post(torch::cat({pref.narrow(-1, iu - ng + 1, ng),
-                       dref.narrow(-1, iu - ng + 1, ng)},
-                      -1),
-           above, kWbGhostUpTag);
+      post(pack(iu - ng + 1), above, kWbGhostUpTag);
     }
-    if (below >= 0) {  // my bottom interior rows are the below block's upper
-                       // ghosts
-      post(torch::cat({pref.narrow(-1, is, ng), dref.narrow(-1, is, ng)}, -1),
-           below, kWbGhostDnTag);
-    }
-    if (below >= 0) {  // receive my lower ghost rows from below's top interior
-      auto rb = take(below, kWbGhostUpTag);
-      pref.narrow(-1, 0, ng).copy_(rb.narrow(-1, 0, ng));
-      dref.narrow(-1, 0, ng).copy_(rb.narrow(-1, ng, ng));
-    }
-    if (above >= 0) {  // receive my upper ghost rows from above's bottom
-                       // interior
-      auto ra = take(above, kWbGhostDnTag);
-      pref.narrow(-1, iu + 1, ng).copy_(ra.narrow(-1, 0, ng));
-      dref.narrow(-1, iu + 1, ng).copy_(ra.narrow(-1, ng, ng));
-    }
+    if (below >= 0) post(pack(is), below, kWbGhostDnTag);
+    if (below >= 0) unpack(take(below, kWbGhostUpTag), 0);
+    if (above >= 0) unpack(take(above, kWbGhostDnTag), iu + 1);
     for (auto& sw : sends) sw->wait();
   }
 

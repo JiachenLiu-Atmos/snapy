@@ -33,6 +33,14 @@ torch::Tensor hydro_ref_x1_stretched_rows(torch::Tensor const& dx1f, int iu,
                                           bool phys_in, bool phys_out,
                                           bool wall_clamp);
 
+//! Tensor fallback; also callable on CPU for backend parity tests.
+void hydro_pressure_scan_x1_tensor(torch::Tensor const& rho,
+                                   torch::Tensor const& dx1f,
+                                   torch::Tensor const& anchor,
+                                   torch::Tensor const& lo,
+                                   torch::Tensor const& hi, int iu,
+                                   double grav);
+
 }  // namespace snap
 
 namespace at::native {
@@ -46,5 +54,13 @@ using hydro_ref_x1_fn =
              bool wall_clamp, torch::Tensor const& rows);
 
 DECLARE_DISPATCH(hydro_ref_x1_fn, call_hydro_ref_x1);
+
+using hydro_pressure_scan_x1_fn = void (*)(torch::Tensor const& rho,
+                                           torch::Tensor const& dx1f,
+                                           torch::Tensor const& anchor,
+                                           torch::Tensor const& lo,
+                                           torch::Tensor const& hi, int iu,
+                                           double grav);
+DECLARE_DISPATCH(hydro_pressure_scan_x1_fn, call_hydro_pressure_scan_x1);
 
 }  // namespace at::native

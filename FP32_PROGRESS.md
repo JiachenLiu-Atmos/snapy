@@ -1,20 +1,21 @@
 # FP32 project progress
 
-Updated: 2026-11-08. Roadmap: [FP32_ROADMAP.md](FP32_ROADMAP.md).
+Updated: 2026-11-12. Roadmap: [FP32_ROADMAP.md](FP32_ROADMAP.md).
 
 ## Milestones
 
 | Milestone | Status | Evidence / next action |
 |---|---|---|
-| M0 Baseline and records | CPU validated | Fresh paired build and 33-case foundation gate passed |
-| M1 Reference consolidation | Implemented, CPU validated | Shared operator, cache invalidation, composition restart; CUDA pending |
-| M2 Thermodynamic perturbations | Implemented, CPU validated | Delta thermodynamics, exact total reads and FP32 floors pass; hydro wiring follows |
-| M3 Perturbation dynamics | In progress | HLLC CPU/tensor and gravity-work pieces pass; reference splitting/hydro wiring remain |
+| M0 Baseline and records | Merged baseline | PR #326 merged as 2d92c92; M3a validation below |
+| M1 Reference consolidation | Merged (#326) | Shared operator, cache invalidation, composition restart; CPU and reviewer CUDA evidence below |
+| M2 Thermodynamic perturbations | Merged (#326) | Delta thermodynamics, exact total reads and FP32 floors; hydro wiring follows |
+| M3 Perturbation dynamics | M3a–M3c implemented, CPU validated | 39/39 foundation tests pass; split reference, flux/source coupling, seams and restart; CUDA execution pending |
 | M4 True FP32 | Planned | Follow perturbation kernels |
 | M5 Coupled workflow/restart | Planned | Validate actual kintera build |
 | M6 Science/performance | Planned | Requires production GPU and coupled cases |
 
-Snapy foundations are recorded on `fp32-step1-anomaly`, based on `fe003dd`.
+Historical foundation baseline (2026-11-08): snapy work was recorded on
+`fp32-step1-anomaly`, based on `fe003dd`.
 The paired kintera change is commit `80ac117` on `fp32-perturbation-thermo`, based
 on user-rebased `v2.6.8` / `e646fe5`. Fresh CPU validation uses the paired source
 builds, not the globally installed packages.
@@ -47,8 +48,8 @@ builds, not the globally installed packages.
 ## Environment and outstanding work
 
 Local host is macOS/CPU; CUDA and production GPU validation require another host.
-Dependency resolution is now pinned to the isolated kintera v2.6.8 source build
-plus this change. Python tests use `/tmp/snapy-fp32-python` (kintera 2.6.8+fp32
+The initial 2026-11-08 validation pinned the isolated kintera v2.6.8 source
+build plus its paired change. Those historical Python tests used `/tmp/snapy-fp32-python` (kintera 2.6.8+fp32
 and the rebuilt snapy extension/library). Global Python packages were not replaced.
 Coupled Jupiter cases live outside this repository and were not found in the
 local workspace search. The temporary build/install paths are local validation
@@ -376,3 +377,147 @@ changes require CUDA CI/hardware.
 - `pre-commit run --files src/hydro/hydro.hpp src/hydro/hydro_options.cpp src/hydro/hydro_forward.cpp tests/test_anomaly_storage.py FP32_PROGRESS.md`,
   `python -m py_compile tests/test_anomaly_storage.py`, and `git diff --check`:
   passed.
+
+## Next milestone: M3a signed pressure scan — 2026-11-12
+
+- Start `fp32-step2-pressure-scan` from merged main `2d92c92` (PR #326).
+- Implement the first of three M3 stages listed in FP32_ROADMAP.md. The new
+  internal API requires an explicit anchor increment and scans mixture-density
+  increments directly; it must not derive an exponential anchor, clamp signed
+  deltas, or subtract rounded total pressures.
+- Consolidate the CPU/CUDA recurrence with the existing guarded total-reference
+  scan, retaining default arithmetic and floor behavior. Add a tensor backend
+  and CPU/CUDA parameter coverage. Verify vertical relay and halo orientations
+  independently of distributed transport.
+- No public perturbation-flux switch, background cache, or new restart schema
+  in M3a. Nonlinear reference splitting and its cache invalidation belong to M3b;
+  hydro reconstruction/flux/source integration belongs to M3c. Kintera's existing
+  >=2.6.9 pressure helper is sufficient; no cross-repo source change is needed.
+
+
+### M3a implementation and validation
+
+- Added `HydroReferenceX1Operator::scan_pressure(rho, grav, anchor)`, returning
+  lower/upper face pressure on each cell, ghosts included. It requires an
+  explicit `[nc3,nc2,1]` anchor at the upper face of cell `iu`, accepts signed
+  mixture-density/anchor increments, and validates shape/dtype before dispatch.
+- CPU/CUDA share `hydro_ref_x1_pressure_scan_impl<T, Clamp>` with the default
+  reference evaluator. `Clamp=false` retains signed/zero increments;
+  `Clamp=true` retains the existing floor and nonlinear anchor wrapper.
+  The tensor fallback uses running faces rather than subtracting cumulative
+  totals. No Python API, output/restart schema, or dependency minimum changes.
+- Configured against isolated kintera **2.6.10**, using the existing
+  `/tmp/snapy-rebase-python` environment. Global Python still imports 2.6.6.
+- `PYTHONPATH=/tmp/snapy-rebase-python cmake -S . -B build` and
+  `PYTHONPATH=/tmp/snapy-rebase-python cmake --build build --parallel 4 --target test_pressure_scan_x1.release test_hydro_ref_x1.release test_balance_column.release`:
+  passed. Refreshed the packaged library with
+  `cp build/lib/libsnap_release.dylib /tmp/snapy-rebase-python/snapy/lib/libsnap_release.dylib`.
+- `ctest --test-dir build --output-on-failure -L fp32-pressure-scan`:
+  **1/1 passed**, 1.28 seconds (9 CPU cases passed, 8 CUDA cases skipped).
+  Includes an independent FP64 summation oracle, float/double tensor-backend
+  parity, noncontiguous inputs, signed and sub-ulp increments, linearity,
+  zero/reversed gravity, irregular widths, default floor behavior, and a
+  two-section column relay including ghosts. Relay coverage is arithmetic,
+  not a new multi-process communication test.
+- CUDA source is implemented but cannot be compiled/run on this CPU host.
+  Tensor fallback arithmetic was tested on CPU; actual MPS execution is untested.
+
+- `ctest --test-dir build --output-on-failure -L fp32-foundations`:
+  **35/35 passed**, 54.89 seconds (including existing wall/stretched-grid/seam,
+  EOS, HLLC, gravity, anomaly storage and restart regressions).
+- `pre-commit run --files src/hydro/hydro_reference.hpp src/hydro/hydro_ref_x1_impl.h src/hydro/hydro_dispatch.hpp src/hydro/hydro_dispatch.cpp src/hydro/hydro_dispatch.cu tests/test_pressure_scan_x1.cpp tests/CMakeLists.txt FP32_ROADMAP.md FP32_PROGRESS.md`
+  and `git diff --check`: passed.
+- M3a implementation is ready for review with CPU evidence. GPU execution and
+  actual MPS validation remain outstanding. M3b and M3c are not implemented;
+  the new scan is an internal building block, not an enabled hydro mode.
+
+### M3b/M3c implementation in progress
+
+- Reused the complete CPU/CUDA reference kernel with finite-increment FP64
+  scalar pairs, including the M3a recurrence. Nonlinear branches inspect totals;
+  the base follows the selected branch, rather than a second independently
+  guarded background solution. Exponential/logarithmic increments use
+  `expm1`/`log1p`. Floors discard the increment when active.
+- Simplified caching: retain the existing validated geometry/stencil cache only.
+  Recompute branch-dependent values each sweep; there is no derived background
+  cache to invalidate on reference replacement, restart, or thermodynamic change.
+- Extended existing anchor relay and owner-cell ghost exchange to carry pressure
+  pairs. wb_ref4 retains its existing ordering and total density semantics.
+- Wiring opt-in `dynamics: {anomaly: true, perturbation-flux: true}` for Cartesian
+  constant-cv ideal-moist HLLC. Reconstruction and sensitive reference operations
+  remain FP64 in M3; true FP32 computation remains M4. Immersed solids and MPS
+  are outside this initial path. No kintera API/dependency change.
+- Pending: compile, nonlinear reference tests, full dynamics equivalence,
+  balanced/unbalanced rest, heating, split-column and conservation checks.
+
+
+### M3b/M3c completion — 2026-11-12
+
+- M3b and M3c implementation is complete for the documented Cartesian,
+  constant-cv ideal-moist HLLC scope. Numerical contract and remaining M4
+  boundaries: [fp32-perturbation-dynamics.md](docs/derivations/fp32-perturbation-dynamics.md).
+- The full paired reference shares existing CPU/CUDA scan and cell kernels;
+  FP32 or FP64 input increments are evaluated in FP64. Current-state guards
+  select both components. Tests cover uniform, stretched and legacy log-mean
+  grids, finite changes, sub-FP64-ulp increments, and active pressure floors.
+- Hydro now carries x1 pressure increments through reconstruction and HLLC;
+  horizontal/gravity-free sweeps use static face gauges after FP64
+  reconstruction. All directions retain background gradients. Vertical source
+  coupling uses mixture-density increments and preserves floor residuals and
+  unbalanced initial profiles. Total face pressure remains available to implicit
+  and energy consumers. The existing gravity energy operator is reused.
+- Anchor/owner-cell exchange carries paired pressures; remote seam flux payloads
+  also carry the background with the corresponding source correction. Same-process
+  four-block column tests pass for smooth and discontinuous tracers. No extra
+  mutable background cache or restart schema was introduced.
+- Built all 15 C++ executables in the foundation label from current source via
+  `PYTHONPATH=/tmp/snapy-rebase-python cmake --build build --parallel 4 --target test_balance_column.release test_coordinate.release test_eos.release test_fp32_storage.release test_gravity_work_cache_to.release test_hydro_ref_x1.release test_hydro_ref_x1_rf_wall.release test_implicit_face_work_jacobian.release test_pressure_scan_x1.release test_riemann.release test_split_reference.release test_stretched_x1_ref.release test_wb_ref_wall.release test_wb_wall_corner.release test_x1_seam_split.release`:
+  passed. The final mixed-dtype reference test was rebuilt with
+  `PYTHONPATH=/tmp/snapy-rebase-python cmake --build build --parallel 4 --target test_split_reference.release`.
+- Rebuilt Python bindings using
+  `PYTHONPATH=/tmp/snapy-rebase-python SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk MAX_JOBS=4 python -m pip install --no-deps --no-build-isolation --upgrade --target /tmp/snapy-rebase-python .`;
+  refreshed the final library with
+  `cp build/lib/libsnap_release.dylib /tmp/snapy-rebase-python/snapy/lib/libsnap_release.dylib`.
+- `ctest --test-dir build --output-on-failure -L fp32-dynamics`:
+  **4/4 passed**. Includes the wb_ref4 plus mass-covariance configuration.
+- Final `ctest --test-dir build --output-on-failure -L fp32-foundations`:
+  **39/39 passed**, 67.86 seconds. Paired reference tests: 6 CPU cases passed,
+  6 CUDA cases skipped. The final run includes FP32 increments compared with
+  correctly promoted FP64 oracle values (an earlier test harness comparison
+  rejected mixed dtypes; fixed without changing numerical tolerances).
+- Full dynamics comparisons: normalized differences no greater than
+  **3.63e-14**, including conversion-order 4, stretched grids, VIC scheme 9,
+  partial hydrostatic correction, heating and moist sedimentation. Deliberately
+  unbalanced rest still accelerates. Balanced rest with FP32 storage rounding
+  for 20 steps has maximum vertical momentum **1.27e-13**. Closed-domain mass
+  and gravity-free total energy are conserved within **2e-13** relative.
+  Same-dtype restart continuation is **bit-identical**.
+- Cross-repo compatibility: tested against isolated **kintera 2.6.10**; minimum
+  remains **2.6.9**. No kintera source/API changes. Legacy restarts without the
+  species background cannot enable perturbation fluxes. No claim of true FP32
+  compute, GPU performance, or production Jupiter acceptance is made here.
+  CUDA source is implemented but uncompiled/unexecuted on this CPU-only host;
+  MPS and immersed solids are explicitly outside the enabled scope.
+- Next implementation milestone: **M4**, including reconstruction dtype policy,
+  FP64 implicit/chemistry boundaries, and full moist GPU acceptance. M3 CPU
+  implementation is no longer blocking that work.
+
+### Rebase onto main aced752 — 2026-11-13
+
+- Rebased PR #342 onto main's consolidated hydrostatic density reference,
+  reconstruction, VIC gravity work, moist EOS base and deck-option defaults.
+  Kept the main implementation of each operator and layered paired reference
+  evaluation onto it. The earlier commit IDs above describe historical runs.
+- Replaced the obsolete wb_ref4/environment-switch test variant with an explicit
+  `--x1-mass-covariance` fixture using the current dynamics deck key. Conversion
+  order 4 retains main's unconditional face-density correction.
+- Updated main's new wall-test member-pointer call for the extended reference
+  signature. Freshly rebuilt the foundation C++ executables plus
+  `test_pref_local_seam.release`, `test_options_defaults.release`,
+  `test_eos_io_core.release` and `test_lu_failure.release`; rebuilt bindings with
+  `PYTHONPATH=/tmp/snapy-rebase-python SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk MAX_JOBS=2 python -m pip install --no-deps --no-build-isolation --upgrade --target /tmp/snapy-rebase-python .`.
+- `ctest --test-dir build --output-on-failure -L fp32-foundations`: **31/31 passed**,
+  56.76 seconds. Main removed duplicate variants, accounting for the smaller
+  count. `ctest --test-dir build --output-on-failure -R 'test_(options_defaults|eos_io_core|lu_failure|pref_local_seam)\.release'`:
+  **4/4 passed**, 3.02 seconds. Kintera remains 2.6.10; no cross-repo API changes.
+  CUDA remains untested on this CPU host.

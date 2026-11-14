@@ -11,14 +11,49 @@
 #include <snap/snap.h>
 
 #include "hydro_dispatch.hpp"
+#include "split_reference_scalar.hpp"
 
 namespace snap {
+using std::exp;
+using std::fabs;
+using std::floor;
+using std::log;
+using std::pow;
 
 template <typename T>
 inline DISPATCH_MACRO T hydro_ref_x1_face(T const* psf_lo, T const* psf_hi,
                                           int flat, int face, int nc1) {
   if (face < nc1) return psf_lo[flat + face];
   return psf_hi[flat + nc1 - 1];
+}
+
+//! Shared recurrence. Signed increments use Clamp=false and an explicit
+//! anchor; the total-state wrapper alone selects the nonlinear anchor/floors.
+template <typename T, bool Clamp>
+inline DISPATCH_MACRO void hydro_ref_x1_pressure_scan_impl(
+    T const* rho, T const* dx1f, T top_anchor, T* psf_lo, T* psf_hi, int column,
+    int nc1, int iu, T grav) {
+  int flat = column * nc1;
+  T face = top_anchor;
+  T min_positive = reference_min_positive<T>();
+  for (int i = iu; i >= 0; --i) {
+    T dp = grav * rho[flat + i] * dx1f[i];
+    T lo = face + dp;
+    T hi = face;
+    psf_lo[flat + i] = Clamp ? (lo > min_positive ? lo : min_positive) : lo;
+    psf_hi[flat + i] = Clamp ? (hi > min_positive ? hi : min_positive) : hi;
+    face = lo;
+  }
+
+  face = top_anchor;
+  for (int i = iu + 1; i < nc1; ++i) {
+    T dp = grav * rho[flat + i] * dx1f[i];
+    T lo = face;
+    T hi = lo - dp;
+    psf_lo[flat + i] = Clamp ? (lo > min_positive ? lo : min_positive) : lo;
+    psf_hi[flat + i] = Clamp ? (hi > min_positive ? hi : min_positive) : hi;
+    face = hi;
+  }
 }
 
 template <typename T>
@@ -39,26 +74,9 @@ inline DISPATCH_MACRO void hydro_ref_x1_scan_impl(T const* w, T const* dx1f,
     top_anchor = pres_top * exp(-grav * T(0.5) * dx1f[iu] / rdt_top);
   }
 
-  T face = top_anchor;
-  T min_positive = std::numeric_limits<T>::min();
-  for (int i = iu; i >= 0; --i) {
-    T dp = grav * w[IDN * ncells + flat + i] * dx1f[i];
-    T lo = face + dp;
-    T hi = face;
-    psf_lo[flat + i] = lo > min_positive ? lo : min_positive;
-    psf_hi[flat + i] = hi > min_positive ? hi : min_positive;
-    face = lo;
-  }
-
-  face = top_anchor;
-  for (int i = iu + 1; i < nc1; ++i) {
-    T dp = grav * w[IDN * ncells + flat + i] * dx1f[i];
-    T lo = face;
-    T hi = lo - dp;
-    psf_lo[flat + i] = lo > min_positive ? lo : min_positive;
-    psf_hi[flat + i] = hi > min_positive ? hi : min_positive;
-    face = hi;
-  }
+  hydro_ref_x1_pressure_scan_impl<T, true>(w + IDN * ncells, dx1f, top_anchor,
+                                           psf_lo, psf_hi, column, nc1, iu,
+                                           grav);
 }
 
 //! rho/p k cells past a wall, from the wall cell r0 and its neighbour r1:

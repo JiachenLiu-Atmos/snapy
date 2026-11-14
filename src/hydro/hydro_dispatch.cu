@@ -10,6 +10,32 @@
 namespace snap {
 
 template <typename T>
+__global__ void hydro_pressure_scan_x1_cuda_kernel(
+    T const* rho, T const* dx1f, T const* anchor, T* lo, T* hi,
+    int columns, int nc1, int iu, T grav) {
+  int c = blockIdx.x * blockDim.x + threadIdx.x;
+  if (c < columns)
+    hydro_ref_x1_pressure_scan_impl<T, false>(rho, dx1f, anchor[c], lo, hi,
+                                             c, nc1, iu, grav);
+}
+
+void hydro_pressure_scan_x1_cuda(
+    torch::Tensor const& rho, torch::Tensor const& dx1f,
+    torch::Tensor const& anchor, torch::Tensor const& lo,
+    torch::Tensor const& hi, int iu, double grav) {
+  at::cuda::CUDAGuard guard(rho.device());
+  int nc1 = rho.size(-1), columns = rho.numel() / nc1;
+  auto stream = at::cuda::getCurrentCUDAStream();
+  AT_DISPATCH_FLOATING_TYPES(rho.scalar_type(), "hydro_pressure_scan_x1_cuda", [&] {
+    hydro_pressure_scan_x1_cuda_kernel<<<(columns + 127) / 128, 128, 0, stream>>>(
+        rho.data_ptr<scalar_t>(), dx1f.data_ptr<scalar_t>(),
+        anchor.data_ptr<scalar_t>(), lo.data_ptr<scalar_t>(), hi.data_ptr<scalar_t>(),
+        columns, nc1, iu, scalar_t(grav));
+  });
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+template <typename T>
 __global__ void hydro_ref_x1_cuda_kernel(T const *w, T const *dx1f,
                                          T const *anchor, T *psf_lo, T *psf_hi,
                                          T *pref, T *dsf, T *dref, int ncolumns,
@@ -55,6 +81,20 @@ void hydro_ref_x1_cuda(torch::Tensor const &w, torch::Tensor const &dx1f,
   int blocks = ncolumns;
   auto stream = at::cuda::getCurrentCUDAStream();
 
+  // A trailing pair dimension selects finite-increment reference arithmetic.
+  if (w.dim() == 5) {
+    TORCH_CHECK(w.scalar_type() == torch::kFloat64 && w.size(4) == 2,
+                "split reference requires packed FP64 pairs");
+    auto ptr = [](torch::Tensor const& t) -> SRS* {
+      return t.defined() ? reinterpret_cast<SRS*>(t.data_ptr<double>()) : nullptr;
+    };
+    hydro_ref_x1_cuda_kernel<<<blocks, threads, 0, stream>>>(
+        ptr(w), ptr(dx1f), ptr(anchor), ptr(psf_lo), ptr(psf_hi), ptr(pref),
+        ptr(dsf), ptr(dref), ncolumns, nc1, iu, SRS(grav), x1_grid, phys_in,
+        phys_out, wall_clamp, ptr(rows));
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return;
+  }
   AT_DISPATCH_FLOATING_TYPES(w.scalar_type(), "hydro_ref_x1_cuda", [&] {
     auto anchor_ptr = anchor.defined() ? anchor.data_ptr<scalar_t>() : nullptr;
     auto rows_ptr = rows.defined() ? rows.data_ptr<scalar_t>() : nullptr;
@@ -72,6 +112,7 @@ void hydro_ref_x1_cuda(torch::Tensor const &w, torch::Tensor const &dx1f,
 
 namespace at::native {
 
+REGISTER_CUDA_DISPATCH(call_hydro_pressure_scan_x1, &snap::hydro_pressure_scan_x1_cuda);
 REGISTER_CUDA_DISPATCH(call_hydro_ref_x1, &snap::hydro_ref_x1_cuda);
 
 } // namespace at::native
