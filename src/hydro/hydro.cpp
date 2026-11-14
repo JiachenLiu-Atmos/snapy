@@ -66,6 +66,13 @@ void HydroImpl::reset() {
         "dynamics/conserve-axial-momentum is off for this run: it needs "
         "coriolis type xyz with omega2 = omega3 = 0 (the AAM is about the "
         "omega1 axis)");
+  // full with rotation: its Coriolis force does work (see the option)
+  if (axial_coriolis_form() && options->coriolis() &&
+      options->coriolis()->omega1() != 0.)
+    TORCH_WARN_ONCE(
+        "dynamics/conserve-axial-momentum: full with a Coriolis force gains "
+        "energy at grid scale and is unstable at fast rotation; use "
+        "transport, or full only without rotation");
 
   //// ---- (1) set up equation-of-state model ---- ////
   peos = EquationOfStateImpl::create(options->eos(), this);

@@ -219,8 +219,9 @@ class HydroOptions:
 
         `full`: also the axial component of the Coriolis force, from the face
         mass fluxes. Relative plus planetary AAM is exact, but grid-scale
-        noise gains energy with rotation (see the note in hydro.hpp). Use it
-        without rotation."""
+        noise gains energy with rotation and the run is unstable at fast
+        rotation (see the note in hydro.hpp). Use it without rotation; with a
+        Coriolis force it prints a warning."""
         ...
 
     @overload
