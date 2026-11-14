@@ -326,9 +326,9 @@ def arm_slab(device):
     dd = drift(m, state, blocks, device, [kIDN], nstep=30)
     dq, r = abs(water() - q0) / q0, ratio(state, blocks)
     # the species screen: u - L u with negative vapour falls back before the EOS; the state shows it
-    # (the screened run's value with the one-sided wall closure; 5.491166165063751e-05 with the mirror ghosts,
-    # 2.1e-8 away through the near-wall dynamics, against 1.6e-6 without the screen)
-    v2 = float((interior(state, blocks, "hydro_u", kICY) ** 2).sum()) / 5.491166217528447e-05 - 1.
+    # (the screened run's value with the parity wall ghosts; 5.491166165063751e-05 with the mirror ghosts,
+    # 1.7e-8 away through the near-wall dynamics, against 1.6e-6 without the screen)
+    v2 = float((interior(state, blocks, "hydro_u", kICY) ** 2).sum()) / 5.4911662595823034e-05 - 1.
     m.forward(state, m.max_time_step(state), 0)  # check_redo leaves W(u); the stage's w is the converted one
     w0, w1 = (s["hydro_w"] for s in state)  # every seam ghost, corners too, is the neighbour's converted cell
     same = torch.equal(w0[..., 16 + NG:], w1[..., NG:2 * NG]) and torch.equal(w1[..., :NG], w0[..., 16:16 + NG])

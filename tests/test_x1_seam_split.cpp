@@ -285,14 +285,14 @@ void radial_exact_split_gap(torch::Device device) {
 // plm at conversion-order 4: the face density post-pass decides every x1 face
 // (with weno5 it decides only the guard-fallback faces, and this column has
 // none), so the one-block state also pins it being applied: m1 max after 20
-// steps, recorded with it and one-sided walls; without it it moves by 3e-5
+// steps, recorded with it and parity wall ghosts; without it it moves by 3e-5
 void co4_face_density_at_the_seam_split_matches_one_block(
     torch::Device device) {
   ASSERT_FALSE(std::getenv("SNAP_X1_CENTROID_EXACT"));
   torch::set_num_threads(1);
   g_conv_order = 4;
   g_recon = "plm";
-  double const pinned[2] = {0.017152234664085421, 0.0366766650972154};
+  double const pinned[2] = {0.017122980537687668, 0.036658874569637449};
   int k = 0;
   for (double nh : {1., 0.}) {
     auto one = make_column(1, 16, nh, "cell", 3, device);

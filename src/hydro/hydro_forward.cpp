@@ -303,12 +303,16 @@ static void conv4_x1_weights(torch::Tensor x1f, int n,
   k[1] = (c / (f(2) - f(0))).to(opts);
 }
 
-// conversion-order 4 at a reflecting x1 wall: ghost averages of the polynomial
-// through the four owned averages next to the wall, plus q(0) = 0 (c = 1) or
-// q'(0) = 0 (c = 2); E[side][c] maps those four (narrow order) to the ghosts
+// conversion-order 4 at a reflecting x1 wall: E[side][c] maps the four owned
+// averages next to the wall (narrow order) to the ghosts. c = 0: the cubic
+// through them. Parity ghosts, the mirrored cell plus twice the opposite-parity
+// part of a fit: c = 1 odd v + v''(0) z^2 (least squares on the four cells),
+// c = 2 even rho' - rho'_z(0) z - rho'_zzz(0) z^3 / 6 (the cubic), c = 3 even
+// p' - p'_zzz(0) z^3 / 6 (a0 + a2 z^2 + a3 z^3 through the three wall cells)
 torch::Tensor wall4_weights(torch::Tensor x1f, int is, int iu, int ng) {
+  TORCH_CHECK(ng <= 4, "key-4 wall ghosts mirror at most 4 cells");
   x1f = x1f.to(torch::kCPU, torch::kFloat64);
-  auto E = torch::zeros({2, 3, ng, 4}, torch::kFloat64);
+  auto E = torch::zeros({2, 4, ng, 4}, torch::kFloat64);
   for (int s : {0, 1}) {
     int w = s ? iu + 1 : is, d = s ? -1 : 1;
     auto y = (x1f - x1f[w]) / (x1f[w + d] - x1f[w]);
@@ -319,13 +323,16 @@ torch::Tensor wall4_weights(torch::Tensor x1f, int is, int iu, int ng) {
     std::vector<torch::Tensor> a, b;
     for (int k = 0; k < 4; ++k) a.push_back(row(s ? iu - 3 + k : is + k));
     for (int k = 0; k < ng; ++k) b.push_back(row(s ? iu + 1 + k : is - ng + k));
-    for (int c : {0, 1, 2}) {
-      int n = 4 + (c > 0);
-      auto A = torch::zeros({n, n}, torch::kFloat64);
-      A.narrow(0, 0, 4) = torch::stack(a).narrow(1, 0, n);
-      if (c) A[4][c - 1] = 1.;
-      E[s][c] =
-          torch::stack(b).narrow(1, 0, n).matmul(A.inverse()).narrow(1, 0, 4);
+    auto A = torch::stack(a), Cr = A.narrow(1, 0, 4).inverse();
+    E[s][0] = torch::stack(b).narrow(1, 0, 4).matmul(Cr);
+    auto Cv = at::linalg_pinv(A.narrow(1, 1, 3)), P = A.narrow(0, s, 3);
+    auto Cp = P.index_select(1, torch::tensor({0, 2, 3})).inverse();
+    for (int k = 0; k < ng; ++k) {
+      int m = s ? 3 - k : ng - 1 - k;  // the ghost's mirror cell
+      E[s][1][k][m] = -1., E[s][2][k][m] = E[s][3][k][m] = 1.;
+      E[s][1][k] += 2. * a[m][2] * Cv[1];
+      E[s][2][k] -= 2. * (a[m][1] * Cr[1] + a[m][3] * Cr[3]);
+      E[s][3][k].narrow(0, s, 3) -= 2. * a[m][3] * Cp[2];
     }
   }
   return E;
@@ -439,8 +446,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // Conversion acts on total cell averages, including the static background.
     // Differencing only stored anomalies omits the background curvature.
     auto averages = has_reference() ? total_u(u) : u;
-    // the wall cell's row reads one-sided ghosts: m(0) = 0; W(u) has no
-    // wall condition (m/rho = v + O(h^2), not zero at the wall)
+    // the wall cell's row reads one-sided ghosts, m odd parity (m(0) = 0); W(u)
+    // has no wall condition (m/rho = v + O(h^2), not zero at the wall)
     if (wall4[0] || wall4[1]) {
       averages = averages.clone();
       for (int c = 0; c < u.size(0); ++c) {
@@ -689,9 +696,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
               .narrow(-1, iu + 1, ng)
               .copy_(wx1[c].narrow(-1, iu + 1 - ng, ng).flip(-1));
         }
-        // key 4 one-sided rho', v ghosts (p' keeps the even mirror the implicit
-        // solver's wall rows assume): this path runs only with gravity
-        if (c == IDN) fill4(wx1[c], 0, true, dref);
+        // key 4 rho', p' parity ghosts (wall4_weights); runs only with gravity
+        fill4(wx1[c], c == IDN ? 2 : 3, true, c == IDN ? dref : pref);
       }
 
       torch::Tensor velocity;
