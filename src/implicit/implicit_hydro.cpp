@@ -20,6 +20,10 @@
 #include "implicit_hydro.hpp"
 
 namespace snap {
+// screen sums in FP64, except on MPS, which has no FP64
+static torch::ScalarType acc_type(torch::Tensor const& t) {
+  return t.is_mps() ? torch::kFloat32 : torch::kFloat64;
+}
 
 ImplicitOptions ImplicitOptionsImpl::from_yaml(const std::string& filename,
                                                bool /*verbose*/) {
@@ -241,9 +245,9 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   // in the order the checks would have met them. The read also carries the
   // previous stage's post-solve failure, latched on the device.
   std::vector<torch::Tensor> screen = {
-      du.index(interior).to(torch::kFloat64).sum(),
-      w.index(interior).to(torch::kFloat64).sum(),
-      gamma.unsqueeze(0).index(interior).to(torch::kFloat64).sum(),
+      du.index(interior).to(acc_type(du)).sum(),
+      w.index(interior).to(acc_type(du)).sum(),
+      gamma.unsqueeze(0).index(interior).to(acc_type(du)).sum(),
       torch::zeros({}, du.options())
           .masked_fill(_failed_dev, std::numeric_limits<double>::quiet_NaN())};
 
@@ -469,7 +473,7 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
 
   // Both dispatches share the same rejection sentinel. This also catches
   // nonfinite backward-substitution results, before redistribution sees them.
-  screen.push_back(_delta.to(torch::kFloat64).sum());
+  screen.push_back(_delta.to(acc_type(_delta)).sum());
   if (!std::isfinite(torch::stack(screen).sum().item<double>())) {
     // a stage after a failed one stops here
     if (_failed_dev.item<bool>()) return reject(torch::Tensor());
@@ -593,9 +597,9 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   _corr.sub_(_du0);
 
   auto results =
-      torch::stack({du.index(interior).to(torch::kFloat64).sum(),
-                    _mass_corr.index(interior).to(torch::kFloat64).sum(),
-                    _corr.index(interior).to(torch::kFloat64).sum()});
+      torch::stack({du.index(interior).to(acc_type(du)).sum(),
+                    _mass_corr.index(interior).to(acc_type(du)).sum(),
+                    _corr.index(interior).to(acc_type(du)).sum()});
   // no host read: a nonfinite result is latched on the device, undone here
   // with masks (on success they select the values as they are) and stops
   // the next stage at its screen; check_redo reads the latch
