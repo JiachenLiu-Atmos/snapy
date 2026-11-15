@@ -220,6 +220,13 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   void apply_gravity_work_fixer(Variables& vars, torch::Tensor const& global);
   //! set by a Mesh with several local blocks: it reduces and applies the fix
   bool defer_gravity_work_fixer = false;
+  //! conserve-axial-momentum-closure: this block's {R, I} of the stage (CPU,
+  //! double; zeros if off), and the stage's solid-body increment from the
+  //! global sums; deferred like the gravity-work-fixer
+  torch::Tensor axial_closure_sums() const;
+  void apply_axial_closure(Variables& vars, double dt, int stage,
+                           torch::Tensor const& global);
+  bool defer_axial_closure = false;
   void exchange(Variables& vars, SyncOptions const& opts) const;
 
   //! Serialize state into MeshBlock-owned buffers without launching comms yet.

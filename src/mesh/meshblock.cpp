@@ -10,6 +10,7 @@
 
 // snap
 #include <snap/coord/coord_utils.hpp>
+#include <snap/coord/gnomonic_equiangle.hpp>
 #include <snap/hydro/flux_positivity.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/implicit/implicit_dispatch.hpp>
@@ -974,6 +975,15 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
     }
   }
 
+  if (phydro->options->conserve_axial_momentum_closure() &&
+      !defer_axial_closure) {
+    std::vector<at::Tensor> reduce = {axial_closure_sums()};
+    if (_playout->has_process_group()) {
+      _playout->comm->allreduce(reduce, c10d::ReduceOp::SUM);
+    }
+    apply_axial_closure(vars, dt, stage, reduce[0]);
+  }
+
   // Physical ghosts must include the final-stage species adjustment.
   // gravity-work-fixer (#283): once per step, after the last mass change, add
   // the step's global E+PE defect D back as heat, uniform per unit mass:
@@ -989,6 +999,33 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   }
 
   apply_boundaries(vars, hydro_u, scalar_s);
+}
+
+torch::Tensor MeshBlockImpl::axial_closure_sums() const {
+  auto const &s = phydro->axial_closure_sums();
+  return s.defined() ? s.clone() : torch::zeros({2}, torch::kFloat64);
+}
+
+void MeshBlockImpl::apply_axial_closure(Variables &vars, double dt, int stage,
+                                        torch::Tensor const &global) {
+  // d(rho u_east) = -rho s R dt / I with this stage's weight, along K
+  auto g = global.to(torch::kCPU, torch::kFloat64);
+  double R = g[0].item<double>(), I = g[1].item<double>();
+  auto pg = dynamic_cast<GnomonicEquiangleImpl const *>(pcoord.get());
+  auto rho = phydro->axial_closure_rho();
+  phydro->axial_closure_rho() = torch::Tensor();
+  phydro->axial_closure_sums() = torch::Tensor();
+  if (!pg || !rho.defined() || !(I > 0.) || !std::isfinite(R)) return;
+  auto in = part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
+  auto kj = std::vector<torch::indexing::TensorIndex>{in[0], in[1]};
+  auto r = pg->x1v.index({in[2]});
+  auto omega = -pintg->stages[stage].wght2() * dt * R / I;
+  auto hydro_u = vars.at("hydro_u");
+  auto z2 = torch::zeros_like(hydro_u[IVY]),
+       z3 = torch::zeros_like(hydro_u[IVZ]);
+  pg->axial_rate_to_rows_(z2, z3, omega * rho * r * r * pg->aam_kk_c.index(kj));
+  hydro_u[IVY] += z2;
+  hydro_u[IVZ] += z3;
 }
 
 torch::Tensor MeshBlockImpl::gravity_work_fixer_sums(

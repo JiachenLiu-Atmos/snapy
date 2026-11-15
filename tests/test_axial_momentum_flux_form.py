@@ -19,6 +19,8 @@ computed here from the coordinate buffers, independently of the option's own ari
   (c) a longer run of the perturbed jet with transport stays finite with bounded |v| / c_s;
   (k) full on the shallow-water Williamson 2 flow at the Earth's rate (C16, NGAIN steps): the
       absolute AAM drift, max over the steps, must be GAIN times below off (transport is ~1.1);
+  (l) with conserve-axial-momentum-closure on top of full the absolute AAM of (f)-(h) and of
+      Williamson 2 at Omega and 4 Omega drifts at most TOL; with the key false the run is full's;
   (d) the key is off by default, and a Cartesian block, where it does nothing, builds with it on;
       full is refused without geometry/cells/interp_order: 4;
   (e) an odd grid with a cell on the axis;
@@ -220,7 +222,7 @@ def sw_config(mode, omega=None):
     }
 
 
-def sw_state(blocks, omega):
+def sw_state(blocks, omega, u0=SW_U0):
     """Steady zonal flow u = u0 cos(lat) with phi = phi0 - (a omega u0 + u0^2 / 2) sin^2(lat)."""
     from snapy import kIDN, kIV2, kIV3
 
@@ -231,9 +233,9 @@ def sw_state(blocks, omega):
         lat = coord.buffer("latitude").to(w)
         a = coord.buffer("x1v").to(w)
         k = coord.buffer("aam_k_c").to(w)
-        w[kIDN] = SW_PHI0 - (a * omega * SW_U0 + 0.5 * SW_U0 ** 2) * torch.sin(lat) ** 2
-        w[kIV2] = SW_U0 * k[1] + 0.0 * a  # u_east k / cos(lat), u_east = u0 cos(lat)
-        w[kIV3] = SW_U0 * k[2] + 0.0 * a
+        w[kIDN] = SW_PHI0 - (a * omega * u0 + 0.5 * u0 ** 2) * torch.sin(lat) ** 2
+        w[kIV2] = u0 * k[1] + 0.0 * a  # u_east k / cos(lat), u_east = u0 cos(lat)
+        w[kIV3] = u0 * k[2] + 0.0 * a
         mesh_vars.append({"hydro_w": w})
     return mesh_vars
 
@@ -327,6 +329,7 @@ def main(argv=None):
     ap.add_argument("--ngain", type=int, default=200)
     ap.add_argument("--gain-mode", default="full", choices=("full", "transport"),
                     help="arm (k): the mode held to GAIN times below off (transport must fail)")
+    ap.add_argument("--closure-off", action="store_true", help="arm (l) without the closure (must fail)")
     ap.add_argument("--yaml", default=str(Path(__file__).resolve().parent / "test_axial_momentum_flux_form.yaml"))
     args = ap.parse_args(argv)
     if args.device == "cuda" and (os.environ.get("SNAPY_BUILD_CUDA", "1") == "0" or not torch.cuda.is_available()):
@@ -555,6 +558,45 @@ def main(argv=None):
     if not GAIN * d[m] <= d["off"]:
         failures.append("Williamson 2 at the Earth's rate: the drift with %s, %.3e, is not %g times below off, %.3e"
                         % (m, d[m], GAIN, d["off"]))
+
+    # (l) conserve-axial-momentum-closure removes the residual full leaves: the absolute AAM of arms
+    #     (f)-(h) at both rates and of Williamson 2 at Omega and 4 Omega (u0 / 4) drifts at most TOL;
+    #     with the key false the run is bitwise that of full
+    close = not args.closure_off
+
+    def with_full(cfg, key=None):
+        cfg["geometry"]["cells"]["interp_order"] = 4
+        if key is not None:
+            cfg["dynamics"]["conserve-axial-momentum-closure"] = key
+        return cfg
+
+    worst, last = 0.0, {}
+    for tag, edit, state in (("f", lambda cfg: None, {}), ("g", traditional, {}), ("h", implicit, {"w_up": W_UP})):
+        for label, om, _ in RATES:
+            ref = tag == "f" and om == W_SB  # also full with the key false and unset, compared below
+            for key in ((close, False, None) if close else (False, None)) if ref else (close,):
+                cfg = config("full")
+                cfg["forcing"]["coriolis"] = {"type": "xyz", "omega1": om}
+                edit(cfg)
+                mesh, blocks = build(with_full(cfg, key), args.device)
+                mv, _, drift, _, _ = run(mesh, blocks, initial_state(cfg, blocks, jet, True, om, **state), args.nstep, om)
+                if ref:
+                    last[key] = [v["hydro_u"].clone() for v in mv]
+                if key is close:
+                    worst = max(worst, drift)
+                    print("(l) %s, %s, closure %s: max |dL| / |L| = %.3e" % (tag, label, close, drift))
+                del mesh, blocks, mv
+    if not all(torch.equal(x, y) for x, y in zip(last[False], last[None])):
+        failures.append("conserve-axial-momentum-closure: false is not bitwise full")
+    for mult in (1.0, 4.0):
+        mesh, blocks = build(with_full(sw_config("full", mult * SW_OMEGA), close), args.device)
+        drift, _ = run_sw(mesh, blocks, sw_state(blocks, mult * SW_OMEGA, SW_U0 / mult), args.nstep, mult * SW_OMEGA)
+        worst = max(worst, drift)
+        print("(l) Williamson 2, %g Omega, closure %s: max |dL| / |L| = %.3e" % (mult, close, drift))
+        del mesh, blocks
+    gc.collect()
+    if not worst <= TOL:
+        failures.append("conserve-axial-momentum-closure: the absolute AAM drifts %.3e > %.0e" % (worst, TOL))
 
     # (d) off by default, and no effect where it is not defined: a Cartesian block builds with it on
     cfg = config("transport")

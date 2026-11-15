@@ -36,6 +36,7 @@ void bind_hydro(py::module& m) {
       .ADD_OPTION(bool, snap::HydroOptionsImpl, flux_covariance)
       .ADD_OPTION(bool, snap::HydroOptionsImpl, x1_mass_covariance)
       .ADD_OPTION(std::string, snap::HydroOptionsImpl, conserve_axial_momentum)
+      .ADD_OPTION(bool, snap::HydroOptionsImpl, conserve_axial_momentum_closure)
       .ADD_OPTION(bool, snap::HydroOptionsImpl, perturbation_flux)
       .ADD_OPTION(std::string, snap::HydroOptionsImpl, precision)
       .ADD_OPTION(snap::ConstGravityOptions, snap::HydroOptionsImpl, grav)

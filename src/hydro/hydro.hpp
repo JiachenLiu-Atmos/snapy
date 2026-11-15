@@ -50,7 +50,9 @@ struct HydroOptionsImpl {
        << "* disable_flux_x3 = " << disable_flux_x3() << "\n"
        << "* flux_covariance = " << flux_covariance() << "\n"
        << "* x1_mass_covariance = " << x1_mass_covariance() << "\n"
-       << "* conserve_axial_momentum = " << conserve_axial_momentum() << "\n";
+       << "* conserve_axial_momentum = " << conserve_axial_momentum() << "\n"
+       << "* conserve_axial_momentum_closure = "
+       << conserve_axial_momentum_closure() << "\n";
   }
 
   //! verbose
@@ -122,6 +124,13 @@ struct HydroOptionsImpl {
   //! 1.14-1.30 times the wall time of off at C16, 1.32-1.48 at C32 (2 extra
   //! Riemann calls per x2/x3 direction). Not yet run in a GCM configuration.
   ADD_ARG(std::string, conserve_axial_momentum) = "off";
+  //! dynamics/conserve-axial-momentum-closure (needs full; default false): per
+  //! RK stage, the residual full leaves, R = sum V (K . F_cell -
+  //! rate(M_central)), is removed as one solid-body increment d(rho u_east) =
+  //! -rho s R dt / I, I = sum V rho s^2, s = r cos(lat), with R and I summed
+  //! over all blocks (one allreduce). Physical torques (drag, sponges,
+  //! forcings) are not part of R and are kept.
+  ADD_ARG(bool, conserve_axial_momentum_closure) = false;
 
   //! forcing options
   ADD_ARG(ConstGravityOptions, grav) = nullptr;
@@ -222,6 +231,9 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
     return _aam_mass_flux;
   }
   int axial_mass_species() const { return _aam_mass_ny; }
+  //! closure: this block's {R, I} of the stage (CPU, double) and its density
+  torch::Tensor& axial_closure_sums() const { return _aam_cl; }
+  torch::Tensor& axial_closure_rho() const { return _aam_cl_rho; }
 
   //! dynamics/flux-covariance (#289): the face-flux covariance rows a passive
   //! scalar carries on this stage's x2 (dim 2) or x3 (dim 1) faces, the rows a
@@ -450,6 +462,8 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! see axial_mass_fluxes()
   std::array<torch::Tensor, 3> _aam_mass_flux;
   int _aam_mass_ny = 0;
+  //! see axial_closure_sums()
+  mutable torch::Tensor _aam_cl, _aam_cl_rho;
 
   torch::Tensor _flux1, _flux2, _flux3, _face_pressure1, _div, _forcing_dry;
   torch::Tensor _positivity_hits, _positivity_severe, _positivity_min;

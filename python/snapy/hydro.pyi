@@ -249,6 +249,16 @@ class HydroOptions:
     @overload
     def conserve_axial_momentum(self, value: str) -> "HydroOptions": ...
 
+    @overload
+    def conserve_axial_momentum_closure(self) -> bool:
+        """`dynamics: {conserve-axial-momentum-closure: true}` (needs `full`,
+        default false): per RK stage the residual `full` leaves is removed as
+        one solid-body increment from global sums; physical torques stay."""
+        ...
+
+    @overload
+    def conserve_axial_momentum_closure(self, value: bool) -> "HydroOptions": ...
+
 class Hydro:
     """
     Hydrodynamics implementation.

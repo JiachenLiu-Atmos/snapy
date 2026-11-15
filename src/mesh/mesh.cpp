@@ -361,10 +361,27 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
   }
 
   for (auto& b : blocks) b->defer_gravity_work_fixer = true;
+  for (auto& b : blocks) b->defer_axial_closure = true;
   run_block_jobs(
       [&](size_t i) { blocks[i]->advance_local(vars[i], dt, stage); });
-  // gravity-work-fixer: one sum over the local blocks, one reduction
+  // conserve-axial-momentum-closure: R and I summed over the local blocks,
+  // one reduction, then each block's solid-body increment
   auto root = blocks.front();
+  if (root->phydro->options->conserve_axial_momentum_closure()) {
+    auto sums = torch::zeros({2}, torch::kFloat64);
+    for (auto& b : blocks) sums += b->axial_closure_sums();
+    std::vector<at::Tensor> reduce = {sums};
+    if (root->get_layout()->has_process_group())
+      root->get_layout()->comm->allreduce(reduce, c10d::ReduceOp::SUM);
+    run_block_jobs([&](size_t i) {
+      blocks[i]->apply_axial_closure(vars[i], dt, stage, reduce[0]);
+      auto& v = vars[i];
+      blocks[i]->apply_boundaries(
+          v, v.at("hydro_u"),
+          v.count("scalar_s") ? v.at("scalar_s") : torch::Tensor());
+    });
+  }
+  // gravity-work-fixer: one sum over the local blocks, one reduction
   if (stage == static_cast<int>(root->pintg->stages.size()) - 1 &&
       root->phydro->gravity_work_fixer()) {
     auto sums = torch::zeros({5}, torch::kFloat64);

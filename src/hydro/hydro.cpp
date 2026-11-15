@@ -63,6 +63,9 @@ void HydroImpl::reset() {
       !axial_coriolis_form() || pmb->pcoord->options->interp_order() == 4,
       "dynamics/conserve-axial-momentum: full needs cubic panel-edge "
       "ghosts, geometry/cells/interp_order: 4");
+  TORCH_CHECK(!options->conserve_axial_momentum_closure() || aam_mode == "full",
+              "dynamics/conserve-axial-momentum-closure needs "
+              "conserve-axial-momentum: full");
   if (aam_mode != "off" && pmb->pcoord &&
       pmb->pcoord->options->type() == "gnomonic-equiangle" &&
       !axial_flux_form())
