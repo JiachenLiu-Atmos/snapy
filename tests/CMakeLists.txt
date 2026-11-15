@@ -380,6 +380,7 @@ snapy_add_python_test(test_roe_cubed_sphere_rest TIMEOUT 120
                       LABELS "python;riemann;cubed-sphere")
 snapy_add_python_test(test_cubed_sphere_cell_volume TIMEOUT 120
                       LABELS "python;coordinate;cubed-sphere")
+snapy_add_python_test(test_wall4_sphere TIMEOUT 300 LABELS "python;cubed-sphere")
 snapy_add_python_test(test_stage2_cubed_stretched ARGS --device cpu TIMEOUT 3600
                       LABELS "python;coordinate;cubed-sphere;stage2")
 if(CUDA)

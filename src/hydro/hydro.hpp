@@ -5,6 +5,7 @@
 #include <torch/nn/module.h>
 #include <torch/nn/modules/common.h>
 
+#include <array>
 #include <vector>
 
 // snap
@@ -347,6 +348,10 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   mutable std::shared_ptr<WbRef4Stencils> wb_ref4_;
   //! the x1 reconstruction's optimal-linear rows (cp5) for the face density
   mutable std::shared_ptr<Center5InterpImpl> dsf_lin_;
+  //! key 4: (side, face) rows of the reflecting x1 walls that keep wb_ref4's
+  //! face density, and the block layout they were built for
+  mutable torch::Tensor wb4_lr_side_, wb4_lr_col_;
+  mutable std::array<int64_t, 3> wb4_lr_at_{-1, -1, -1};
   //! SNAP_X1_CENTROID_EXACT r^2 -> plain-mean stencils, built on first use
   mutable std::shared_ptr<X1PlainMeanStencils> x1pm_;
   //! and its pressure-force stencils, for the hydrostatic correction
@@ -355,7 +360,8 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! (storage, version) they were built from
   mutable torch::Tensor conv4_x1_[2];
   mutable std::pair<void*, int64_t> conv4_x1_at_;
-  mutable torch::Tensor wall4_E_;  // reflecting-wall ghost weights, key 4
+  mutable torch::Tensor wall4_E_;    // reflecting-wall ghost weights, key 4
+  mutable torch::Tensor wall4_pos_;  // rows with a positivity guard, key 4
   //! corrected-PE grid-only work factors, built on first use
   CorrectedPEFactors _pe_work;
   //! face_moment2_x1() for this block's x1 grid, built on first use. Holds

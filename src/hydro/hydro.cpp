@@ -791,18 +791,45 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w, torch::Tensor const& dw,
     // wave speeds read the face density (hllc, roe) a nonzero contact speed,
     // which moves mass through the wall.
     auto const& bf = pmb->options->bfuncs();
-    for (int f : {0, 1}) {
-      if (!is_x1_wall(f) || !is_reflecting(bf[f])) continue;
-      int i = f == 0 ? pcoord->il() : pcoord->iu() + 1;
+    bool refl[2];
+    for (int f : {0, 1}) refl[f] = is_x1_wall(f) && is_reflecting(bf[f]);
+    if (wb4_flag.defined()) {
       // conversion-order 4: a side whose cp5 row reads a ghost keeps wb_ref4's
-      for (int k = 0; wb4_flag.defined() && k < 3; ++k)
-        for (int s : {(int)ILT, (int)IRT})
-          if (k < 2 || s == (f ? IRT : ILT))
-            dsf_lr[s]
-                .select(-1, i + (f ? -k : k))
-                .copy_(dsf.select(-1, i + (f ? -k : k)));
-      auto mean = 0.5 * (dsf_lr[ILT].select(-1, i) + dsf_lr[IRT].select(-1, i));
-      for (int s : {(int)ILT, (int)IRT}) dsf_lr[s].select(-1, i).copy_(mean);
+      // face density (both sides on the two wall faces, the reading side on
+      // the third), all walls in one gather and one index_put on (side, face)
+      // rows built once per layout. Both sides then hold dsf at the wall face,
+      // where the mean below is that value (0.5 * (x + x) = x), so it is
+      // skipped
+      std::array<int64_t, 3> at{pcoord->il(), pcoord->iu(),
+                                refl[0] + 2 * refl[1]};
+      if (at != wb4_lr_at_ || !wb4_lr_col_.defined() ||
+          wb4_lr_col_.device() != dsf.device()) {
+        std::vector<int64_t> side, col;
+        for (int f : {0, 1}) {
+          if (!refl[f]) continue;
+          int i = f == 0 ? pcoord->il() : pcoord->iu() + 1;
+          for (int k = 0; k < 3; ++k)
+            for (int s : {(int)ILT, (int)IRT})
+              if (k < 2 || s == (f ? IRT : ILT))
+                side.push_back(s), col.push_back(i + (f ? -k : k));
+        }
+        auto lo = torch::TensorOptions().dtype(torch::kLong);
+        wb4_lr_side_ = torch::tensor(side, lo).to(dsf.device());
+        wb4_lr_col_ = torch::tensor(col, lo).to(dsf.device());
+        wb4_lr_at_ = at;
+      }
+      if (wb4_lr_col_.numel() > 0)  // no reflecting x1 wall: nothing to keep
+        dsf_lr.index_put_(
+            {wb4_lr_side_, torch::indexing::Ellipsis, wb4_lr_col_},
+            dsf.index_select(-1, wb4_lr_col_).movedim(-1, 0));
+    } else {
+      for (int f : {0, 1}) {
+        if (!refl[f]) continue;
+        int i = f == 0 ? pcoord->il() : pcoord->iu() + 1;
+        auto mean =
+            0.5 * (dsf_lr[ILT].select(-1, i) + dsf_lr[IRT].select(-1, i));
+        for (int s : {(int)ILT, (int)IRT}) dsf_lr[s].select(-1, i).copy_(mean);
+      }
     }
   }
 
