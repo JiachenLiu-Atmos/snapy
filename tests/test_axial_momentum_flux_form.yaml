@@ -1,0 +1,47 @@
+# Six cubed-sphere panels in one process (#314): axial angular momentum of an unforced, undamped
+# solid-body wind with dynamics/conserve-axial-momentum off and on. Dry ideal gas on a shell,
+# constant gravity, closed x1 walls, no Coriolis, no sponge. The test switches the option and the
+# initial wind per arm.
+reference-state: {Tref: 300., Pref: 1.e5}
+species:
+  - name: dry
+    composition: {H: 1.64813, He: 0.17591}
+    cv_R: 2.5
+geometry:
+  type: gnomonic-equiangle
+  bounds: {x1min: 6.0e6, x1max: 6.4e6, x2min_pi: -0.25, x2max_pi: 0.25, x3min_pi: -0.25, x3max_pi: 0.25}
+  cells: {nx1: 8, nx2: 8, nx3: 8, nghost: 3}
+distribute:
+  layout: cubed-sphere
+  nb2: 1
+  nb3: 1
+  blocks_per_process: 6
+  verbose: false
+dynamics:
+  conserve-axial-momentum: false
+  equation-of-state:
+    type: ideal-gas
+    density-floor: 1.e-20
+    pressure-floor: 1.e-20
+    limiter: false
+  reconstruct:
+    vertical:   {type: weno5, scale: true, shock: false}
+    horizontal: {type: weno5, scale: true, shock: false}
+  riemann-solver: {type: lmars}
+boundary-condition:
+  external:
+    x1-inner: reflecting
+    x1-outer: reflecting
+    x2-inner: custom
+    x2-outer: custom
+    x3-inner: custom
+    x3-outer: custom
+integration:
+  type: rk3
+  cfl: 0.5
+  implicit-scheme: 0
+  nlim: 20
+  tlim: 1.e12
+  ncycle_out: 0
+forcing:
+  const-gravity: {grav1: -10.}

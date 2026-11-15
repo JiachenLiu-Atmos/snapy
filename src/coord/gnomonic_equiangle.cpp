@@ -10,10 +10,30 @@
 #include <snap/mesh/meshblock.hpp>
 
 #include "coord_dispatch.hpp"
+#include "coord_utils.hpp"
 #include "cubed_sphere_utils.hpp"
 #include "gnomonic_equiangle.hpp"
 
 namespace snap {
+
+//! contravariant components, in the unit (alpha, beta) basis, of the
+//! unit-radius rotation field k = z_hat x n at the points (alpha, beta) of
+//! face face_id; returns [3, alpha.sizes()...], radial component zero
+static torch::Tensor cs_axial_rotation_field(torch::Tensor alpha,
+                                             torch::Tensor beta, int face_id) {
+  std::vector<int64_t> shape = {3};
+  for (auto s : alpha.sizes()) shape.push_back(s);
+  // unit position n: the radial unit vector, in Cartesian (z, x, y)
+  auto n = torch::zeros(shape, alpha.options());
+  n[VEL1].fill_(1.);
+  cs_contra_to_cart_(n, alpha, beta, face_id);
+  // z_hat x n = (-n_y, n_x, 0) in (x, y, z), ordered (z, x, y) here
+  auto k = torch::zeros_like(n);
+  k[VEL2] = -n[VEL3];
+  k[VEL3] = n[VEL2];
+  cs_cart_to_contra_(k, alpha, beta, face_id);
+  return k;
+}
 
 void GnomonicEquiangleImpl::reset() {
   TORCH_CHECK(pmb, "[GnomonicEquiangle] Parent MeshBlock is null");
@@ -144,6 +164,54 @@ void GnomonicEquiangleImpl::reset() {
 
   register_buffer("x_ov_rD_kji", x_ov_rD_kji);
   register_buffer("y_ov_rC_kji", y_ov_rC_kji);
+
+  // axial rotation field (see the header and conserve_axial_momentum_)
+  {
+    auto c = torch::meshgrid({x3v, x2v}, "ij");
+    aam_k_c = cs_axial_rotation_field(c[1], c[0], face_id).unsqueeze(-1);
+    aam_kl_c = aam_k_c.clone();
+    coord_vec_lower_(aam_kl_c, cosine_cell_kj);
+    aam_kk_c = (aam_k_c * aam_kl_c).sum(0);
+    // Exact face averages of the unit-radius field on the x2 and x3 faces.
+    // Each such face is a planar sector (the gnomonic plane through the
+    // centre) between two corner directions p1, p2 at arc angle dth, so
+    //   (1/A) int k dA = [2 sin(dth/2) / dth] k(p_mid),  p_mid = (p1 + p2)/|.|
+    // per unit radius; conserve_axial_momentum_ supplies the radial factor.
+    // With this average the pressure flux p n A of the four lateral faces
+    // sums to p times the exact flux of k through the closed cell, zero.
+    auto corner = torch::meshgrid({x3f, x2f}, "ij");
+    auto pc = torch::zeros({3, op->nc3() + 1, op->nc2() + 1}, x1v.options());
+    pc[VEL1].fill_(1.);
+    cs_contra_to_cart_(pc, corner[1], corner[0], face_id);  // unit positions
+    auto face_avg = [&](torch::Tensor p1, torch::Tensor p2, torch::Tensor dth,
+                        torch::Tensor alpha, torch::Tensor beta) {
+      auto pm = p1 + p2;
+      pm = pm / pm.square().sum(0, true).sqrt();
+      auto k = torch::zeros_like(pm);  // z_hat x p_mid, ordered (z, x, y)
+      k[VEL2] = -pm[VEL3];
+      k[VEL3] = pm[VEL2];
+      cs_cart_to_contra_(k, alpha, beta, face_id);
+      auto fac = 2. * (0.5 * dth).sin() / dth;
+      return (k * fac.unsqueeze(0)).unsqueeze(-1);
+    };
+    auto f2 = torch::meshgrid({x3v, x2f}, "ij");
+    aam_k_f2 =
+        face_avg(pc.slice(1, 0, op->nc3()), pc.slice(1, 1, op->nc3() + 1),
+                 dx3f_ang_face2_kj.squeeze(-1), f2[1], f2[0]);
+    auto f3 = torch::meshgrid({x3f, x2v}, "ij");
+    aam_k_f3 =
+        face_avg(pc.slice(2, 0, op->nc2()), pc.slice(2, 1, op->nc2() + 1),
+                 dx2f_ang_face3_kj.squeeze(-1), f3[1], f3[0]);
+    register_buffer("aam_k_c", aam_k_c);
+    register_buffer("aam_kl_c", aam_kl_c);
+    register_buffer("aam_kk_c", aam_kk_c);
+    register_buffer("aam_k_f2", aam_k_f2);
+    register_buffer("aam_k_f3", aam_k_f3);
+    // only guards 0/0 in a cell centred exactly on the axis (odd nx2): that
+    // cell holds no AAM, its correction is zero, and the AAM flux through its
+    // faces is the one leak of the flux form (one cell per polar panel)
+    _aam_eps2 = 1.e-24;
+  }
 
   // register metric data (placeholder, overwritten later)
   auto vol = cell_volume();
@@ -408,6 +476,127 @@ void GnomonicEquiangleImpl::flux2global3_(torch::Tensor const& flux) const {
   // Transform to covariant fluxes
   flux[IVY] = ty + tz * cosine_face3_kj.narrow(0, 0, options->nc3());
   flux[IVZ] = tz + ty * cosine_face3_kj.narrow(0, 0, options->nc3());
+}
+
+void GnomonicEquiangleImpl::axial_rate_to_rows_(torch::Tensor row2,
+                                                torch::Tensor row3,
+                                                torch::Tensor target) const {
+  int si = il(), ei = iu() + 1;
+  int sj = jl(), ej = ju() + 1;
+  int sk = kl(), ek = ku() + 1;
+  int n2 = ej - sj, n3 = ek - sk;
+
+  auto kc = aam_k_c.slice(1, sk, ek).slice(2, sj, ej);    // [3, n3, n2, 1]
+  auto klc = aam_kl_c.slice(1, sk, ek).slice(2, sj, ej);  // [3, n3, n2, 1]
+  auto kk = aam_kk_c.slice(0, sk, ek).slice(1, sj, ej);   // [n3, n2, 1]
+  auto r = x1v.slice(0, si, ei);                          // [n1]
+  auto vol = cell_volume().slice(0, sk, ek).slice(1, sj, ej).slice(2, si, ei);
+
+  // A cell centred on the axis (odd nx2, one per polar panel) has K_c = 0: a
+  // cell-mean momentum there carries no AAM, since int (z x r) . m dV = m .
+  // (z x int r dV) = 0, and the AAM its faces bring in is sub-cell rotation
+  // the cell mean cannot represent. Its net rate is handed to its four
+  // lateral neighbours in equal shares, so the total still telescopes. The
+  // cell is interior to the panel (nx2 >= 3), so the shifts stay inside.
+  auto onaxis = (kk < 1.e-20).to(target.options());  // [n3, n2, 1]
+  if (onaxis.sum().item<double>() > 0.) {
+    auto res = 0.25 * target * onaxis * vol;  // AAM rate per neighbour
+    auto give = torch::zeros_like(target);
+    give.slice(1, 1, n2) += res.slice(1, 0, n2 - 1);
+    give.slice(1, 0, n2 - 1) += res.slice(1, 1, n2);
+    give.slice(0, 1, n3) += res.slice(0, 0, n3 - 1);
+    give.slice(0, 0, n3 - 1) += res.slice(0, 1, n3);
+    target = target * (1. - onaxis) + give / vol;
+  }
+
+  // replace the K component of the rows: K . rows_new = target, with the
+  // change along K_lower = r k_lower (a zonal acceleration)
+  auto d2 = row2.slice(0, sk, ek).slice(1, sj, ej).slice(2, si, ei);
+  auto d3 = row3.slice(0, sk, ek).slice(1, sj, ej).slice(2, si, ei);
+  auto kd = r * (kc[VEL2] * d2 + kc[VEL3] * d3);
+  auto lam = (target - kd) / (r * r * (kk + _aam_eps2));
+  d2 += lam * r * klc[VEL2];
+  d3 += lam * r * klc[VEL3];
+}
+
+void GnomonicEquiangleImpl::axial_x1_source_(torch::Tensor row2,
+                                             torch::Tensor row3,
+                                             torch::Tensor const& corr) const {
+  int si = il(), ei = iu() + 1;
+  int sj = jl(), ej = ju() + 1;
+  int sk = kl(), ek = ku() + 1;
+  int n1 = ei - si, n2 = ej - sj, n3 = ek - sk;
+
+  auto target = torch::zeros({n3, n2, n1}, row2.options());
+  if (corr.defined() && corr.numel() > 0) {
+    auto kc = aam_k_c.slice(1, sk, ek).slice(2, sj, ej);  // [3, n3, n2, 1]
+    auto vol = cell_volume().slice(0, sk, ek).slice(1, sj, ej).slice(2, si, ei);
+    auto c = corr.slice(1, sk, ek).slice(2, sj, ej).slice(3, si, ei);
+    // T = P_lo - P_hi: k . (tangential momentum the solve gave the cell);
+    // P = 0 at the bottom face, P_hi = P_lo - T up the column
+    auto T = (kc[VEL2] * c[IVY] + kc[VEL3] * c[IVZ]) * vol;
+    auto Phi = -T.cumsum(-1);
+    auto Plo = Phi + T;
+    auto r = x1v.slice(0, si, ei);
+    auto rlo = x1f.slice(0, si, ei), rhi = x1f.slice(0, si + 1, ei + 1);
+    target = ((rlo - r) * Plo - (rhi - r) * Phi) / vol;
+  }
+  axial_rate_to_rows_(row2, row3, target);
+}
+
+void GnomonicEquiangleImpl::conserve_axial_momentum_(
+    torch::Tensor div, torch::Tensor flux1, torch::Tensor flux2,
+    torch::Tensor flux3) const {
+  int si = il(), ei = iu() + 1;
+  int sj = jl(), ej = ju() + 1;
+  int sk = kl(), ek = ku() + 1;
+  int n1 = ei - si, n2 = ej - sj, n3 = ek - sk;
+
+  // interior cells: rotation field, radius and volume
+  auto kc = aam_k_c.slice(1, sk, ek).slice(2, sj, ej);  // [3, n3, n2, 1]
+  auto r = x1v.slice(0, si, ei);                        // [n1]
+  auto vol = cell_volume().slice(0, sk, ek).slice(1, sj, ej).slice(2, si, ei);
+  // the exact area-weighted radius of a lateral face, 2 (r+^3 - r-^3) /
+  // (3 (r+^2 - r-^2)): with the unit-radius face average of k this is the
+  // exact face average of K = r k
+  auto rm = x1f.slice(0, si, ei), rp = x1f.slice(0, si + 1, ei + 1);
+  auto reff = 2. * (rp * rp * rp - rm * rm * rm) / (3. * (rp * rp - rm * rm));
+
+  // divergence of the face AAM fluxes A_f F_f . K_f; the covariant face
+  // fluxes of x1 faces are in the cell basis (flux2global1_), those of x2 and
+  // x3 faces in the face's basis (flux2global2_, 3_). On the x1 faces K is
+  // tangent, so the pressure flux carries no AAM and the cell value of k
+  // serves; K_f is single-valued on every face, so the sums telescope.
+  auto phidiv = torch::zeros({n3, n2, n1}, div.options());
+  if (flux1.defined()) {
+    auto A =
+        face_area1().slice(0, sk, ek).slice(1, sj, ej).slice(2, si, ei + 1);
+    auto f = flux1.slice(1, sk, ek).slice(2, sj, ej).slice(3, si, ei + 1);
+    auto phi =
+        A * x1f.slice(0, si, ei + 1) * (f[IVY] * kc[VEL2] + f[IVZ] * kc[VEL3]);
+    phidiv += phi.slice(2, 1, n1 + 1) - phi.slice(2, 0, n1);
+  }
+  if (flux2.defined()) {
+    auto A =
+        face_area2().slice(0, sk, ek).slice(1, sj, ej + 1).slice(2, si, ei);
+    auto kf = aam_k_f2.slice(1, sk, ek).slice(2, sj, ej + 1);
+    auto f = flux2.slice(1, sk, ek).slice(2, sj, ej + 1).slice(3, si, ei);
+    auto phi =
+        A * reff * (f[IVX] * kf[VEL1] + f[IVY] * kf[VEL2] + f[IVZ] * kf[VEL3]);
+    phidiv += phi.slice(1, 1, n2 + 1) - phi.slice(1, 0, n2);
+  }
+  if (flux3.defined()) {
+    auto A =
+        face_area3().slice(0, sk, ek + 1).slice(1, sj, ej).slice(2, si, ei);
+    auto kf = aam_k_f3.slice(1, sk, ek + 1).slice(2, sj, ej);
+    auto f = flux3.slice(1, sk, ek + 1).slice(2, sj, ej).slice(3, si, ei);
+    auto phi =
+        A * reff * (f[IVX] * kf[VEL1] + f[IVY] * kf[VEL2] + f[IVZ] * kf[VEL3]);
+    phidiv += phi.slice(0, 1, n3 + 1) - phi.slice(0, 0, n3);
+  }
+  phidiv /= vol;
+
+  axial_rate_to_rows_(div[IVY], div[IVZ], phidiv);
 }
 
 torch::Tensor GnomonicEquiangleImpl::forward(torch::Tensor prim,

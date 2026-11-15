@@ -24,6 +24,14 @@ HydroImpl::HydroImpl(const HydroOptions& options_, torch::nn::Module* p)
   reset();
 }
 
+bool HydroImpl::axial_flux_form() const {
+  if (options->conserve_axial_momentum() == "off" || !pmb || !pmb->pcoord ||
+      pmb->pcoord->options->type() != "gnomonic-equiangle")
+    return false;
+  auto const& c = options->coriolis();
+  return !c || (c->type() == "xyz" && c->omega2() == 0. && c->omega3() == 0.);
+}
+
 void HydroImpl::reset() {
   TORCH_CHECK(pmb, "[Hydro] Parent MeshBlock is null");
   TORCH_CHECK(
@@ -39,6 +47,20 @@ void HydroImpl::reset() {
     TORCH_WARN_ONCE(
         "SNAP_X1_MASS_COVARIANCE is ignored; set the deck key "
         "dynamics/x1-mass-covariance instead");
+  // conserve-axial-momentum acts where it is defined (axial_flux_form); say
+  // so when a Coriolis force about another axis turns it off on the cubed
+  // sphere
+  auto const& aam_mode = options->conserve_axial_momentum();
+  TORCH_CHECK(aam_mode == "off" || aam_mode == "transport",
+              "[Hydro] conserve_axial_momentum must be off or transport, got '",
+              aam_mode, "'");
+  if (aam_mode != "off" && pmb->pcoord &&
+      pmb->pcoord->options->type() == "gnomonic-equiangle" &&
+      !axial_flux_form())
+    TORCH_WARN_ONCE(
+        "dynamics/conserve-axial-momentum is off for this run: it needs "
+        "coriolis type xyz with omega2 = omega3 = 0 (the AAM is about the "
+        "omega1 axis)");
 
   TORCH_CHECK(options->precision() == "float64" || fp32(),
               "dynamics/precision must be float64 or float32");

@@ -1247,6 +1247,17 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     }
     _div.set_data(div);
   }
+  // axial angular momentum in flux form (#314): the rotation component of the
+  // momentum rows from the same face fluxes, so it telescopes across faces
+  bool aam = axial_flux_form();
+  if (aam) {
+    pmb->pcoord->conserve_axial_momentum_(
+        _div,
+        options->disable_flux_x1() || u.size(DIM1) == 1 ? torch::Tensor()
+                                                        : _flux1,
+        options->disable_flux_x2() ? torch::Tensor() : _flux2,
+        options->disable_flux_x3() ? torch::Tensor() : _flux3);
+  }
   if (options->verbose()) {
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
@@ -1580,12 +1591,29 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     m1i.addcmul_(phi.slice(-1, is + 1, ie + 1), mw.hi);
     for (auto& f : forcings)
       if (coriolis(f)) f.forward(du, mw.wc2, temp, dt);
-    pc->x1_mass_source_(du, w, m1, dt);
+    if (!aam) {
+      pc->x1_mass_source_(du, w, m1, dt);
+    } else {
+      // The explicit x1 faces are already in the flux form of step 5 (their
+      // AAM flux carries r_f, which is -rho w u / r for the K component), so
+      // the K component of this source only has to put the tangential
+      // momentum the implicit solve moved between cells i and i+1 at the face
+      // radius: with P the transfer through a face (k . p, per unit radius),
+      //   r k . src V = (r_lo - r) P_lo - (r_hi - r) P_hi .
+      // The component orthogonal to K keeps -m1 v / r.
+      auto src = torch::zeros_like(du);
+      pc->x1_mass_source_(src, w, m1, dt);
+      pc->axial_x1_source_(src[IVY], src[IVZ],
+                           picorr ? picorr->correction() : torch::Tensor());
+      du.narrow(0, IVY, 2) += src.narrow(0, IVY, 2);
+    }
   } else if (ptype == "gnomonic-equiangle") {
     // no x1 mass-flux w (nc1 == 1, shallow water): m1 = rho w. Only the
     // gnomonic grid has an x1_mass_source_; the others add nothing
     auto src = torch::zeros_like(du);
     pmb->pcoord->x1_mass_source_(src, w, w[IDN] * w[IVX], dt);
+    // conserve-axial-momentum: no K component, as in the branch above
+    if (aam) pmb->pcoord->axial_x1_source_(src[IVY], src[IVZ], torch::Tensor());
     du.index(interior) += src.index(interior);
   }
 

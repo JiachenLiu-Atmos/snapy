@@ -49,7 +49,8 @@ struct HydroOptionsImpl {
        << "* disable_flux_x2 = " << disable_flux_x2() << "\n"
        << "* disable_flux_x3 = " << disable_flux_x3() << "\n"
        << "* flux_covariance = " << flux_covariance() << "\n"
-       << "* x1_mass_covariance = " << x1_mass_covariance() << "\n";
+       << "* x1_mass_covariance = " << x1_mass_covariance() << "\n"
+       << "* conserve_axial_momentum = " << conserve_axial_momentum() << "\n";
   }
 
   //! verbose
@@ -82,6 +83,25 @@ struct HydroOptionsImpl {
   //! dz^2/12 rho_1 w_1 / rho from the reconstructed cell velocity; needs at
   //! least 3 x1 cells per block. Same every-block rule as flux_covariance.
   ADD_ARG(bool, x1_mass_covariance) = false;
+
+  //! dynamics/conserve-axial-momentum: off (default) or transport.
+  //! Axial angular momentum (AAM) in flux form on the gnomonic-equiangle grid:
+  //! the component of each cell's flux divergence and x1 metric source along
+  //! the rotation about the omega1 axis is the divergence of face AAM fluxes,
+  //! so transport changes the global AAM only through physical boundary faces
+  //! (see GnomonicEquiangle). It needs no Coriolis force or one of type xyz
+  //! about omega1, and does nothing on other grids (Hydro::axial_flux_form).
+  //! The Coriolis force stays in cell form, which does no work. The relative
+  //! AAM is exact without rotation. With rotation the Coriolis exchange with
+  //! the planetary AAM is left open. Measured in 3D with one jet, for
+  //! Omega / (u / a) of 0.5 to 1: the drift is 110 to 290 times smaller than
+  //! off at C8 and 50 to 130 times at C16 (the gain shrinks with resolution).
+  //! At a ratio of 14 it was larger than off, where the two errors of off
+  //! cancel in part. In 2D shallow water (Williamson 2, C16) the gain with
+  //! rotation is small: 1.7 times at a ratio of 1, 1.1 at 12. Shallow-water
+  //! noise decays as with off (what is left after 4000 steps is within x1.4 of
+  //! off up to 4 Omega).
+  ADD_ARG(std::string, conserve_axial_momentum) = "off";
 
   //! forcing options
   ADD_ARG(ConstGravityOptions, grav) = nullptr;
@@ -166,6 +186,11 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   torch::Tensor flux1() const { return _flux1; }
   torch::Tensor flux2() const { return _flux2; }
   torch::Tensor flux3() const { return _flux3; }
+
+  //! whether dynamics/conserve-axial-momentum acts in this block: the option
+  //! is set, the grid is gnomonic-equiangle and the Coriolis force, if any,
+  //! is of type xyz about omega1
+  bool axial_flux_form() const;
 
   //! dynamics/flux-covariance (#289): the face-flux covariance rows a passive
   //! scalar carries on this stage's x2 (dim 2) or x3 (dim 1) faces, the rows a
