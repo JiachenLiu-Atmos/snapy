@@ -12,18 +12,24 @@ computed here from the coordinate buffers, independently of the option's own ari
         off        |dL| / |L| > 100 TOL   (the drift this option removes is real)
         transport  |dL| / |L| <= TOL;
       the same with a wavenumber-2 perturbation on top (a flow with a tendency), to compare the
-      drift of the steady and the evolving flow with the option off;
+      drift of the steady and the evolving flow with the option off; transport with
+      geometry/cells/interp_order: 4 (cubic panel-edge ghosts) must be exact too;
   (b) a discretely balanced rest state with transport stays at rest (max |v| / c_s <= REST_TOL)
       and keeps L at zero to TOL;
   (c) a longer run of the perturbed jet with transport stays finite with bounded |v| / c_s;
+  (k) full on the shallow-water Williamson 2 flow at the Earth's rate (C16, NGAIN steps): the
+      absolute AAM drift, max over the steps, must be GAIN times below off (transport is ~1.1);
   (d) the key is off by default, and a Cartesian block, where it does nothing, builds with it on;
+      full is refused without geometry/cells/interp_order: 4;
   (e) an odd grid with a cell on the axis;
   (f)-(h) with a Coriolis force, which stays in cell form, the exchange with the planetary AAM
       is left open and the absolute AAM (relative plus planetary) is not exact. At slow rotation,
       Omega = the wind's rotation rate, transport must drift at least GAIN times less than off:
       explicit, the traditional approximation on a shallow shell, and the vertically implicit
-      solve with a vertical wind, dry and with a vapor species. At the deck's Omega, 14 times the
-      wind's rate, the two errors of off cancel in part and the drifts are reported only;
+      solve with a vertical wind, dry and with a vapor species. full (cubic panel-edge ghosts, the
+      flux-form torque on the dissipative x2/x3 mass flux) must also drift GAIN times less than
+      off and no more than transport. At the deck's Omega, 14 times the wind's rate, the two errors
+      of off cancel in part and the drifts are reported only;
   (i) 2D shallow water, the steady zonal flow of Williamson et al. (1992) test 2: exact without
       rotation. With rotation the gain is small here (measured 1.7 at Omega = u0 / a, 1.1 at the
       Earth's rate): the drift must not exceed that of off at Omega = u0 / a and is reported only
@@ -48,7 +54,7 @@ import yaml
 
 TOL = 1.0e-12
 REST_TOL = 1.0e-6
-GAIN = 10.0  # arms (f)-(h): drift of off over drift of transport at slow rotation (measured 83 to 128)
+GAIN = 10.0  # arms (f)-(h), (k): drift of off over that of transport / full (transport at slow rotation 83-128)
 KE_BAND = 2.0  # arm (j): noise energy left against off (measured 1.06 at Omega, 1.37 at 4 Omega)
 W_SB = 5.0e-6  # solid-body rate of the test wind, u_east ~ 30 m/s
 U_PERT = 10.0  # wavenumber-2 perturbation amplitude (m/s)
@@ -318,6 +324,9 @@ def main(argv=None):
     ap.add_argument("--nstep", type=int, default=20)
     ap.add_argument("--nlong", type=int, default=200)
     ap.add_argument("--nenergy", type=int, default=4000)
+    ap.add_argument("--ngain", type=int, default=200)
+    ap.add_argument("--gain-mode", default="full", choices=("full", "transport"),
+                    help="arm (k): the mode held to GAIN times below off (transport must fail)")
     ap.add_argument("--yaml", default=str(Path(__file__).resolve().parent / "test_axial_momentum_flux_form.yaml"))
     args = ap.parse_args(argv)
     if args.device == "cuda" and (os.environ.get("SNAPY_BUILD_CUDA", "1") == "0" or not torch.cuda.is_available()):
@@ -343,8 +352,10 @@ def main(argv=None):
     # (a) steady solid body and perturbed jet, off and transport
     l_scale = None  # |L| of the solid-body wind, the scale for the rest arm
     for name, wind, balanced in (("solid body", solid_body, True), ("perturbed jet", jet, True)):
-        for mode in ("off", "transport"):
-            cfg = config(mode)
+        for mode in ("off", "transport", "transport4"):
+            cfg = config(mode.rstrip("4"))
+            if mode == "transport4":
+                cfg["geometry"]["cells"]["interp_order"] = 4
             mesh, blocks = build(cfg, args.device)
             mesh_vars, l0, drift, final, de = run(mesh, blocks, initial_state(cfg, blocks, wind, balanced), args.nstep)
             if l_scale is None:
@@ -356,8 +367,8 @@ def main(argv=None):
                   % (name, mode, args.nstep, drift, final, de, v))
             if not math.isfinite(drift):
                 failures.append("%s, %s: L is not finite" % (name, mode))
-            elif mode == "transport" and not drift <= TOL:
-                failures.append("%s, transport: L drifts %.3e > %.0e" % (name, drift, TOL))
+            elif mode != "off" and not drift <= TOL:
+                failures.append("%s, %s: L drifts %.3e > %.0e" % (name, mode, drift, TOL))
             elif mode == "off" and not drift > 100 * TOL:
                 failures.append("%s, off: drift %.3e <= %.0e, the option would not be load-bearing" % (name, drift, 100 * TOL))
 
@@ -429,20 +440,26 @@ def main(argv=None):
     def with_rotation(tag, name, edit, **state):
         for label, om, check in RATES:
             d = {}
-            for mode in ("off", "transport"):
+            for mode in ("off", "transport", "full"):
                 cfg = config(mode)
                 cfg["forcing"]["coriolis"] = {"type": "xyz", "omega1": om}
+                if mode == "full":
+                    cfg["geometry"]["cells"]["interp_order"] = 4
                 edit(cfg)
                 mesh, blocks = build(cfg, args.device)
                 _, _, d[mode], _, _ = run(mesh, blocks, initial_state(cfg, blocks, jet, True, om, **state),
                                           args.nstep, om)
                 del mesh, blocks
                 gc.collect()
-            print("(%s) %s, %s, absolute AAM: max |dL| / |L| over %d steps = %.3e with transport, %.3e with off"
-                  % (tag, name, label, args.nstep, d["transport"], d["off"]))
-            if check and not GAIN * d["transport"] <= d["off"]:
-                failures.append("%s, %s: the drift with transport, %.3e, is not %g times below off, %.3e"
-                                % (name, label, d["transport"], GAIN, d["off"]))
+            print("(%s) %s, %s, absolute AAM: max |dL| / |L| over %d steps = %.3e with full, %.3e with transport,"
+                  " %.3e with off" % (tag, name, label, args.nstep, d["full"], d["transport"], d["off"]))
+            for mode in ("transport", "full"):
+                if check and not GAIN * d[mode] <= d["off"]:
+                    failures.append("%s, %s: the drift with %s, %.3e, is not %g times below off, %.3e"
+                                    % (name, label, mode, d[mode], GAIN, d["off"]))
+            if check and not d["full"] <= d["transport"]:
+                failures.append("%s, %s: the drift with full, %.3e, exceeds transport's, %.3e"
+                                % (name, label, d["full"], d["transport"]))
 
     # (f) explicit
     with_rotation("f", "Coriolis", lambda cfg: None)
@@ -521,6 +538,24 @@ def main(argv=None):
                 failures.append("noise on rest, transport at %.2f Omega: KE is %.3f of off > %.1f"
                                 % (mult, ke[1] / ke_off[1], KE_BAND))
 
+    # (k) full reduces the open Coriolis exchange: on the steady Williamson 2 flow at the Earth's rate the
+    #     drift of the absolute AAM, max over the steps, is GAIN times below off
+    d = {}
+    for mode in ("off", args.gain_mode):
+        cfg = sw_config(mode, SW_OMEGA)
+        if mode == "full":
+            cfg["geometry"]["cells"]["interp_order"] = 4
+        mesh, blocks = build(cfg, args.device)
+        d[mode], _ = run_sw(mesh, blocks, sw_state(blocks, SW_OMEGA), args.ngain, SW_OMEGA)
+        del mesh, blocks
+        gc.collect()
+    m = args.gain_mode
+    print("(k) shallow water, Williamson 2, Omega of the Earth, %d steps: max |dL| / |L| = %.3e with %s,"
+          " %.3e with off (%.1f times below)" % (args.ngain, d[m], m, d["off"], d["off"] / d[m]))
+    if not GAIN * d[m] <= d["off"]:
+        failures.append("Williamson 2 at the Earth's rate: the drift with %s, %.3e, is not %g times below off, %.3e"
+                        % (m, d[m], GAIN, d["off"]))
+
     # (d) off by default, and no effect where it is not defined: a Cartesian block builds with it on
     cfg = config("transport")
     cfg["geometry"] = {"type": "cartesian",
@@ -542,6 +577,16 @@ def main(argv=None):
         failures.append("conserve-axial-momentum: a Cartesian block does not build: " + str(exc)[:200])
     finally:
         os.unlink(tmp)
+    # full needs the cubic panel-edge ghosts
+    cfg = config("full")
+    try:
+        build(cfg, args.device)
+        failures.append("conserve-axial-momentum: full builds without interp_order: 4")
+    except Exception as exc:  # noqa: BLE001
+        if "interp_order: 4" not in str(exc):
+            failures.append("conserve-axial-momentum: full without interp_order 4: " + str(exc)[:200])
+        else:
+            print("(d) full without interp_order: 4 is refused")
 
     if failures:
         print("FAIL:\n  " + "\n  ".join(failures))

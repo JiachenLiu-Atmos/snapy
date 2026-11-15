@@ -31,6 +31,8 @@ class GnomonicEquiangleImpl
   //                      in each face's own basis, the basis of its covariant
   //                      face fluxes
   torch::Tensor aam_k_c, aam_kl_c, aam_kk_c, aam_k_f2, aam_k_f3;
+  //   aam_c2_f2, aam_c2_f3 cos^2(lat) at those faces, [nk, nj(+1), 1]
+  torch::Tensor aam_c2_f2, aam_c2_f3;
 
   // local ghost cell usrc -- GLOBAL source coordinates, NOT rebased onto this
   // block. The block offset is applied to the integer index instead; see
@@ -112,13 +114,23 @@ class GnomonicEquiangleImpl
   void axial_rate_to_rows_(torch::Tensor row2, torch::Tensor row3,
                            torch::Tensor target) const override;
 
+  //! conserve-axial-momentum: full (#357): the Coriolis torque on the
+  //! relative AAM in flux form from the x2/x3 face mass fluxes, per volume,
+  //! -(Omega / V) sum_f M_f (s_f^2 - s_c^2), s = r cos(lat); `ny` is the
+  //! number of species rows after IDN. Undefined fluxes are skipped.
+  torch::Tensor axial_coriolis_rate(torch::Tensor flux2, torch::Tensor flux3,
+                                    double omega, int ny) const;
+
  private:
   //! guards K . K = 0 in a cell centred exactly on the rotation axis
   double _aam_eps2 = 0.;
 
   torch::Tensor _interp_ghost_LR(torch::Tensor buf, bool flip) const;
   torch::Tensor _interp_ghost_BT(torch::Tensor buf, bool flip) const;
-  //! linear interpolation of a received strip along the edge (dim -3 or -2)
+  //! global cells along a panel edge (nx2 * px), for the cubic ghost rule
+  int usrc_ncell = 0;
+  //! interpolation of a received strip along the edge (dim -3 or -2): linear
+  //! (interp_order 2) or 4-point Lagrange (interp_order 4)
   torch::Tensor _interp_ghost(torch::Tensor buf, torch::Tensor usrc_t,
                               int shift, int dim) const;
 

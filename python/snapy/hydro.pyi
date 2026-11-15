@@ -218,7 +218,8 @@ class HydroOptions:
     @overload
     def conserve_axial_momentum(self) -> str:
         """Axial angular momentum (AAM) in flux form on the gnomonic-equiangle
-        cubed sphere, `dynamics: {conserve-axial-momentum: off | transport}`,
+        cubed sphere, `dynamics: {conserve-axial-momentum: off | transport |
+        full}`,
         default `off`. 3D and 2D shallow water. It does nothing on other
         grids, or with a Coriolis force that is not `type: xyz` about `omega1`.
 
@@ -227,7 +228,22 @@ class HydroOptions:
         form and does no work. Exact without rotation; with slow rotation,
         Omega / (u / a) of 0.5 to 1, the drift was 50 to 290 times smaller
         than `off` in one 3D test (C8 and C16), and larger than `off` at 14.
-        In 2D shallow water the gain with rotation was 1.7 times or less."""
+        In 2D shallow water the gain with rotation was 1.7 times or less.
+
+        `full`: transport plus a flux-form Coriolis torque on the solver's
+        dissipative x2/x3 mass flux; needs `geometry: {cells: {interp_order:
+        4}}`. It reduces the open Coriolis exchange but is not exact. In 3D
+        the x1 exchange is closed by the Coriolis rows built from the x1 mass
+        transfers, except with `traditional: true`. Measured: 29.8 times below
+        `off` on Williamson 2 at the Earth's rate (C16, 200 steps; transport
+        1.1), 217-589 times in the 3D test arms at Omega = 5e-6 (2000 steps);
+        on the test's rest deck it keeps 12.3 times the kinetic energy of
+        `transport` (C16 4 Omega, 4000 steps); noisy jet, u0 = 38.6 / k, 8000
+        steps, KE_full / KE_off: C16 k = 1..4 1.065 / 1.100 / 1.090 / 1.066
+        (full's own KE growing for k >= 2), C32 k = 2 / 3 / 4 1.005 / 1.005 /
+        1.012 (k = 4 to 16000 steps, no trend). Costs 1.14-1.30
+        times the wall time of `off` at C16 and 1.32-1.48 at C32. Not yet run
+        in a GCM configuration."""
         ...
 
     @overload

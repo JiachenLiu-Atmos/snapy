@@ -42,8 +42,9 @@ void GnomonicEquiangleImpl::reset() {
   TORCH_CHECK(op->nx2() == op->nx3(),
               "GnomonicEquiangleImpl::reset(): nx2 must equal nx3");
 
-  TORCH_CHECK(op->interp_order() == 2,
-              "Only 2nd order ghost interpolation is supported");
+  TORCH_CHECK(op->interp_order() == 2 || op->interp_order() == 4,
+              "GnomonicEquiangle: interp_order must be 2 (linear panel-edge "
+              "ghosts) or 4 (cubic)");
   TORCH_CHECK(
       op->interp_order() <= 2 * op->nghost(),
       "Ghost zone size must be at least half of the interpolation order");
@@ -183,10 +184,14 @@ void GnomonicEquiangleImpl::reset() {
     auto pc = torch::zeros({3, op->nc3() + 1, op->nc2() + 1}, x1v.options());
     pc[VEL1].fill_(1.);
     cs_contra_to_cart_(pc, corner[1], corner[0], face_id);  // unit positions
+    // the face mid-direction also gives cos^2(lat) = n_x^2 + n_y^2 there, the
+    // planetary AAM per unit mass and radius^2 used by axial_coriolis_rate
     auto face_avg = [&](torch::Tensor p1, torch::Tensor p2, torch::Tensor dth,
-                        torch::Tensor alpha, torch::Tensor beta) {
+                        torch::Tensor alpha, torch::Tensor beta,
+                        torch::Tensor& c2) {
       auto pm = p1 + p2;
       pm = pm / pm.square().sum(0, true).sqrt();
+      c2 = (pm[VEL2].square() + pm[VEL3].square()).unsqueeze(-1);
       auto k = torch::zeros_like(pm);  // z_hat x p_mid, ordered (z, x, y)
       k[VEL2] = -pm[VEL3];
       k[VEL3] = pm[VEL2];
@@ -197,16 +202,18 @@ void GnomonicEquiangleImpl::reset() {
     auto f2 = torch::meshgrid({x3v, x2f}, "ij");
     aam_k_f2 =
         face_avg(pc.slice(1, 0, op->nc3()), pc.slice(1, 1, op->nc3() + 1),
-                 dx3f_ang_face2_kj.squeeze(-1), f2[1], f2[0]);
+                 dx3f_ang_face2_kj.squeeze(-1), f2[1], f2[0], aam_c2_f2);
     auto f3 = torch::meshgrid({x3f, x2v}, "ij");
     aam_k_f3 =
         face_avg(pc.slice(2, 0, op->nc2()), pc.slice(2, 1, op->nc2() + 1),
-                 dx2f_ang_face3_kj.squeeze(-1), f3[1], f3[0]);
+                 dx2f_ang_face3_kj.squeeze(-1), f3[1], f3[0], aam_c2_f3);
     register_buffer("aam_k_c", aam_k_c);
     register_buffer("aam_kl_c", aam_kl_c);
     register_buffer("aam_kk_c", aam_kk_c);
     register_buffer("aam_k_f2", aam_k_f2);
     register_buffer("aam_k_f3", aam_k_f3);
+    register_buffer("aam_c2_f2", aam_c2_f2);
+    register_buffer("aam_c2_f3", aam_c2_f3);
     // only guards 0/0 in a cell centred exactly on the axis (odd nx2): that
     // cell holds no AAM, its correction is zero, and the AAM flux through its
     // faces is the one leak of the flux form (one cell per polar panel)
@@ -243,12 +250,8 @@ void GnomonicEquiangleImpl::reset() {
   // below), so rebase by that -- NOT by interp_order/2, which only ever covered
   // a seam at beta = 0.
   int margin = cs_interp_margin(op->nghost());
-  // interp_order > 2 reaches u0-1, one cell beyond what the exchange
-  // carries, at every px -- so px == 1 is not an escape.
-  TORCH_CHECK(options->interp_order() <= 2,
-              "GnomonicEquiangle: interp_order > 2 needs more tangential "
-              "margin than the cross-panel exchange carries; use "
-              "interp_order: 2.");
+  // interp_order 4 does not widen the strip: its 4-point window is clamped
+  // inside the received strip (see _interp_ghost)
 
   // Keep the GLOBAL source coordinate and carry the block's shift as an
   // INTEGER: folding `margin - offset` into the double makes the stored value
@@ -256,6 +259,7 @@ void GnomonicEquiangleImpl::reset() {
   usrc_BT =
       register_buffer("usrc_BT", usrc.narrow(-1, offset_x, op->nx2()).clone());
   usrc_shift_BT = margin - offset_x;
+  usrc_ncell = N;
 
   usrc_LR = register_buffer(
       "usrc_LR", usrc.narrow(-1, offset_y, op->nx3()).transpose(0, 1).clone());
@@ -669,6 +673,51 @@ void GnomonicEquiangleImpl::x1_mass_source_(torch::Tensor du,
   du[IVZ].addcmul_(mr, torch::addcmul(prim[IVZ], prim[IVY], c), -dt);
 }
 
+torch::Tensor GnomonicEquiangleImpl::axial_coriolis_rate(torch::Tensor flux2,
+                                                         torch::Tensor flux3,
+                                                         double omega,
+                                                         int ny) const {
+  int si = il(), ei = iu() + 1;
+  int sj = jl(), ej = ju() + 1;
+  int sk = kl(), ek = ku() + 1;
+  int n1 = ei - si, n2 = ej - sj, n3 = ek - sk;
+
+  auto kk = aam_kk_c.slice(0, sk, ek).slice(1, sj, ej);  // cos^2(lat), cell
+  auto r = x1v.slice(0, si, ei);
+  auto vol = cell_volume().slice(0, sk, ek).slice(1, sj, ej).slice(2, si, ei);
+  auto s2c = r * r * kk;  // [n3, n2, n1]
+
+  // total mass flux rows: dry plus the species
+  auto mass = [&](torch::Tensor const& f) {
+    auto m = f[IDN].clone();
+    if (ny > 0) m += f.narrow(0, ICY, ny).sum(0);
+    return m;
+  };
+
+  // -(Omega / V) sum_f M_f (s_f^2 - s_c^2), M_f the outward face mass flux
+  auto rate =
+      torch::zeros({n3, n2, n1}, (flux2.defined() ? flux2 : flux3).options());
+  if (flux2.defined()) {
+    auto A =
+        face_area2().slice(0, sk, ek).slice(1, sj, ej + 1).slice(2, si, ei);
+    auto M =
+        A * mass(flux2.slice(1, sk, ek).slice(2, sj, ej + 1).slice(3, si, ei));
+    auto s2f = r * r * aam_c2_f2.slice(0, sk, ek).slice(1, sj, ej + 1);
+    rate += M.slice(1, 1, n2 + 1) * (s2f.slice(1, 1, n2 + 1) - s2c) -
+            M.slice(1, 0, n2) * (s2f.slice(1, 0, n2) - s2c);
+  }
+  if (flux3.defined()) {
+    auto A =
+        face_area3().slice(0, sk, ek + 1).slice(1, sj, ej).slice(2, si, ei);
+    auto M =
+        A * mass(flux3.slice(1, sk, ek + 1).slice(2, sj, ej).slice(3, si, ei));
+    auto s2f = r * r * aam_c2_f3.slice(0, sk, ek + 1).slice(1, sj, ej);
+    rate += M.slice(0, 1, n3 + 1) * (s2f.slice(0, 1, n3 + 1) - s2c) -
+            M.slice(0, 0, n3) * (s2f.slice(0, 0, n3) - s2c);
+  }
+  return -omega * rate / vol;
+}
+
 torch::Tensor GnomonicEquiangleImpl::_interp_ghost(torch::Tensor buf,
                                                    torch::Tensor usrc_t,
                                                    int shift, int dim) const {
@@ -691,11 +740,42 @@ torch::Tensor GnomonicEquiangleImpl::_interp_ghost(torch::Tensor buf,
     vec[n] = buf.size(n);
   }
 
+  // geometry/cells/interp_order: 4 replaces the linear rule by 4-point
+  // Lagrange along the edge. Window
+  // u0-1..u0+2, shifted (one-sided) so that it stays inside the source
+  // panel's interior cells [0, N-1] and inside the received strip; the target
+  // point is always between u0 and u0+1, so a shifted window still
+  // interpolates (never extrapolates) and is still fourth order; only the
+  // error constant grows. Next to a cube corner u0 = 0 (or u1 = N-1), so the
+  // window there is 0..3 (N-4..N-1). N < 4 falls back to linear. At a block
+  // end that is not a cube corner the window can also go one-sided: this
+  // happens only from px = 6 on and only in the outermost ghost layer, which
+  // does not reach the solution; measured, the results are bitwise equal at
+  // px = 1, 4 and 8 (C32) and at px = 1 and 2 (C16, #357). No extra margin is
+  // needed since the window never leaves the received strip. Written about
+  // node 1 so that a uniform field is returned exactly.
+  bool const cubic = options->interp_order() == 4;
+  int64_t len = buf.size(dim);
+  int64_t lo = std::max<int64_t>(0, shift);
+  int64_t hi = std::min<int64_t>(len - 1, (int64_t)shift + usrc_ncell - 1);
+  if (cubic && hi - lo >= 3) {
+    auto s = (u0 - 1).clamp(lo, hi - 3);
+    auto t = (u0 - s).to(x.scalar_type()) + x;  // in [0, 3]
+    auto c0 = -(t - 1.) * (t - 2.) * (t - 3.) / 6.;
+    auto c2 = -t * (t - 1.) * (t - 3.) / 2.;
+    auto c3 = t * (t - 1.) * (t - 2.) / 6.;
+    auto b0 = buf.gather(dim, s.expand(vec));
+    auto b1 = buf.gather(dim, (s + 1).expand(vec));
+    auto b2 = buf.gather(dim, (s + 2).expand(vec));
+    auto b3 = buf.gather(dim, (s + 3).expand(vec));
+    return b1 + c0 * (b0 - b1) + c2 * (b2 - b1) + c3 * (b3 - b1);
+  }
+
   auto buf0 = buf.gather(dim, u0.expand(vec));
   auto buf1 = buf.gather(dim, u1.expand(vec));
 
   // linear, written about buf0 so that equal neighbours give buf0 exactly
-  // (interp_order 2; reset() refuses any other order)
+  // (interp_order 2, and cubic windows with fewer than 4 source cells)
   return buf0 + x * (buf1 - buf0);
 }
 

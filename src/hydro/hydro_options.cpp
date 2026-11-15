@@ -64,14 +64,14 @@ HydroOptions HydroOptionsImpl::from_yaml(std::string const& filename,
       op->x1_mass_covariance() = dyn["x1-mass-covariance"].as<bool>(false);
       op->perturbation_flux() = dyn["perturbation-flux"].as<bool>(false);
       op->precision() = dyn["precision"].as<std::string>("float64");
-      // off | transport; false and true, which YAML tools write for off and
-      // on, read as off and transport
+      // off | transport | full; false and true, which YAML tools write for
+      // off and on, read as off and transport
       auto aam = dyn["conserve-axial-momentum"].as<std::string>("off");
       if (aam == "false" || aam == "no") aam = "off";
       if (aam == "true" || aam == "on" || aam == "yes") aam = "transport";
-      TORCH_CHECK(aam == "off" || aam == "transport",
-                  "dynamics/conserve-axial-momentum must be off or transport, "
-                  "got '",
+      TORCH_CHECK(aam == "off" || aam == "transport" || aam == "full",
+                  "dynamics/conserve-axial-momentum must be off, transport "
+                  "or full, got '",
                   aam, "'");
       op->conserve_axial_momentum() = aam;
     }
