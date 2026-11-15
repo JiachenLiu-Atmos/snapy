@@ -7,6 +7,7 @@
 #include <snap/coord/coord_utils.hpp>
 #include <snap/coord/coordinate.hpp>
 #include <snap/coord/cubed_sphere_utils.hpp>
+#include <snap/coord/gnomonic_equiangle.hpp>
 #include <snap/hydro/hydro.hpp>
 #include <snap/input/check_keys.hpp>
 #include <snap/layout/cubed_sphere_layout.hpp>
@@ -172,6 +173,23 @@ torch::Tensor CoriolisXYZImpl::forward(torch::Tensor du, torch::Tensor w,
     force[VEL3] = 2. * (o2 * m1 - o1 * m2);
 
     cs_apply_velocity_transform_(force, spherical_to_covariant);
+    // conserve-axial-momentum: full (#357): along the rotation, the flux-form
+    // torque of the dissipative x2/x3 mass flux M - M_central Hydro stored for
+    // this call, on top of the cell-form force (once per stage: Hydro clears
+    // the fluxes after the first Coriolis call)
+    auto const &mf = phydro->axial_mass_fluxes();
+    if (phydro->axial_coriolis_form() && (mf[1].defined() || mf[2].defined())) {
+      auto pg = dynamic_cast<GnomonicEquiangleImpl const *>(
+          phydro->pmb->pcoord.get());
+      TORCH_CHECK(pg, "conserve-axial-momentum: full needs gnomonic-equiangle");
+      auto target = pg->axial_coriolis_rate(mf[1], mf[2], options->omega1(),
+                                            phydro->axial_mass_species());
+      auto z2 = torch::zeros_like(force[VEL2]),
+           z3 = torch::zeros_like(force[VEL3]);
+      pg->axial_rate_to_rows_(z2, z3, target);  // K . z = target, along K
+      force[VEL2] += z2;
+      force[VEL3] += z3;
+    }
     if (traditional) {
       du.narrow(0, IVY, 2) += dt * force.narrow(0, VEL2, 2);
     } else {

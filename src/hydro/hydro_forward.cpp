@@ -965,6 +965,21 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   }
 
   //// ------------ (3.A) Calculate dimension 2 LR states ------------ ////
+  // conserve-axial-momentum: full (#357): the Coriolis call also gets the
+  // solver's dissipative x2/x3 mass flux M - M_central, M_central = 1/2
+  // (F(wL, wL) + F(wR, wR)) from the face states of this stage
+  bool const c2 = axial_coriolis_form();
+  TORCH_CHECK(
+      !c2 || (!split_flux && !fp32()),
+      "conserve-axial-momentum full needs FP64 and no perturbation-flux");
+  torch::Tensor cen2, cen3;
+  auto central = [&](torch::Tensor a, torch::Tensor b, int dim,
+                     torch::Tensor like) {
+    auto fa = torch::zeros_like(like), fb = torch::zeros_like(like);
+    priemann->forward(a.clone(), a.clone(), dim, fa);
+    priemann->forward(b.clone(), b.clone(), dim, fb);
+    return 0.5 * (fa + fb);
+  };
   torch::Tensor wtmp2, wtmp3;
   SyncOptions sync_opts;
   sync_opts.cross_panel_only(true).interpolate(false).type(kPrimitive);
@@ -1069,6 +1084,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         _cov_wr[0] = cwr.clone();
         _cov_dry[0] = cov_dry(dcov, cwl);
       }
+      if (c2) cen2 = central(wlr2[ILT], wlr2[IRT], DIM2, _flux2);
       solve(wlr2, DIM2, _flux2, torch::Tensor(), pressure_base2);
       if (dcov.defined()) add_cov(_flux2, dcov);
       cov2 = dcov.defined();
@@ -1101,6 +1117,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         _cov_wr[1] = cwr.clone();
         _cov_dry[1] = cov_dry(dcov, cwl);
       }
+      if (c2) cen3 = central(wlr3[ILT], wlr3[IRT], DIM3, _flux3);
       solve(wlr3, DIM3, _flux3, torch::Tensor(), pressure_base3);
       if (dcov.defined()) add_cov(_flux3, dcov);
       cov3 = dcov.defined();
@@ -1313,6 +1330,16 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     mw.wc1[IDN].copy_(w[IDN]);
     mw.wc1.narrow(0, IVY, 2).copy_(w.narrow(0, IVY, 2));
   }
+  if (c2) {
+    // full: the x2/x3 faces only; x1 stays in cell form
+    _aam_mass_flux = {
+        torch::Tensor(),
+        options->disable_flux_x2() || !cen2.defined() ? torch::Tensor()
+                                                      : _flux2 - cen2,
+        options->disable_flux_x3() || !cen3.defined() ? torch::Tensor()
+                                                      : _flux3 - cen3};
+    _aam_mass_ny = ny;
+  }
   auto forcing_du =
       fp32() ? torch::zeros(du.sizes(), du.options().dtype(torch::kFloat64))
              : du;
@@ -1327,6 +1354,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       f.forward(forcing_du, mass_w && coriolis(f) ? mw.wc1 : w, temp, dt);
   }
   if (fp32()) du += forcing_du.to(du.options());
+  // once per stage: the step-8 Coriolis call must not apply the torque again
+  _aam_mass_flux = {};
   if (split_flux) {
     auto force = torch::zeros_like(du);
     if (!options->disable_flux_x1() && pressure_base1.defined()) {

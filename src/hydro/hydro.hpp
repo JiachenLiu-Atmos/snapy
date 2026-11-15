@@ -84,7 +84,7 @@ struct HydroOptionsImpl {
   //! least 3 x1 cells per block. Same every-block rule as flux_covariance.
   ADD_ARG(bool, x1_mass_covariance) = false;
 
-  //! dynamics/conserve-axial-momentum: off (default) or transport.
+  //! dynamics/conserve-axial-momentum: off (default), transport or full.
   //! Axial angular momentum (AAM) in flux form on the gnomonic-equiangle grid:
   //! the component of each cell's flux divergence and x1 metric source along
   //! the rotation about the omega1 axis is the divergence of face AAM fluxes,
@@ -101,6 +101,26 @@ struct HydroOptionsImpl {
   //! rotation is small: 1.7 times at a ratio of 1, 1.1 at 12. Shallow-water
   //! noise decays as with off (what is left after 4000 steps is within x1.4 of
   //! off up to 4 Omega).
+  //! full (#357): transport plus a Coriolis torque in flux form on the
+  //! solver's dissipative x2/x3 mass flux M - M_central (M_central = 1/2
+  //! (F(wL, wL) + F(wR, wR)) from the same face states), added along the
+  //! rotation to the cell-form force. It reduces the open Coriolis exchange
+  //! but is NOT exact: the residual V (K . F_cell - rate(M_central)) remains.
+  //! The x1 faces are not part of this torque: in 3D the x1 exchange is
+  //! already closed by the Coriolis rows that take rho w from the stage's x1
+  //! mass transfers (Hydro::forward step 8); with coriolis/traditional: true
+  //! those rows are absent and the x1 exchange stays open, as the equations
+  //! leave it. It needs geometry/cells/interp_order: 4 (cubic panel-edge
+  //! ghosts). Measured: shallow-water Williamson 2 at the Earth's rate, C16,
+  //! 200 steps, drift 29.8 times below off (transport 1.1); the 3D arms of
+  //! the test at Omega = 5e-6, 2000 steps, 217-589 times below off
+  //! (transport 119-143); on the test's rest deck (C16 4 Omega, 4000 steps)
+  //! it keeps 12.3 times the kinetic energy of transport (both decay); noisy
+  //! jet, u0 = 38.6 / k, 8000 steps, KE_full / KE_off: C16 k = 1..4 1.065 /
+  //! 1.100 / 1.090 / 1.066 (full's own KE growing for k >= 2), C32 k = 2 / 3 /
+  //! 4 1.005 / 1.005 / 1.012 (k = 4 run to 16000 steps, no trend). Cost:
+  //! 1.14-1.30 times the wall time of off at C16, 1.32-1.48 at C32 (2 extra
+  //! Riemann calls per x2/x3 direction). Not yet run in a GCM configuration.
   ADD_ARG(std::string, conserve_axial_momentum) = "off";
 
   //! forcing options
@@ -191,6 +211,17 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! is set, the grid is gnomonic-equiangle and the Coriolis force, if any,
   //! is of type xyz about omega1
   bool axial_flux_form() const;
+
+  //! conserve-axial-momentum: full and it applies (axial_flux_form)
+  bool axial_coriolis_form() const;
+
+  //! full: the dissipative face mass fluxes (x1 undefined, x2, x3) the
+  //! Coriolis call of this stage takes its flux-form torque from, and their
+  //! number of species rows; cleared after that call
+  std::array<torch::Tensor, 3> const& axial_mass_fluxes() const {
+    return _aam_mass_flux;
+  }
+  int axial_mass_species() const { return _aam_mass_ny; }
 
   //! dynamics/flux-covariance (#289): the face-flux covariance rows a passive
   //! scalar carries on this stage's x2 (dim 2) or x3 (dim 1) faces, the rows a
@@ -416,6 +447,9 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
     int64_t ver = -1;
   };
   MassW _mass_w;
+  //! see axial_mass_fluxes()
+  std::array<torch::Tensor, 3> _aam_mass_flux;
+  int _aam_mass_ny = 0;
 
   torch::Tensor _flux1, _flux2, _flux3, _face_pressure1, _div, _forcing_dry;
   torch::Tensor _positivity_hits, _positivity_severe, _positivity_min;
