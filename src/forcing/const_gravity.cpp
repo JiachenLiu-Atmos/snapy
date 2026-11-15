@@ -42,8 +42,13 @@ ConstGravityOptions ConstGravityOptionsImpl::from_yaml(
 
 torch::Tensor ConstGravityImpl::forward(torch::Tensor du, torch::Tensor w,
                                         torch::Tensor temp, double dt) {
+  return forward_split(du, w, dt, w[IDN]);
+}
+
+torch::Tensor ConstGravityImpl::forward_split(torch::Tensor du, torch::Tensor w,
+                                              double dt, torch::Tensor rho1) {
   if (options->grav1() != 0.) {
-    du[IVX] += dt * w[IDN] * options->grav1() * options->non_hydrostatic();
+    du[IVX] += dt * rho1 * options->grav1() * options->non_hydrostatic();
     du[IPR] +=
         dt * w[IDN] * w[IVX] * options->grav1() * options->non_hydrostatic();
   }

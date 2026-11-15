@@ -8,6 +8,11 @@ setup_test(test_eos)
 setup_test(test_fp32_storage)
 # ideal-gas refuses a moist card; AthenaArray keeps float32 values
 setup_test(test_eos_io_core)
+setup_test(test_split_reference)
+set_tests_properties(test_split_reference.${buildl} PROPERTIES LABELS "fp32-foundations;fp32-dynamics;hydro")
+setup_test(test_pressure_scan_x1)
+set_tests_properties(test_pressure_scan_x1.${buildl} PROPERTIES
+  LABELS "fp32-foundations;fp32-pressure-scan;hydro")
 setup_test(test_implicit_cfl)
 setup_test(test_implicit_face_work_jacobian)
 setup_test(test_vic_partial_tangential)
@@ -405,6 +410,19 @@ snapy_add_python_test(test_flux_covariance_rowset TIMEOUT 300 LABELS "python;hyd
 snapy_add_python_test(test_wb_ref4_order TIMEOUT 300 LABELS "python;hydro")
 snapy_add_python_test(test_x1_centroid_rest TIMEOUT 300 LABELS "python;hydro")
 snapy_add_python_test(test_radial_order TIMEOUT 300 LABELS "python;hydro")
+snapy_add_python_test(test_fp32_split SCRIPT test_perturbation_flux_split.py
+  ARGS --precision float32 TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
+snapy_add_python_test(test_fp32_compute TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
+snapy_add_python_test(test_fp32_policy TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
+snapy_add_python_test(test_fp32_implicit TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
+snapy_add_python_test(test_fp32_vic_pivot TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
+snapy_add_python_test(test_fp32_compute_1000 SCRIPT test_fp32_compute.py
+  ARGS --steps 1000 TIMEOUT 600 LABELS "python;hydro;fp32-acceptance")
+snapy_add_python_test(test_fp32_jupiter TIMEOUT 600 LABELS "python;hydro;fp32-acceptance")
+snapy_add_python_test(test_perturbation_flux_split TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-dynamics")
+snapy_add_python_test(test_perturbation_flux TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-dynamics")
+snapy_add_python_test(test_perturbation_flux_x1_mass_covariance SCRIPT test_perturbation_flux.py
+  ARGS --x1-mass-covariance TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-dynamics")
 snapy_add_python_test(test_conversion_order TIMEOUT 600 LABELS "python;hydro")
 snapy_add_python_test(test_balance_column_order4 TIMEOUT 60 LABELS "python;hydro")
 snapy_add_python_test(test_radial_order_x1_centroid SCRIPT test_radial_order.py

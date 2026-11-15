@@ -26,14 +26,26 @@ namespace snap {
 
 static std::mutex meshblock_mutex;
 
+void MeshBlockImpl::to(torch::Device device, torch::Dtype dtype,
+                       bool non_blocking) {
+  if (phydro && phydro->fp32())
+    torch::nn::Module::to(device, non_blocking);
+  else
+    torch::nn::Module::to(device, dtype, non_blocking);
+}
+void MeshBlockImpl::to(torch::Dtype dtype, bool non_blocking) {
+  if (!phydro || !phydro->fp32()) torch::nn::Module::to(dtype, non_blocking);
+}
+
 static void set_scalar_primitive(Variables &vars, torch::Tensor const &scalar_s,
                                  torch::Tensor const &hydro_u,
                                  HydroImpl const &hydro) {
   // the tracers ride the TOTAL dry density (anomaly storage: + ref)
-  auto scalar_r = scalar_s / hydro.dry_density(hydro_u).unsqueeze(0);
+  auto scalar_r = (scalar_s / hydro.dry_density(hydro_u).unsqueeze(0))
+                      .to(scalar_s.options());
   auto it = vars.find("scalar_r");
   if (it != vars.end()) {
-    it->second.set_(scalar_r);
+    it->second.set_data(scalar_r);
   } else {
     vars["scalar_r"] = scalar_r;
   }
@@ -429,6 +441,7 @@ void MeshBlockImpl::initialize_local(Variables &vars) {
 
   TORCH_CHECK(vars.count("hydro_w"),
               "initialize: hydro_w is required for hydro model.");
+  if (phydro->fp32()) vars["hydro_w"] = vars.at("hydro_w").to(torch::kFloat64);
   hydro_w = vars.at("hydro_w");
 
   TORCH_CHECK(hydro_w.sizes() ==
@@ -514,6 +527,11 @@ void MeshBlockImpl::finalize_initialization(Variables &vars) {
   }
   // from here on hydro_u holds rows {IDN, IPR} as anomalies
   if (phydro->has_reference()) phydro->sub_reference_(vars.at("hydro_u"));
+  if (phydro->fp32()) {
+    vars["hydro_u"] = vars.at("hydro_u").to(torch::kFloat32);
+    if (vars.count("scalar_s"))
+      vars["scalar_s"] = vars.at("scalar_s").to(torch::kFloat32);
+  }
 
   //// ------------- (8) Fill solid boundaries -------------- ////
   if (vars.count("solid")) {
@@ -694,6 +712,8 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
       apply_boundaries(vars, hydro_u, scalar_s);
       exchange_ghost_zones(vars);
     }
+    if (_hydro_u0.scalar_type() != hydro_u.scalar_type())
+      _hydro_u0.set_data(torch::empty_like(hydro_u));
     _hydro_u0.copy_(hydro_u);
     // the fixer buffers are only written under the
     // fixer; with it off they stay zero, so skip three launches
@@ -712,6 +732,8 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
       phydro->peos->vapor_failures().zero_();  // nor is a vapor failure
 
     if (pscalar->nvar() > 0) {
+      if (_scalar_s0.scalar_type() != scalar_s.scalar_type())
+        _scalar_s0.set_data(torch::empty_like(scalar_s));
       _scalar_s0.copy_(scalar_s);
     }
   }
@@ -767,7 +789,8 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
       auto P = torch::where(M > 0., r_below, r) * M;
       // cap each donor at held + inflow below, as in vic_constituent_column
       auto held =
-          (scalar_s + fut_scalar_ds).clamp_min(0.) * pcoord->cell_volume();
+          ((scalar_s + fut_scalar_ds).clamp_min(0.) * pcoord->cell_volume())
+              .to(P.options());
       at::native::donor_cap(P.device().type(), P, held, pcoord->il(),
                             pcoord->iu());
       auto P_above = torch::zeros_like(P);
@@ -869,7 +892,8 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   }
 
   // -------- (4) multi-stage averaging --------
-  hydro_u.set_(pintg->forward(stage, _hydro_u0, hydro_u, fut_hydro_du));
+  hydro_u.set_(pintg->forward(stage, _hydro_u0, hydro_u, fut_hydro_du)
+                   .to(hydro_u.options()));
   if (stage + 1 == static_cast<int>(pintg->stages.size()) &&
       phydro->pdiffusion && phydro->pdiffusion->options->implicit_radial())
     phydro->pdiffusion->finish_step(hydro_u, dt);
@@ -888,7 +912,8 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   }
 
   if (pscalar->nvar() > 0) {
-    scalar_s.set_(pintg->forward(stage, _scalar_s0, scalar_s, fut_scalar_ds));
+    scalar_s.set_(pintg->forward(stage, _scalar_s0, scalar_s, fut_scalar_ds)
+                      .to(scalar_s.options()));
     set_scalar_primitive(vars, scalar_s, hydro_u, *phydro);
     if (options->verbose()) {
       auto end = std::chrono::high_resolution_clock::now();
@@ -1688,6 +1713,12 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
       phydro->sub_reference_(vars.at("fill_solid_hydro_u"));
   }
 
+  if (phydro->fp32()) {
+    vars["hydro_u"] = vars.at("hydro_u").to(torch::kFloat32);
+    vars["hydro_w"] = vars.at("hydro_w").to(torch::kFloat64);
+    if (vars.count("scalar_s"))
+      vars["scalar_s"] = vars.at("scalar_s").to(torch::kFloat32);
+  }
   if (has_radiating_boundary()) {
     TORCH_CHECK(
         data.count("boundary_reference_w") &&

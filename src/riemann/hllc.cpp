@@ -47,6 +47,11 @@ torch::Tensor HLLCSolverImpl::_forward(torch::Tensor wl, torch::Tensor wr,
                                        torch::Tensor reference_pressure) {
   auto pcoord = phydro->pmb->pcoord;
   auto peos = phydro->peos;
+  for (auto* buffer : {&elr, &clr, &glr}) {
+    if (buffer->scalar_type() != wl.scalar_type() ||
+        buffer->device() != wl.device())
+      buffer->set_data(torch::empty(buffer->sizes(), wl.options()));
+  }
   auto wl_total = wl, wr_total = wr;
   if (reference_pressure.defined()) {
     reference_pressure = reference_pressure.to(wl.options()).expand_as(wl[IPR]);
@@ -79,7 +84,9 @@ torch::Tensor HLLCSolverImpl::_forward(torch::Tensor wl, torch::Tensor wr,
   to_face_frame_(*pcoord, dim, wl, wr);
 
   auto face_pressure_out =
-      face_pressure.defined() ? face_pressure : torch::empty_like(wl[IDN]);
+      face_pressure.defined() && face_pressure.scalar_type() == wl.scalar_type()
+          ? face_pressure
+          : torch::empty_like(wl[IDN]);
 
   at::TensorIteratorConfig config;
   config.resize_outputs(false)
@@ -97,6 +104,8 @@ torch::Tensor HLLCSolverImpl::_forward(torch::Tensor wl, torch::Tensor wr,
   auto iter = config.build();
 
   at::native::call_hllc(flx.device().type(), iter, dim);
+  if (face_pressure.defined() && !face_pressure.is_same(face_pressure_out))
+    face_pressure.copy_(face_pressure_out);
 
   to_global_frame_(*pcoord, dim, flx);
 

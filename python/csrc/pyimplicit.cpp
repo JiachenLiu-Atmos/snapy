@@ -31,6 +31,8 @@ void bind_implicit(py::module &m) {
            })
       .def("type", &snap::ImplicitOptionsImpl::type)
       .ADD_OPTION(int, snap::ImplicitOptionsImpl, scheme)
+      .ADD_OPTION(std::string, snap::ImplicitOptionsImpl, precision)
+      .ADD_OPTION(bool, snap::ImplicitOptionsImpl, fallback_fp64)
       .ADD_OPTION(double, snap::ImplicitOptionsImpl, advection_cfl)
       .ADD_OPTION(double, snap::ImplicitOptionsImpl, shear_cfl);
 

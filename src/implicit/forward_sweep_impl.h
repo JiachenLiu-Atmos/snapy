@@ -2,6 +2,7 @@
 
 // C/C++
 #include <cmath>
+#include <type_traits>
 
 // eigen
 #include <Eigen/Dense>
@@ -44,7 +45,17 @@ ForwardSweep(Eigen::Matrix<T, N, N>* a, Eigen::Matrix<T, N, N>* b,
   Eigen::Matrix<T, N, N + 1 + K, Eigen::RowMajor> solved;
 
   // one elimination step per cell; the first cell has no row above it
+  // FP32: scale each block row by a power of two of its [B A C] max, then
+  // pivot on those rows (FP64 keeps ludcmp's implicit diagonal-block scaling)
+  constexpr bool rowscale = std::is_same_v<T, float> && N > 4;
+  Eigen::Matrix<T, N, 1> s;
   for (int i = il; i <= iu; ++i) {
+    if constexpr (rowscale)
+      for (int r = 0; r < N; ++r)
+        s(r) = std::exp2(-std::round(std::log2(std::fmax(
+            std::fmax(a[i].row(r).cwiseAbs().maxCoeff(),
+                      b[i].row(r).cwiseAbs().maxCoeff()),
+            std::fmax(c[i].row(r).cwiseAbs().maxCoeff(), T(1e-30))))));
     rhs(0) = DU(IDN, i);
     for (int n = 0; n < ny; ++n) rhs(0) += DU(ICY + n, i);
     rhs(0) /= dt;
@@ -67,7 +78,9 @@ ForwardSweep(Eigen::Matrix<T, N, N>* a, Eigen::Matrix<T, N, N>* b,
     A = a[i];
     if constexpr (N > 4) {
       for (int n = 0; n < N; ++n) indx[n] = n;
-      if (ludcmp(A, indx) == 0) return vic_fail_column(delta, il, iu);
+      if constexpr (rowscale) A = s.asDiagonal() * A;
+      if (ludcmp<T, N, !rowscale>(A, indx) == 0)
+        return vic_fail_column(delta, il, iu);
       solved.template leftCols<N>() = c[i];
       if (i > il) {
         solved.col(N) = rhs - b[i] * delta[i - 1];
@@ -82,6 +95,7 @@ ForwardSweep(Eigen::Matrix<T, N, N>* a, Eigen::Matrix<T, N, N>* b,
           solved.col(N + 2) = unit(i, k1);
         }
       }
+      if constexpr (rowscale) solved = s.asDiagonal() * solved;
       lubksb(A, indx, solved);
       for (int row = 0; row < N; ++row)
         for (int col = 0; col < N + 1 + K; ++col)

@@ -730,23 +730,26 @@ torch::Tensor CoordinateImpl::divergence(torch::Tensor flux1,
 
   if (flux1.defined() > 0) {
     dflx.slice(DIM1, si, ei) +=
-        face_area1(si + 1, ei + 1) * flux1.slice(DIM1, si + 1, ei + 1) -
-        face_area1(si, ei) * flux1.slice(DIM1, si, ei);
+        face_area1(si + 1, ei + 1).to(dflx.options()) *
+            flux1.slice(DIM1, si + 1, ei + 1) -
+        face_area1(si, ei).to(dflx.options()) * flux1.slice(DIM1, si, ei);
   }
 
   if (flux2.defined() > 0) {
     dflx.slice(DIM2, sj, ej) +=
-        face_area2(sj + 1, ej + 1) * flux2.slice(DIM2, sj + 1, ej + 1) -
-        face_area2(sj, ej) * flux2.slice(DIM2, sj, ej);
+        face_area2(sj + 1, ej + 1).to(dflx.options()) *
+            flux2.slice(DIM2, sj + 1, ej + 1) -
+        face_area2(sj, ej).to(dflx.options()) * flux2.slice(DIM2, sj, ej);
   }
 
   if (flux3.defined() > 0) {
     dflx.slice(DIM3, sk, ek) +=
-        face_area3(sk + 1, ek + 1) * flux3.slice(DIM3, sk + 1, ek + 1) -
-        face_area3(sk, ek) * flux3.slice(DIM3, sk, ek);
+        face_area3(sk + 1, ek + 1).to(dflx.options()) *
+            flux3.slice(DIM3, sk + 1, ek + 1) -
+        face_area3(sk, ek).to(dflx.options()) * flux3.slice(DIM3, sk, ek);
   }
 
-  return dflx / vol;
+  return dflx / vol.to(dflx.options());
 }
 
 torch::Tensor CoordinateImpl::curl(torch::Tensor velocity) const {

@@ -26,6 +26,8 @@ struct ImplicitOptionsImpl {
   void report(std::ostream& os) const {
     os << "-- implicit hydro options --\n";
     os << "* type = " << type() << "\n"
+       << "* precision = " << precision() << "\n"
+       << "* fallback_fp64 = " << fallback_fp64() << "\n"
        << "* scheme = " << scheme() << "\n"
        << "* advection_cfl = " << advection_cfl() << "\n"
        << "* shear_cfl = " << shear_cfl() << "\n";
@@ -41,6 +43,8 @@ struct ImplicitOptionsImpl {
 
   std::string type() const;
   ADD_ARG(int, scheme) = 0;
+  ADD_ARG(std::string, precision) = "auto";
+  ADD_ARG(bool, fallback_fp64) = true;
   ADD_ARG(double, advection_cfl) = 1.0;
   ADD_ARG(double, shear_cfl) = 0.0;
 };
@@ -83,6 +87,7 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
                                torch::Tensor gamma, double dt,
                                torch::Tensor solid);
 
+  void record_fp64_fallback() { _fp64_fallbacks += 1; }
   torch::Tensor correction() const { return _corr; }
   torch::Tensor mass_correction() const { return _mass_corr; }
 
@@ -113,6 +118,7 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
  private:
   void ensure_workspace(torch::Tensor const& w);
   bool _solve_failed = false;
+  torch::Tensor _fp64_fallbacks;
   torch::Tensor _failed_dev;  // 0-d bool: a failure found after the solve
 
   torch::Tensor _a, _b, _c, _delta, _du0, _corr, _mass_corr, _clamp_residual,

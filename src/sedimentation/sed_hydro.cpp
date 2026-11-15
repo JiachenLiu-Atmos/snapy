@@ -32,7 +32,7 @@ torch::Tensor sedimentation_flux_tensor(SedHydroImpl& sed, torch::Tensor wr,
   auto rhos_vsed = rhos * vsed;
 
   // each particle is carried from its upwind cell; walls are sealed
-  sed.vsed.set_(sedimentation_upwind(vsed, vsed, il, iu));
+  sed.vsed.set_data(sedimentation_upwind(vsed, vsed, il, iu));
   flux.index_add_(0, sed.hydro_ids,
                   sedimentation_upwind(rhos_vsed, vsed, il, iu));
   flux.narrow(0, IVX, 3) +=
@@ -90,7 +90,7 @@ torch::Tensor SedHydroImpl::forward(torch::Tensor wr,
   int ny = ideal_moist->pthermo->options->vapor_ids().size() +
            ideal_moist->pthermo->options->cloud_ids().size() - 1;
   int nvapor = ideal_moist->pthermo->options->vapor_ids().size() - 1;
-  vsed.set_(torch::empty(
+  vsed.set_data(torch::empty(
       {hydro_ids.size(0), wr.size(1), wr.size(2), wr.size(3)}, wr.options()));
 
   // the EOS's own dry gas, not kintera's process-global tables

@@ -28,17 +28,26 @@ ImplicitOptions ImplicitOptionsImpl::from_yaml(const std::string& filename,
   auto intg = config["integration"];
   // pyharp's integrator reads this block too, so its keys are listed by name
   check_keys(intg, "integration",
-             {"implicit-scheme", "implicit-advection-cfl", "shear-cfl"},
+             {"implicit-scheme", "implicit-advection-cfl", "shear-cfl",
+              "implicit-precision", "implicit-fallback-fp64"},
              "pyharp",
              {"type", "cfl", "tlim", "nlim", "ncycle_out", "verbose"});
   auto op =
       intg["implicit-scheme"] ? from_yaml(intg["implicit-scheme"]) : nullptr;
   if (!op) {
-    TORCH_CHECK(!intg["implicit-advection-cfl"] && !intg["shear-cfl"],
+    TORCH_CHECK(!intg["implicit-advection-cfl"] && !intg["shear-cfl"] &&
+                    !intg["implicit-precision"] &&
+                    !intg["implicit-fallback-fp64"],
                 "integration/implicit-advection-cfl and shear-cfl bound an "
                 "implicit direction: set implicit-scheme or remove them");
     return nullptr;
   }
+  op->precision() = intg["implicit-precision"].as<std::string>("auto");
+  op->fallback_fp64() = intg["implicit-fallback-fp64"].as<bool>(true);
+  TORCH_CHECK(
+      op->precision() == "auto" || op->precision() == "float32" ||
+          op->precision() == "float64",
+      "integration/implicit-precision must be auto, float32 or float64");
   {
     auto read_finite = [&](char const* key, double fallback) {
       if (!intg[key]) return fallback;
@@ -108,6 +117,8 @@ void ImplicitHydroImpl::reset() {
   TORCH_CHECK(phydro, "[ImplicitHydro] Parent Hydro is null");
   TORCH_CHECK(options, "[ImplicitHydro] options is null");
   options->type();  // throws on an unsupported scheme
+  _fp64_fallbacks =
+      register_buffer("fp64_fallbacks", torch::zeros({}, torch::kInt64));
   _a = register_buffer("a", torch::empty({0}, torch::kFloat64));
   _b = register_buffer("b", torch::empty({0}, torch::kFloat64));
   _c = register_buffer("c", torch::empty({0}, torch::kFloat64));
@@ -139,7 +150,7 @@ void ImplicitHydroImpl::ensure_workspace(torch::Tensor const& w) {
 
   auto maybe_resize = [&](torch::Tensor& t, std::vector<int64_t> const& shape) {
     if (needs_reset(t, shape)) {
-      t.set_(torch::empty(shape, w.options()));
+      t.set_data(torch::empty(shape, w.options()));
     }
   };
 
@@ -165,7 +176,7 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     if (_corr.sizes() != du.sizes() ||
         _corr.scalar_type() != du.scalar_type() ||
         _corr.device() != du.device()) {
-      _corr.set_(torch::zeros_like(du));
+      _corr.set_data(torch::zeros_like(du));
     } else {
       _corr.zero_();
     }
@@ -230,8 +241,9 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   // in the order the checks would have met them. The read also carries the
   // previous stage's post-solve failure, latched on the device.
   std::vector<torch::Tensor> screen = {
-      du.index(interior).sum(), w.index(interior).sum(),
-      gamma.unsqueeze(0).index(interior).sum(),
+      du.index(interior).to(torch::kFloat64).sum(),
+      w.index(interior).to(torch::kFloat64).sum(),
+      gamma.unsqueeze(0).index(interior).to(torch::kFloat64).sum(),
       torch::zeros({}, du.options())
           .masked_fill(_failed_dev, std::numeric_limits<double>::quiet_NaN())};
 
@@ -257,15 +269,15 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     key.shape = gamma.sizes().vec();
     key.grav1 = phydro->options->grav()->grav1();
     if (!(_g_key == key) || !_g_area.defined()) {
-      _g_area = pcoord->face_area1().contiguous();
-      _g_volume = pcoord->cell_volume().contiguous();
+      _g_area = pcoord->face_area1().to(w.options()).contiguous();
+      _g_volume = pcoord->cell_volume().to(w.options()).contiguous();
       int nc1g = w.size(-1);
       _g_work_lo = .5 * _g_area.narrow(-1, 0, nc1g) *
                    (pcoord->x1v - pcoord->x1f.narrow(0, 0, nc1g)) / _g_volume;
       _g_work_hi = .5 * _g_area.narrow(-1, 1, nc1g) *
                    (pcoord->x1f.narrow(0, 1, nc1g) - pcoord->x1v) / _g_volume;
-      _g_work_lo = _g_work_lo.unsqueeze(0).contiguous();
-      _g_work_hi = _g_work_hi.unsqueeze(0).contiguous();
+      _g_work_lo = _g_work_lo.to(w.options()).unsqueeze(0).contiguous();
+      _g_work_hi = _g_work_hi.to(w.options()).unsqueeze(0).contiguous();
       _g_mask0 = torch::zeros_like(gamma);
       int isg = pcoord->il(), ieg = pcoord->iu() + 1;
       double g1 = key.grav1;
@@ -457,7 +469,7 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
 
   // Both dispatches share the same rejection sentinel. This also catches
   // nonfinite backward-substitution results, before redistribution sees them.
-  screen.push_back(_delta.sum());
+  screen.push_back(_delta.to(torch::kFloat64).sum());
   if (!std::isfinite(torch::stack(screen).sum().item<double>())) {
     // a stage after a failed one stops here
     if (_failed_dev.item<bool>()) return reject(torch::Tensor());
@@ -581,8 +593,9 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   _corr.sub_(_du0);
 
   auto results =
-      torch::stack({du.index(interior).sum(), _mass_corr.index(interior).sum(),
-                    _corr.index(interior).sum()});
+      torch::stack({du.index(interior).to(torch::kFloat64).sum(),
+                    _mass_corr.index(interior).to(torch::kFloat64).sum(),
+                    _corr.index(interior).to(torch::kFloat64).sum()});
   // no host read: a nonfinite result is latched on the device, undone here
   // with masks (on success they select the values as they are) and stops
   // the next stage at its screen; check_redo reads the latch

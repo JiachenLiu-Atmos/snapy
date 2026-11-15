@@ -26,6 +26,9 @@ class MeshBlockImpl;
 struct WbRef4Stencils;
 class HydroReferenceX1Operator;
 struct X1PlainMeanStencils;
+struct HydroPressureSplit {
+  torch::Tensor face0, face_delta, cell0, cell_delta, gauge;
+};
 struct X1PressureSourceStencils;
 
 struct HydroOptionsImpl {
@@ -40,6 +43,7 @@ struct HydroOptionsImpl {
   void report(std::ostream& os) const {
     os << "-- hydro options --\n";
     os << "* verbose = " << verbose() << "\n"
+       << "* precision = " << precision() << "\n"
        << "* disable_flux_x1 = " << disable_flux_x1() << "\n"
        << "* disable_flux_x2 = " << disable_flux_x2() << "\n"
        << "* disable_flux_x3 = " << disable_flux_x3() << "\n"
@@ -65,6 +69,8 @@ struct HydroOptionsImpl {
   //! reference (fp32 roadmap, Step 1). YAML `dynamics: {anomaly: true}`,
   //! overridden by SNAP_ANOMALY=0|1. Off: every path is unchanged.
   ADD_ARG(bool, anomaly) = false;
+  ADD_ARG(bool, perturbation_flux) = false;
+  ADD_ARG(std::string, precision) = "float64";
 
   //! dynamics/flux-covariance: the O(dx1^2) x1 covariance term of the x2/x3
   //! face fluxes (#289). A scheme choice: every block of a run must make the
@@ -174,6 +180,8 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   torch::Tensor forward(double dt, torch::Tensor hydro_u,
                         Variables const& other);
 
+  //! In perturbation-flux mode normal momentum excludes the shared face
+  //! pressure background; mass/species/energy fluxes retain total semantics.
   torch::Tensor flux1() const { return _flux1; }
   torch::Tensor flux2() const { return _flux2; }
   torch::Tensor flux3() const { return _flux3; }
@@ -277,6 +285,7 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   Fp64Store pref = nullptr;
 
   //! anomaly storage is on for this block
+  bool fp32() const { return options->precision() == "float32"; }
   bool anomaly() const { return options->anomaly(); }
   //! the reference has been built (anomaly on and initialization done)
   bool has_reference() const { return pref && pref->has("u0"); }
@@ -340,7 +349,9 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   // density, (2, ...) = its ILT and IRT values), dref (cell density)},
   // rebuilt from the current field on every call.
   std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
-  _hydro_ref_x1(torch::Tensor const& w) const;
+  _hydro_ref_x1(torch::Tensor const& w,
+                torch::Tensor const& dw = torch::Tensor(),
+                HydroPressureSplit* split = nullptr) const;
   //! overwrite the m x1 ghost rows of f next to each x1 neighbour with the
   //! neighbour's own rows of the same cells (faces: the same faces past the
   //! seam face), so a split column reads the values of one block

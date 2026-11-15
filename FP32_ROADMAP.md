@@ -77,18 +77,56 @@ equivalence and conservation; retain exact same-dtype restart continuation.
 Gate: FP64 equivalence, conservation, storage-emulated rest noise and split
 columns. A velocity target alone cannot distinguish initialization imbalance.
 
-### M4 — True FP32 with explicit boundaries
+#### M3 delivery stages after merged PR #326
+
+1. **M3a — Explicit signed pressure scan (implemented).** Extract the
+   top-to-bottom/bottom-to-top recurrence from the existing reference kernel.
+   Accept an explicit anchor increment and mixture-density increments; return
+   signed lower/upper face-pressure increments without floors or a total-state
+   subtraction. Share the recurrence with the default CPU/CUDA path, retaining
+   its anchor calculation and floors. Gate: default-reference regression,
+   sub-ulp signed increments, linearity, zero gravity, irregular widths,
+   ghost-face orientation, and vertically split-column anchor relay. Keep this
+   internal; do not expose a working perturbation-flux mode yet.
+2. **M3b — Split complete reference evaluation (implemented).** Use M3a with background plus
+   deltas; evaluate anchor changes, pressure floors, pressure quadrature guards,
+   and rho/p wall continuation from FP64 totals. Define guard/fallback behavior
+   and retain the static residual force for unbalanced backgrounds. Cache only
+   geometry/stencil setup; rebuild branch-dependent references each sweep. This
+   avoids a second derived-background cache and its restart invalidation. Preserve wb_ref4/conversion-order 4 and seams.
+3. **M3c — Wire reconstruction, HLLC, and sources together (implemented).** Carry pressure
+   deltas through all sweeps and the existing perturbation HLLC entry point;
+   separate pressure-delta momentum flux from total energy pressure. Add the
+   opt-in configuration only when flux/source, positivity, boundaries, and
+   explicit/implicit pressure consumers have matching contracts. Validate
+   balanced and deliberately unbalanced rest, heating, and split columns before
+   advancing to M4.
+
+M3b/c reuse the complete reference kernel with finite-increment scalar pairs.
+The opt-in mode now covers flux/source coupling and horizontal sweeps, while
+FP64 reconstruction and nonlinear decisions remain explicit boundaries.
+See [the M3 numerical contract](docs/derivations/fp32-perturbation-dynamics.md)
+for branch semantics, static residual forces, face-pressure consumers and
+supported scope. CPU validation is recorded in FP32_PROGRESS.md; CUDA execution
+and performance still require suitable hardware. True FP32 computation remains
+M4, including split reconstruction or an explicit FP64 reconstruction boundary.
+
+### M4 — True FP32 with explicit boundaries (implemented; CPU validated)
 
 FP32 storage, reconstruction, fluxes and tendencies; FP64 background/geometry
 masters, sensitive nonlinear reference calculations, reductions and time.
 Kernel geometry views match compute dtype. Lazy buffers follow their compute
-policy. Cast before reductions. Initially assemble/solve implicit columns and
-chemistry/saturation in FP64, applying their increments without a lossy FP32
-total-state round trip. Audit forcing, diffusion, sedimentation, boundaries,
+policy. Cast before reductions. Assemble/solve vertical implicit columns in
+FP32 under the FP32 policy, retaining pivot/nonfinite checks and retrying rejected
+blocks from the original RHS in FP64. Allow an explicit FP64 solve override and
+count fallbacks. Keep chemistry/saturation in FP64, applying their increments
+without a lossy FP32 total-state round trip. Audit forcing, diffusion, sedimentation, boundaries,
 scalar transport and rollback. Test dtype contracts with an explicit allowlist.
 Keep Python's global default unchanged; driver precision is explicit.
 Gate: reduced full physics completes 1000 steps without dtype/nonfinite failures
-or precision-induced retry exhaustion.
+or precision-induced retry exhaustion. CPU results and retained hardware limits
+are recorded in FP32_PROGRESS.md; see the
+[compute policy](docs/derivations/fp32-compute-policy.md) for configuration.
 
 ### M5 — Restart and coupled workflow
 

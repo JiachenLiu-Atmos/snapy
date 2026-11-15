@@ -79,6 +79,8 @@ class ConstGravityImpl : public torch::nn::Cloneable<ConstGravityImpl> {
   }
   void reset() override {}
 
+  torch::Tensor forward_split(torch::Tensor du, torch::Tensor w, double dt,
+                              torch::Tensor rho1);
   torch::Tensor forward(torch::Tensor du, torch::Tensor w, torch::Tensor temp,
                         double dt);
 };

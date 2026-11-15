@@ -82,7 +82,9 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
               "[Scalar] hydro_u is required for passive scalar transport");
 
   // the TOTAL dry density (anomaly storage adds the reference)
-  auto rho = pmb->phydro->dry_density(other.at("hydro_u")).unsqueeze(0);
+  auto rho = pmb->phydro->dry_density(other.at("hydro_u"))
+                 .to(u.options())
+                 .unsqueeze(0);
   // r = q_face / rho_face; q / rho of cell averages is second order (S177)
   auto face_r = [&](int dim) {
     auto recon = dim == DIM1 ? precon1 : precon;
@@ -93,7 +95,7 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
 
   if (_flux1.defined()) {
     auto rlr = face_r(DIM1);
-    _flux1.set_(
+    _flux1.set_data(
         priemann->forward(rlr[ILT], rlr[IRT], DIM1, pmb->phydro->flux1()[IDN]));
   }
 
@@ -161,11 +163,11 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
   };
 
   if (_flux2.defined()) {
-    _flux2.set_(lateral(rtmp2, DIM2, pmb->phydro->flux2()[IDN]));
+    _flux2.set_data(lateral(rtmp2, DIM2, pmb->phydro->flux2()[IDN]));
   }
 
   if (_flux3.defined()) {
-    _flux3.set_(lateral(rtmp3, DIM3, pmb->phydro->flux3()[IDN]));
+    _flux3.set_data(lateral(rtmp3, DIM3, pmb->phydro->flux3()[IDN]));
   }
 
   // Tracer flux positivity limiter: same scheme (and same rationale) as the
@@ -237,7 +239,7 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
     flux_positivity_scale_(sync_theta(theta), _flux1, _flux2, _flux3, pcoord);
   }
 
-  _div.set_(pcoord->divergence(_flux1, _flux2, _flux3));
+  _div.set_data(pcoord->divergence(_flux1, _flux2, _flux3));
   auto ds = torch::zeros_like(_div);
   auto interior = pmb->part({0, 0, 0}, PartOptions().exterior(false));
   ds.index(interior) = -dt * _div.index(interior);
