@@ -1,6 +1,6 @@
 # FP32 project progress
 
-Updated: 2026-11-13. Roadmap: [FP32_ROADMAP.md](FP32_ROADMAP.md).
+Updated: 2026-11-16. Roadmap: [FP32_ROADMAP.md](FP32_ROADMAP.md).
 
 ## Milestones
 
@@ -9,9 +9,9 @@ Updated: 2026-11-13. Roadmap: [FP32_ROADMAP.md](FP32_ROADMAP.md).
 | M0 Baseline and records | Merged baseline | PR #326 merged as 2d92c92; M3a validation below |
 | M1 Reference consolidation | Merged (#326) | Shared operator, cache invalidation, composition restart; CPU and reviewer CUDA evidence below |
 | M2 Thermodynamic perturbations | Merged (#326) | Delta thermodynamics, exact total reads and FP32 floors; hydro wiring follows |
-| M3 Perturbation dynamics | M3a–M3c implemented, CPU validated | 31/31 foundation tests pass after main rebase; split reference, flux/source coupling, seams and restart; CUDA execution pending |
-| M4 True FP32 | M4a–M4c implemented, CPU validated | 35/35 foundations after main rebase; 1000-step moist/Jupiter acceptance; FP32 VIC with checked FP64 fallback; GPU validation pending |
-| M5 Coupled workflow/restart | Planned | Validate actual kintera build |
+| M3 Perturbation dynamics | Merged (#360) | 31/31 foundation tests pass after main rebase; split reference, flux/source coupling, seams and restart; CUDA execution pending |
+| M4 True FP32 | Merged (#361) | 35/35 foundations after main rebase; 1000-step moist/Jupiter acceptance; FP32 VIC with checked FP64 fallback; GPU validation pending |
+| M5 Coupled workflow/restart | M5a–M5c CPU implementation validated | 37/37 foundations, exact coupled/bundled continuation; external driver/distributed/GPU validation pending |
 | M6 Science/performance | Planned | Requires production GPU and coupled cases |
 
 Historical foundation baseline (2026-11-08): snapy work was recorded on
@@ -629,3 +629,54 @@ changes require CUDA CI/hardware.
   implicit fallbacks. The stress test separately confirms fallback recovery.
 - Cross-repo compatibility unchanged: kintera 2.6.10 tested, minimum 2.6.9,
   no kintera edits/API changes. CUDA and production GPU validation remain pending.
+
+### M5 started — 2026-11-16
+
+- Branch `fp32-step4-restart`, from main `3fe398a`. M3 and M4 entered main via
+  #360/#361; original #342/#343 were closed. Their Linux/macOS and bitwise CPU
+  CI passed. No CUDA execution evidence was added by those CPU runs.
+- M5a: additive version/dtype metadata and per-block background-grid identity;
+  preserve exact stored anomalies and reject unknown/corrupt representations.
+- M5b: destination-policy dtype selection for perturbation-mode restarts,
+  legacy compatibility, changed-grid rejection, and FP64 outflow references.
+  Audit found FP32-to-FP64 kept the saved FP32 dtype and FP32 outflow resume
+  demoted the boundary reference; both are corrected in this stage.
+- M5c: uninterrupted/resumed rest/heating, four-block bundles and reduced
+  H2O/NH3 chemistry/scalar continuation with freshly constructed modules.
+- No kintera source/API changes. External production/paddle integration and
+  distributed/GPU validation remain separate, unverified work.
+- Contract: [fp32-restart.md](docs/derivations/fp32-restart.md).
+
+### M5 CPU implementation and validation — 2026-11-16
+
+- Version-1 anomaly metadata records saved storage precision and grid faces;
+  unknown versions, inconsistent dtype/shape, missing backgrounds and changed
+  grids are rejected. Pre-metadata files remain readable with their existing
+  restrictions. Exact anomalies and FP64 backgrounds are retained.
+- Destination precision selects perturbation-mode hydro/scalar storage; legacy
+  storage-emulation mode keeps its original behavior. Characteristic outflow
+  references follow FP64 primitive precision rather than FP32 anomaly precision.
+- The four-block continuation test exposed a layout lifetime bug: destroying
+  the old mesh could erase the replacement's process-local registration and
+  stall exchange. Destruction now unregisters only the pointer it owns. The
+  same replacement fixture passes with this fix.
+- Fresh core build: `PYTHONPATH=/tmp/snapy-rebase-python cmake --build build --parallel 4 --target snap_release`:
+  passed; rebuilt all 15 foundation C++ executables listed in M3's build command.
+  Python rebuild: `PYTHONPATH=/tmp/snapy-rebase-python SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk MAX_JOBS=2 python -m pip install --no-deps --no-build-isolation --upgrade --target /tmp/snapy-rebase-python .`:
+  passed. Refreshed the final library after the layout fix with
+  `cp build/lib/libsnap_release.dylib /tmp/snapy-rebase-python/snapy/lib/libsnap_release.dylib`.
+- `PYTHONPATH=/tmp/snapy-rebase-python python -u tests/test_fp32_restart.py`:
+  passed. Same-dtype rest/heating/outflow, four-block FP32 bundles and H2O/NH3
+  hydro/scalar/kinetics continuation in FP32 and FP64 are **bit-identical**.
+  Both precision-switch directions pass; largest normalized error **1.456e-7**.
+  Early fixture-only buffer-access/archive-alias errors were corrected; the
+  stalled multi-block case was resolved by the layout fix above.
+- `ctest --test-dir build --output-on-failure -L fp32-foundations`:
+  **37/37 passed**, 72.40 seconds, including the new restart test (6.31 seconds).
+- `ctest --test-dir build --output-on-failure -L fp32-acceptance`:
+  **2/2 passed**, 78.57 seconds; 1000-step moist explicit/implicit and reduced
+  Jupiter runs retain zero FP64 VIC fallbacks.
+- `pre-commit run` and `git diff --check`: passed. Kintera **2.6.10** tested;
+  no source/API change and minimum remains 2.6.9. Remaining M5 integration work:
+  external paddle/production decks, actual distributed ranks, explicit remapping
+  workflows and GPU execution. M6 science/performance work is not claimed here.

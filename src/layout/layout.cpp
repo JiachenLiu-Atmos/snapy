@@ -300,8 +300,13 @@ LayoutImpl::~LayoutImpl() {
   if (options == nullptr || owner() == nullptr) return;
 
   std::lock_guard<std::mutex> lock(g_local_exchange_mutex);
-  g_local_layouts.erase(
-      {options->process_rank(), options->local_block_index(options->rank())});
+  auto key = std::make_pair(options->process_rank(),
+                            options->local_block_index(options->rank()));
+  auto it = g_local_layouts.find(key);
+  // A restarted mesh may register its replacement before the old Python
+  // mesh/block references are released. Do not unregister that replacement.
+  if (it != g_local_layouts.end() && it->second == this)
+    g_local_layouts.erase(it);
 }
 
 void LayoutImpl::_prepare_local_exchange(MeshBlockImpl const* pmb,

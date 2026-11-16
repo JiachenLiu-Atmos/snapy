@@ -10,7 +10,7 @@ import kintera as kt
 from snapy import MeshBlock, MeshBlockOptions, kIDN, kIPR, kICY, kIV1
 
 
-def run(steps, precision="float32"):
+def run(steps, precision="float32", restart_at=None):
     here = os.path.dirname(__file__)
     with open(os.path.join(here, "../examples/jupiter_crm.yaml")) as f:
         cfg = yaml.safe_load(f)
@@ -52,16 +52,19 @@ def run(steps, precision="float32"):
         "density": {},
         "const-vsed": {"H2O(l,p)": -20.0, "NH3(s,p)": -20.0},
     }
-    cfg.pop("outputs", None)
+    cfg["outputs"] = [{"type": "restart", "dt": 1.0e9}] if restart_at is not None else []
     cfg.pop("problem", None)
     cfg["scalar"] = {"nvar": 1, "names": ["trace"], "reconstruct": {"type": "weno5"}}
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
         yaml.safe_dump(cfg, f)
         path = f.name
     try:
-        block = MeshBlock(MeshBlockOptions.from_yaml(path))
-        kin = kt.Kinetics(kt.KineticsOptions.from_yaml(path))
-        tx = kt.ThermoX(kt.ThermoOptions.from_yaml(path))
+        options = MeshBlockOptions.from_yaml(path)
+        kin_options = kt.KineticsOptions.from_yaml(path)
+        tx_options = kt.ThermoOptions.from_yaml(path)
+        block = MeshBlock(options)
+        kin = kt.Kinetics(kin_options)
+        tx = kt.ThermoX(tx_options)
     finally:
         os.unlink(path)
     eos = block.module("hydro.eos")
@@ -87,6 +90,20 @@ def run(steps, precision="float32"):
     assert stoich.dtype == torch.float64
     dt = 0.1
     for step in range(steps):
+        if restart_at is not None and step == restart_at:
+            import glob
+
+            block.make_outputs(bv, step * dt, True)
+            (restart_file,) = glob.glob("*.final.restart")
+            block = MeshBlock(options)
+            bv, time = block.initialize_from_restart(restart_file)
+            assert time == step * dt
+            eos = block.module("hydro.eos")
+            ty = block.module("hydro.eos.thermo")
+            kin = kt.Kinetics(kin_options)
+            tx = kt.ThermoX(tx_options)
+            inv_mu = ty.buffer("inv_mu")[1:]
+            stoich = kin.buffer("stoich")
         for stage in range(len(block.intg.stages)):
             block.forward(bv, dt, stage)
         # Same FP64 chemistry boundary as examples/run_hydro.cpp. Apply only
@@ -121,7 +138,7 @@ def run(steps, precision="float32"):
     print(f"Jupiter {precision}: {steps} steps, mass drift={drift:.3e}", flush=True)
     assert drift < (2.0e-5 if precision == "float32" else 1.0e-11)
     assert block.module("hydro.icorr").buffer("fp64_fallbacks").item() == 0
-    return final
+    return {"total": final, "hydro_u": bv["hydro_u"].clone(), "scalar_s": bv["scalar_s"].clone()}
 
 
 if __name__ == "__main__":

@@ -61,9 +61,11 @@ def config(nb1):
     }
 
 
-def run(nb1, profile, device):
+def run(nb1, profile, device, restart_at=None):
     from snapy import Mesh, MeshOptions, kICY, kIDN, kIPR, kIV1
     cfg = config(nb1)
+    if restart_at is not None:
+        cfg["outputs"] = [{"type": "restart", "dt": 1.e9}]
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=os.getcwd()) as f:
         yaml.safe_dump(cfg, f)
         tmp = f.name
@@ -116,13 +118,26 @@ def run(nb1, profile, device):
 
     m0 = mass()
     intg = blocks[0].module("intg")
+    time = 0.
     for cycle in range(1, NSTEP + 1):
+        if restart_at is not None and cycle - 1 == restart_at:
+            import glob
+            mesh.make_outputs(mesh_vars, time, True)
+            (path,) = glob.glob("*.final.restart")
+            mesh = Mesh(options)
+            mesh_vars, resumed_time = mesh.initialize_from_restart(path)
+            assert resumed_time == time
+            blocks = list(mesh.blocks)
+            intg = blocks[0].module("intg")
         mesh.set_cycle(cycle)
         dt = mesh.max_time_step(mesh_vars)
         for stage in range(len(intg.stages)):
             mesh.forward(mesh_vars, dt, stage)
+        time += dt
     s, rn = column("scalar_s", 0), column("hydro_u", kICY)
     return {
+        "stored": torch.cat([mesh_vars[i]["hydro_u"][(slice(None),) + tuple(sl)].cpu()
+                             for i, sl in zip(order, parts)], -1),
         "s": s, "vapor": rn, "rho": column("hydro_w", kIDN), "p": column("hydro_w", kIPR),
         "a": float((s - rn).abs().max() / rn.abs().max()),
         "c": abs(mass() - m0) / m0,

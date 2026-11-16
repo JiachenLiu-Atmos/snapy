@@ -1,4 +1,5 @@
 // C/C++
+#include <algorithm>
 #include <cmath>
 #include <ctime>
 #include <filesystem>
@@ -16,6 +17,7 @@
 #include <snap/implicit/implicit_dispatch.hpp>
 #include <snap/input/read_restart_file.hpp>
 #include <snap/output/output_formats.hpp>
+#include <snap/output/restart_metadata.hpp>
 #include <snap/utils/fp32_storage.hpp>
 #include <snap/utils/log.hpp>
 #include <snap/utils/signal_handler.hpp>
@@ -1610,6 +1612,38 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
   TORCH_CHECK(data.count("next_time"),
               "Restart file is missing required variable: next_time");
 
+  if (data.count(kHydroRestartMetadata)) {
+    auto const &meta = data.at(kHydroRestartMetadata);
+    TORCH_CHECK(meta.scalar_type() == torch::kInt64 && meta.dim() == 1 &&
+                    meta.numel() == 2,
+                "restart: invalid hydro restart metadata");
+    TORCH_CHECK(meta[0].item<int64_t>() == kHydroRestartVersion,
+                "restart: unsupported hydro restart metadata version");
+    TORCH_CHECK(data.count("hydro_ref") && data.count("hydro_u_stored"),
+                "restart: metadata requires hydro_ref and hydro_u_stored");
+    auto const &stored = data.at("hydro_u_stored");
+    int bits = stored.scalar_type() == torch::kFloat32   ? 32
+               : stored.scalar_type() == torch::kFloat64 ? 64
+                                                         : 0;
+    TORCH_CHECK(bits && meta[1].item<int64_t>() == bits &&
+                    stored.sizes() == data.at("hydro_u").sizes(),
+                "restart: stored hydro dtype/shape disagrees with metadata");
+    // Regridding needs an explicit remap of totals and a new background.
+    // Never attach a serialized reference to a different same-shaped grid.
+    std::array<torch::Tensor, 3> grid = {pcoord->x1f, pcoord->x2f, pcoord->x3f};
+    for (int d = 0; d < 3; ++d) {
+      auto key = kHydroReferenceGrid[d];
+      TORCH_CHECK(data.count(key) &&
+                      torch::equal(data.at(key), grid[d].to(torch::kCPU)),
+                  "restart: reference grid mismatch at ", key,
+                  "; remap totals and initialize a new background");
+    }
+  }
+  TORCH_CHECK(!phydro->options->perturbation_flux() ||
+                  (data.count("hydro_ref") && data.count("hydro_ref_species")),
+              "restart: perturbation-flux requires the original hydro_ref "
+              "and hydro_ref_species");
+
   // Resume from the saved cycle so nlim-based runs do not take an extra step.
   cycle = data.at("last_cycle").item<int64_t>();
 
@@ -1694,7 +1728,9 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
     }
     // held by hydro.ref / used below, not kept in vars
     if (name == "hydro_ref" || name == "hydro_ref_species" ||
-        name == "hydro_u_stored")
+        name == "hydro_u_stored" || name == kHydroRestartMetadata ||
+        std::find(kHydroReferenceGrid.begin(), kHydroReferenceGrid.end(),
+                  name) != kHydroReferenceGrid.end())
       continue;
     vars[name] = tensor.to(torch::Device(options->device_str()));
   }
@@ -1750,11 +1786,12 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
       phydro->sub_reference_(vars.at("fill_solid_hydro_u"));
   }
 
-  if (phydro->fp32()) {
-    vars["hydro_u"] = vars.at("hydro_u").to(torch::kFloat32);
+  if (phydro->options->perturbation_flux()) {
+    auto dtype = phydro->fp32() ? torch::kFloat32 : torch::kFloat64;
+    vars["hydro_u"] = vars.at("hydro_u").to(dtype);
     vars["hydro_w"] = vars.at("hydro_w").to(torch::kFloat64);
     if (vars.count("scalar_s"))
-      vars["scalar_s"] = vars.at("scalar_s").to(torch::kFloat32);
+      vars["scalar_s"] = vars.at("scalar_s").to(dtype);
   }
   if (has_radiating_boundary()) {
     TORCH_CHECK(
@@ -1764,7 +1801,7 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
         "tensors. Initialize afresh or select extrapolation.");
     for (auto key : {"boundary_reference_w", "boundary_reference_r"}) {
       if (vars.count(key))
-        vars[key] = vars.at(key).to(vars.at("hydro_u").options());
+        vars[key] = vars.at(key).to(vars.at("hydro_w").options());
     }
     // Validate without changing the serialized numerical state.
     apply_boundaries(

@@ -136,6 +136,9 @@ cross-dtype continuation has numerical tolerances. Retain legacy restrictions.
 Regridding invalidates all background-derived data. Coordinate snapy and kintera
 changes and track paddle driver/forcing integration separately.
 Gate: uninterrupted/resumed and reduced rest/heating/full-moist workflows.
+See [the restart contract](docs/derivations/fp32-restart.md) for versioned
+metadata, destination precision and explicit changed-grid rejection. Remapping
+and external paddle/production integration remain separately tracked.
 
 ### M6 — Science validation and performance
 

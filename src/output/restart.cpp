@@ -12,6 +12,7 @@
 
 #include "output_formats.hpp"
 #include "output_utils.hpp"
+#include "restart_metadata.hpp"
 #include "writer_core.hpp"
 
 namespace snap {
@@ -43,6 +44,17 @@ void RestartOutput::write_output_file(MeshBlockImpl* pmb, Variables const& vars,
     out_vars["hydro_u"] = pmb->phydro->total_u(u).to(torch::kCPU);
     out_vars["hydro_u_stored"] = u.to(torch::kCPU);
     out_vars["hydro_ref"] = pmb->phydro->u_ref().to(torch::kCPU);
+    TORCH_CHECK(u.scalar_type() == torch::kFloat32 ||
+                    u.scalar_type() == torch::kFloat64,
+                "restart: hydro state must be float32 or float64");
+    out_vars[kHydroRestartMetadata] =
+        torch::tensor({int64_t(kHydroRestartVersion),
+                       int64_t(u.scalar_type() == torch::kFloat32 ? 32 : 64)},
+                      torch::kInt64);
+    std::array<torch::Tensor, 3> grid = {pmb->pcoord->x1f, pmb->pcoord->x2f,
+                                         pmb->pcoord->x3f};
+    for (int d = 0; d < 3; ++d)
+      out_vars[kHydroReferenceGrid[d]] = grid[d].to(torch::kCPU);
     if (pmb->phydro->species_ref().defined()) {
       out_vars["hydro_ref_species"] =
           pmb->phydro->species_ref().to(torch::kCPU);
