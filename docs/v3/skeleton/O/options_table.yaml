@@ -1,9 +1,8 @@
 # V3 lane O skeleton: options table format and sample rows (not wired).
 # gen_options.pyi emits from it: C++ struct (ADD_ARG, report, clone),
 # from_yaml with check_keys, pybind ADD_OPTION, .pyi stubs, rst docs.
-# Columns: name, key (deck key; null = not in the deck), type, default (the
-# one default), env (legacy variable: read once, overrides the deck, warns),
-# python (bind, default true), doc.
+# Columns: name, key (deck key), type, default (the one default), env (legacy
+# variable: read once, overrides the deck, warns), python, doc.
 module: output
 yaml_node: outputs[]
 options:
@@ -25,6 +24,14 @@ options:
   # env overrides the deck (hydro_options.cpp:84-95); FOR CHENG
   - {name: anomaly, key: anomaly, type: bool, default: false, env: SNAP_ANOMALY, doc: "anomaly storage"}
   # SNAP_FP32_STORAGE(_ROWS) get no row: the emulation is removed (Cheng)
+  # exists at the pin (hydro_options.cpp:55,67; hydro.hpp:76, default float64)
+  - {name: precision, key: precision, type: "enum[float64,float32]", default: float64, doc: "dynamics precision"}
+---
+module: integration   # PROVISIONAL names; Cheng's call (V3_ROADMAP.md:300-301)
+yaml_node: integration
+options:
+  - {name: execution, key: execution, type: "enum[eager,graph]", default: eager, doc: "execution selection (G7)"}
+  - {name: execution_strict, key: execution-strict, type: bool, default: false, doc: "refuse instead of eager fallback"}
 ---
 module: coord   # proposed row; the owning lane decides (x1_centroid.cpp:68-79)
 yaml_node: geometry

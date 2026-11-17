@@ -74,7 +74,8 @@ class GriddedWriter {
   double next_time = 0.;
   int64_t schedule_key() const;     // legacy (#313)
   int64_t schedule_key_v2() const;  // exact cadence bits (#313)
-  void accumulate_stats(Variables const& vars, double dt);  // host dt
+  //! dt: host double of the accepted step; dt <= 0 (first call) no-op
+  void accumulate_stats(Variables const& vars, double dt);
   void write(MeshBlockImpl* pmb, Variables const& vars, double time,
              bool final_write);
 

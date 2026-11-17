@@ -17,8 +17,9 @@ class FluxRegister;     // R:62-94; O reads step_field(dim) only (R:91)
 class RegisterMonitor;  // R:97-104; R owns the domain totals (R:21-22)
 using Variables = std::map<std::string, torch::Tensor>;
 
-//! observe: device only, after accept, X's host dt. flush: collective +
-//! host read at the consumer's cadence, outside every captured segment.
+//! observe: device only, after accept, X's host dt. The monitor's host read
+//! is X's step-end retry read; flush adds only the cross-rank FP64 reduction
+//! at the budget cadence, outside every captured segment.
 class Consumer {
  public:
   virtual ~Consumer() = default;

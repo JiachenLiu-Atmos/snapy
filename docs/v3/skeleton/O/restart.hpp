@@ -23,6 +23,13 @@ inline constexpr std::array<char const*, 3> kHydroReferenceGrid = {
     "hydro_ref_x1f", "hydro_ref_x2f", "hydro_ref_x3f"};
 inline constexpr char kRestartBundleMagic[] = "SNAPY_RESTART_BUNDLE_V1";
 
+//! the stored keys (Xi note 1). Every other Variables entry and every
+//! register/StateStore tensor stays out (req 10); scalar_r is rebuilt.
+inline constexpr std::array<char const*, 12> kRestartStoredKeys = {
+    "hydro_u", "hydro_w", "hydro_u_stored", "hydro_ref", "hydro_ref_species",
+    "scalar_s", "fill_solid_hydro_u", "boundary_reference_w",
+    "boundary_reference_r", "last_time", "last_cycle", "output_key"};
+
 struct OutputSchedule {
   std::vector<int64_t> file_number;  // by position (out<n>)
   std::vector<double> next_time;     // advanced for outputs firing now
@@ -30,7 +37,7 @@ struct OutputSchedule {
 };
 
 //! budget sums since the last record (FP64), so an interval closes across
-//! a restart; output bookkeeping, not register state
+//! a restart; written only when a budget output is requested (Xi note 10)
 struct BudgetCarry {  // all tensors float64, stored on CPU
   double last_record_time = 0.;
   std::vector<std::string> rows, fixers;

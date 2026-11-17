@@ -341,10 +341,19 @@ passes (sections 5 and 10.1). Removal approved by Cheng; settled.
 **No AthenaArray.** The writer core holds ``torch::Tensor`` only. It drops
 every ``AthenaArray`` use in lane O: ``output_type.hpp:22, 99``,
 ``output_utils.hpp:10, 47``, ``output_type.cpp:388, 399, 467, 521, 528,
-535`` and the 16 ``CopyFromTensor``/``InitFromTensor`` sites in
-``load_diag_output_data.cpp:120-332``. (``load_hydro_output_data.cpp:98-133``
-is inside a ``/* */`` comment.) Lane X's deletion of ``src/interface``
-depends on this (section 9).
+535`` and the 14 ``CopyFromTensor``/``InitFromTensor`` sites in
+``load_diag_output_data.cpp:120-332`` (``rg -c 'CopyFromTensor|InitFromTensor'
+src/output/load_diag_output_data.cpp`` gives 14). It also drops the
+``AthenaArray`` element reads in the two sinks:
+
+* ``pdata->data(...)`` at ``netcdf.cpp:496, 507, 518, 525, 533, 541, 548,
+  558`` and ``pnetcdf.cpp:362, 371, 380, 386, 393, 399, 404, 413``;
+* ``get_num_variables(grid, pdata->data)`` at ``netcdf.cpp:271, 290, 488``
+  and ``pnetcdf.cpp:197, 213, 354`` (the ``AthenaArray`` template at
+  ``output_utils.hpp:47``).
+
+(``load_hydro_output_data.cpp:98-133`` is inside a ``/* */`` comment.)
+Lane X's deletion of ``src/interface`` depends on this (section 9).
 
 **Ownership.** The writer borrows the block's variables for one write and
 owns only host copies, its schedule and its statistics tensors.
@@ -440,6 +449,10 @@ generated members and defaults equal the pin's.
 
 * ``SNAP_FLUX_COVARIANCE`` and ``SNAP_X1_MASS_COVARIANCE``: the warning
   stubs (``hydro.cpp:46-54``) are deleted.
+* Execution and precision rows (Xi note 2): ``dynamics/precision`` exists at
+  the pin (``hydro_options.cpp:55, 67``). ``integration/execution`` and
+  ``integration/execution-strict`` are sample rows with **provisional**
+  names, which are Cheng's call (``V3_ROADMAP.md:300-301``).
 * ``SNAP_X1_CENTROID_EXACT`` (read at ``x1_centroid.cpp:68-79``): a proposed
   row ``geometry/x1-centroid-exact`` with this ``env`` (note 14). The lane
   that owns ``src/coord`` decides whether to adopt it.
@@ -467,17 +480,36 @@ line budget.
 * ``hydro_ref``, ``hydro_ref_species`` and ``hydro_ref_x{1,2,3}f``
   (``:46-61``);
 * ``hydro_restart_metadata`` (``:50-53``);
+* ``hydro_w`` (copied with every other defined entry of ``vars``,
+  ``restart.cpp:31-38``; kept stored, Xi note 1);
 * ``scalar_s`` (``:30-34``);
 * ``fill_solid_hydro_u`` and the boundary references, when present;
 * ``last_time`` and ``last_cycle``;
 * the output schedule (``:73-99``).
 
+The stored set is the explicit list ``kRestartStoredKeys`` in
+``restart.hpp``. ``write_restart`` copies only those keys. Registers and
+``StateStore`` tensors are never in the ``Variables`` it copies
+(requirement 10).
+
 New: ``BudgetCarry``, the pending FP64 sums since the last budget record.
-This is output bookkeeping, not register state.
+It is written **only when a budget output is requested**. A file without a
+carry, including every pin-era file, starts a new budget interval at the
+first ``observe`` (Xi note 10). Decks without a budget output keep exactly
+today's stored set, so this needs no FOR CHENG item.
+
+**Load into fixed storage (Xi note 9).** The restart load ``copy_``\ s each
+stored tensor into its ``StateStore`` buffer, cast to the dtype of that
+buffer's ``PrecisionPolicy`` row (lane X). A restart is written only after
+an accepted step: at stage 0, with the register empty (R:23-24). So the
+file needs no new stage or dtype field.
 
 **Derived** (never written):
 
-* ``hydro_w`` and ``scalar_r`` (``meshblock.cpp:1827-1829``);
+* ``scalar_r``: not written when ``scalar_s`` and ``hydro_u`` are present
+  (``restart.cpp:30-34``), and rebuilt on load (``meshblock.cpp:1827-1829``,
+  ``set_scalar_primitive``). The rev 2 text listed ``hydro_w`` here by
+  mistake (Xi note 1);
 * **the flux register and the monitor** (requirement 10);
 * graph executables, captured workspaces and cast caches
   (``V3_ROADMAP.md:80``);
@@ -635,7 +667,12 @@ provisional header (Tianhao): happysky19/snapy
        R:96); O sums them over blocks in ``flush``.
    * - ``torch::Tensor RegisterMonitor::boundary(int dim) const;`` (R:100,
        "outward step transfer, FP64")
-     - ``BudgetConsumer``'s ``boundary``, summed over ``dim``.
+     - ``BudgetConsumer``'s ``boundary``, summed over ``dim``. O reads it as
+       **area-integrated**: an amount in ``domain_total()``'s units, with
+       the face area already applied by R. O applies no area to it. The
+       area is applied once, only to ``step_field`` in
+       ``HydroFluxProfile``. R:100 does not state the units, so the
+       confirmation is added to R-O1 (Xi note 3b).
    * - ``torch::Tensor RegisterMonitor::amounts(std::string const& name)
        const;`` (R:99, "(nrows,) FP64")
      - Single increments, read one name at a time. This is each fixer's or
@@ -657,13 +694,18 @@ around these points until R answers:
 
 * **R-O1.** The rows of ``domain_total``, ``boundary`` and ``amounts`` are
   not named, and requirement 6's E+PE, AAM and scalars are not shown
-  (R:99-101). Proposed: ``row_names()`` and stated coverage.
+  (R:99-101). Proposed: ``row_names()`` and stated coverage. Also confirm
+  that ``boundary(dim)`` is area-integrated (R:100).
 * **R-O2.** ``counters()`` has no names, order or dtype (R:102). Proposed:
   ``counter_names()``, int64.
 * **R-O3.** ``amounts(name)`` does not say whether an amount is a
   flux correction already inside ``boundary`` (``scale``/``add``, R:74-78)
   or a cell source (``cell_amount``, R:83-84). Proposed: an
-  ``AmountKind kind(name)`` query.
+  ``AmountKind kind(name)`` query. For ``gravity_work`` as a source fixer,
+  O counts only the fixer's correction (today's
+  ``gravity_work_fix`` accumulator, ``hydro.hpp:301-311``), not R's
+  gravity-work face posts (R:27), which are inside ``boundary``
+  (Xi note 3c).
 
 * **Ordering.**
 
@@ -716,9 +758,12 @@ Check against the ten requirements:
    * - 6
      - one device-side monitor (mass, species, E+PE, AAM, scalars); no host
        reads in a segment
-     - R owns the monitor and the domain totals (R:21-22, R:97-104), stacked
-       into X's step-end read. O adds no host read. The row coverage is
-       pending R-O1.
+     - R owns the monitor and the domain totals (R:21-22, R:97-104). The
+       monitor's host read is lane X's step-end retry read
+       (``meshblock.cpp:1566``; ``X.rst:120-121`` at ``77c65d5a``), and O
+       adds no host read per step (section 7). ``flush`` adds only the
+       cross-rank reduction of the FP64 sums at the budget cadence. The row
+       coverage is pending R-O1.
    * - 7
      - every fixer and floor registers what it added
      - **Adopted.** It replaces A2. ``fixer[f]`` is
@@ -732,9 +777,10 @@ Check against the ten requirements:
        needed. L-4 is closed.
    * - 9
      - no added full-field copy per stage; memory and cost stated
-     - Lane O adds no per-stage work. Per accepted step it adds a few
-       reductions of the (nrows,) sums and one (nvar, nc1+1) profile sum.
-       *Estimate*; not measured.
+     - Lane O adds no per-stage work and no persistent or graph-visible
+       allocation. Per accepted step it adds a few reductions of the
+       (nrows,) sums and one (nvar, nc1+1) profile sum. *Estimate*; not
+       measured.
    * - 10
      - the register is rebuilt, not written to restart
      - **Adopted.** It replaces the first draft's "derived" assumption.
@@ -787,7 +833,10 @@ are planned in section 10 and not started.
      - exact
    * - G-4
      - Restart round trip (FP32/FP64, anomaly, 4-block bundle, #367
-       mismatches still refused); a truncated bundle now throws
+       mismatches still refused); a truncated bundle now throws. Budget
+       cases: a deck with a budget output resumes its interval from
+       ``BudgetCarry``; a file without a carry (no budget output, or a
+       pin-era file) starts a new interval at the first ``observe``
      - O7
      - bitwise, plus a RED test for the throw
    * - G-5
@@ -884,10 +933,9 @@ only after that (O6b).
   ``meshblock.cpp:1257``). Files stay ``NC_FLOAT`` by default and
   ``NC_DOUBLE`` with ``double_precision`` (``output_type.hpp:79-83``).
   pnetcdf stays float only (``pnetcdf.cpp:58-61``).
-* **Budget.** Accumulation, totals and the file are all FP64. If the
-  register holds FP32 (requirement 8 leaves the dtype to R), ``observe``
-  casts each step's transfer to FP64 before accumulating. That loses
-  nothing that R kept.
+* **Budget.** Accumulation, totals and the file are all FP64. R holds every
+  value O reads in FP64 in both precisions (R:13-15, R:91, R:99-101), so
+  ``observe`` casts nothing (Xi note 3a).
 * **Restart.** #367's rules are unchanged: FP64 totals, anomaly bits in the
   run dtype, FP64 background and grid, and rejection of changed grids.
 * **FP32 storage emulation.** Removed (settled by Cheng). Runs that never
@@ -910,14 +958,18 @@ no lane O requirement:
 
 * requirement 6: there is no host read inside a segment, because every O
   call runs after the accept;
-* requirement 8: O allocates no storage per step;
+* requirement 8: O makes no persistent or graph-visible allocation (Xi
+  note 5);
 * requirement 10: nothing is restarted.
 
 The only per-step work is ``Consumer::observe`` and
 ``GriddedWriter::accumulate_stats``. Both run on device, after the global
-accept and outside captured segments. They take X's host ``dt``
-(``double``), as ``X.rst`` (``77c65d5a``, answer X2) keeps it: a host double
-chosen at step start (``meshblock.cpp:773``). Nothing runs inside a graph,
+accept and outside captured segments. They take **the host ``dt`` of the
+accepted step** (``double``; Xi note 4), as ``X.rst`` (``77c65d5a``, answer
+X2) keeps it: a host double chosen at step start (``meshblock.cpp:773``).
+On the first call (the initial output, before any step) ``dt <= 0`` and
+``accumulate_stats`` accumulates nothing, as ``output_type.cpp:302-306``
+does today. Nothing runs inside a graph,
 so no value is baked in, and requirement 6's no-host-read rule holds. A
 device ``dt`` comes only if X parameterizes graphs later.
 
@@ -1080,11 +1132,13 @@ O's replacement code is inside O's estimates.
        ``tests/test_anomaly_storage.py:396`` (the ``fp32`` arm) and
        ``tests/CMakeLists.txt:8, 359, 816``.
    * - Gravity-work fixer (joint row 2) and axial closure (joint row 3)
-     - 83 / 29
+     - 83 / 33 (X books 29 new)
      - X's and A's rows, listed here only because the cycle range overlaps.
        ``meshblock.cpp:1336-1337`` (``fixgrav``) is inside X's 83 and is
        not counted again in the cycle range. The closure is
-       ``meshblock.cpp:1009-1035`` and ``meshblock.hpp:223-228``.
+       ``meshblock.cpp:1009-1035`` (27) and ``meshblock.hpp:223-228`` (6):
+       33 lines by ``wc -l``. X books 29 new, because 4 are already in
+       X's items (Xi note 6).
 
 To the implicit owner (lane I, Xinyue):
 
@@ -1166,7 +1220,8 @@ Each file is booked once (note 3 and note 4):
   * the FP32 emulation sites in ``src/mesh`` (28: ``meshblock.cpp:22, 618,
     620-635``; ``meshblock.hpp:207-213``; ``mesh.cpp:403-405``);
   * the gravity-work fixer (83, including ``meshblock.cpp:1336-1337``) and
-    the axial closure (29, ``meshblock.cpp:1009-1035``,
+    the axial closure (33 lines by ``wc -l``, 29 of them new to X,
+    ``meshblock.cpp:1009-1035``,
     ``meshblock.hpp:223-228``);
   * ``meshblock.cpp:203-230`` (item sv) and ``meshblock_options.cpp:65-86``
     (item j);
@@ -2064,6 +2119,19 @@ line-table row. The cut is unchanged: settled 5,377 (53.8 %), target 5,807
 10. Migration
 -------------
 
+**Lane X's precondition for deleting ``src/interface``** (Xi note 8) is one
+grep:
+
+``rg -n 'athena_arrays|init_from_tensor' src tests python``
+
+After O1, O5 and X's own deletion, its only hit is
+``src/turbulence/turbulence_model.hpp:9``, which is outside the build. At
+the pin it has 8 hits: ``tests/test_eos_io_core.cpp:7``,
+``src/diagnostics/diagnostics.hpp:8``,
+``src/diagnostics/todo/convective_heat_flx.cpp:8``,
+``src/output/output_type.hpp:22``, ``src/output/output_utils.hpp:10``,
+``src/interface/athena_arrays.hpp:3, 669`` and that one.
+
 The PR sequence below is a **plan**. No PR is started in this round, and
 nothing in it has been written, built or run. The combiner gate PR (O6a)
 comes before the deletion PR (O6b). "Bitwise" means every state and every written
@@ -2081,7 +2149,10 @@ file.
      - why
    * - O1
      - Delete never-compiled code: ``src/diagnostics``, the ``.cpp_``
-       files, ``z.junk``, ``stride_iterator.hpp``
+       files, ``z.junk``, ``stride_iterator.hpp``. The last one's only
+       includers are in ``src/diagnostics``; deleting it here closes lane
+       X's row for it (X deletes only the other two ``src/interface``
+       files, after O5).
      - bitwise
      - no compiled file changes
    * - O2
@@ -2117,7 +2188,12 @@ file.
        ``tests/test_eos_io_core.cpp``: its ``AthenaArray`` case
        (``:33-53``, the float32 → float64 copy of #350) becomes the same
        check on ``Frame::to_host()``; the two ``MoistEOS`` cases
-       (``:13-31``) are kept as they are.
+       (``:13-31``) are kept as they are. Port ``TestOutputType``
+       (``tests/test_user_output.cpp:39-100``, which reads ``pdata->data``
+       dims and elements) to ``Frame``/``Field`` accessors. Replace the sink
+       element reads (``netcdf.cpp:496-558``, ``pnetcdf.cpp:362-413``, 8
+       sites each) and the ``get_num_variables(…, pdata->data)`` calls
+       (section 3.1).
      - bitwise files
      - same values cast once, same layout (G-1). **Dependency:** lane X's
        deletion of all 1,008 ``src/interface`` lines needs O5 first. That
@@ -2142,7 +2218,10 @@ file.
      - bitwise
      - same files (G-4)
    * - O8
-     - Consumers, ``BudgetSeries``, the cycle line from the budget totals
+     - Consumers, ``BudgetSeries``, the cycle line from the budget totals.
+       ``BudgetCarry`` is written only when a budget output is requested; a
+       file without a carry starts a new interval at the first ``observe``
+       (G-4)
      - new file; cycle line bitwise if the summation order is kept
      - if the reduction order changes, only the last digits of the
        *printed* totals change, never the state
@@ -2305,6 +2384,7 @@ is refused for the first release, and O withdraws that request.
   ``src/implicit``. The answer will be filled in by a later revision. Until
   then both files stay in O's "moved" column (166 lines, not cut).
 * Owners of option headers: when to switch to the generator.
+
 
 **11.5 Responses to Tianhao's round-2 notes 1-17 (on rev 1 ``a39e0e8d``).**
 Each citation was checked at the pin before it was accepted. The note texts
@@ -2486,10 +2566,134 @@ reached this revision as one-line summaries.
        everywhere (``diagnostics.hpp``, ``budget_series.cdl``, sections 3.2
        and 5).
 
+**11.6 Responses to Xi's round-2 notes 1-12 (on ``b66b6745`` and
+``d69b5442``).** Citations are at pin ``9e5de2d4`` unless another sha is
+named.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 5 11 84
+
+   * - #
+     - reply
+     - change made and reason
+   * - 1
+     - accept
+     - ``hydro_w`` stays stored. ``restart.cpp:31-38`` copies every defined
+       entry of ``vars``, and keeping it avoids a new EOS call on load.
+
+       * Section 3.4 now lists ``hydro_w`` as stored.
+       * ``restart.hpp`` gains ``kRestartStoredKeys`` (12 keys).
+       * ``meshblock.cpp:1827-1829`` is now cited for what it does: rebuild
+         ``scalar_r``.
+       * Registers and ``StateStore`` tensors stay out of the
+         ``Variables`` that ``write_restart`` copies (requirement 10).
+   * - 2
+     - accept
+     - ``options_table.yaml`` gets three sample rows:
+
+       * ``dynamics.precision``, which exists at the pin
+         (``hydro_options.cpp:55, 67``; ``hydro.hpp:76``, default
+         ``float64``);
+       * ``integration.execution`` (``eager|graph``);
+       * ``integration.execution-strict``.
+
+       The two ``integration`` names are **provisional**. Choosing them is
+       Cheng's call (``V3_ROADMAP.md:300-301``, "choose final YAML/Python
+       names at G0/G1").
+   * - 3
+     - accept
+     - Three changes:
+
+       * (a) Section 6 no longer casts in ``observe``, because R holds
+         FP64 in both precisions (R:13-15).
+       * (b) Section 4: O reads ``boundary(dim)`` as area-integrated, so
+         the area is applied once, only to ``step_field``. R:100 does not
+         state the units, so a confirmation is added to R-O1.
+       * (c) R-O3: ``gravity_work`` as a source fixer is the fixer's
+         correction only (``hydro.hpp:301-311``), not R's face work (R:27),
+         which is inside ``boundary``.
+   * - 4
+     - accept
+     - One choice: the **host dt of the accepted step**.
+
+       * Section 7 and ``writer_core.hpp`` now agree:
+         ``accumulate_stats(vars, double dt)``.
+       * On the first call (the initial output, before any step) dt ≤ 0
+         and nothing is accumulated. That matches
+         ``output_type.cpp:302-306`` today.
+   * - 5
+     - accept
+     - Reworded to "no persistent or graph-visible allocation", in the
+       requirement 9 row and in section 7.
+   * - 6
+     - accept
+     - The closure is 33 lines by ``wc -l``: ``meshblock.cpp:1009-1035`` (27)
+       plus ``meshblock.hpp:223-228`` (6). Section 8.1 and section 9 now
+       say so.
+
+       X's booked figure stays at 29 new lines. Four of the 33 are already
+       inside X's own items (``1009-1012`` counts 1 new, and
+       ``meshblock.hpp:226`` is already counted), per the joint table. O's
+       numbers are unaffected.
+   * - 7
+     - agree
+     - Recorded. No change.
+   * - 8
+     - accept (blocking)
+     - O5 now lists all of the following:
+
+       * the port of ``TestOutputType`` (``tests/test_user_output.cpp:39-100``,
+         which reads ``pdata->data`` dims and elements) to ``Frame``/``Field``
+         accessors;
+       * the sink element reads (``netcdf.cpp:496-558``, 8 sites;
+         ``pnetcdf.cpp:362-413``, 8 sites) and the
+         ``get_num_variables(…, pdata->data)`` calls. Section 3.1 lists the
+         same.
+
+       The ``CopyFromTensor``/``InitFromTensor`` count in
+       ``load_diag_output_data.cpp`` is 14, not 16 (``rg -c``).
+
+       Section 10 states lane X's precondition as one grep:
+       ``rg -n 'athena_arrays|init_from_tensor' src tests python``. The only
+       allowed hit is ``src/turbulence/turbulence_model.hpp:9``, which is
+       outside the build. At the pin the grep has 8 hits:
+       ``test_eos_io_core.cpp:7``, ``diagnostics.hpp:8``,
+       ``convective_heat_flx.cpp:8``, ``output_type.hpp:22``,
+       ``output_utils.hpp:10``, ``athena_arrays.hpp:3, 669`` and that one.
+       O1, O5 and X's deletion remove all the others.
+   * - 9
+     - accept
+     - Section 3.4: on load, each stored tensor is ``copy_``\ ed into its
+       ``StateStore`` buffer, cast to that buffer's ``PrecisionPolicy`` row
+       dtype. A restart is written only after an accepted step (stage 0,
+       register empty, R:23-24), so the file needs no new stage or dtype
+       field.
+   * - 10
+     - accept
+     - ``BudgetCarry`` is written only when a budget output is requested. A
+       file without a carry, including pin-era files, starts a new budget
+       interval at the first ``observe``.
+
+       * Both cases are added to G-4 and to the O8 row.
+       * The stored set of a deck without a budget output does not change,
+         so there is no FOR CHENG item.
+   * - 11
+     - accept
+     - The requirement 6 row and ``diagnostics.hpp`` now use section 7's
+       wording: the monitor's host read is X's step-end retry read
+       (``meshblock.cpp:1566``), and O adds none per step. ``flush`` adds
+       only the cross-rank FP64 reduction at the budget cadence.
+   * - 12
+     - accept
+     - O1 keeps the ``stride_iterator.hpp`` deletion, whose only includers
+       are in ``src/diagnostics``. The O1 row now says it closes lane X's
+       row. The line count is unaffected: neither lane cuts it twice.
+
 12. Skeleton index
 ------------------
 
-``docs/v3/skeleton/O/`` holds declarations only: no function bodies, 285
+``docs/v3/skeleton/O/`` holds declarations only: no function bodies, 299
 lines in total (``wc -l``). Nothing in it is compiled or run.
 
 .. list-table::
@@ -2500,26 +2704,26 @@ lines in total (``wc -l``). Nothing in it is compiled or run.
      - lines
      - contents
    * - ``writer_core.hpp``
-     - 99
+     - 100
      - ``GridKind``, ``Field``, ``Frame``, ``Sink``, ``GriddedWriter``,
        ``combine_parts``; #350 helpers kept (section 3.1)
    * - ``diagnostics.hpp``
-     - 63
+     - 64
      - ``Consumer``, ``BudgetConsumer``, ``HydroFluxProfile`` and
        ``FieldDiagnostic``, reading lane R's ``FluxRegister::step_field`` and
        ``RegisterMonitor`` (R header ``543ff84f``; sections 3.2, 4)
    * - ``restart.hpp``
-     - 50
+     - 57
      - The #367 contract, bundle magic, ``OutputSchedule``,
        ``BudgetCarry``, read/write/check; no register state (requirement
        10) (section 3.4)
    * - ``options_table.yaml``
-     - 32
+     - 39
      - Table format; output, hydro and geometry sample rows, including
        ``SNAP_ANOMALY`` and the proposed ``SNAP_X1_CENTROID_EXACT`` row (the
        FP32 storage switches are removed, not tabled; section 3.3)
    * - ``gen_options.pyi``
-     - 17
+     - 15
      - Generator interface (section 3.3)
    * - ``budget_series.cdl``
      - 24
