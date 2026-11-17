@@ -416,17 +416,11 @@ generated members and defaults equal the pin's.
 * ``SNAP_ANOMALY``: the row ``dynamics/anomaly`` with ``env: SNAP_ANOMALY``,
   the only permanent override. It is named in the user-facing message at
   ``meshblock.cpp:1782`` and used on 5 test lines. **FOR CHENG.**
-* ``SNAP_FP32_STORAGE`` and ``SNAP_FP32_STORAGE_ROWS``: the rows
-  ``dynamics/fp32-storage`` (``off|step|stage``) and
-  ``dynamics/fp32-storage-rows`` (list, empty means all), each with the old
-  variable in ``env`` for one release. The ``env_or`` helper
-  (``fp32_storage.cpp:24-27``) goes.
-
-  Today the configuration is process-wide, because "every block and rank
-  must round the same rows" (``fp32_storage.cpp:89``). As a deck key it is
-  per block, and blocks built from one deck agree, the same argument #352
-  used for the covariance keys. **FOR CHENG**: Step 0 may no longer be
-  wanted now that FP32 arithmetic is merged (#361). If not, all 175 lines go.
+* ``SNAP_FP32_STORAGE`` and ``SNAP_FP32_STORAGE_ROWS``: **removed, not
+  tabled (settled: Cheng approved removing the FP32 storage emulation).**
+  The switches get no row in the options table. ``src/utils/fp32_storage.*``
+  (175 lines, counted in O) is deleted together with its application in
+  ``meshblock.cpp:621-642`` (22 lines, counted in lane X; section 8.1).
 
 **What the lane does not claim.** The ``ADD_ARG`` blocks, ``from_yaml``
 bodies, ``python/csrc/py*.cpp`` and ``.pyi`` stubs that the generator
@@ -497,9 +491,12 @@ Deleted:
   ``bc`` copy (``flip_zero_impl.h:202``). ``test_rectify`` is ported to
   ``T = int`` (gate G-6).
 
+* ``fp32_storage.{cpp,hpp}`` (119 + 56): the FP32 storage emulation.
+  **Settled: Cheng approved its removal.** Its callers in lane X's files are
+  listed in section 8.1.
+
 Kept: ``log.hpp``, ``loops.cuh``, ``on_host.hpp`` and
-``tensor_cast_cache.hpp`` (11, 8, 3 and 3 includers), and ``fp32_storage.*``
-(section 3.3).
+``tensor_cast_cache.hpp`` (11, 8, 3 and 3 includers).
 
 3.6 Decisions and FOR CHENG
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -509,19 +506,23 @@ Kept: ``log.hpp``, ``loops.cuh``, ``on_host.hpp`` and
 * ``netcdf``: requested by 18 of 25 ``examples/*.yaml`` and 4 files in
   ``tests/``.
 * ``restart``.
-* ``pnetcdf``, as a sink. **FOR CHENG**: it is used by
-  ``examples/straka.yaml:57`` and ``shallow_splash.yaml:58``, and no test
+* ``pnetcdf``, as a sink. **Settled: Cheng decided it stays.** It is used
+  by ``examples/straka.yaml:57`` and ``shallow_splash.yaml:58``. No test
   runs it on several ranks (``tests/run_straka.cmake:28`` swaps it for
-  netcdf).
+  netcdf), so that test is added with the sink (section 10, O5).
 * ``budget`` (new).
 
 Removed:
 
-* ``hdf5`` and ``fits`` stubs. **FOR CHENG**: #356 kept them as possibly
-  meant to be filled in.
-* the ``super-resolution`` option. **FOR CHENG.**
-* ``mppnccombine`` in the library, after gate G-2. **FOR CHENG**: is it
-  used on files snapy did not write?
+* ``hdf5`` and ``fits`` stubs. **Settled: removal approved by Cheng.**
+* the built-in GFDL combiner ``mppnccombine.cpp``. **Settled: removal
+  approved by Cheng.** It is replaced by the smaller ``combine_parts``
+  (decision in section 10.1).
+* the FP32 storage emulation (``SNAP_FP32_STORAGE``,
+  ``SNAP_FP32_STORAGE_ROWS``, ``src/utils/fp32_storage.*``). **Settled:
+  removal approved by Cheng.**
+* the ``super-resolution`` option. **FOR CHENG (still open).** I proceed on
+  this proposal; the row stays.
 
 **D2 The legacy input parser goes.** ``parameter_input.*`` and
 ``io_wrapper.*`` (1,357 lines) have no caller and no deck uses their format.
@@ -532,14 +533,13 @@ If a workflow needs one, an Athena++-to-YAML converter belongs in
 list becomes budget rows or ``FieldDiagnostic`` entries when someone needs
 them, written against the register.
 
-**FOR CHENG, all items:**
+**Settled by Cheng (2026-11-18):** pnetcdf stays; the hdf5/fits stubs,
+``mppnccombine.cpp`` and the FP32 storage emulation are removed.
 
-* pnetcdf;
-* hdf5/fits;
-* super-resolution;
-* outside use of mppnccombine;
-* the ``SNAP_ANOMALY`` override;
-* the FP32 storage emulation.
+**Still FOR CHENG** (I proceed on the proposal and keep the rows):
+
+* super-resolution (removed in this design, with ``utils/refine.*``);
+* the ``SNAP_ANOMALY`` override (kept as the only ``env`` row).
 
 3.7 Open choices made, with reasons
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -551,12 +551,13 @@ O-2 Moves are not cuts. Moving files leaves the repository's size the same.
 
 O-3 Budget in NetCDF, not CSV (section 3.2).
 
-O-4 pnetcdf stays. It costs about 130 lines with the core, and two example
-decks use it.
+O-4 pnetcdf stays (settled by Cheng). It costs about 130 lines with the
+core.
 
-O-5 mppnccombine is replaced, not moved to ``tools/``. The replacement is a
-fifth of the size and has no file-scope state. It is gated on bitwise
-variables.
+O-5 mppnccombine is removed (settled by Cheng) and replaced by
+``combine_parts``, not moved to ``tools/``. The replacement is a fifth of
+the size and has no file-scope state. Section 10.1 records why a
+replacement is still needed.
 
 O-6 Generated files are not checked in, except the ``.pyi`` stubs, which
 IDEs need without a build.
@@ -564,8 +565,8 @@ IDEs need without a build.
 O-7 ``SNAP_ANOMALY`` stays as an override. It is named in a user-facing
 message.
 
-O-8 The FP32 storage variables keep an ``env`` column for one release, so
-existing scripts warn instead of silently changing behaviour.
+O-8 (withdrawn) The FP32 storage variables no longer get an ``env`` row:
+the emulation is removed (settled by Cheng).
 
 O-9 The line estimates come from the skeleton plus the live code they keep.
 A +50 % sensitivity is given in section 9.
@@ -736,8 +737,11 @@ by G0 baselines, not here.
   nothing that R kept.
 * **Restart.** #367's rules are unchanged: FP64 totals, anomaly bits in the
   run dtype, FP64 background and grid, and rejection of changed grids.
-* **FP32 storage emulation.** It stays bitwise as long as the deck key
-  equals the old variable's value (G-3).
+* **FP32 storage emulation.** Removed (settled by Cheng). Runs that never
+  set ``SNAP_FP32_STORAGE`` are unchanged: with the variable unset, the
+  emulation is off (``fp32_storage.cpp:92``, default ``"off"``) and
+  ``round_storage`` returns at ``meshblock.cpp:623``. Real FP32 arithmetic
+  (#361) is not affected.
 
 7. CUDA-graph contract
 ----------------------
@@ -854,6 +858,24 @@ To the mesh owner (lane X, Xi):
    * - ``meshblock.cpp:1210`` (``AccumulateStats`` call)
      - 1
      - Takes ``dt`` as a device scalar (section 7).
+   * - ``meshblock.cpp:621-642`` (``round_storage``,
+       ``round_storage_after_stage``)
+     - 22
+     - **Delete; counted in lane X, not in O.** The FP32 storage emulation
+       is removed (settled by Cheng). Verified at the pin: ``:621``
+       ``bool MeshBlockImpl::round_storage(...)`` through ``:642``, the
+       closing brace of ``round_storage_after_stage``; 22 lines
+       (``git show 9e5de2d4:src/mesh/meshblock.cpp | sed -n 621,642p``).
+   * - Other emulation sites in X's files: ``meshblock.cpp:22`` (include),
+       ``:618`` (call), ``meshblock.hpp:207-215`` (declarations and
+       comment), ``mesh.cpp:358, 405`` (calls)
+     - 1 + 1 + 9 + 2
+     - Delete with the range above; counted in lane X. Outside both lanes:
+       ``python/csrc/pymesh.cpp:238-247, 331-343`` and
+       ``python/snapy/mesh.pyi:175, 220-222`` (the ``round_storage``
+       bindings), ``tests/test_fp32_storage.cpp`` (79),
+       ``tests/test_anomaly_storage.py:396`` (the ``fp32`` arm) and
+       ``tests/CMakeLists.txt:8, 359, 816``.
 
 To the implicit owner (lane I, Xinyue):
 
@@ -906,10 +928,12 @@ The baseline per file is ``git show 9e5de2d4:<path> | wc -l``.
 * "moved" is not cut.
 * cut = pin − proposed − moved.
 
-Proposed sizes are *estimates*. The per-file numbers are unchanged from the
-first revision. Revision 2 adds a reachability class to every row (section
-9.1). It splits the total into what the evidence supports now and what
-depends on a gate or a decision by Cheng.
+Proposed sizes are *estimates*. Revision 2 adds a reachability class to
+every row (section 9.1) and applies Cheng's decisions of 2026-11-18. One
+per-file number changed: ``src/utils/fp32_storage.{cpp,hpp}`` goes from
+95 + 55 kept to 0 + 0, because the emulation is removed. Every other row is
+as in revision 1. ``meshblock.cpp:621-642`` (22 lines), where the emulation
+is applied, **counts in lane X**, not here (section 8.1).
 
 **Baseline recheck (revision 2).** The per-directory sums at the pin,
 counting ``.cpp``/``.hpp``/``.h``/``.cu``/``.cuh`` and leaving out
@@ -1080,19 +1104,22 @@ What reaches it:
 
 No script calls an external ``mppnccombine``. ``pd-combine``
 (``python/api/pd_combine.py``) uses ``ncrcat``, ``ncks`` and ``fitsmerge``,
-not this code. **Verdict: live. Its deletion is a replacement by
-``combine_parts``, and holds only once gate G-2 (section 5) passes.**
+not this code. **Verdict: live.** Cheng approved removing it
+(2026-11-18). It is replaced by ``combine_parts`` (section 10.1), and the
+deletion PR merges once gate G-2 (section 5) passes.
 
 Side finding: ``pd_combine.py:72-74`` merges ``*.out?.?????.fits`` files
 with ``bin/fitsmerge``, while the library cannot write FITS
-(``FITSOutput`` has no definition). This adds to the FOR CHENG item on
-FITS.
+(``FITSOutput`` has no definition). That Python helper is outside the
+library and keeps working on any FITS files a user already has. The FITS
+stub is removed (settled by Cheng).
 
 9.2 Cut, by what supports it
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Old headline (revision 1): 5,627 lines (56.3 %), all of it counted as cut.
-Revision 2 counts each piece only when its evidence holds:
+Before (revision 2 part 1, ``a5325be7``): 4,413 lines (44.1 %) backed by
+evidence; 5,197 (52.0 %) after G-2; 5,627 (56.3 %) after G-6 and Cheng.
+After Cheng's decisions:
 
 .. list-table::
    :header-rows: 1
@@ -1102,31 +1129,29 @@ Revision 2 counts each piece only when its evidence holds:
      - cut
      - %
      - depends on
-   * - Never-compiled code (a), built but unreferenced code (b) and the other
-       unreferenced utilities, the rewrites and merges; the combiner, the
-       ``utils/flip_zero`` copy and ``refine``/super-resolution **kept**
-     - **4,413**
-     - **44.1**
-     - nothing beyond 9.1
-   * - plus the combiner replaced by ``combine_parts`` (+1,014 − 200 − 30)
-     - 5,197
-     - 52.0
-     - gate G-2
-   * - plus ``utils/flip_zero`` (350, gate G-6) and ``refine`` (80, FOR
-       CHENG)
-     - 5,627
-     - 56.3
+   * - Settled: never-compiled code (a), built-but-unreferenced code (b),
+       the other unreferenced utilities, the rewrites and merges, plus
+       Cheng's approved removals (``mppnccombine.cpp`` replaced by
+       ``combine_parts``, the hdf5/fits stubs, ``fp32_storage.*``)
+     - **5,347**
+     - **53.5**
+     - section 9.1 and Cheng's decisions
+   * - plus ``utils/flip_zero`` (350, gate G-6) and ``refine`` (80,
+       super-resolution, still FOR CHENG)
+     - 5,777
+     - 57.8
      - G-6 and Cheng
    * - strict reading: (b) kept as well (−1,544 from the first row)
-     - 2,869
-     - 28.7
-     - would fall below the 30 % target
+     - 3,803
+     - 38.0
+     - still above the 30 % target
 
-**The figure that the evidence supports today is 4,413 lines (44.1 %).**
-The 56.3 % of revision 1 holds only after G-2, G-6 and Cheng's answer on
-super-resolution. The strict-reading row shows that the target depends on
-(b). The evidence in 9.1 is that (b) has no referenced symbol. Each row of
-the table below carries its class. ``O_lines.csv`` has the same column.
+**Settled cut: 5,347 lines (53.5 %).** It is up from 4,413 because the
+combiner (+784 net of its replacement) and the FP32 storage emulation
+(+150) are now approved removals. The combiner's replacement still has to
+pass G-2 before its deletion PR merges. The design target with every row is
+5,777 lines (57.8 %). Each row of the table below carries its class.
+``O_lines.csv`` has the same column.
 
 .. list-table::
    :header-rows: 1
@@ -1361,7 +1386,7 @@ the table below carries its class. ``O_lines.csv`` has the same column.
      - 0
      - 
      - 27
-     - delete; built, unreferenced
+     - delete; built, unreferenced; removal approved by Cheng
      - stub; body only under never-defined HDF5OUTPUT, signature does not match the header
    * - ``src/output/load_diag_output_data.cpp``
      - 338
@@ -1396,7 +1421,7 @@ the table below carries its class. ``O_lines.csv`` has the same column.
      - 0
      - 
      - 1014
-     - delete; LIVE, replaced (gate G-2)
+     - delete; LIVE, removal approved by Cheng; replaced by combine_parts (gate G-2)
      - GFDL tool; replaced by combine_parts in writer_core.cpp
    * - ``src/output/netcdf.cpp``
      - 583
@@ -1512,18 +1537,18 @@ the table below carries its class. ``O_lines.csv`` has the same column.
      - 
    * - ``src/utils/fp32_storage.cpp``
      - 119
-     - 95
+     - 0
      - 
-     - 24
-     - rewrite; live, rewritten
-     - env parsing replaced by options table key
+     - 119
+     - delete; LIVE feature, removal approved by Cheng
+     - FP32 storage emulation; removal approved by Cheng
    * - ``src/utils/fp32_storage.hpp``
      - 56
-     - 55
+     - 0
      - 
-     - 1
-     - keep; live, kept
-     - 
+     - 56
+     - delete; LIVE feature, removal approved by Cheng
+     - same; meshblock.cpp:621-642 counts in lane X
    * - ``src/utils/fp64_store.hpp``
      - 85
      - 0
@@ -1694,30 +1719,30 @@ the table below carries its class. ``O_lines.csv`` has the same column.
      - CLI around combine_parts for combine: false
    * - **baseline (71 files)**
      - **9996**
-     - **3089**
+     - **2939**
      - **650**
-     - **6257**
+     - **6407**
      - 
-     - src only: 62.6% cut
+     - src only: 64.1% cut
    * - **including new files outside src**
      - 
      - **630**
      - 
-     - **5627**
+     - **5777**
      - 
-     - 56.3% cut; target 30% = 2,999
+     - 57.8% cut; target 30% = 2,999
 
-**Totals (design target, all gates passed).**
+**Totals.**
 
-* Baseline: 9,996 lines in 71 files.
-* Kept in place: 2,569. New in ``src``: 520. Moved out unchanged: 650.
-* Cut in ``src`` only: 6,257 lines (62.6 %).
-* Cut including the 630 new lines outside ``src``: 5,627 lines (56.3 %).
-  Evidence-backed today: **4,413 lines (44.1 %)** (section 9.2). The 30 %
-  target is 2,999.
-* If every rewritten or new file is 50 % over its estimate: 4,000 lines
-  (40.0 %) for the design target.
-* A further 925 lines outside the baseline are deleted and not counted.
+* Baseline: 9,996 lines in 71 files (rechecked at the pin, section 9).
+* Kept in place: 2,419. New in ``src``: 520. Moved out unchanged: 650.
+* Cut in ``src`` only: 6,407 lines (64.1 %).
+* Cut including the 630 new lines outside ``src``: 5,777 lines (57.8 %).
+  **Settled: 5,347 lines (53.5 %)** (section 9.2). The 30 % target is 2,999.
+* If every rewritten or new file is 50 % over its estimate: 4,197 lines
+  (42.0 %) for the design target.
+* Not counted: 925 lines deleted outside the baseline, and the 22 + 13
+  lines of FP32 storage application in lane X's files (section 8.1).
 
 10. Migration
 -------------
@@ -1747,6 +1772,16 @@ file.
        ``test_rectify``
      - bitwise
      - no caller (section 2.1)
+   * - O2b
+     - Remove the FP32 storage emulation: ``src/utils/fp32_storage.*``
+       (O), ``meshblock.cpp:621-642`` and the other X sites (X, section
+       8.1), the ``round_storage`` bindings, ``test_fp32_storage`` and the
+       ``fp32`` arm of ``test_anomaly_storage.py``
+     - bitwise for every run that does not set ``SNAP_FP32_STORAGE``
+     - with the variable unset the emulation is off
+       (``fp32_storage.cpp:92``) and ``round_storage`` returns at
+       ``meshblock.cpp:623``; runs that set it lose the emulation (approved
+       by Cheng)
    * - O3
      - Moves: ``command_line`` to ``examples/``, ``fp64_store``,
        ``signal_handler``, ``math``
@@ -1763,9 +1798,10 @@ file.
      - bitwise files
      - same values cast once, same layout (G-1)
    * - O6
-     - ``combine_parts`` replaces ``mppnccombine``
+     - ``combine_parts`` replaces ``mppnccombine`` (removal approved by
+       Cheng; section 10.1)
      - bitwise variables
-     - G-2
+     - G-2 is run on the PR before ``mppnccombine.cpp`` is deleted
    * - O7
      - Restart merge; the reader throws
      - bitwise
@@ -1776,15 +1812,68 @@ file.
      - if the reduction order changes, only the last digits of the
        *printed* totals change, never the state
 
+10.1 Is a replacement combiner still needed?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Decision: yes. ``combine_parts`` (about 200 lines in
+``writer_core.cpp``, *estimate*) replaces ``mppnccombine.cpp``.** The
+command-line wrapper ``snap-combine`` (``tools/snap_combine.cpp``, about 30
+lines) covers parts written with ``combine: false``.
+
+**Why.** Cheng approved removing the 1,014-line GFDL code, not the
+behaviour it provides. Without a combiner, every multi-block netcdf output
+would change from one file per frame to one file per block, and that
+breaks what depends on the single file:
+
+* the default ``combine: true`` (``output_type.hpp:85``);
+* ``test_output_barrier`` ("a block is missing from the combined file",
+  ``test_output_barrier.cpp:81``) and ``test_user_output.cpp:427``;
+* the decomposition tests (``tests/CMakeLists.txt:719-754``), which run
+  ``pd-combine`` on combined ``<case>.out<n>.<kkkkk>.nc`` files;
+* the multi-block decks in section 9.1 (c).
+
+The alternatives do not cover this:
+
+* PnetCDF (kept) writes one file collectively, but only with
+  ``blocks_per_process=1`` (``pnetcdf.cpp:79-83``), only in float
+  (``:58-61``), without slices (``:51-53``) and only in ``PNETCDF=ON``
+  builds (``meshblock.cpp:236-241``).
+* Gathering every block to the root and writing once removes the part
+  files, but puts the whole field in the root's memory.
+
+``combine_parts`` reads only the attributes snapy writes
+(``domain_decomposition``, ``NumFilesInSet``; ``netcdf.cpp:163-262``) and
+has no file-scope state.
+
+**What a user runs in place of the built-in combiner:**
+
+* Default (``combine: true``): nothing. The run writes the combined
+  ``<basename>.out<n>.<kkkkk>.nc`` itself, as today, through
+  ``combine_parts``.
+* Parts kept with ``combine: false``, or parts from an older run:
+  ``snap-combine <basename>.out<n>.<kkkkk>.nc <basename>.block*.out<n>.<kkkkk>.nc``.
+  The first argument is the output; the rest are the parts, as the library
+  passes them today (``combine_netcdf.cpp:49-71``).
+* Equivalent external tool, for users who already have it: GFDL
+  FRE-NCtools' standalone ``mppnccombine -r <out.nc> <parts...>``. This is
+  the same program and the same ``-r`` call the library makes today
+  (``combine_netcdf.cpp:68-73``). **Hypothesis**: a current FRE-NCtools
+  build reads snapy's NETCDF4 parts like the in-tree V2.1.7 copy; not
+  tested.
+
 **Options and paths removed:**
 
 * output type ``hdf5`` (never registered);
 * the output key ``super-resolution`` and its Python binding;
 * the warnings for ``SNAP_FLUX_COVARIANCE`` and ``SNAP_X1_MASS_COVARIANCE``;
-* the ``SNAP_FP32_STORAGE`` and ``SNAP_FP32_STORAGE_ROWS`` variables, after
-  one release with a warning;
+* the ``SNAP_FP32_STORAGE`` and ``SNAP_FP32_STORAGE_ROWS`` variables and
+  the Python methods ``MeshBlock.round_storage`` / ``Mesh.round_storage``
+  (``python/csrc/pymesh.cpp:238-247, 331-343``; no caller in ``examples``,
+  ``tests`` or ``python`` scripts: ``rg -n round_storage examples tests
+  python/*.py python/api`` is empty), settled by Cheng;
 * the Athena++ input format;
-* the built-in ``mppnccombine``;
+* the built-in ``mppnccombine`` (settled by Cheng; replaced by
+  ``combine_parts`` and ``snap-combine``, section 10.1);
 * the duplicate slice validation at ``meshblock.cpp:203-230``.
 
 11. Open questions to other lanes
@@ -1841,7 +1930,7 @@ X-3. Who calls graph and cache invalidation after ``read_restart``:
 12. Skeleton index
 ------------------
 
-``docs/v3/skeleton/O/`` holds declarations only: no function bodies, 279
+``docs/v3/skeleton/O/`` holds declarations only: no function bodies, 276
 lines in total (``wc -l``), not built. The ``.hpp`` files were
 syntax-checked with ``clang++ -fsyntax-only`` against a stub torch header.
 
@@ -1867,10 +1956,10 @@ syntax-checked with ``clang++ -fsyntax-only`` against a stub torch header.
        ``BudgetCarry``, read/write/check; no register state (requirement
        10) (section 3.4)
    * - ``options_table.yaml``
-     - 30
+     - 27
      - Table format; output and hydro sample rows, including
-       ``SNAP_ANOMALY``, ``SNAP_FP32_STORAGE`` and
-       ``SNAP_FP32_STORAGE_ROWS`` (section 3.3)
+       ``SNAP_ANOMALY`` (the FP32 storage switches are removed, not tabled;
+       section 3.3)
    * - ``gen_options.pyi``
      - 17
      - Generator interface (section 3.3)

@@ -24,7 +24,4 @@ options:
   - {name: x1_mass_covariance, key: x1-mass-covariance, type: bool, default: false, doc: "#352"}
   # env overrides the deck (hydro_options.cpp:84-95); FOR CHENG
   - {name: anomaly, key: anomaly, type: bool, default: false, env: SNAP_ANOMALY, doc: "anomaly storage"}
-  # Step-0 FP32 storage emulation; today env only, read once per process
-  # (fp32_storage.cpp:88-97, getenv at :25); FOR CHENG: keep or drop
-  - {name: fp32_storage, key: fp32-storage, type: "enum[off,step,stage]", default: "off", env: SNAP_FP32_STORAGE, doc: "round stored state through float32 (fp32_storage.cpp:92)"}
-  - {name: fp32_storage_rows, key: fp32-storage-rows, type: "list[string]", default: [], env: SNAP_FP32_STORAGE_ROWS, doc: "rows to round, empty = all (fp32_storage.cpp:93)"}
+  # SNAP_FP32_STORAGE(_ROWS) get no row: the emulation is removed (Cheng)
