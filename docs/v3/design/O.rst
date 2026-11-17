@@ -75,6 +75,65 @@ Each claim used here was rechecked at the pin.
 * The formats and parser decisions, with the FOR CHENG items: section 3.6.
   Open choices: section 3.7.
 
+1.1 Change list
+~~~~~~~~~~~~~~~
+
+**Rev 5 final** (on ``5a7b46fa``; pin ``9e5de2d4``; register header R rev 2.2
+``4c59162a``).
+
+* **Part 1, EF/F6.** ``src/output/output_utils.cpp:53-55`` (``eps``,
+  ``tke``, ``mut``; verified at the pin) is deleted with ``src/turbulence``
+  (Cheng's F6; EF rev 3.4 ``b7bece9c``). Lane O counts it as its own row.
+  The cut does not move, because the rewrite estimate already excluded
+  these dead names (section 9).
+* **Part 1, RULING V3-2.** From R-1 the positivity census lives in R's
+  monitor per accepted step. O's ``observe`` accumulates the lifetime sums
+  after the accept (section 4).
+* **Item 1, lane S ranges final.** Jiheng's final split, in the lane S
+  thread, matches 9.3 exactly. Each range was re-verified with ``wc -l`` at
+  the pin.
+
+  * To O, 127 lines: ``coordinate.cpp:62-114`` (53), ``:125-149`` (25),
+    ``:213-214`` (2); ``layout.cpp:249-272`` (24);
+    ``internal_boundary.cpp:14-36`` (23).
+  * Stays in S, 99 lines: ``coordinate.cpp:115-124`` (10), ``:150-178``
+    (29), ``:179-212`` (34), ``:215-240`` (26).
+
+  The wording that said the ranges were pending is removed. Under RULING V3-1, S counts the
+  deletion and O counts only its +20 new lines. Section 9 is unchanged.
+* **Item 2, C18.** O's replies to Tianhao's notes 8 and 9 (11.5) are
+  re-cited to lane C rev 6.2,
+  ``bcac27c97a9efc1de2cb2041e6b709f07eedcefe`` (happysky19/snapy
+  ``v3-design/C``). The old counter names ``face_floor_count`` and
+  ``pstar_clamp_count`` become C's five names, adopted by R
+  (``C.rst:1249-1251`` at ``bcac27c9``): ``face_floor.rho``,
+  ``face_floor.p``, ``face_floor.species``, ``riemann.pstar_clamp`` and
+  ``riemann.llf``. No citation of C's older heads remains in ``docs/v3``.
+
+  The register header stays at ``4c59162a``. R rev 2.3 ``2b4c5775`` changes
+  only comments in ``flux_register.hpp``: same 117 lines, and the
+  declarations with comments stripped are identical.
+* **Item 3, C14: matches.** C rev 6.2 says the five hand-written option rows
+  (``ReconstructOptionsImpl::type``, ``scale``, ``shock``;
+  ``RiemannSolverOptionsImpl::type``, ``dir``) are rows of O's one
+  generated table. Lane O owns the table and the generator, and lane C owns
+  the keys' meaning and proposes the defaults (``C.rst:873-881`` at
+  ``bcac27c9``). The rows stay in lane C's headers until lane C switches
+  them to O's generator after O's PR O4 (``C.rst:26-27, 44-45,
+  883-885``).
+
+  That is O's own statement:
+
+  * one generated table, O owns it (section 3.3; 9.3, "Options rows belong
+    in the one generated table");
+  * the ``ADD_ARG`` blocks belong to the lane that owns the header
+    (section 3.3, "What the lane does not claim");
+  * other lanes switch after O4 (section 8.2, item 4).
+
+  No change to O, and no conflict. C notes that its own line estimate still
+  counts the 5 generated lines (``C.rst:886-888``). That is C's count; O
+  counts no lines of C's headers.
+
 2. Concepts and current sites
 -----------------------------
 
@@ -2400,10 +2459,10 @@ adds only:
 
 These are the two addition rows in the table above. Whether S deletes the
 127 lines or all 226 is S's count; O books none of the deletion.
-O keeps 127/99 in this revision. **The final ranges follow S rev 2**
-(Xinyue, ``S.rst`` section 9, due 18:00 EST). O maps to schema rows
-exactly the rows S deletes. If S's ranges differ from the 127 above, the
-next revision adjusts 9.3; O's +20 does not depend on the split.
+**Final.** Lane S's final split (Jiheng, lane S thread) is the table above:
+127 lines to O and 99 stay in S, each range re-verified with ``wc -l`` at
+the pin. O maps to schema rows exactly the 127 lines S deletes. Under
+RULING V3-1, S counts the deletion and O counts only its +20 new lines.
 
 10. Migration
 -------------
@@ -2532,7 +2591,9 @@ file.
 * **Writes:** one merged NETCDF4 file at the output path, then removes the
   parts.
 * **Returns:** 0, or a netcdf error code. ``combine_netcdf.cpp:77-83``
-  turns a nonzero code into the existing exception. In-run combining stays, and ``combine`` keeps its
+  turns a nonzero code into the existing exception.
+
+In-run combining stays, and ``combine`` keeps its
 default of true (``src/output/output_type.hpp:85``:
 ``ADD_ARG(bool, combine) = true;``). Users see no change: one merged netcdf
 file per output frame, ``<basename>.out<n>.<kkkkk>.nc``, as today.
@@ -2687,7 +2748,7 @@ reached this revision as one-line summaries.
    :header-rows: 1
    :widths: 5 13 82
 
-   * - #
+   * - note
      - reply
      - change made, with ``file:line`` at the pin
    * - 1
@@ -2763,9 +2824,10 @@ reached this revision as one-line summaries.
          enter ``sum fixer``.
    * - 8
      - accept
-     - Lane C posts flux density per unit face area, in the global frame,
-       per (direction, stage) slot (``riemann.hpp:18-21`` and ``C.rst``
-       755-757 at C's head ``a7155840803fb95ff0d1563f5b3e2792b87f7594``).
+     - Lane C posts flux density per unit face area, in coord's
+       ``flux2global<d>_`` frame, into ``slot(d, "riemann")`` per direction
+       and stage (``riemann.hpp:17-21`` and ``C.rst:1046`` at C rev 6.2,
+       ``bcac27c97a9efc1de2cb2041e6b709f07eedcefe``).
 
        * Lane O now uses R's names (frozen header ``4c59162a``).
          ``FluxRegister::step_field(dim)`` is the FP64 step transfer per
@@ -2776,10 +2838,18 @@ reached this revision as one-line summaries.
          removed (section 4).
    * - 9
      - accept
-     - ``budget_series.cdl`` now has ``int64 face_floor_count`` (C's
-       ``FaceFloor`` int64 counter, ``C.rst`` :660 at ``a7155840``) and
-       ``int64 pstar_clamp_count`` (``FaceFlux::events`` bit 0, uint8 per
-       face, ``riemann.hpp:30``).
+     - ``budget_series.cdl`` writes C's counters by name through
+       ``counter_names()``/``counters()`` (int64). These are C's five names,
+       adopted by R (``C.rst:1244-1251`` at ``bcac27c9``):
+
+       * ``face_floor.rho``, ``face_floor.p``, ``face_floor.species``
+         (``FaceFloor``);
+       * ``riemann.pstar_clamp`` (``FaceFlux::events`` bit 0,
+         ``riemann.hpp:30``);
+       * ``riemann.llf``.
+
+       Rev 5 final replaced the older ``face_floor_count`` and
+       ``pstar_clamp_count`` (C18).
 
        * Counts are ``int64``.
        * Fractions and minima are ``double``.
@@ -2867,7 +2937,7 @@ named.
    :header-rows: 1
    :widths: 5 11 84
 
-   * - #
+   * - note
      - reply
      - change made and reason
    * - 1
