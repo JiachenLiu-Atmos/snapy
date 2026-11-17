@@ -1221,18 +1221,67 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     _positivity_severe += ((ti < 0.9) & above).sum();
     torch::minimum_out(_positivity_min, _positivity_min, ti.min());
 
-    // the energy each species carries, from w, ghosts included: exchanging it
-    // with theta changed no bit, so it is not exchanged (#238)
+    // the energy each species carries, from w; its ghost layer is synced like
+    // theta's (a raw copy at seams, never interpolated): the carry below
+    // removes theta's withheld share at its donor's enthalpy, and a panel-seam
+    // donor is the neighbour's edge cell, so both ranks must read the same one
     auto hspec = peos->species_enthalpy(w);
     flux_positivity_sync_theta_(pmb, theta, "hydro_theta");
+    if (hspec.defined()) flux_positivity_sync_theta_(pmb, hspec, "hydro_hspec");
 
     // theta's depth is not its consequence: measure the flux it removes
     auto f1_pre = f1.defined() ? f1.abs() : torch::Tensor();
 
     // the withheld species mass keeps its energy and momentum in the donor
     if (hspec.defined()) {
+      // a lateral face's momentum flux is covariant in the face's own basis
+      // (flux2global2_, 3_), and each block of a panel seam holds its own copy
+      // of the face: carry each donor's velocity as a face state, synced
+      // across the seam like them and taken to that basis, so both copies
+      // withhold the same momentum
+      torch::Tensor vface[2];
+      if (playout && playout->options->type() == "cubed-sphere") {
+        std::vector<int> dims;
+        if (_flux2.defined() && u.size(DIM2) > 1) dims.push_back(DIM2);
+        if (_flux3.defined() && u.size(DIM3) > 1) dims.push_back(DIM3);
+        std::vector<Variables> fv(dims.size());
+        for (size_t d = 0; d < dims.size(); ++d) {
+          int n = w.size(dims[d]);
+          auto lo = torch::zeros_like(w), hi = torch::zeros_like(w);
+          lo.narrow(0, IVX, 3).narrow(dims[d], 1, n - 1) =
+              w.narrow(0, IVX, 3).narrow(dims[d], 0, n - 1);
+          hi.narrow(0, IVX, 3) = w.narrow(0, IVX, 3);
+          fv[d]["hydro_vlo:+"] = lo;
+          fv[d]["hydro_vhi:-"] = hi;
+        }
+        // a seam's x2 edge may be its neighbour's x3 edge: both directions
+        // are in flight together, as for the face states
+        SyncOptions fo;
+        fo.cross_panel_only(true).interpolate(false).type(kPrimitive);
+        std::vector<std::vector<CommWorkPtr>> works(dims.size());
+        for (size_t d = 0; d < dims.size(); ++d)
+          pmb->begin_exchange(fv[d], fo.dim(dims[d]));
+        for (size_t d = 0; d < dims.size(); ++d)
+          pmb->launch_exchange(fo.dim(dims[d]), works[d]);
+        for (size_t d = 0; d < dims.size(); ++d) {
+          pmb->finalize_exchange(fv[d], fo.dim(dims[d]), works[d]);
+          for (auto const& t : {fv[d]["hydro_vlo:+"], fv[d]["hydro_vhi:-"]}) {
+            if (dims[d] == DIM2) {
+              pmb->pcoord->prim2local2_(t);
+              pmb->pcoord->flux2global2_(t);
+            } else {
+              pmb->pcoord->prim2local3_(t);
+              pmb->pcoord->flux2global3_(t);
+            }
+          }
+          vface[dims[d] == DIM2 ? 0 : 1] =
+              torch::stack({fv[d]["hydro_vlo:+"].narrow(0, IVX, 3),
+                            fv[d]["hydro_vhi:-"].narrow(0, IVX, 3)});
+        }
+      }
       flux_positivity_carry_(theta, hspec, u.narrow(0, IVX, 3) / w[IDN], _flux1,
-                             _flux2, _flux3, pmb->pcoord, fsed1);
+                             _flux2, _flux3, pmb->pcoord, fsed1, vface[0],
+                             vface[1]);
     }
     flux_positivity_scale_(theta, f1, f2, f3, pmb->pcoord);
 

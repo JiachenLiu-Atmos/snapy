@@ -1,10 +1,11 @@
 // Conservation budget on closed decks to C n eps, every step: mass, species,
 // E + P (face work; P the corrected PE) or E + rho phi (cell work + fixer), x2
-// momentum where periodic. Per stage: x1 walls pass no mass, x2 wrap faces
-// agree.
+// momentum where periodic, the axial angular momentum with rain on the cubed
+// sphere. Per stage: x1 walls pass no mass, x2 wrap faces agree.
 #include <gtest/gtest.h>
 #include <yaml-cpp/yaml.h>
 
+#include <snap/coord/gnomonic_equiangle.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/mesh/mesh.hpp>
 
@@ -16,6 +17,11 @@ struct Case {  // gw: cell (+ fixer) or face; per: periodic x2/x3; vsed: rain
   bool per, pocket;
   double vsed = 0., qv = 0.01;
   int key = 2;  // dynamics/conversion-order
+  // graft: species, reactions and moist eos from this deck; x1top: x1max =
+  // x1min + x1top (0: the deck's)
+  char const* graft = nullptr;
+  double x1top = 0.;
+  int nstep = 20;
 };
 double const C = 4., kEps = 2.220446049250313e-16, g = 10.;
 bool const kMp = getenv("SNAP_BUDGET_MP") != nullptr;  // E2: three ranks
@@ -32,6 +38,19 @@ std::string card(Case const& c) {  // the in-tree deck, closed and small
   d["forcing"]["const-gravity"]["grav1"] = -g;
   d["forcing"]["const-gravity"]["gravity-work"] = c.gw;
   d["dynamics"]["conversion-order"] = c.key;
+  bool cubed = d["geometry"]["type"].as<std::string>() == "gnomonic-equiangle";
+  if (cubed && c.vsed != 0.)  // the AAM in flux form (#314), gated below
+    d["dynamics"]["conserve-axial-momentum"] = "transport";
+  if (c.graft) {  // the graft deck's species and microphysics on this grid
+    auto gd = YAML::LoadFile(c.graft);
+    d["species"] = gd["species"], d["reactions"] = gd["reactions"];
+    d["dynamics"]["equation-of-state"]["type"] = "ideal-moist";
+    d["dynamics"]["equation-of-state"]["limiter"] =
+        gd["dynamics"]["equation-of-state"]["limiter"];
+  }
+  if (c.x1top)
+    d["geometry"]["bounds"]["x1max"] =
+        d["geometry"]["bounds"]["x1min"].as<double>() + c.x1top;
   if (c.vsed != 0.)
     d["sedimentation"] =
         YAML::Load("{radius: {}, density: {}, const-vsed: {rain: " +
@@ -58,6 +77,8 @@ TEST_P(Budget, closes_to_round_off) {
   int nb = mesh->blocks.size(),
       ny = mesh->blocks[0]->phydro->peos->nvar() - ICY;
   bool face = std::string(c.gw) == "face";
+  bool aam = c.vsed != 0. && std::dynamic_pointer_cast<GnomonicEquiangleImpl>(
+                                 mesh->blocks[0]->pcoord) != nullptr;
   MeshVariables vars(nb);
   std::vector<torch::Tensor> vol(nb), phi(nb);
   for (int i = 0; i < nb; ++i) {
@@ -90,7 +111,7 @@ TEST_P(Budget, closes_to_round_off) {
   auto P = PartOptions().exterior(false);
   auto in = mesh->blocks[0]->part({}, P),
        in3 = mesh->blocks[0]->part({}, P.ndim(3));
-  auto totals = [&]() {  // mass, energy, x2 momentum, then each species
+  auto totals = [&]() {  // mass, energy, x2 momentum or AAM, then species
     auto t = torch::zeros({3 + ny}, torch::kFloat64);
     for (int i = 0; i < nb; ++i) {
       auto co = mesh->blocks[i]->pcoord;
@@ -105,8 +126,14 @@ TEST_P(Budget, closes_to_round_off) {
               centroid_slope(rho, v);
       if (face && ms == X1Measure::radial_mid)  // r_c != x1v
         pe += g * rho * x1_centroid_offset(f, v);
-      std::vector<torch::Tensor> x = {rho * dV, (u[IPR] + pe) * dV,
-                                      u[IVY] * dV};
+      auto mom = u[IVY];  // or AAM about z: r k . m (#314)
+      if (aam) {
+        auto k = std::dynamic_pointer_cast<GnomonicEquiangleImpl>(co)
+                     ->aam_k_c.slice(1, co->kl(), co->ku() + 1)
+                     .slice(2, co->jl(), co->ju() + 1);
+        mom = v * (k[1] * u[IVY] + k[2] * u[IVZ]);
+      }
+      std::vector<torch::Tensor> x = {rho * dV, (u[IPR] + pe) * dV, mom * dV};
       for (int n = 0; n < ny; ++n) x.push_back(u[ICY + n] * dV);
       for (int k = 0; k < 3 + ny; ++k)
         t[k] += x[k].sum().cpu().to(torch::kFloat64);
@@ -150,7 +177,7 @@ TEST_P(Budget, closes_to_round_off) {
     }
   };
   auto t0 = totals();
-  for (int step = 1; step <= 20; ++step) {
+  for (int step = 1; step <= c.nstep; ++step) {
     double dt = mesh->max_time_step(vars);
     for (int st = 0; st < 3; ++st) {
       mesh->forward(vars, dt, st);
@@ -159,8 +186,9 @@ TEST_P(Budget, closes_to_round_off) {
     auto t = totals();
     printf("budget %s step %2d rel", c.name, step);
     for (int k = 0; k < 3 + ny; ++k) {
-      if ((k == 2 && !c.per) || (k > 2 && c.qv > .02)) continue;  // x2 mom.:
-      // periodic only; species: the saturating row gates their sum (mass)
+      // total 2: periodic x2 momentum or the AAM; species: the saturating row
+      // gates their sum (mass)
+      if ((k == 2 && !c.per && !aam) || (k > 2 && c.qv > .02)) continue;
       double x0 = t0[k].item<double>(), dx = (t[k] - t0[k]).item<double>();
       double rel = std::abs(dx) / std::abs(x0 ? x0 : t0[0].item<double>());
       printf(" %.2e", rel / (step * kEps));
@@ -190,7 +218,9 @@ Case const kDecks[] = {{"a_cell_s0", A, "cell", 0},
                        {"c_cell_s9", Cs, "cell", 9},
                        {"d_cubed", D, "face", 0},
                        {"d_cubed_s9", D, "face", 9},
-                       {"e2_mp", A, "face", 0, true}};
+                       {"e2_mp", A, "face", 0, true},
+                       // settling rain, s9: the carry at a panel seam
+                       {"d_sed", D, "face", 9, 0, 0, -.5, .01, 2, Cs, 2e4, 5}};
 INSTANTIATE_TEST_SUITE_P(Decks, Budget, testing::ValuesIn(kDecks),
                          [](auto const& p) {
                            return std::string(p.param.name);

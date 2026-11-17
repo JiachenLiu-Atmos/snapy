@@ -119,11 +119,16 @@ void flux_positivity_scale_(torch::Tensor const& theta,
 //! \param flux1/2/3  full hydro fluxes; undefined tensors are skipped
 //! \param fsed1  settling part of flux1's species flux, (ny, nc3, nc2, nc1);
 //!               undefined: the whole flux is one part
+//! \param vface2/3  per x2 (x3) face, the velocity of its lower [0] and upper
+//!               [1] cell in the basis of that face's momentum flux, (2, 3,
+//!               nc3, nc2, nc1) indexed by face; undefined: vel
 void flux_positivity_carry_(
     torch::Tensor const& theta, torch::Tensor const& hspec,
     torch::Tensor const& vel, torch::Tensor const& flux1,
     torch::Tensor const& flux2, torch::Tensor const& flux3,
-    Coordinate const& pcoord, torch::Tensor const& fsed1 = torch::Tensor());
+    Coordinate const& pcoord, torch::Tensor const& fsed1 = torch::Tensor(),
+    torch::Tensor const& vface2 = torch::Tensor(),
+    torch::Tensor const& vface3 = torch::Tensor());
 
 //! \brief Relax theta where the mass flux drains the cell too.
 //!

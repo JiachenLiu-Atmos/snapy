@@ -125,12 +125,13 @@ void flux_positivity_carry_(
     torch::Tensor const& theta, torch::Tensor const& hspec,
     torch::Tensor const& vel, torch::Tensor const& flux1,
     torch::Tensor const& flux2, torch::Tensor const& flux3,
-    Coordinate const& pcoord, torch::Tensor const& fsed1) {
+    Coordinate const& pcoord, torch::Tensor const& fsed1,
+    torch::Tensor const& vface2, torch::Tensor const& vface3) {
   enum { DIM1 = 3, DIM2 = 2, DIM3 = 1 };
   int ny = theta.size(0);
 
   auto carry = [&](torch::Tensor const& flux, int dim, int lo, int hi,
-                   torch::Tensor const& fsed) {
+                   torch::Tensor const& fsed, torch::Tensor const& vface) {
     if (!flux.defined()) return;
     auto f = flux.narrow(0, ICY, ny).slice(dim, lo, hi + 2);  // faces lo..hi+1
     auto lower = [&](torch::Tensor const& x) {
@@ -139,6 +140,9 @@ void flux_positivity_carry_(
     auto upper = [&](torch::Tensor const& x) {
       return x.slice(dim, lo, hi + 2);
     };
+    // the donors' velocities: the cells', or given per face
+    auto vlo = vface.defined() ? upper(vface[0]) : lower(vel);
+    auto vhi = vface.defined() ? upper(vface[1]) : upper(vel);
     // the share withheld is the net flux's donor's (flux_positivity_scale_)
     auto share = 1. - torch::where(f > 0., lower(theta), upper(theta));
     // each part of the face flux keeps the energy and momentum of its donor
@@ -148,8 +152,7 @@ void flux_positivity_carry_(
       flux[IPR].slice(dim - 1, lo, hi + 2) -=
           (dm * torch::where(up, lower(hspec), upper(hspec))).sum(0);
       flux.narrow(0, IVX, 3).slice(dim, lo, hi + 2) -=
-          (dm * up).sum(0) * lower(vel) +
-          (dm * up.logical_not()).sum(0) * upper(vel);
+          (dm * up).sum(0) * vlo + (dm * up.logical_not()).sum(0) * vhi;
     };
     if (fsed.defined()) {
       auto sed = fsed.slice(dim, lo, hi + 2);
@@ -161,9 +164,9 @@ void flux_positivity_carry_(
     }
   };
 
-  carry(flux1, DIM1, pcoord->il(), pcoord->iu(), fsed1);
-  carry(flux2, DIM2, pcoord->jl(), pcoord->ju(), torch::Tensor());
-  carry(flux3, DIM3, pcoord->kl(), pcoord->ku(), torch::Tensor());
+  carry(flux1, DIM1, pcoord->il(), pcoord->iu(), fsed1, torch::Tensor());
+  carry(flux2, DIM2, pcoord->jl(), pcoord->ju(), torch::Tensor(), vface2);
+  carry(flux3, DIM3, pcoord->kl(), pcoord->ku(), torch::Tensor(), vface3);
 }
 
 torch::Tensor flux_positivity_relax(torch::Tensor const& theta,
