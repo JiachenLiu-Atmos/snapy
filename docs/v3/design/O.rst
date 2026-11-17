@@ -812,7 +812,83 @@ Mapping to the roadmap milestones:
   * The option bindings and stubs become generated.
   * ``load_restart`` keeps its name and binds ``read_restart``.
 
-**Merge order.**
+8.1 Files and blocks moved to other owners (acceptance requested)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Line counts are ``wc -l`` at the pin. Moved code keeps its content; only its
+directory or file changes. How the moved lines are counted between lanes X
+and O is settled in the lane X thread and is not decided here.
+
+To the mesh owner (lane X, Xi):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 8 58
+
+   * - file or block
+     - lines
+     - change and reason
+   * - ``src/utils/signal_handler.cpp``
+     - 146
+     - Move to ``src/mesh``. Its only includers are ``mesh.cpp:28`` and
+       ``meshblock.cpp:24``, and it takes ``MeshBlockImpl``
+       (``signal_handler.hpp:45``).
+   * - ``src/utils/signal_handler.hpp``
+     - 67
+     - Same as above.
+   * - ``meshblock.cpp:203-230`` (``validate_slice``)
+     - 28
+     - Delete. It repeats ``output_type.cpp:90-98``; the generated output
+       option checks (section 3.3) do both checks once.
+   * - ``meshblock.cpp:1623-1653`` (#367 restart metadata checks)
+     - 31
+     - Move into ``check_restart_metadata`` (``restart.hpp``), next to the
+       file contract; ``_init_from_restart`` calls it. The behaviour and
+       messages are unchanged.
+   * - ``meshblock.cpp:1226-1339`` (``print_cycle_diagnostics``) and
+       ``mesh/cycle_diagnostics.hpp`` (16)
+     - 114 + 16
+     - Becomes a printer over ``BudgetConsumer``'s totals (section 3.2). It
+       merges with O8, after lane R's monitor. The printed content is
+       unchanged.
+   * - ``meshblock.cpp:1210`` (``AccumulateStats`` call)
+     - 1
+     - Takes ``dt`` as a device scalar (section 7).
+
+To the implicit owner (lane I, Xinyue):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 8 58
+
+   * - file or block
+     - lines
+     - change and reason
+   * - ``src/math/lubksb.h``
+     - 71
+     - Move to ``src/implicit``. Its only includer is
+       ``implicit/forward_sweep_impl.h:14``.
+       ``tests/test_lu_failure.cpp:2`` reaches it through
+       ``forward_sweep_impl.h``, so the test needs no edit.
+   * - ``src/math/ludcmp.h``
+     - 95
+     - Same; included at ``forward_sweep_impl.h:15``.
+   * - ``implicit/implicit_dispatch.cu:15``
+     - 1
+     - Delete the unused ``#include <snap/utils/cuda_utils.h>``.
+       ``checkCudaError`` is never called (section 2.1).
+
+Moved to owners outside lanes X and I, listed for completeness:
+
+* ``src/utils/fp64_store.hpp`` (85) to ``src/hydro``; its only includer is
+  ``hydro.hpp:19``.
+* ``src/input/command_line.{cpp,hpp}`` (130 + 56) to ``examples/``; its only
+  callers are ``run_hydro.cpp`` and ``jupiter_evap_precip_1d.cpp``.
+* ``python/csrc/snapy.cpp:10``: delete the unused ``parameter_input.hpp``
+  include (section 9.1).
+
+8.2 Merge order
+~~~~~~~~~~~~~~~
 
 1. O1-O7 (section 10) depend on no other lane.
 2. O8 (consumers and budget) merges after lane R's register and monitor
@@ -830,8 +906,227 @@ The baseline per file is ``git show 9e5de2d4:<path> | wc -l``.
 * "moved" is not cut.
 * cut = pin − proposed − moved.
 
-Proposed sizes are *estimates*. The numbers are unchanged from the first
-revision: the restructuring changed no row, and no row was wrong.
+Proposed sizes are *estimates*. The per-file numbers are unchanged from the
+first revision. Revision 2 adds a reachability class to every row (section
+9.1). It splits the total into what the evidence supports now and what
+depends on a gate or a decision by Cheng.
+
+**Baseline recheck (revision 2).** The per-directory sums at the pin,
+counting ``.cpp``/``.hpp``/``.h``/``.cu``/``.cuh`` and leaving out
+``CMakeLists.txt`` and ``*.cpp_``:
+
+* ``src/output``: 4,487;
+* ``src/input``: 2,041;
+* ``src/utils``: 1,717;
+* ``src/diagnostics``: 1,585;
+* ``src/math``: 166.
+
+The total is 9,996, the brief's number. As a cross-check, plain ``wc -l`` over
+all files gives 8,411 for output, input, utils and math (4,487 + 2,041 +
+1,717 + 166). It gives 1,785 for ``src/diagnostics``, because that count
+includes its ``CMakeLists.txt`` and the two ``.cpp_`` files.
+
+9.1 Reachability evidence for the three largest deletions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+All commands were run on a worktree whose files outside ``docs/v3`` equal
+the pin: ``git diff --stat 9e5de2d4 HEAD -- . ':!docs/v3'`` is empty.
+
+**How things get built at the pin.**
+
+* The top-level ``CMakeLists.txt:151`` adds only ``src``. The other two
+  ``add_subdirectory`` calls, at ``:156`` and ``:161``, add ``tests`` and
+  ``examples``.
+* ``src/CMakeLists.txt:35-53`` globs ``bc coord eos eos/aneos hydro riemann
+  recon mesh output scalar utils forcing implicit input sedimentation
+  layout``, one directory per line, 37-52. ``output/*.cpp`` is at ``:45``
+  and ``input/*.cpp`` at ``:50``.
+* The CUDA glob is ``src/CMakeLists.txt:122-136``.
+* Tests and examples compile only their own ``<name>.cpp`` against the
+  library (``cmake/macros/macro_setup_test.cmake:9``,
+  ``macro_setup_problem.cmake:9``).
+* The Python extension compiles only ``python/csrc/*.cpp``
+  (``setup.py:109``).
+
+**(a) ``src/diagnostics`` (1,585 lines in the baseline; 1,785 with
+``CMakeLists.txt`` and the ``.cpp_`` files): never compiled.**
+
+* No glob names it (``src/CMakeLists.txt:35-53``, ``:122-136``).
+* Its own ``src/diagnostics/CMakeLists.txt:4`` would glob ``*.cpp`` into an
+  ``OBJECT`` library, but no ``add_subdirectory`` reaches it. The only three
+  are at ``CMakeLists.txt:151,156,161``.
+* ``setup.py:109`` takes only ``python/csrc``.
+
+.. code-block:: text
+
+   $ git grep -n -E 'DiagnosticsFactory|DiagnosticsContainer|DiagnosticsPtr|HydroFlux|HydroMean|
+       V1Moments|EddyFlux|EddyKineticEnergy|SphericalAngularMomentum|ConvectiveHeatFlux|
+       RadiativeFlux|Buoyancy|Tendency|LatentHeating|diagnostics\.hpp|diagnostics/' 9e5de2d4 \
+       -- . ':!src/diagnostics' ':!external' ':!docs' | grep -v cycle_diagnostics
+   (no output)
+   $ git grep -n -w -E 'Diagnostics|Divergence|Curl|Anomaly' 9e5de2d4 -- . ':!src/diagnostics' ':!external' ':!docs'
+   python/csrc/pyeos.cpp:21          // comment ("Anomaly storage ...")
+   src/eos/equation_of_state.cpp:221 // comment
+   src/hydro/hydro_forward.cpp:1302  log text "Divergence time (s)"
+   tests/test_anomaly_storage.py:2   docstring
+   tests/test_fp32_science.py:59,111 a local Python class named Diagnostics
+   $ git grep -n -E 'stride_iterator|virtual_groups' 9e5de2d4 -- . ':!src/diagnostics' ':!external' ':!docs'
+   (no output)
+   $ git grep -n 'diagnostics/' 9e5de2d4 -- docs
+   docs/doxygen/SUMMARY.md:114   (a doc listing)
+
+Every hit is a comment, a log string, a docstring or an unrelated Python
+class. None reaches ``src/diagnostics``. (``cycle_diagnostics`` is
+``src/mesh/cycle_diagnostics.hpp``, a different, live file.) **Verdict: not
+built, not included, not bound, not used by tests or decks. Dead.**
+
+**(b) Legacy parser ``parameter_input.*`` (993) and ``io_wrapper.*`` (364),
+plus the duplicate ``input/signal.*`` (187): built, but no symbol is
+referenced.**
+
+These files **are compiled** into ``libsnap`` by the ``input/*.cpp`` glob
+(``src/CMakeLists.txt:50``). The parser header **is included** in two
+compiled files:
+
+* ``python/csrc/snapy.cpp:10``, so it is compiled into the Python
+  extension;
+* ``src/output/hdf5.cpp:6``, outside that file's ``#ifdef HDF5OUTPUT``.
+
+The search for every public name declared in ``parameter_input.hpp:22-115``
+and ``io_wrapper.hpp:16-24``:
+
+.. code-block:: text
+
+   $ rg -n -w -e 'ParameterInput|ParameterInputImpl|InputBlock|InputLine|IOWrapper|IOWrapperFile|
+       IOWrapperSizeT|GetOrAddReal|GetOrAddInteger|GetOrAddBoolean|GetOrAddString|LoadFromFile|
+       ModifyFromCmdline|ParameterDump|RollbackNextTime|ForwardNextTime' \
+       src python tests examples cmake CMakeLists.txt setup.py pyproject.toml \
+       -g '!src/input/parameter_input.*' -g '!src/input/io_wrapper.*'
+   src/turbulence/turbulence_model.{hpp,cpp}, k_epsilon_turbulence.cpp   (13 lines)
+   src/diagnostics/diagnostics.hpp:16,61, diagnostics_factory.cpp:11,15
+   src/output/output_formats.hpp:15,23,30,74
+   src/input/command_line.cpp:122   // comment
+   $ rg -n 'parameter_input\.hpp|io_wrapper\.hpp' (same scope, parser excluded)
+   python/csrc/snapy.cpp:10   src/output/hdf5.cpp:6
+   src/diagnostics/diagnostics_factory.cpp:5   (<athena/parameter_input.hpp>, another library)
+   src/input/io_wrapper.cpp:16   (io_wrapper's own source)
+
+Each hit explained:
+
+* ``src/turbulence`` and ``src/diagnostics`` are not compiled. No glob names
+  them, and they use Athena++'s ``ParameterInput``/``MeshBlock``, not
+  snapy's ``ParameterInputImpl``.
+* ``output_formats.hpp:15,23,30`` sit inside the ``/* ... */`` block at
+  lines 11-31, and ``:74`` inside the one at lines 71-75.
+* ``command_line.cpp:122`` is a comment.
+* The two ``#include`` lines use no symbol. ``snapy.cpp`` binds
+  ``load_restart`` (``:47``) and the modules, nothing from the parser.
+  ``hdf5.cpp`` has an empty body.
+
+For ``input/signal.*``:
+
+.. code-block:: text
+
+   $ rg -n -w 'Signal' src python tests examples -g '!src/input/signal.*'
+   (comments only: signal_handler.cpp:112, signal_handler.hpp:8,35,44,49,50,64)
+   $ rg -n 'Signal::|signal\.hpp|mysig_' src python tests examples cmake -g '!src/input/signal.*'
+   (no output)
+
+None of the three files does anything when the library loads.
+``signal.cpp`` has only zero-initialised statics and a mutex
+(``signal.cpp:16, 121-122``) and installs handlers only in a constructor
+that nobody calls. ``parameter_input.cpp`` and ``io_wrapper.cpp`` define no
+global objects (only ``using Real``, ``parameter_input.cpp:67``). **Verdict:
+reachable only at build time, through two unused includes. No call, no
+Python binding, no test, no deck. Deleting them requires deleting the two
+include lines (``snapy.cpp:10`` and ``hdf5.cpp``, which is deleted anyway).**
+
+If reviewers count "built and included" as reachable even when no symbol is
+used, these 1,544 lines come out of the cut (see the tiers below).
+
+**(c) GFDL combiner ``output/mppnccombine.cpp`` (1,014): LIVE.** It is not
+dead and is not counted as dead.
+
+* It is compiled by ``src/CMakeLists.txt:45`` (``output/*.cpp``).
+* Its one caller, ``combine_netcdf.cpp:73``, runs for every netcdf output
+  of a run with more than one part per frame (``combine_netcdf.cpp:61-76``),
+  with ``combine`` defaulting to true (``output_type.hpp:85``).
+
+.. code-block:: text
+
+   $ rg -n 'mppnccombine|combine_blocks|CombineBlocks' --hidden -g '!.git' -g '!external/**' -g '!docs/v3/**' .
+   src/output/combine_netcdf.cpp:17,73     declaration and the call
+   src/output/combine_netcdf.cpp:21,47,67,79, netcdf.cpp:65,577   NetcdfOutput::combine_blocks
+   src/output/output_type.hpp:183, output_formats.hpp:39,86,95, restart.cpp:126,
+     combine_restart.cpp:60,84,108          (restart and base-class combine; not the GFDL code)
+   tests/test_user_output.cpp:427           calls NetcdfOutput::combine_blocks directly
+   $ rg -n -w 'process_file|process_vars|flush_decomp|print_debug|nc_type_to_str' src python tests \
+       -g '!src/output/mppnccombine.cpp'
+   (no output)
+
+What reaches it:
+
+* Tests: ``tests/test_user_output.cpp:427`` (registered at
+  ``tests/CMakeLists.txt:158``) and ``test_output_barrier`` (registered at
+  ``tests/CMakeLists.txt:215``, two ranks, "a block is missing from the
+  combined file", ``test_output_barrier.cpp:81``).
+* The decomposition tests ``run_shallow_splash_decomp.py`` and
+  ``run_shallow_xy_decomp.py`` (``tests/CMakeLists.txt:719-754``).
+* Multi-block decks, for example ``examples/straka_mesh2.yaml``
+  (``nb2: 2``, netcdf at ``:52``), ``shallow_xy_mesh4.yaml`` (netcdf at
+  ``:40``) and ``jupiter_gcm.yaml`` (netcdf at ``:119,122``).
+* The Python ``NetcdfOutput.write_output_file`` binding
+  (``pyoutput.cpp:70-80``).
+
+No script calls an external ``mppnccombine``. ``pd-combine``
+(``python/api/pd_combine.py``) uses ``ncrcat``, ``ncks`` and ``fitsmerge``,
+not this code. **Verdict: live. Its deletion is a replacement by
+``combine_parts``, and holds only once gate G-2 (section 5) passes.**
+
+Side finding: ``pd_combine.py:72-74`` merges ``*.out?.?????.fits`` files
+with ``bin/fitsmerge``, while the library cannot write FITS
+(``FITSOutput`` has no definition). This adds to the FOR CHENG item on
+FITS.
+
+9.2 Cut, by what supports it
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Old headline (revision 1): 5,627 lines (56.3 %), all of it counted as cut.
+Revision 2 counts each piece only when its evidence holds:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 54 14 12 20
+
+   * - counted
+     - cut
+     - %
+     - depends on
+   * - Never-compiled code (a), built but unreferenced code (b) and the other
+       unreferenced utilities, the rewrites and merges; the combiner, the
+       ``utils/flip_zero`` copy and ``refine``/super-resolution **kept**
+     - **4,413**
+     - **44.1**
+     - nothing beyond 9.1
+   * - plus the combiner replaced by ``combine_parts`` (+1,014 − 200 − 30)
+     - 5,197
+     - 52.0
+     - gate G-2
+   * - plus ``utils/flip_zero`` (350, gate G-6) and ``refine`` (80, FOR
+       CHENG)
+     - 5,627
+     - 56.3
+     - G-6 and Cheng
+   * - strict reading: (b) kept as well (−1,544 from the first row)
+     - 2,869
+     - 28.7
+     - would fall below the 30 % target
+
+**The figure that the evidence supports today is 4,413 lines (44.1 %).**
+The 56.3 % of revision 1 holds only after G-2, G-6 and Cheng's answer on
+super-resolution. The strict-reading row shows that the target depends on
+(b). The evidence in 9.1 is that (b) has no referenced symbol. Each row of
+the table below carries its class. ``O_lines.csv`` has the same column.
 
 .. list-table::
    :header-rows: 1
@@ -842,504 +1137,504 @@ revision: the restructuring changed no row, and no row was wrong.
      - proposed
      - moved
      - cut
-     - action
+     - action; class
      - note / deletion named
    * - ``src/diagnostics/anomaly.cpp``
      - 97
      - 0
      - 
      - 97
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/diagnostics/buoyancy.cpp``
      - 61
      - 0
      - 
      - 61
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/diagnostics/curl.cpp``
      - 118
      - 0
      - 
      - 118
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/diagnostics/diagnostics.cpp``
      - 52
      - 0
      - 
      - 52
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/diagnostics/diagnostics.hpp``
      - 246
      - 0
      - 
      - 246
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/diagnostics/diagnostics_factory.cpp``
      - 52
      - 0
      - 
      - 52
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/diagnostics/divergence.cpp``
      - 84
      - 0
      - 
      - 84
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/diagnostics/hydro_flux.cpp``
      - 120
      - 0
      - 
      - 120
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/diagnostics/hydro_mean.cpp``
      - 100
      - 0
      - 
      - 100
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/diagnostics/todo/convective_heat_flx.cpp``
      - 130
      - 0
      - 
      - 130
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/diagnostics/todo/eddy_flux.cpp``
      - 125
      - 0
      - 
      - 125
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/diagnostics/todo/eddy_kinetic_energy.cpp``
      - 89
      - 0
      - 
      - 89
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/diagnostics/todo/latent_heating.cpp``
      - 112
      - 0
      - 
      - 112
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/diagnostics/todo/spherical_angular_momentum.cpp``
      - 86
      - 0
      - 
      - 86
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/diagnostics/todo/tendency.cpp``
      - 113
      - 0
      - 
      - 113
-     - delete
+     - delete; never-compiled
      - Athena++/canoe; never compiled
    * - ``src/input/check_keys.cpp``
      - 33
      - 33
      - 
      - 0
-     - keep
+     - keep; live, kept
      - called by generated parsers
    * - ``src/input/check_keys.hpp``
      - 21
      - 21
      - 
      - 0
-     - keep
+     - keep; live, kept
      - 
    * - ``src/input/command_line.cpp``
      - 130
      - 0
      - 130
      - 0
-     - move
+     - move; live, moved
      - to examples/ (only callers: run_hydro.cpp, jupiter_evap_precip_1d.cpp)
    * - ``src/input/command_line.hpp``
      - 56
      - 0
      - 56
      - 0
-     - move
+     - move; live, moved
      - to examples/
    * - ``src/input/io_wrapper.cpp``
      - 305
      - 0
      - 
      - 305
-     - delete
+     - delete; built, unreferenced
      - only reached from parameter_input
    * - ``src/input/io_wrapper.hpp``
      - 59
      - 0
      - 
      - 59
-     - delete
+     - delete; built, unreferenced
      - 
    * - ``src/input/parameter_input.cpp``
      - 873
      - 0
      - 
      - 873
-     - delete
+     - delete; built, unreferenced
      - legacy Athena++ parser; no caller
    * - ``src/input/parameter_input.hpp``
      - 120
      - 0
      - 
      - 120
-     - delete
+     - delete; built, unreferenced
      - only an unused include in python/csrc/snapy.cpp:10 and hdf5.cpp:6
    * - ``src/input/read_restart_file.cpp``
      - 236
      - 0
      - 
      - 236
-     - merge
+     - merge; live, merged
      - into output/restart.cpp
    * - ``src/input/read_restart_file.hpp``
      - 21
      - 0
      - 
      - 21
-     - merge
+     - merge; live, merged
      - into restart.hpp
    * - ``src/input/signal.cpp``
      - 124
      - 0
      - 
      - 124
-     - delete
+     - delete; built, unreferenced
      - older copy of utils/signal_handler; no includer
    * - ``src/input/signal.hpp``
      - 63
      - 0
      - 
      - 63
-     - delete
+     - delete; built, unreferenced
      - 
    * - ``src/math/lubksb.h``
      - 71
      - 0
      - 71
      - 0
-     - move
+     - move; live, moved
      - to src/implicit (one includer: forward_sweep_impl.h)
    * - ``src/math/ludcmp.h``
      - 95
      - 0
      - 95
      - 0
-     - move
+     - move; live, moved
      - to src/implicit
    * - ``src/output/combine_netcdf.cpp``
      - 87
      - 0
      - 
      - 87
-     - merge
+     - merge; live, merged
      - into writer_core.cpp (combine step, no argv building)
    * - ``src/output/combine_restart.cpp``
      - 123
      - 0
      - 
      - 123
-     - merge
+     - merge; live, merged
      - into restart.cpp (bundle writer)
    * - ``src/output/hdf5.cpp``
      - 27
      - 0
      - 
      - 27
-     - delete
+     - delete; built, unreferenced
      - stub; body only under never-defined HDF5OUTPUT, signature does not match the header
    * - ``src/output/load_diag_output_data.cpp``
      - 338
      - 260
      - 
      - 78
-     - rewrite
+     - rewrite; live, rewritten
      - field-diagnostic registry replaces ContainVariable chains
    * - ``src/output/load_hydro_output_data.cpp``
      - 186
      - 150
      - 
      - 36
-     - rewrite
+     - rewrite; live, rewritten
      - appends Fields; names from the field registry
    * - ``src/output/load_scalar_output_data.cpp``
      - 64
      - 50
      - 
      - 14
-     - rewrite
+     - rewrite; live, rewritten
      - appends Fields
    * - ``src/output/load_user_output_data.cpp``
      - 27
      - 20
      - 
      - 7
-     - rewrite
+     - rewrite; live, rewritten
      - appends Fields
    * - ``src/output/mppnccombine.cpp``
      - 1014
      - 0
      - 
      - 1014
-     - delete
+     - delete; LIVE, replaced (gate G-2)
      - GFDL tool; replaced by combine_parts in writer_core.cpp
    * - ``src/output/netcdf.cpp``
      - 583
      - 140
      - 
      - 443
-     - rewrite
+     - rewrite; live, rewritten
      - netcdf Sink only
    * - ``src/output/netcdf_utils.hpp``
      - 29
      - 0
      - 
      - 29
-     - merge
+     - merge; live, merged
      - sanitize_netcdf_name into writer_core.cpp
    * - ``src/output/output_formats.hpp``
      - 105
      - 0
      - 
      - 105
-     - delete
+     - delete; live, folded
      - HDF5Output, FITSOutput, commented classes; Netcdf/PNetcdf classes become Sinks
    * - ``src/output/output_type.cpp``
      - 559
      - 230
      - 
      - 329
-     - rewrite
+     - rewrite; live, rewritten
      - options parser generated; linked list and slice/sum loops replaced by torch ops
    * - ``src/output/output_type.hpp``
      - 219
      - 90
      - 
      - 129
-     - rewrite
+     - rewrite; live, rewritten
      - options struct generated; GriddedWriter only
    * - ``src/output/output_utils.cpp``
      - 301
      - 120
      - 
      - 181
-     - rewrite
+     - rewrite; live, rewritten
      - metadata of live fields only (unused canoe-era names dropped)
    * - ``src/output/output_utils.hpp``
      - 65
      - 30
      - 
      - 35
-     - rewrite
+     - rewrite; live, rewritten
      - get_num_variables replaced by Field shape
    * - ``src/output/pnetcdf.cpp``
      - 431
      - 130
      - 
      - 301
-     - rewrite
+     - rewrite; live, rewritten
      - pnetcdf Sink only
    * - ``src/output/restart.cpp``
      - 130
      - 260
      - 
      - -130
-     - rewrite
+     - rewrite; live, rewritten
      - writer + bundle + reader in one file
    * - ``src/output/restart_metadata.hpp``
      - 13
      - 13
      - 
      - 0
-     - keep
+     - keep; live, kept
      - #367 contract
    * - ``src/output/writer_core.cpp``
      - 138
      - 420
      - 
      - -282
-     - rewrite
+     - rewrite; live, rewritten
      - Frame transform, packing, combine_parts (~200)
    * - ``src/output/writer_core.hpp``
      - 48
      - 110
      - 
      - -62
-     - rewrite
+     - rewrite; live, rewritten
      - Frame, Field, Sink, GriddedWriter
    * - ``src/utils/cuda_utils.cu``
      - 19
      - 0
      - 
      - 19
-     - delete
+     - delete; built, unreferenced
      - checkCudaError has no caller
    * - ``src/utils/cuda_utils.h``
      - 3
      - 0
      - 
      - 3
-     - delete
+     - delete; built, unreferenced
      - one unused include in implicit_dispatch.cu:15
    * - ``src/utils/flip_zero.cpp``
      - 270
      - 0
      - 
      - 270
-     - delete
+     - delete; test-only, replaced (gate G-6)
      - int-only copy of bc/flip_zero_impl.h; test ported
    * - ``src/utils/flip_zero.h``
      - 80
      - 0
      - 
      - 80
-     - delete
+     - delete; test-only, replaced (gate G-6)
      - 
    * - ``src/utils/fp32_storage.cpp``
      - 119
      - 95
      - 
      - 24
-     - rewrite
+     - rewrite; live, rewritten
      - env parsing replaced by options table key
    * - ``src/utils/fp32_storage.hpp``
      - 56
      - 55
      - 
      - 1
-     - keep
+     - keep; live, kept
      - 
    * - ``src/utils/fp64_store.hpp``
      - 85
      - 0
      - 85
      - 0
-     - move
+     - move; live, moved
      - to src/hydro (one includer: hydro.hpp)
    * - ``src/utils/log.hpp``
      - 67
      - 67
      - 
      - 0
-     - keep
+     - keep; live, kept
      - 11 includers
    * - ``src/utils/loops.cuh``
      - 150
      - 150
      - 
      - 0
-     - keep
+     - keep; live, kept
      - 8 CUDA dispatch files
    * - ``src/utils/on_host.hpp``
      - 72
      - 72
      - 
      - 0
-     - keep
+     - keep; live, kept
      - 3 dispatch files (MPS)
    * - ``src/utils/pull_neighbors.cpp``
      - 225
      - 0
      - 
      - 225
-     - delete
+     - delete; built, unreferenced
      - only commented-out calls (equation_of_state.cpp:254-257)
    * - ``src/utils/pull_neighbors.hpp``
      - 24
      - 0
      - 
      - 24
-     - delete
+     - delete; built, unreferenced
      - 
    * - ``src/utils/refine.cpp``
      - 69
      - 0
      - 
      - 69
-     - delete
+     - delete; LIVE feature removed (FOR CHENG)
      - only caller: output super-resolution (deleted, FOR CHENG)
    * - ``src/utils/refine.hpp``
      - 11
      - 0
      - 
      - 11
-     - delete
+     - delete; LIVE feature removed (FOR CHENG)
      - 
    * - ``src/utils/signal_handler.cpp``
      - 146
      - 0
      - 146
      - 0
-     - move
+     - move; live, moved
      - to src/mesh (callers mesh.cpp, meshblock.cpp)
    * - ``src/utils/signal_handler.hpp``
      - 67
      - 0
      - 67
      - 0
-     - move
+     - move; live, moved
      - to src/mesh
    * - ``src/utils/tensor_cast_cache.hpp``
      - 53
      - 53
      - 
      - 0
-     - keep
+     - keep; live, kept
      - 3 includers
    * - ``src/utils/utils_dispatch.cpp``
      - 26
      - 0
      - 
      - 26
-     - delete
+     - delete; built, unreferenced
      - bdot_out has no caller
    * - ``src/utils/utils_dispatch.cu``
      - 92
      - 0
      - 
      - 92
-     - delete
+     - delete; built, unreferenced
      - 
    * - ``src/utils/utils_dispatch.hpp``
      - 13
      - 0
      - 
      - 13
-     - delete
+     - delete; built, unreferenced
      - 
    * - ``src/utils/vectorize.cpp``
      - 24
      - 0
      - 
      - 24
-     - delete
+     - delete; live, folded
      - strtok split; replaced by a split in writer_core
    * - ``src/utils/vectorize.hpp``
      - 46
      - 0
      - 
      - 46
-     - delete
+     - delete; live, folded
      - 
    * - ``src/output/budget_series.cpp``
      - 
@@ -1412,16 +1707,16 @@ revision: the restructuring changed no row, and no row was wrong.
      - 
      - 56.3% cut; target 30% = 2,999
 
-**Totals.**
+**Totals (design target, all gates passed).**
 
 * Baseline: 9,996 lines in 71 files.
 * Kept in place: 2,569. New in ``src``: 520. Moved out unchanged: 650.
-* **Cut in ``src`` only: 6,257 lines (62.6 %).**
-* **Cut including the 630 new lines outside ``src``: 5,627 lines (56.3 %).**
-  The 30 % target is 2,999.
+* Cut in ``src`` only: 6,257 lines (62.6 %).
+* Cut including the 630 new lines outside ``src``: 5,627 lines (56.3 %).
+  Evidence-backed today: **4,413 lines (44.1 %)** (section 9.2). The 30 %
+  target is 2,999.
 * If every rewritten or new file is 50 % over its estimate: 4,000 lines
-  (40.0 %).
-* Pure deletions total 4,163 lines.
+  (40.0 %) for the design target.
 * A further 925 lines outside the baseline are deleted and not counted.
 
 10. Migration
@@ -1536,12 +1831,11 @@ X-3. Who calls graph and cache invalidation after ``read_restart``:
   (happysky19/snapy ``b7d1300f``, ``c.rst`` section 12). Which lane owns the
   face-floor event counters that feed the monitor?
 
-**11.4 Kickoff thread (owners not named in my context).**
+**11.4 Mesh owner (lane X, Xi), implicit owner (lane I, Xinyue), kickoff thread.**
 
 * Reconcile the lane letters (above).
-* Mesh owner: accept ``signal_handler`` into ``src/mesh`` and drop the
-  duplicate slice validation.
-* Implicit owner: accept ``lubksb.h`` and ``ludcmp.h``.
+* Xi: accept the mesh items of section 8.1.
+* Xinyue: accept the implicit items of section 8.1.
 * Owners of option headers: when to switch to the generator.
 
 12. Skeleton index
