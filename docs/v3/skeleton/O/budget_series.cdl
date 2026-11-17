@@ -1,0 +1,44 @@
+// V3 lane O skeleton: the budget time-series format (CDL; declaration only).
+// One file per run: <output_dir>/<basename>.budget.nc, NetCDF4, written by
+// the root rank only, one record per budget output interval, appended.
+// Every variable is double: the files exist to show relative changes far
+// below the 1e-7 that NC_FLOAT resolves (output_type.hpp:79-83).
+//
+// Example for a moist run with H2O, NH3, one passive scalar, rotation on,
+// and the fixers active at the pin (meshblock.cpp:1287-1337).
+netcdf budget {
+dimensions:
+    time = UNLIMITED ;
+    row = 6 ;        // budget rows, in this order
+    fixer = 5 ;      // fixer channels, in this order
+    nchar = 32 ;
+variables:
+    double time(time) ;            time:units = "s" ;
+    int64  cycle(time) ;
+    double dt(time) ;              dt:units = "s" ;  dt:long_name = "last accepted step" ;
+    double interval(time) ;        interval:long_name = "time since previous record" ;
+
+    char   row_name(row, nchar) ;     // "mass", "species/H2O", "species/NH3",
+                                      // "energy" (E + PE), "aam", "scalar/s0"
+    char   row_units(row, nchar) ;    // "kg", "kg", "kg", "J", "kg m2 s-1", "1"
+    char   fixer_name(fixer, nchar) ; // "limiter", "positivity", "vic_clamp",
+                                      // "gravity_work", "aam_closure"
+
+    // the budget, per row:
+    //   total(t) - total(t_prev) = -boundary + sum_f fixer(f) + residual
+    double total(time, row) ;          total:long_name = "domain integral at the record time" ;
+    double boundary(time, row) ;       boundary:long_name = "net outward boundary flux integrated over the interval (flux register)" ;
+    double fixer(time, fixer, row) ;   fixer:long_name = "change made by each fixer over the interval (monitor)" ;
+    double residual(time, row) ;       residual:long_name = "total change - (-boundary + sum fixer); round-off if the budget closes" ;
+
+    // monitor counters at the record (today's cycle line, meshblock.cpp:1329-1337)
+    double lim_cut_fraction(time) ;
+    int64  positivity_severe(time) ;
+    double positivity_theta_min(time) ;
+    double vic_clamp_max(time) ;
+
+// global attributes
+    :snapy_budget_version = 1 ;
+    :snapy_commit = "<git sha>" ;
+    :restart_carry = "pending boundary/fixer sums carried across restarts (restart.hpp BudgetCarry)" ;
+}
