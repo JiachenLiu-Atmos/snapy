@@ -1,5 +1,6 @@
 // V3 lane A skeleton: source-term interface (A.rst 3.6, 5.1, 7.1). Declarations
-// only; "assumed" types and names marked † are provisional (A.rst 1.5).
+// only. Register types are lane R's header, happysky19/snapy@543ff84f
+// docs/v3/skeleton/R/flux_register.hpp (cited "R:line").
 #pragma once
 
 #include <torch/torch.h>
@@ -9,14 +10,11 @@
 #include <string>
 #include <vector>
 
-namespace snap::v3 {
+#include "flux_register.hpp"  // lane R: FluxRegister, RegisterPhase, Fixer
 
-class FluxRegister;      // assumed †, lane R (requirements 1-10)
+namespace snap {
+
 class RotationGeometry;  // lane S (S-1), see rotation_geometry.hpp
-class CoordinateImpl;    // lane S
-
-//! pre_implicit (default) | post_implicit (m1 rows, #355) | split (around stage)
-enum class SourcePhase : uint8_t { pre_implicit, post_implicit, split };
 
 //! physical: sponge, drag, heating, relaxation, viscosity (kept);
 //! numerical: a discretisation torque; fixer: global correction (closure)
@@ -33,8 +31,10 @@ struct SourceRegion {
 
 //! what a source declares at construction; read by the monitor and the graph
 struct SourceDeclaration {
-  std::string name;  //!< deck key, e.g. "top-sponge-lyr"
-  SourcePhase phase = SourcePhase::pre_implicit;
+  std::string name;  //!< deck key, e.g. "top-sponge-lyr"; the cell_amount name
+  //! R:43-51; sources use pre_implicit or post_implicit (m1 rows, #355)
+  RegisterPhase phase = RegisterPhase::pre_implicit;
+  bool split = false;  //!< operator-split around the step (radial conduction)
   SourceKind kind = SourceKind::physical;
   uint32_t rows = 0;  //!< SourceRows bit set
   SourceRegion region;
@@ -46,11 +46,11 @@ struct SourceDeclaration {
 struct StageState {
   torch::Tensor w;     //!< primitive state, this block
   torch::Tensor temp;  //!< W->T, computed once per stage by Hydro
-  double dt = 0.0;
+  double dt = 0.0;     //!< host double, read at step start (N14; R:113-115)
   int stage = 0;
   CoordinateImpl const* coord = nullptr;    //!< non-owning
   RotationGeometry const* rot = nullptr;    //!< non-owning; null: no axis
-  FluxRegister const* fluxes = nullptr;     //!< non-owning; this stage's
+  FluxRegister const* reg = nullptr;        //!< non-owning; reads total, kept
   torch::Tensor m1;  //!< post_implicit only: x1-transfer momentum (A.rst 3.4)
 };
 
@@ -65,17 +65,9 @@ class SourceTerm {
   //! largest stable dt this source allows; +inf if none (diffusion)
   virtual double max_time_step(StageState const& s) const;
   //! split sources only: before / after the stage, and on a redo
-  virtual void begin_split(torch::Tensor u, double dt);
-  virtual void finish_split(torch::Tensor u, double dt);
+  virtual void begin_split(torch::Tensor u, double dt, FluxRegister& reg);
+  virtual void finish_split(torch::Tensor u, double dt, FluxRegister& reg);
   virtual void restore_split(torch::Tensor u) const;
-};
-
-//! per-source, per-stage budget the monitor derives from the increment dS:
-//! host view of budget_ after replay (N6); aam = sum V r K . dS[IVY, IVZ]
-struct SourceBudget {
-  std::string name;
-  SourceKind kind;
-  torch::Tensor totals;  //!< FP64 device [mass, m1, m2, m3, energy, aam]
 };
 
 //! owns the sources of one Hydro and runs them by phase
@@ -83,16 +75,18 @@ class SourceRegistry {
  public:
   void add(std::unique_ptr<SourceTerm> s);
   //! ordered runs of equal `capturable` in a phase; X maps each to a segment
-  struct Run { SourcePhase phase; bool capturable; size_t begin, end; };
-  std::vector<Run> runs(SourcePhase phase) const;
-  //! budgets on (monitor cadence): each source's reductions go to budget_
-  void run(Run const& r, torch::Tensor du, StageState const& s, bool budgets);
+  struct Run { RegisterPhase phase; bool capturable; size_t begin, end; };
+  std::vector<Run> runs(RegisterPhase phase) const;
+  //! budgets on (monitor cadence): each source's V * scratch goes to
+  //! reg.cell_amount(name, vol_du) (R:83), its AAM share to aam_ (R-3)
+  void run(Run const& r, torch::Tensor du, StageState const& s,
+           FluxRegister& reg, bool budgets);
   double max_time_step(StageState const& s) const;
   std::vector<SourceDeclaration> declarations() const;
  private:
   std::vector<std::unique_ptr<SourceTerm>> sources_;
   torch::Tensor scratch_;  //!< one FP64 field, allocated at reset (N17)
-  torch::Tensor budget_;   //!< [nsrc, 6] FP64 device, read at step end (N6)
+  torch::Tensor aam_;  //!< [nsrc] FP64 device AAM shares, until R-3 answers
 };
 
-}  // namespace snap::v3
+}  // namespace snap
