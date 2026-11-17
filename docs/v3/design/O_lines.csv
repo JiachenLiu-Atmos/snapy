@@ -35,7 +35,7 @@ src/output/load_diag_output_data.cpp,338,260,0,78,"rewrite; live, rewritten",fie
 src/output/load_hydro_output_data.cpp,186,150,0,36,"rewrite; live, rewritten",appends Fields; names from the field registry
 src/output/load_scalar_output_data.cpp,64,50,0,14,"rewrite; live, rewritten",appends Fields
 src/output/load_user_output_data.cpp,27,20,0,7,"rewrite; live, rewritten",appends Fields
-src/output/mppnccombine.cpp,1014,0,0,1014,"delete; LIVE, removal approved by Cheng; replaced by combine_parts (gate G-2)",GFDL tool; replaced by combine_parts in writer_core.cpp
+src/output/mppnccombine.cpp,1014,0,0,1014,"delete; LIVE, removal approved by Cheng; replaced by combine_parts.cpp (gate G-2 first)",GFDL tool; replaced by combine_parts in writer_core.cpp
 src/output/netcdf.cpp,583,140,0,443,"rewrite; live, rewritten",netcdf Sink only
 src/output/netcdf_utils.hpp,29,0,0,29,"merge; live, merged",sanitize_netcdf_name into writer_core.cpp
 src/output/output_formats.hpp,105,0,0,105,"delete; live, folded","HDF5Output, FITSOutput, commented classes; Netcdf/PNetcdf classes become Sinks"
@@ -46,7 +46,7 @@ src/output/output_utils.hpp,65,30,0,35,"rewrite; live, rewritten",get_num_variab
 src/output/pnetcdf.cpp,431,130,0,301,"rewrite; live, rewritten",pnetcdf Sink only
 src/output/restart.cpp,130,260,0,-130,"rewrite; live, rewritten",writer + bundle + reader in one file
 src/output/restart_metadata.hpp,13,13,0,0,"keep; live, kept",#367 contract
-src/output/writer_core.cpp,138,420,0,-282,"rewrite; live, rewritten","Frame transform, packing, combine_parts (~200)"
+src/output/writer_core.cpp,138,220,0,-82,"rewrite; live, rewritten",Frame transform and packing; the combiner is its own addition row
 src/output/writer_core.hpp,48,110,0,-62,"rewrite; live, rewritten","Frame, Field, Sink, GriddedWriter"
 src/utils/cuda_utils.cu,19,0,0,19,"delete; built, unreferenced",checkCudaError has no caller
 src/utils/cuda_utils.h,3,0,0,3,"delete; built, unreferenced",one unused include in implicit_dispatch.cu:15
@@ -70,6 +70,7 @@ src/utils/utils_dispatch.cu,92,0,0,92,"delete; built, unreferenced",
 src/utils/utils_dispatch.hpp,13,0,0,13,"delete; built, unreferenced",
 src/utils/vectorize.cpp,24,0,0,24,"delete; live, folded",strtok split; replaced by a split in writer_core
 src/utils/vectorize.hpp,46,0,0,46,"delete; live, folded",
+src/output/combine_parts.cpp,0,200,0,-200,new,ADDITION: snapy-specific combiner replacing mppnccombine.cpp (-r form only; gate G-2)
 src/output/budget_series.cpp,0,120,0,-120,new,BudgetSeries netcdf writer
 src/output/budget_series.hpp,0,30,0,-30,new,
 src/diagnostics/consumer.hpp,0,90,0,-90,new,"Consumer, register/monitor views"
@@ -77,9 +78,7 @@ src/diagnostics/budget.cpp,0,200,0,-200,new,BudgetConsumer
 src/diagnostics/hydro_flux.cpp,0,80,0,-80,new,HydroFluxProfile from the register
 tools/gen_options.py,0,300,0,-300,new (outside src),options generator
 src/options/*.yaml,0,300,0,-300,new (outside src),"options tables (data), ~1.4 lines per option"
-tools/snap_combine.cpp,0,30,0,-30,new (outside src),CLI around combine_parts for combine: false
 src/z.junk/load_athena_output_data.cpp_,585,0,0,585,delete (outside baseline),"not in the 9,996"
 src/diagnostics/radiative_flux.cpp_,108,0,0,108,delete (outside baseline),"not in the 9,996"
 src/diagnostics/v1_moments.cpp_,73,0,0,73,delete (outside baseline),"not in the 9,996"
 src/diagnostics/CMakeLists.txt,19,0,0,19,delete (outside baseline),"not in the 9,996"
-src/interface/stride_iterator.hpp,140,0,0,140,delete (outside baseline),"not in the 9,996"

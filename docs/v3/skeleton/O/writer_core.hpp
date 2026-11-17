@@ -84,7 +84,9 @@ class GriddedWriter {
   torch::Tensor prim_mean_, prim_m2_, scalar_mean_, scalar_m2_;
 };
 
-//! joins snapy's own parts via domain_decomposition and NumFilesInSet
+//! the `-r out parts...` form only (combine_netcdf.cpp:73): merge snapy's own
+//! parts via domain_decomposition/NumFilesInSet, then remove the parts.
+//! Defined in combine_parts.cpp (~200, addition row); gate G-2.
 int combine_parts(std::string const& outfile,
                   std::vector<std::string> const& parts);
 

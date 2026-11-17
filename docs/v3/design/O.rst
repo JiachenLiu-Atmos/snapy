@@ -89,10 +89,11 @@ Each claim used here was rechecked at the pin.
   ``v1_moments.cpp_`` 73);
 * ``src/math``: 166.
 
-Deleted but not counted toward the target are 925 lines outside that
-baseline: those three files, ``z.junk/load_athena_output_data.cpp_`` (585),
-and ``src/interface/stride_iterator.hpp`` (140). The latter's only includers
-are in ``src/diagnostics`` (``rg -l stride_iterator src``).
+Deleted but not counted toward the target are 785 lines outside that
+baseline: those three files and ``z.junk/load_athena_output_data.cpp_``
+(585). ``src/interface/stride_iterator.hpp`` (140), whose only includers are
+in ``src/diagnostics`` (``rg -l stride_iterator src``), is in
+``src/interface``, which lane X books in full (section 9).
 
 "Compiled" below means matched by ``file(GLOB src_files ...)`` at
 ``src/CMakeLists.txt:35-53`` or by the CUDA glob at
@@ -325,18 +326,24 @@ Skeleton: ``writer_core.hpp``, ``diagnostics.hpp``, ``restart.hpp``,
   keeps the schedule, both #313 schedule keys and the Welford statistics
   (``output_type.cpp:285-381``).
 
-**Combining.** ``combine_parts`` reads only the attributes snapy writes,
-about 200 lines (*estimate*). It replaces ``mppnccombine.cpp`` once gate G-2
-passes (section 5).
+**Combining.** ``combine_parts`` (new file ``src/output/combine_parts.cpp``,
+about 200 lines, *estimate*; an addition row in section 9) reads only the
+attributes snapy writes. It replaces ``mppnccombine.cpp`` after gate G-2
+passes (sections 5 and 10.1). Removal approved by Cheng; settled.
+
+**No AthenaArray.** The writer core holds ``torch::Tensor`` only. It drops
+every ``AthenaArray`` use in lane O: ``output_type.hpp:22, 99``,
+``output_utils.hpp:10, 47``, ``output_type.cpp:388, 399, 467, 521, 528,
+535`` and the 16 ``CopyFromTensor``/``InitFromTensor`` sites in
+``load_diag_output_data.cpp:120-332``. (``load_hydro_output_data.cpp:98-133``
+is inside a ``/* */`` comment.) Lane X's deletion of ``src/interface``
+depends on this (section 9).
 
 **Ownership.** The writer borrows the block's variables for one write and
 owns only host copies, its schedule and its statistics tensors.
 
-**Moves out of src.**
-
-* ``tools/snap_combine.cpp`` (about 30 lines), a command-line wrapper around
-  ``combine_parts`` for ``combine: false`` runs.
-* ``input/command_line.*`` to ``examples/``.
+**Moves out of src.** ``input/command_line.*`` goes to ``examples/``. No
+combiner command-line wrapper is added (section 10.1).
 
 3.2 Diagnostics as register consumers (Q3)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -684,11 +691,11 @@ by G0 baselines, not here.
      - O1-O3, O5, O7 (no numerical change)
      - bitwise
    * - G-2
-     - ``combine_parts`` against ``mppnccombine`` on the example decks and
-       the #350 decks (6 panels, slices, ghost zones, double precision):
-       every variable, dimension and attribute
-     - O6
-     - bitwise
+     - **Combiner parity.** The same part files are merged by the pin's
+       ``mppnccombine`` and by ``combine_parts``, and the merged files are
+       compared. Cases listed below.
+     - O6a, before O6b deletes ``mppnccombine.cpp``
+     - bitwise data, exact metadata
    * - G-3
      - The generated option structs have the members and defaults of the
        pin; each module's deck parse equals the old parse on the in-tree
@@ -709,6 +716,68 @@ by G0 baselines, not here.
      - Ported ``test_rectify`` on ``bc/flip_zero_impl.h<int>``
      - O2
      - exact
+
+**Gate G-2 in detail.** The gate PR (O6a) adds ``combine_parts`` next to
+``mppnccombine`` and a test. For each case the test runs with
+``combine: false``, so the part files stay. It then merges the same parts
+twice: once with ``mppnccombine(-r ...)`` exactly as
+``combine_netcdf.cpp:64-73`` calls it, and once with ``combine_parts``.
+
+Cases, all at the pin:
+
+* **One rank, several blocks, Cartesian.**
+
+  * ``examples/straka_mesh2.yaml``: ``nb2: 2``, ``blocks_per_process: 2``
+    (``:8-10``); netcdf at ``:52``.
+  * ``examples/shallow_xy_mesh4.yaml``: 4 blocks on one rank (``:8-10``);
+    netcdf at ``:40``. Already run by ``test_shallow_xy_decomp``
+    (``tests/run_shallow_xy_decomp.py:99``).
+
+* **One rank, cubed sphere.** ``examples/shallow_splash_mesh6.yaml``: 6
+  panels, ``blocks_per_process: 6`` (``:20-22``); netcdf at ``:54``
+  (``run_shallow_splash_decomp.py:93``).
+* **Several ranks.**
+
+  * ``examples/shallow_xy_proc2_mesh2.yaml``: 2 ranks × 2 blocks
+    (``:8-10``); netcdf at ``:40``
+    (``run_shallow_xy_decomp.py:100``).
+  * ``examples/shallow_splash_proc2_mesh3.yaml``: 2 ranks × 3 panels
+    (``:20-22``); netcdf at ``:54`` (``run_shallow_splash_decomp.py:96-97``).
+  * ``examples/straka_proc2.yaml``: 2 ranks × 1 block (``:8-10``); netcdf
+    at ``:52``.
+  * ``test_output_barrier``, 2 ranks (``tests/CMakeLists.txt:215``).
+
+* **Output options.**
+
+  * ``straka_mesh2.yaml`` again with ``include_ghost_zones: true``,
+    ``double_precision: true`` and an ``x2_slice``.
+  * The slice cases of ``tests/test_user_output.cpp``, which call
+    ``combine_blocks`` at ``:427``.
+
+  These cover the #350 matrix (ghost zones, double precision, slices,
+  6-panel combine).
+
+**What G-2 compares, and how strictly:**
+
+* **Data, bitwise.** Every variable's values, dtype and shape:
+  ``nccmp -d -f`` with no tolerance, or a byte comparison of each
+  variable's array.
+* **Metadata, exact.** Dimension names and lengths, including the
+  unlimited ``time``; the variable set and order; every variable and
+  global attribute (name, type, value, including ``NumFilesInSet`` and
+  ``domain_decomposition``); the file format (NETCDF4, as ``nccreate`` at
+  ``mppnccombine.cpp:195`` makes it). ``ncdump -h`` text must be
+  identical.
+* **File bytes: recorded, not gating.** Both writers produce NETCDF4/HDF5
+  containers, and HDF5's internal layout (object addresses, B-tree and
+  heap placement) can differ for identical content. So a ``cmp`` of the
+  whole file is reported but does not decide the gate. **Hypothesis**: with
+  the same definition order and fill mode (``NC_NOFILL``,
+  ``mppnccombine.cpp:200``) the files may also be byte-identical; not
+  tested.
+
+The gate passes only if every case passes. ``mppnccombine.cpp`` is deleted
+only after that (O6b).
 
 **Hypotheses the gates test:**
 
@@ -929,11 +998,30 @@ The baseline per file is ``git show 9e5de2d4:<path> | wc -l``.
 * cut = pin − proposed − moved.
 
 Proposed sizes are *estimates*. Revision 2 adds a reachability class to
-every row (section 9.1) and applies Cheng's decisions of 2026-11-18. One
-per-file number changed: ``src/utils/fp32_storage.{cpp,hpp}`` goes from
-95 + 55 kept to 0 + 0, because the emulation is removed. Every other row is
-as in revision 1. ``meshblock.cpp:621-642`` (22 lines), where the emulation
-is applied, **counts in lane X**, not here (section 8.1).
+every row (section 9.1) and applies Cheng's decisions of 2026-11-18. These
+rows changed from revision 1:
+
+* ``src/utils/fp32_storage.{cpp,hpp}``: 95 + 55 kept → 0 + 0. The
+  emulation is removed.
+* ``src/output/writer_core.cpp``: 420 → 220. The combiner moves to its own
+  **addition row**, ``src/output/combine_parts.cpp`` (+200). The sum is
+  unchanged.
+* ``tools/snap_combine.cpp`` (+30, outside ``src``): removed. The wrapper is
+  dropped (section 10.1).
+
+**Joint rows with lane X** (agreed in the lane X thread; Xi confirmed):
+
+* Booked in **O**: ``src/utils/fp32_storage.*`` (119 + 56 = 175, deleted).
+* Booked in **X**:
+
+  * the emulation sites in ``src/mesh``: ``meshblock.cpp:621-642`` (22
+    lines, verified at the pin) and the other sites listed in section 8.1;
+  * all 1,008 lines of ``src/interface``, including
+    ``athena_arrays.hpp`` and ``stride_iterator.hpp``.
+
+X's ``src/interface`` deletion depends on O5: the writer without
+``AthenaArray`` and the port of ``tests/test_eos_io_core.cpp``
+(sections 3.1 and 10).
 
 **Baseline recheck (revision 2).** The per-directory sums at the pin,
 counting ``.cpp``/``.hpp``/``.h``/``.cu``/``.cuh`` and leaving out
@@ -1117,41 +1205,52 @@ stub is removed (settled by Cheng).
 9.2 Cut, by what supports it
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Before (revision 2 part 1, ``a5325be7``): 4,413 lines (44.1 %) backed by
-evidence; 5,197 (52.0 %) after G-2; 5,627 (56.3 %) after G-6 and Cheng.
-After Cheng's decisions:
+Baseline 9,996 throughout.
 
 .. list-table::
    :header-rows: 1
-   :widths: 54 14 12 20
+   :widths: 40 15 15 15 15
 
-   * - counted
-     - cut
-     - %
+   * - cut
+     - rev 2 part 1 (``a5325be7``)
+     - Cheng's removals (``22cd9512``)
+     - combiner plan (this head)
      - depends on
-   * - Settled: never-compiled code (a), built-but-unreferenced code (b),
-       the other unreferenced utilities, the rewrites and merges, plus
-       Cheng's approved removals (``mppnccombine.cpp`` replaced by
-       ``combine_parts``, the hdf5/fits stubs, ``fp32_storage.*``)
-     - **5,347**
-     - **53.5**
-     - section 9.1 and Cheng's decisions
-   * - plus ``utils/flip_zero`` (350, gate G-6) and ``refine`` (80,
-       super-resolution, still FOR CHENG)
-     - 5,777
-     - 57.8
-     - G-6 and Cheng
-   * - strict reading: (b) kept as well (−1,544 from the first row)
-     - 3,803
-     - 38.0
-     - still above the 30 % target
+   * - **settled**
+     - 4,413 (44.1 %)
+     - 5,347 (53.5 %)
+     - **5,377 (53.8 %)**
+     - 9.1, Cheng's decisions; G-2 before O6b
+   * - design target (all rows)
+     - 5,627 (56.3 %)
+     - 5,777 (57.8 %)
+     - **5,807 (58.1 %)**
+     - plus G-6 (``flip_zero``, 350) and Cheng on super-resolution
+       (``refine``, 80)
+   * - strict reading (built-but-unreferenced group (b), 1,544, kept)
+     - 2,869 (28.7 %)
+     - 3,803 (38.0 %)
+     - **3,833 (38.3 %)**
+     - above the 30 % target
+   * - ``src`` only (no lines outside ``src``)
+     - 6,257 (62.6 %)
+     - 6,407 (64.1 %)
+     - **6,407 (64.1 %)**
+     - unchanged: the combiner moved between two ``src`` rows
 
-**Settled cut: 5,347 lines (53.5 %).** It is up from 4,413 because the
-combiner (+784 net of its replacement) and the FP32 storage emulation
-(+150) are now approved removals. The combiner's replacement still has to
-pass G-2 before its deletion PR merges. The design target with every row is
-5,777 lines (57.8 %). Each row of the table below carries its class.
-``O_lines.csv`` has the same column.
+What the settled cut contains:
+
+* never-compiled code (a);
+* built-but-unreferenced code (b) and the other unreferenced utilities;
+* the rewrites and merges;
+* Cheng's approved removals: ``mppnccombine.cpp`` (−1,014, with the
+  ``combine_parts.cpp`` addition of +200), the hdf5/fits stubs and
+  ``fp32_storage.*`` (−175).
+
+The +30 from revision 2 part 2 comes from dropping the ``snap-combine``
+wrapper. If every rewritten or new file is 50 % over its estimate, the
+design target is 4,242 lines (42.4 %). Each row of the table below
+carries its class, and ``O_lines.csv`` has the same column.
 
 .. list-table::
    :header-rows: 1
@@ -1421,7 +1520,7 @@ pass G-2 before its deletion PR merges. The design target with every row is
      - 0
      - 
      - 1014
-     - delete; LIVE, removal approved by Cheng; replaced by combine_parts (gate G-2)
+     - delete; LIVE, removal approved by Cheng; replaced by combine_parts.cpp (gate G-2 first)
      - GFDL tool; replaced by combine_parts in writer_core.cpp
    * - ``src/output/netcdf.cpp``
      - 583
@@ -1495,11 +1594,11 @@ pass G-2 before its deletion PR merges. The design target with every row is
      - #367 contract
    * - ``src/output/writer_core.cpp``
      - 138
-     - 420
+     - 220
      - 
-     - -282
+     - -82
      - rewrite; live, rewritten
-     - Frame transform, packing, combine_parts (~200)
+     - Frame transform and packing; the combiner is its own addition row
    * - ``src/output/writer_core.hpp``
      - 48
      - 110
@@ -1661,6 +1760,13 @@ pass G-2 before its deletion PR merges. The design target with every row is
      - 46
      - delete; live, folded
      - 
+   * - ``src/output/combine_parts.cpp``
+     - 
+     - 200
+     - 
+     - -200
+     - new
+     - ADDITION: snapy-specific combiner replacing mppnccombine.cpp (-r form only; gate G-2)
    * - ``src/output/budget_series.cpp``
      - 
      - 120
@@ -1710,13 +1816,6 @@ pass G-2 before its deletion PR merges. The design target with every row is
      - -300
      - new, outside src
      - options tables (data), ~1.4 lines per option
-   * - ``tools/snap_combine.cpp``
-     - 
-     - 30
-     - 
-     - -30
-     - new, outside src
-     - CLI around combine_parts for combine: false
    * - **baseline (71 files)**
      - **9996**
      - **2939**
@@ -1726,28 +1825,34 @@ pass G-2 before its deletion PR merges. The design target with every row is
      - src only: 64.1% cut
    * - **including new files outside src**
      - 
-     - **630**
+     - **600**
      - 
-     - **5777**
+     - **5807**
      - 
-     - 57.8% cut; target 30% = 2,999
+     - 58.1% cut; target 30% = 2,999
 
 **Totals.**
 
 * Baseline: 9,996 lines in 71 files (rechecked at the pin, section 9).
-* Kept in place: 2,419. New in ``src``: 520. Moved out unchanged: 650.
+* Kept in place: 2,219. Added in ``src``: 720, of which
+  ``combine_parts.cpp`` is 200. Moved out unchanged: 650. Added outside
+  ``src``: 600 (``gen_options.py`` and the option tables).
 * Cut in ``src`` only: 6,407 lines (64.1 %).
-* Cut including the 630 new lines outside ``src``: 5,777 lines (57.8 %).
-  **Settled: 5,347 lines (53.5 %)** (section 9.2). The 30 % target is 2,999.
-* If every rewritten or new file is 50 % over its estimate: 4,197 lines
-  (42.0 %) for the design target.
-* Not counted: 925 lines deleted outside the baseline, and the 22 + 13
-  lines of FP32 storage application in lane X's files (section 8.1).
+* Design target, including the additions outside ``src``: 5,807 lines
+  (58.1 %).
+* **Settled: 5,377 lines (53.8 %).** The 30 % target is 2,999.
+* Not counted:
+
+  * 785 lines deleted outside the baseline;
+  * in lane X: ``stride_iterator.hpp`` (140) and the rest of
+    ``src/interface``, and the FP32 storage application in ``src/mesh``
+    (22 + 13, section 8.1).
 
 10. Migration
 -------------
 
-The PR sequence is below. "Bitwise" means every state and every written
+The PR sequence is below. The combiner gate PR (O6a) comes before the
+deletion PR (O6b). "Bitwise" means every state and every written
 file is byte-identical to the base (gate G-1). No lane O change touches
 arithmetic on the state, so every PR is bitwise except O8, which adds a new
 file.
@@ -1793,15 +1898,26 @@ file.
      - bitwise
      - same members and defaults (G-3)
    * - O5
-     - Writer core, netcdf and pnetcdf sinks; ``vectorize`` and
-       super-resolution removed
+     - Writer core without ``AthenaArray`` (section 3.1), netcdf and
+       pnetcdf sinks; ``vectorize`` and super-resolution removed. Port
+       ``tests/test_eos_io_core.cpp``: its ``AthenaArray`` case
+       (``:33-53``, the float32 → float64 copy of #350) becomes the same
+       check on ``Frame::to_host()``; the two ``MoistEOS`` cases
+       (``:13-31``) are kept as they are.
      - bitwise files
-     - same values cast once, same layout (G-1)
-   * - O6
-     - ``combine_parts`` replaces ``mppnccombine`` (removal approved by
-       Cheng; section 10.1)
-     - bitwise variables
-     - G-2 is run on the PR before ``mppnccombine.cpp`` is deleted
+     - same values cast once, same layout (G-1). After O5, lane X can
+       delete ``src/interface`` (section 9).
+   * - O6a
+     - **Gate PR.** Add ``src/output/combine_parts.cpp`` and the G-2
+       parity test. ``combine_blocks`` still calls ``mppnccombine``.
+     - no output change
+     - the new code is not called by runs yet
+   * - O6b
+     - **Deletion PR**, after O6a's G-2 passes. ``combine_netcdf.cpp:73``
+       calls ``combine_parts``; ``mppnccombine.cpp`` (1,014) and its
+       declaration (``combine_netcdf.cpp:17``) are deleted
+     - bitwise data, exact metadata
+     - G-2
    * - O7
      - Restart merge; the reader throws
      - bitwise
@@ -1815,51 +1931,71 @@ file.
 10.1 Is a replacement combiner still needed?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Decision: yes. ``combine_parts`` (about 200 lines in
-``writer_core.cpp``, *estimate*) replaces ``mppnccombine.cpp``.** The
-command-line wrapper ``snap-combine`` (``tools/snap_combine.cpp``, about 30
-lines) covers parts written with ``combine: false``.
+**Decision (approved by Cheng; settled): yes.** ``combine_parts``
+(``src/output/combine_parts.cpp``, about 200 lines, *estimate*) replaces
+``mppnccombine.cpp``. In-run combining stays, and ``combine`` keeps its
+default of true (``src/output/output_type.hpp:85``:
+``ADD_ARG(bool, combine) = true;``). Users see no change: one merged netcdf
+file per output frame, ``<basename>.out<n>.<kkkkk>.nc``, as today.
 
-**Why.** Cheng approved removing the 1,014-line GFDL code, not the
-behaviour it provides. Without a combiner, every multi-block netcdf output
-would change from one file per frame to one file per block, and that
-breaks what depends on the single file:
+**Scope: only what snapy calls.** At the pin the only call is
+``mppnccombine(argc, argv)`` at ``src/output/combine_netcdf.cpp:73``
+(``rg -n 'mppnccombine\(' src python tests examples cmake`` gives that line,
+the declaration at ``:17`` and the definition at ``mppnccombine.cpp:94``).
+That call always uses the form ``-r <outfile> <infiles...>``
+(``combine_netcdf.cpp:64-71``). ``-r`` tells the tool to remove the
+decomposed part files after a successful merge (``mppnccombine.cpp``
+``usage``). ``combine_parts`` covers that form only: merge the parts into
+the output, then delete the parts on success.
 
-* the default ``combine: true`` (``output_type.hpp:85``);
-* ``test_output_barrier`` ("a block is missing from the combined file",
-  ``test_output_barrier.cpp:81``) and ``test_user_output.cpp:427``;
-* the decomposition tests (``tests/CMakeLists.txt:719-754``), which run
-  ``pd-combine`` on combined ``<case>.out<n>.<kkkkk>.nc`` files;
-* the multi-block decks in section 9.1 (c).
+What it does not touch:
 
-The alternatives do not cover this:
+* the single-part rename path (``combine_netcdf.cpp:61-62``,
+  ``std::rename``);
+* the PnetCDF writer, whose ``combine_blocks`` is empty
+  (``output_formats.hpp:95``) because it writes one collective file;
+* ``combine_restart.cpp``, which bundles restart parts with its own format
+  (``combine_restart.cpp:19-58``).
 
-* PnetCDF (kept) writes one file collectively, but only with
-  ``blocks_per_process=1`` (``pnetcdf.cpp:79-83``), only in float
-  (``:58-61``), without slices (``:51-53``) and only in ``PNETCDF=ON``
-  builds (``meshblock.cpp:236-241``).
-* Gathering every block to the root and writing once removes the part
-  files, but puts the whole field in the root's memory.
+The other ``mppnccombine`` options are not reproduced, because snapy never
+passes them: ``-v``, ``-a``, ``-n``, ``-e``, ``-h``, ``-m`` and ``-64``
+(``usage``, ``mppnccombine.cpp:336-399``).
 
-``combine_parts`` reads only the attributes snapy writes
-(``domain_decomposition``, ``NumFilesInSet``; ``netcdf.cpp:163-262``) and
-has no file-scope state.
+**Why a replacement is needed.** Cheng approved removing the GFDL code,
+not the behaviour. Without a combiner, every multi-block netcdf output
+would become one file per block. That breaks:
 
-**What a user runs in place of the built-in combiner:**
+* the default above;
+* ``test_output_barrier`` (``test_output_barrier.cpp:81``) and
+  ``test_user_output.cpp:427``;
+* the decomposition tests (``tests/CMakeLists.txt:717-754``);
+* the multi-block decks of section 5.
 
-* Default (``combine: true``): nothing. The run writes the combined
-  ``<basename>.out<n>.<kkkkk>.nc`` itself, as today, through
-  ``combine_parts``.
-* Parts kept with ``combine: false``, or parts from an older run:
-  ``snap-combine <basename>.out<n>.<kkkkk>.nc <basename>.block*.out<n>.<kkkkk>.nc``.
-  The first argument is the output; the rest are the parts, as the library
-  passes them today (``combine_netcdf.cpp:49-71``).
-* Equivalent external tool, for users who already have it: GFDL
-  FRE-NCtools' standalone ``mppnccombine -r <out.nc> <parts...>``. This is
-  the same program and the same ``-r`` call the library makes today
-  (``combine_netcdf.cpp:68-73``). **Hypothesis**: a current FRE-NCtools
-  build reads snapy's NETCDF4 parts like the in-tree V2.1.7 copy; not
-  tested.
+PnetCDF cannot take over: it needs one block per process
+(``pnetcdf.cpp:79-83``), writes float only (``:58-61``), takes no slices
+(``:51-53``) and exists only in ``PNETCDF=ON`` builds
+(``meshblock.cpp:236-241``).
+
+**The ``snap-combine`` wrapper is dropped.** Revision 2 earlier proposed a
+30-line command-line wrapper for ``combine: false`` parts. The rule was to
+keep it only if it replaced a tool that ``combine: false`` users have at the
+pin. They have none:
+
+* the in-tree ``mppnccombine`` is a library function with no executable
+  target. ``cmake/macros`` and ``tests``/``examples`` ``CMakeLists`` build
+  only ``<name>.cpp`` targets, and ``setup.py:109`` builds only
+  ``python/csrc``.
+* It has no Python binding (``rg -n mppnccombine python`` is empty).
+* ``pd-combine`` does not join blocks; it uses ``ncrcat``/``ncks``
+  (``python/api/pd_combine.py``).
+
+Tianhao's report says the same: joining ``combine: false`` parts "needs an
+external ``mppnccombine``" (``14-parallelism-io/_netcdf.qmd:106`` at
+``919936da``). So the wrapper and its per-part instructions are removed
+from the design, and its 30 lines leave the budget. ``combine: false``
+users keep exactly what they have today: their own external tool, for
+example GFDL FRE-NCtools' ``mppnccombine -r <out.nc> <parts...>``. Nothing
+in snapy changes for them.
 
 **Options and paths removed:**
 
@@ -1873,7 +2009,7 @@ has no file-scope state.
   python/*.py python/api`` is empty), settled by Cheng;
 * the Athena++ input format;
 * the built-in ``mppnccombine`` (settled by Cheng; replaced by
-  ``combine_parts`` and ``snap-combine``, section 10.1);
+  ``combine_parts``, section 10.1). No command-line wrapper is added;
 * the duplicate slice validation at ``meshblock.cpp:203-230``.
 
 11. Open questions to other lanes
@@ -1930,7 +2066,7 @@ X-3. Who calls graph and cache invalidation after ``read_restart``:
 12. Skeleton index
 ------------------
 
-``docs/v3/skeleton/O/`` holds declarations only: no function bodies, 276
+``docs/v3/skeleton/O/`` holds declarations only: no function bodies, 278
 lines in total (``wc -l``), not built. The ``.hpp`` files were
 syntax-checked with ``clang++ -fsyntax-only`` against a stub torch header.
 
@@ -1942,7 +2078,7 @@ syntax-checked with ``clang++ -fsyntax-only`` against a stub torch header.
      - lines
      - contents
    * - ``writer_core.hpp``
-     - 97
+     - 99
      - ``GridKind``, ``Field``, ``Frame``, ``Sink``, ``GriddedWriter``,
        ``combine_parts``; #350 helpers kept (section 3.1)
    * - ``diagnostics.hpp``
