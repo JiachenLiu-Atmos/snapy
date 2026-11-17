@@ -1,60 +1,30 @@
-# V3 lane O skeleton: the options table (format and sample rows; not wired).
-#
-# One row per option. The generator (gen_options.py) emits from this table:
-#   1. the C++ option struct  <module>_options.gen.hpp  (ADD_ARG lines,
-#      report(), clone()), replacing the hand-written ADD_ARG blocks
-#      (213 ADD_ARG entries in src/ at pin 9e5de2d4, add_arg.h excluded)
-#   2. the deck parser        <module>_options.gen.cpp  (from_yaml with the
-#      key list passed to check_keys, input/check_keys.cpp)
-#   3. the pybind11 bindings  py<module>_options.gen.cpp (ADD_OPTION lines;
-#      137 at the pin against 213 ADD_ARG entries; not matched name by name)
-#   4. the Python stubs       snapy/<module>.pyi (options classes only)
-#   5. the documentation      docs/api/options/<module>.rst (key, type,
-#      default, units, description), replacing the README key table of #352
-# Generated files are build products, except the .pyi stubs, which are
-# checked in for IDEs and compared with the generated ones in CI.
-#
-# Columns:
-#   name      C++ accessor (snake_case)
-#   key       deck key (kebab-case where the deck uses it; path under the
-#             module's YAML node)
-#   type      bool | int | double | string | list[double] | list[string] |
-#             enum[a,b,c] | struct:<Module>   (nested option object)
-#   default   the ONE default, used by create() and by the deck parser
-#             (#352 "one default per option")
-#   env       optional legacy environment variable: read once, warns, and
-#             overrides the deck (only SNAP_ANOMALY keeps an override; see
-#             O.rst question 4)
-#   python    false to keep an option out of the bindings (default true)
-#   doc       one line; units in [brackets]
-#
-# Sample rows only; the full table is generated once from the current
-# headers by gen_options.py --import (one-time migration, checked by a test
-# that the generated struct has the same members/defaults as the pin).
-
+# V3 lane O skeleton: options table format and sample rows (not wired).
+# gen_options.pyi emits from it: C++ struct (ADD_ARG, report, clone),
+# from_yaml with check_keys, pybind ADD_OPTION, .pyi stubs, rst docs.
+# Columns: name, key (deck key; null = not in the deck), type, default (the
+# one default), env (legacy variable: read once, overrides the deck, warns),
+# python (bind, default true), doc.
 module: output
-yaml_node: outputs[]            # a list; fid is the list index
-cpp_struct: OutputOptionsImpl
+yaml_node: outputs[]
 options:
-  - {name: fid, key: null, type: int, default: 0, doc: "index in outputs[]; set by the parser"}
-  - {name: dt, key: dt, type: double, default: 0., doc: "output interval [s]"}
-  - {name: file_type, key: type, type: "enum[netcdf,pnetcdf,restart,budget]", default: null, doc: "format; required"}
-  - {name: variables, key: variables, type: "list[string]", default: [], doc: "fields; tokens from the field registry"}
-  - {name: x1_slice, key: x1_slice, type: "list[double]", default: [], doc: "x1 coordinates to keep [m]"}
+  - {name: dt, key: dt, type: double, default: 0., doc: "interval [s]"}
+  - {name: file_type, key: type, type: "enum[netcdf,pnetcdf,restart,budget]", default: null, doc: "required"}
+  - {name: variables, key: variables, type: "list[string]", default: [], doc: "field registry keys"}
+  - {name: x1_slice, key: x1_slice, type: "list[double]", default: [], doc: "x1 cells to keep [m]"}
   - {name: output_sumx1, key: output_sumx1, type: bool, default: false, doc: "sum over x1"}
-  - {name: include_ghost_zones, key: include_ghost_zones, type: bool, default: false, doc: "write ghost cells"}
-  - {name: double_precision, key: double_precision, type: bool, default: false, doc: "NC_DOUBLE instead of NC_FLOAT"}
-  - {name: combine, key: combine, type: bool, default: true, doc: "join block parts on the root"}
-  - {name: verbose, key: verbose, type: bool, default: false, doc: "log each write"}
-checks:                         # cross-option rules, emitted into from_yaml
-  - "!(x1_slice.size() && output_sumx1)  : Cannot request both slice and sum along x1"
-
+  - {name: double_precision, key: double_precision, type: bool, default: false, doc: "NC_DOUBLE"}
+  - {name: combine, key: combine, type: bool, default: true, doc: "join parts on root"}
+checks:
+  - "!(x1_slice.size() && output_sumx1) : Cannot request both slice and sum along x1"
 ---
 module: hydro
 yaml_node: dynamics
-cpp_struct: HydroOptionsImpl
 options:
-  - {name: flux_covariance, key: flux-covariance, type: bool, default: true, doc: "covariant horizontal flux (#289, #352)"}
-  - {name: x1_mass_covariance, key: x1-mass-covariance, type: bool, default: false, doc: "x1 mass covariance (#352)"}
-  - {name: anomaly, key: anomaly, type: bool, default: false, env: SNAP_ANOMALY, doc: "store hydro_u as anomaly about an FP64 reference"}
-  - {name: conversion_order, key: conversion-order, type: "enum[2,4]", default: 2, doc: "x1 average<->point order (#339)"}
+  - {name: flux_covariance, key: flux-covariance, type: bool, default: true, doc: "#352"}
+  - {name: x1_mass_covariance, key: x1-mass-covariance, type: bool, default: false, doc: "#352"}
+  # env overrides the deck (hydro_options.cpp:84-95); FOR CHENG
+  - {name: anomaly, key: anomaly, type: bool, default: false, env: SNAP_ANOMALY, doc: "anomaly storage"}
+  # Step-0 FP32 storage emulation; today env only, read once per process
+  # (fp32_storage.cpp:88-97, getenv at :25); FOR CHENG: keep or drop
+  - {name: fp32_storage, key: fp32-storage, type: "enum[off,step,stage]", default: "off", env: SNAP_FP32_STORAGE, doc: "round stored state through float32 (fp32_storage.cpp:92)"}
+  - {name: fp32_storage_rows, key: fp32-storage-rows, type: "list[string]", default: [], env: SNAP_FP32_STORAGE_ROWS, doc: "rows to round, empty = all (fp32_storage.cpp:93)"}

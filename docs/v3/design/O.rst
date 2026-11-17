@@ -3,179 +3,101 @@
 V3 lane O: output, input, utilities, diagnostics, options schema
 =================================================================
 
-Revision 1, 2026-11-18. Owner: Jiachen (alternate: Isaac). Reviewers:
-Tianhao (C) and Isaac (K). Design only: no implementation change is proposed
-in this branch. Declarations are in ``docs/v3/skeleton/O/`` (not built). The
-file-by-file line table is section 11 and ``docs/v3/design/O_lines.csv``.
+Revision 1 (restructured), 2026-11-18. Owner: Jiachen (alternate: Isaac).
+Reviewers: Tianhao (C) and Isaac (K). Design only: this branch proposes no
+implementation change. Declarations are in ``docs/v3/skeleton/O/`` (not
+built). The line table is section 9, with the same rows in
+``docs/v3/design/O_lines.csv``.
 
 Every ``path:line`` below is at chengcli/snapy
 ``9e5de2d4ce497d0b2d4da3295fc1fe969fe7e410`` (main, "FP32 step5 validation
 (#368)") unless another commit is named. Line counts are ``wc -l`` at that
 commit. Numbers marked *estimate* are design targets, not measurements.
-Claims marked **hypothesis** have not been tested.
+Claims marked **hypothesis** are untested.
 
 .. contents::
    :local:
    :depth: 1
 
-1. Scope, sources and what was not available
---------------------------------------------
+1. Scope and pins
+-----------------
 
-Lane O covers ``src/output``, ``src/input``, ``src/utils``,
-``src/diagnostics``, ``src/math`` and ``src/z.junk``, and the options schema
-(one table that generates option structs, deck keys, Python stubs and
-documentation).
+**Scope.** ``src/output``, ``src/input``, ``src/utils``,
+``src/diagnostics``, ``src/math``, ``src/z.junk``, and the options schema:
+one table that generates the option structs, deck keys, Python stubs and
+documentation.
 
-Read for this revision: every file in those directories (including
-``radiative_flux.cpp_``, ``v1_moments.cpp_`` and ``z.junk``); the callers in
-``src/mesh/meshblock.cpp`` (output set-up 201-255, ``make_outputs``
-1207-1224, ``print_cycle_diagnostics`` 1226-1339, ``_init_from_restart``
-1603-1830) and ``src/mesh/mesh.cpp:441-463``; ``python/csrc/snapy.cpp``,
-``pyoutput.cpp``, ``pyoptions.hpp``; ``V3_ROADMAP.md``; the bodies of PRs
-#313, #321, #323, #350, #352, #356 and #367 (GitHub REST API, read-only;
-#321 and #323 have empty bodies, so only their titles and sizes were used).
+**Pins.** snapy ``9e5de2d4`` (above). This lane changes no provider source.
+The only provider call on its path is ``kintera::save_tensors`` /
+``load_tensors`` (``output/restart.cpp:8,123``;
+``input/read_restart_file.cpp:213,230``). #367 was validated with kintera
+2.6.10 (#367 body); I did not re-check that version here.
 
-**Tianhao's inventory at 919936da.** No document named as an inventory of
-this lane was found in chengcli/snapy or happysky19/snapy. The closest match
-is Tianhao's technical report on happysky19/snapy branch
+**Sources read.**
+
+* Every file in the lane directories, including the two ``.cpp_`` files and
+  ``z.junk``.
+* The callers in ``src/mesh/meshblock.cpp``: output set-up 201-255,
+  ``make_outputs`` 1207-1224, ``print_cycle_diagnostics`` 1226-1339 and
+  ``_init_from_restart`` 1603-1830.
+* ``src/mesh/mesh.cpp:441-463``, ``python/csrc/{snapy.cpp, pyoutput.cpp,
+  pyoptions.hpp}`` and ``V3_ROADMAP.md``.
+* The bodies of PRs #313, #321, #323, #350, #352, #356 and #367 (#321 and
+  #323 have empty bodies).
+* The kickoff's twelve sections and ten register requirements, as quoted in
+  the lane thread by Cheng's agent (2026-11-18). I did not read the kickoff
+  posts themselves.
+
+**Inventory at 919936da.** I found no document named as Tianhao's inventory
+of this lane. The nearest is his technical report on happysky19/snapy branch
 ``report/g5g6-919936da`` (head ``2634e2351b04eb04b810046eb431a19a98bb4cd5``),
-whose code anchors are at ``919936da``: chapter 13 (``13-diagnostics.qmd:19-20``
-states that ``src/diagnostics/`` is legacy Athena++/canoe code outside the
-source glob), chapter 14 (``14-parallelism-io/_netcdf.qmd``, output option
-table O-1 to O-36) and chapter 16 (known limits, e.g. "run-to-date meters are
-not carried across a restart"). This revision uses it as the inventory and
-rechecks every claim it takes from it at the pin. If a different inventory
-was meant, please point to it; revision 2 will reconcile.
+whose anchors are at ``919936da``:
 
-**Not available** (the worker that drafted this cannot read Slack): kickoff
-briefs 1/3 and 3/3 beyond what the lane post quotes, the flux-register
-requirements in kickoff brief 2/3, and the lane R and lane X designs. Section
-3 states what this design assumes about them; section 14 lists the questions
-for R and X.
+* chapter 13, ``13-diagnostics.qmd:19-20``: ``src/diagnostics`` is legacy and
+  not compiled;
+* chapter 14, ``14-parallelism-io/_netcdf.qmd``: output table O-1 to O-36;
+* chapter 16: known limits.
 
-2. Baseline recheck at the pin
-------------------------------
+Each claim used here was rechecked at the pin.
 
-``wc -l`` at the pin reproduces the lane post's 9,996 exactly when the
-baseline is the ``.cpp``/``.hpp``/``.h``/``.cu``/``.cuh`` files:
+**Where the design answers 1-8 of the lane post are.**
 
-.. list-table::
-   :header-rows: 1
+* Q1 (legacy and reachable): section 2.1.
+* Q2 (writer core): sections 2.2 and 3.1.
+* Q3 (diagnostics and budget format): sections 3.2 and 4.
+* Q4 (options table): sections 2.4 and 3.3.
+* Q5 (restart): section 3.4.
+* Q6 (utils): section 3.5.
+* Q7 (FP32 and CUDA graphs): sections 6 and 7.
+* Q8 (line table): section 9.
+* The formats and parser decisions, with the FOR CHENG items: section 3.6.
+  Open choices: section 3.7.
 
-   * - directory
-     - files
-     - lines
-   * - ``src/output``
-     - 20
-     - 4,487
-   * - ``src/input``
-     - 12
-     - 2,041
-   * - ``src/utils``
-     - 22
-     - 1,717
-   * - ``src/diagnostics`` (excluding ``CMakeLists.txt`` 19 and the two
-       ``.cpp_`` files, 108 + 73)
-     - 15
-     - 1,585
-   * - ``src/math``
-     - 2
-     - 166
-   * - **total**
-     - **71**
-     - **9,996**
+2. Concepts and current sites
+-----------------------------
 
-Outside that baseline, and deleted here without being counted toward the
-target: ``src/z.junk/load_athena_output_data.cpp_`` (585),
-``radiative_flux.cpp_`` (108), ``v1_moments.cpp_`` (73),
-``src/diagnostics/CMakeLists.txt`` (19), and ``src/interface/stride_iterator.hpp``
-(140), whose only includers are in ``src/diagnostics``
-(``rg -l stride_iterator src`` lists ``anomaly.cpp``, ``hydro_flux.cpp``,
-``hydro_mean.cpp``, ``todo/convective_heat_flx.cpp``). Total 925 lines.
+2.1 Baseline, reachability and callers (Q1)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Option counts in the lane post.** "``hydro.hpp`` has 32 option entries and
-``forcing.hpp`` 48" matches ``rg -c ADD_ARG`` (32, 48), which also counts the
-``#undef ADD_ARG`` line at the end of each header. The option entries are 31
-and 47 (``rg -o 'ADD_ARG\(' src/hydro/hydro.hpp | wc -l`` gives 31; the same
-for ``forcing.hpp`` gives 47). Over ``src/`` there are 213 entries
-(``add_arg.h`` excluded) and 137 ``ADD_OPTION`` bindings in ``python/csrc``
-(``pyoptions.hpp`` excluded).
+``wc -l`` at the pin reproduces the lane post's 9,996 over 71 files:
 
-**Environment switches.** The lane post lists three. At the pin
-``rg -n 'getenv\(' src -g '!src/layout/**'`` gives four sites:
+* ``src/output``: 4,487;
+* ``src/input``: 2,041;
+* ``src/utils``: 1,717;
+* ``src/diagnostics``: 1,585 (``.cpp``/``.hpp`` only, which leaves out
+  ``CMakeLists.txt`` 19 and ``radiative_flux.cpp_`` 108 and
+  ``v1_moments.cpp_`` 73);
+* ``src/math``: 166.
 
-.. code-block:: text
+Deleted but not counted toward the target are 925 lines outside that
+baseline: those three files, ``z.junk/load_athena_output_data.cpp_`` (585),
+and ``src/interface/stride_iterator.hpp`` (140). The latter's only includers
+are in ``src/diagnostics`` (``rg -l stride_iterator src``).
 
-   src/hydro/hydro.cpp:47:  if (std::getenv("SNAP_FLUX_COVARIANCE"))
-   src/hydro/hydro.cpp:51:  if (std::getenv("SNAP_X1_MASS_COVARIANCE"))
-   src/hydro/hydro_options.cpp:84:  if (char const* env = std::getenv("SNAP_ANOMALY")) {
-   src/utils/fp32_storage.cpp:25:  char const* v = std::getenv(name);
-
-``SNAP_FLUX_COVARIANCE`` and ``SNAP_X1_MASS_COVARIANCE`` are **only warned
-about**: since #352 they have no effect (``hydro.cpp:46-54``, comment "the
-environment switches these deck keys replaced are not read any more").
-``SNAP_ANOMALY`` overrides the deck (``hydro_options.cpp:83-95``). The lane post
-does not list ``SNAP_FP32_STORAGE`` and ``SNAP_FP32_STORAGE_ROWS``, read by
-``fp32_storage.cpp:25`` for the Step-0 storage emulation
-(``fp32_storage.hpp:19-25``; used at ``meshblock.cpp:622-638``).
-``SNAP_X1_CENTROID_EXACT`` appears 49 times, but ``getenv`` reads it in no
-file under ``src/``. **Hypothesis**: it is read through the ``layout.hpp:40``
-helper, which this revision did not trace. ``MASTER_PORT`` and
-``GLOO_SOCKET_IFNAME`` (``src/layout``) are launcher settings and are out of
-scope.
-
-3. Assumptions about lane R, lane X and kickoff brief 2/3
----------------------------------------------------------
-
-Neither the flux-register requirements nor the R/X interfaces were available.
-This design depends on the following. Each one is a question in section 14.
-
-A1 **Flux register (R).** Per block, R keeps the face fluxes of every
-   conserved row integrated over the accepted step with the RK weights
-   (sum over stages of ``b_s dt F_s``), per axis, on the device. R resets it
-   at the start of a step and restores it on a redo. Consumers read it only
-   between accepted steps. Lane C's draft already ends its sweep with
-   "register" (happysky19/snapy ``b7d1300f``, ``docs/v3/skeleton/c/sweep.hpp``),
-   which agrees with this but does not fix the layout.
-
-A1b The register accumulates in FP64 even in an FP32 run. A budget that
-   should close to round-off cannot be built from FP32 face sums.
-   (Today ``gravity_work_fix`` is a pending/commit/drop accumulator,
-   ``hydro.hpp:301-311``. The register is assumed to generalise it.)
-
-A2 **Monitor (R).** R exposes each fixer's change of each conserved row in
-   the accepted step, and today's event counters, as device tensors: limiter
-   cut/flux, positivity severe/min, VIC clamp residual, gravity-work fix, AAM
-   closure sums (``hydro.hpp:235-311``; read on the host today at
-   ``meshblock.cpp:1287-1296, 1336-1337``).
-
-A3 **Execution (X).** Output, diagnostics flushes and restart writes run
-   after the accept/retry decision and outside every captured segment.
-   ``V3_ROADMAP.md`` "Execution design" already says "Global CFL/retry
-   decisions and output stay outside graphs". X passes ``dt`` to consumers as
-   a device scalar, so a consumer's per-step ``observe`` can run on device
-   without a host value baked into a graph.
-
-A4 **Rows of the budget.** The kickoff post names mass, species, E+PE, AAM,
-   scalars and each fixer's contribution. This design takes these as the
-   budget rows and fixer channels (section 6). E+PE uses the corrected
-   potential energy the cycle line already uses when
-   ``radial_exact_work()`` holds (``meshblock.cpp:1270-1283``, test at ``:1273``).
-
-A5 **Lane naming.** Lane C's draft calls the layout lane "Lane O (layout)"
-   and diagnostics "lane EF" (happysky19/snapy ``b7d1300f``, ``c.rst``
-   section 12). This document follows the lane post: lane O is
-   output/input/utils/diagnostics/options. Section 14 asks for the letters
-   to be reconciled.
-
-4. Question 1: what is legacy and what is still reachable
----------------------------------------------------------
-
-"Compiled" means matched by ``file(GLOB src_files ...)`` in
-``src/CMakeLists.txt:35-53`` (``output/*.cpp``, ``utils/*.cpp``,
-``input/*.cpp``; no ``diagnostics/``, ``math/`` or ``z.junk/``) or by the CUDA
-glob at ``src/CMakeLists.txt:122-136`` (``utils/*.cu``). Callers come from the
-``rg`` runs quoted below, over ``src python tests examples``.
+"Compiled" below means matched by ``file(GLOB src_files ...)`` at
+``src/CMakeLists.txt:35-53`` or by the CUDA glob at
+``src/CMakeLists.txt:122-136``. Neither glob names ``diagnostics/``,
+``math/`` or ``z.junk/``.
 
 .. list-table::
    :header-rows: 1
@@ -184,453 +106,732 @@ glob at ``src/CMakeLists.txt:122-136`` (``utils/*.cu``). Callers come from the
    * - file(s)
      - compiled
      - callers at the pin (verdict)
-   * - ``input/parameter_input.{cpp,hpp}`` (993)
+   * - ``input/parameter_input.*`` (993)
      - yes
-     - **none.** The Athena++ ``<block> name=value`` parser
+     - **None.** This is the Athena++ ``<block> name=value`` parser
        (``parameter_input.cpp:1-40``). Its header is included only at
-       ``python/csrc/snapy.cpp:10`` and ``src/output/hdf5.cpp:6``, and neither
-       file uses a symbol from it. The other hits are comments in
-       ``output_formats.hpp:15-74`` and code in the uncompiled
-       ``src/diagnostics`` and ``src/turbulence``. No ``*.inp``/``athinput*``
-       deck exists in the tree (``find . -name '*.inp' -o -name 'athinput*'``
-       is empty). **Legacy, unreachable.**
-   * - ``input/io_wrapper.{cpp,hpp}`` (364)
+       ``python/csrc/snapy.cpp:10`` and ``output/hdf5.cpp:6``, and neither
+       file uses a symbol from it. No ``*.inp``/``athinput*`` deck exists in
+       the tree. **Legacy.**
+   * - ``input/io_wrapper.*`` (364)
      - yes
-     - **none** outside ``src/input`` (``rg -n 'io_wrapper|IOWrapper'``: no
-       match). Only ``parameter_input.hpp:12`` includes it. **Legacy.**
-   * - ``input/signal.{cpp,hpp}`` (187)
+     - Only ``parameter_input.hpp:12`` includes it. **Legacy.**
+   * - ``input/signal.*`` (187)
      - yes
-     - **none** (``rg -n 'input/signal\.hpp|"signal\.hpp"'``: no match). An
-       older copy of ``utils/signal_handler`` (the same SIGTERM/SIGINT/SIGALRM
-       singleton API, ``signal.hpp:29-60`` vs ``signal_handler.hpp:20-64``),
-       which is the live one (``mesh.cpp:28``, ``meshblock.cpp:24``).
+     - **No includer.** It is an older copy of ``utils/signal_handler``
+       (compare ``signal.hpp:29-60`` with ``signal_handler.hpp:20-64``).
        **Duplicate.**
-   * - ``input/command_line.{cpp,hpp}`` (186)
+   * - ``input/command_line.*`` (186)
      - yes
      - ``examples/run_hydro.cpp:23,212`` and
-       ``examples/jupiter_evap_precip_1d.cpp:193,278`` only. **Live, examples
-       only.**
-   * - ``input/read_restart_file.{cpp,hpp}`` (257)
+       ``examples/jupiter_evap_precip_1d.cpp:193,278``. **Examples only.**
+   * - ``input/read_restart_file.*`` (257)
      - yes
-     - ``meshblock.cpp:1609``, ``python/csrc/snapy.cpp:47``, 3 Python tests.
-       **Live.**
-   * - ``input/check_keys.{cpp,hpp}`` (54)
+     - ``meshblock.cpp:1609``, ``python/csrc/snapy.cpp:47``. **Live.**
+   * - ``input/check_keys.*`` (54)
      - yes
-     - 56 call sites over ``src`` (``hydro_options.cpp``, ``layout.cpp``,
-       ``output_type.cpp:66``, ...). **Live.**
+     - 56 call sites in ``src``. **Live.**
    * - ``output/mppnccombine.cpp`` (1,014)
      - yes
-     - one call, ``combine_netcdf.cpp:73``. The GFDL tool (V2.1.7,
-       ``mppnccombine.cpp:1-40``) is compiled into the library as a function.
-       It keeps file-scope state (``static unsigned char _first_``,
-       ``mppnccombine.cpp:93``) and takes ``argc/argv`` built with 2,048-byte
-       ``new[]`` buffers (``combine_netcdf.cpp:64-75``). **Live, but a tool
-       inside the library.**
+     - One call, at ``combine_netcdf.cpp:73``. This is the GFDL tool
+       (``mppnccombine.cpp:1-40``) with file-scope state
+       (``mppnccombine.cpp:93``). **A tool compiled into the library.**
    * - ``output/hdf5.cpp`` (27), ``HDF5Output``/``FITSOutput``
        (``output_formats.hpp:42-69, 98-104``)
      - body not compiled
-     - ``HDF5OUTPUT`` is never defined (``configure.h.in`` defines only
-       ``NETCDFOUTPUT``/``PNETCDFOUTPUT``, lines 12-16). The ``hdf5.cpp``
-       definition has the old signature (``hdf5.cpp:23``, no ``Variables``)
-       and would not match the header if it were compiled. The factory branch
-       is commented out (``meshblock.cpp:242-244``). ``FITSOutput`` has no
-       definition. **Stubs.** #356 kept them as "possibly meant to be filled
-       in". This design decides to remove them (section 12).
-   * - ``src/diagnostics/*`` (1,585 + 200 outside the baseline)
+     - ``HDF5OUTPUT`` is never defined (``configure.h.in:12-16``), the
+       ``hdf5.cpp:23`` signature does not match the header, and the factory
+       branch is commented out (``meshblock.cpp:242-244``). ``FITSOutput``
+       has no definition. **Stubs.**
+   * - ``src/diagnostics/*``
      - **no**
-     - not in any glob, and no ``add_subdirectory`` reaches its
-       ``CMakeLists.txt`` (``rg -n 'diagnostics/' src python tests examples
-       CMakeLists.txt cmake -g '!src/diagnostics/**'``: no match). Includes
-       headers that do not exist in snapy (``<athena/...>``,
-       ``<exchanger/...>``, ``diagnostics.hpp:8-13``). Uses ``NVAPOR``,
-       ``AthenaArray<Real>``, MPI ``PlanarExchanger``. The live per-cell
-       diagnostics (thermo, ``div``, ``div_h``, ``curl``, ``ic_*``,
-       ``path_*``, ``avg_*``) are in ``output/load_diag_output_data.cpp:54-338``.
-       **Legacy, unreachable.**
-   * - ``diagnostics/radiative_flux.cpp_``, ``v1_moments.cpp_``
-     - no
-     - drafts against Athena++/harp headers (``radiative_flux.cpp_:1-12``).
+     - Reached by no glob and no ``add_subdirectory``. It includes headers
+       that are not in snapy (``diagnostics.hpp:8-13``). The live per-cell
+       diagnostics are in ``output/load_diag_output_data.cpp:54-338``.
        **Legacy.**
-   * - ``src/z.junk/load_athena_output_data.cpp_`` (585)
-     - no
-     - Athena++ output loader (``SELF_GRAVITY_ENABLED``, ``pgrav->phi``).
-       Doxygen excludes it (``docs/doxygen/Doxyfile:133``). **Junk**; #356
-       removed the rest of ``z.junk`` and missed this file, or left it.
-   * - ``utils/pull_neighbors.*`` (249), ``utils/utils_dispatch.*`` (131),
-       ``utils/cuda_utils.*`` (22)
+   * - ``utils/pull_neighbors.*`` (249), ``utils_dispatch.*`` (131),
+       ``cuda_utils.*`` (22)
      - yes
-     - **no call.** ``rg -n 'pull_neighbors|bdot_out|checkCudaError' src python
-       tests -g '!src/utils/**'`` finds only two commented-out lines
-       (``equation_of_state.cpp:254,257``). ``cuda_utils.h`` is included at
+     - **Never called.** The only hits are two commented lines in
+       ``equation_of_state.cpp:254,257``. ``cuda_utils.h`` is included at
        ``implicit_dispatch.cu:15``, but ``checkCudaError`` is never called.
    * - ``utils/flip_zero.{cpp,h}`` (350)
      - yes
-     - ``tests/test_rectify.cpp:12`` only. The library uses the templated copy
-       ``src/bc/flip_zero_impl.h`` (277 lines, included at
-       ``bc/bc_dispatch.cpp:15``). Question 6.
+     - Only ``tests/test_rectify.cpp:12``. The library uses
+       ``bc/flip_zero_impl.h`` (``bc/bc_dispatch.cpp:15``).
    * - ``src/math/{lubksb,ludcmp}.h`` (166)
-     - header-only
-     - ``implicit/forward_sweep_impl.h:14-15`` and ``tests/test_lu_failure.cpp``.
-       **Live, one caller module.**
+     - header only
+     - ``implicit/forward_sweep_impl.h:14-15``. **One caller module.**
 
-Quoted ``rg`` output for the rows above (run at the pin):
+Commands behind the rows (run at the pin):
 
 .. code-block:: text
 
    $ rg -n "ParameterInput|parameter_input\.hpp" src python tests examples \
         -g "!src/input/**" -g "!src/diagnostics/**" -g "!src/turbulence/**"
-   python/csrc/snapy.cpp:10:#include <snap/input/parameter_input.hpp>
-   src/output/hdf5.cpp:6:#include <snap/input/parameter_input.hpp>
-   src/output/output_formats.hpp:15:  void write_output_file(Mesh pm, ParameterInput pin, bool flag) override;
-   src/output/output_formats.hpp:23:  ... (lines 23, 30, 74: inside /* */ comments)
-
+   python/csrc/snapy.cpp:10   src/output/hdf5.cpp:6
+   src/output/output_formats.hpp:15,23,30,74   (inside /* */ comments)
+   $ rg -n "io_wrapper|IOWrapper" src python tests examples -g "!src/input/**"   (no match)
+   $ rg -n 'diagnostics/' src python tests examples CMakeLists.txt cmake \
+        -g '!src/diagnostics/**'                                             (no match)
    $ rg -n "mppnccombine\(" src python tests examples
-   src/output/combine_netcdf.cpp:17:int mppnccombine(int argc, char* argv[]);
-   src/output/combine_netcdf.cpp:73:      err = mppnccombine(argc, argv);
-   src/output/mppnccombine.cpp:94:int mppnccombine(int argc, char *argv[]) {
+   src/output/combine_netcdf.cpp:17,73   src/output/mppnccombine.cpp:94
+   $ rg -n "pull_neighbors|bdot_out|checkCudaError" src python tests -g "!src/utils/**"
+   src/eos/equation_of_state.cpp:254,257  (both commented out)
 
-   $ rg -n "HDF5Output|FITSOutput|HDF5OUTPUT" src python tests
-   src/output/hdf5.cpp:15,21,23,27; src/output/output_formats.hpp:43,46,98,100,101
-   src/mesh/meshblock.cpp:244:            std::make_shared<HDF5Output>(out_op));*/
+2.2 Output path today (Q2)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   $ rg -n "utils/flip_zero\.h|utils/refine\.hpp|utils/vectorize\.hpp|utils/fp64_store\.hpp|\
-   utils/signal_handler\.hpp|utils/cuda_utils\.h" src python tests examples
-   src/hydro/hydro.hpp:19     tests/test_rectify.cpp:12   src/output/netcdf.cpp:19
-   src/output/pnetcdf.cpp:12  src/output/hdf5.cpp:8       src/output/output_type.cpp:9
-   src/mesh/meshblock.cpp:24  src/mesh/mesh.cpp:28        src/implicit/implicit_dispatch.cu:15
-   tests/test_refine.cpp:11
+* **Set-up.** ``meshblock.cpp:232-249`` picks ``restart``, ``netcdf`` or
+  ``pnetcdf``. The slice checks run twice: ``output_type.cpp:90-98`` and
+  ``meshblock.cpp:203-230``.
+* **Write.** ``make_outputs`` (``meshblock.cpp:1207-1224``) calls
+  ``AccumulateStats`` every step (``:1210``) and writes when
+  ``current_time >= next_time``.
+* **#350's writer core** (186 lines; merge ``ffaffdd5``) shares
+  ``output_range``, ``make_output_dir``, ``output_block_location``,
+  ``combine_on_root`` and ``glob_block_files``. It did not touch the format
+  code.
+* **What is left in the format code:**
 
-5. Question 2: one writer core
-------------------------------
+  * Two copies of layout, name expansion and grid-kind packing:
+    ``netcdf.cpp:287-318, 320-348, 490-562`` and
+    ``pnetcdf.cpp:209-236, 350-415``.
+  * A hand-managed ``OutputData`` list of ``AthenaArray`` copies
+    (``output_type.hpp:93-105``; ``output_type.cpp:201-244``), with slice
+    and sum written as nested loops (``output_type.cpp:415-557``).
+  * ``strtok`` name splitting (``utils/vectorize.cpp:12-22``). The define
+    pass splits on ``;`` (``netcdf.cpp:269,288``) and the write pass on
+    ``,`` (``netcdf.cpp:486``, ``pnetcdf.cpp:352``).
+  * Per-cell ``.item<double>()`` reads of the coordinates
+    (``netcdf.cpp:433-481``, six sites; ``output_type.cpp:438``).
 
-**What #350 did** (merged ``ffaffdd5``). It created ``output/writer_core.{hpp,cpp}``
-(186 lines at the pin) with ``output_range``, ``make_output_dir``,
-``output_block_location``, ``combine_on_root`` (per-process block counter,
-barrier, scope-guard mirror barrier) and ``glob_block_files``. Its body:
-"output core: −2" net lines, bitwise outputs on five decks. It shared the
-*plumbing*. It did not touch the *format* code.
-
-**What is left**, at the pin:
-
-* Two copies of the frame layout. ``netcdf.cpp`` (583) and ``pnetcdf.cpp``
-  (431) each define dims and coordinates, expand vector names
-  (``netcdf.cpp:287-318``; ``pnetcdf.cpp:209-236``), map the grid code to
-  dimension ids (``netcdf.cpp:320-348``), and pack seven grid kinds with
-  hand loops (``netcdf.cpp:490-562``; ``pnetcdf.cpp:350-415``). They differ
-  in the library calls and in slicing: ``pnetcdf`` refuses slices
-  (``pnetcdf.cpp:51-53``), ``double_precision`` (``:58-61``) and more than
-  one block per process (``:79-83``).
-* A hand-managed doubly linked list of ``OutputData`` holding
-  ``AthenaArray<double>`` copies (``output_type.hpp:93-105, 201-207``;
-  ``output_type.cpp:201-244``), with slice and sum as four nested loops per
-  case (``output_type.cpp:415-557``).
-* Name splitting with ``strtok`` into a 1,028-byte stack buffer
-  (``utils/vectorize.cpp:12-22``). The define pass splits on ``;``
-  (``netcdf.cpp:269, 288``) and the write pass on ``,`` (``netcdf.cpp:486``,
-  ``pnetcdf.cpp:352``). **Hypothesis** (not tested): ``strtok`` is not
-  re-entrant, so two blocks of one process writing at the same time would
-  race. ``combine_on_root`` uses a mutex (``writer_core.cpp:81-93``), which
-  means concurrent block writers are expected. Today ``Mesh::make_outputs``
-  loops over blocks serially (``mesh.cpp:447-449``); a Python driver that
-  calls ``MeshBlock.make_outputs`` from threads is the case at risk.
-* ``mppnccombine.cpp``, a 1,014-line general-purpose combiner, joins files
-  that snapy wrote itself. Every part carries the ``domain_decomposition``
-  attribute per axis (``netcdf.cpp:163-237``) and ``NumFilesInSet``
+* **Combine.** ``combine_netcdf.cpp:64-75`` builds ``argv`` for
+  ``mppnccombine``, which joins files that snapy wrote itself and that carry
+  ``domain_decomposition`` (``netcdf.cpp:163-237``) and ``NumFilesInSet``
   (``:262``).
-* Per-element host reads of coordinates: ``.item<double>()`` inside the
-  coordinate loops (``netcdf.cpp:433-481``, six sites) and in the slice
-  search (``output_type.cpp:438``). Question 7.
 
-**Design** (skeleton ``writer_core.hpp``):
+2.3 Monitor, fixers and budgets today (Q3)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* ``Field`` (names, ``GridKind``, units, long name, one tensor) and
-  ``Frame`` (fields, coordinates, per-axis placement) replace ``OutputData``
-  and the list. Slice and sum become one ``index_select``/``sum`` per field.
-  ``Frame::to_host()`` is the one host copy per field.
-* ``Sink`` is the format: ``open/define/end_define/put/put_coords/close``,
-  about 120-140 lines each for netcdf and pnetcdf (*estimate*). All layout
-  arithmetic (placement, face counts, cubed-sphere 3 x 2 offsets) is computed
-  once in the core.
+``print_cycle_diagnostics`` (``meshblock.cpp:1226-1339``) does the following
+every ``ncycle_out`` cycles:
+
+* sums the conserved rows, KE and PE (``:1257-1283``);
+* reads the meters with ``.cpu()`` (``:1288-1295``);
+* reduces over the process group (``:1300-1313``);
+* prints with ``.item<double>()`` (``:1319-1337``).
+
+It writes no file. The fixer state lives in hydro:
+
+* limiter (``lim_cut``, ``lim_flux``);
+* positivity (``positivity_severe``, ``positivity_min``);
+* gravity-work fix, as a pending/commit/drop accumulator;
+* axial closure sums (``_aam_cl``).
+
+All are in ``hydro.hpp:235-311``. The VIC clamp is
+``picorr->clamp_residual()`` (``meshblock.cpp:1295``).
+
+The convection examples each write their own CSV
+(``examples/planar_convection.cpp:3``, ``spherical_convection.cpp:19``,
+``cubed_sphere_convection.cpp:3``). The legacy ``HydroFlux`` recomputed
+``rho*v1`` from cell centres (``diagnostics/hydro_flux.cpp:56-63``). Output
+names ending in ``_flux`` get grid ``CCF`` (#321,
+``output_utils.cpp:216-219``); such fields come only from user callbacks
+(``load_user_output_data.cpp:19``), which compute their own fluxes.
+
+2.4 Options and environment switches (Q4), with corrections to the brief
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**32/48 against 31/47.** The brief's "``hydro.hpp`` 32 option entries,
+``forcing.hpp`` 48" are ``grep -c ADD_ARG`` counts. That pattern also
+matches the ``#undef ADD_ARG`` line that ends each header:
+``src/hydro/hydro.hpp:490`` and ``src/forcing/forcing.hpp:674``.
+``grep -n ADD_ARG <file> | grep -v 'ADD_ARG('`` prints exactly those two
+lines. Counting declarations with ``rg -o 'ADD_ARG\(' <file> | wc -l``
+gives **31** and **47**.
+
+Over ``src/`` there are 213 ``ADD_ARG(`` entries (``add_arg.h``, which
+defines the macro, excluded) and 137 ``ADD_OPTION(`` bindings in
+``python/csrc`` (``pyoptions.hpp`` excluded). These are counts only. I did
+not match options to bindings by name.
+
+**Each option is written in up to six places:**
+
+* the ``ADD_ARG`` line with its default;
+* ``report()``;
+* the ``check_keys`` list;
+* the ``from_yaml`` read, which carries its own default (#352 fixed three
+  options where the two defaults differed);
+* the pybind ``ADD_OPTION`` line;
+* the ``.pyi`` stub and the docs.
+
+**Environment switches.** ``rg -n 'getenv\(' src -g '!src/layout/**'``
+finds:
+
+* ``SNAP_FLUX_COVARIANCE`` and ``SNAP_X1_MASS_COVARIANCE``
+  (``hydro.cpp:47,51``) are **only warned about** since #352
+  (``hydro.cpp:46-54``).
+* ``SNAP_ANOMALY`` overrides the deck (``hydro_options.cpp:84-95``).
+* ``SNAP_FP32_STORAGE`` and ``SNAP_FP32_STORAGE_ROWS`` were missing from
+  the brief. They are read once per process, in a function-local static
+  (``fp32_storage.cpp:88-97``: mode at ``:92``, rows at ``:93``, through
+  ``env_or`` with ``getenv`` at ``:25``). They are documented at
+  ``fp32_storage.hpp:19-25``, applied at ``meshblock.cpp:621-642``, and
+  validated with messages naming the variables (``fp32_storage.cpp:36, 57,
+  79``).
+* ``SNAP_X1_CENTROID_EXACT`` appears 49 times, but no ``getenv`` in
+  ``src/`` names it. **Hypothesis**: it is read through the
+  ``layout.hpp:40`` helper, which I did not trace.
+
+3. Target design
+----------------
+
+Skeleton: ``writer_core.hpp``, ``diagnostics.hpp``, ``restart.hpp``,
+``options_table.yaml``, ``gen_options.pyi``, ``budget_series.cdl``.
+
+**Data flow** (one accepted step; lane R and lane X boxes are other lanes'):
+
+.. code-block:: text
+
+   [captured segment(s), lane X]                 host, after global accept
+   RK stages --F_s--> FluxRegister (R) ----.      .------------------------------.
+   fixers  --amount-> Monitor (R) ---------+----> | Consumer::observe (device)   |
+                                           |      |   BudgetConsumer, FluxProfile|
+   state U, W ---------------------------- +----> | GriddedWriter::accumulate_   |
+                                                  |   stats (device)             |
+                                                  '--------------+---------------'
+                                     output cadence only         v
+                    .----------------------+---------------------------------.
+                    | Consumer::flush: collective + host read -> BudgetSeries |
+                    | GriddedWriter::write: Frame -> to_host -> Sink -> part  |
+                    |   -> combine_on_root -> combine_parts                   |
+                    | write_restart (stored set only; register NOT written)   |
+                    '---------------------------------------------------------'
+
+3.1 Writer core (Q2)
+~~~~~~~~~~~~~~~~~~~~
+
+**Types.**
+
+* ``Field`` holds names, a ``GridKind``, units, the long name and one tensor.
+* ``Frame`` holds the fields, the coordinates and the per-axis placement. It
+  replaces ``OutputData`` and the list. Slicing and summing become one
+  ``index_select`` or ``sum`` per field. ``to_host()`` makes one copy per
+  field, the only host read on the gridded path.
+* ``Sink`` is one per format: netcdf and pnetcdf, about 120-140 lines each
+  (*estimate*).
 * ``GriddedWriter`` replaces ``OutputType`` and the four format classes. It
-  keeps the schedule (``file_number``, ``next_time``, both schedule keys of
-  #313) and the time statistics (``output_type.cpp:285-381``) unchanged.
-* ``combine_parts(outfile, parts)`` replaces the call into ``mppnccombine``.
-  It reads the attributes snapy writes and copies each variable's hyperslab
-  into the combined file, about 200 lines (*estimate*). **Gate**: on the 25
-  example decks and the #350 decks (6-panel cubed sphere, slices, ghost
-  zones, double precision), every variable of every combined file equals
-  ``mppnccombine``'s output bit for bit, and so do the dimension and
-  attribute lists. Until that gate passes, ``mppnccombine.cpp`` stays.
-* Moves out of ``src/``: the combiner CLI (``tools/snap_combine.cpp``,
-  about 30 lines, for ``combine: false`` runs; today the tech report says
-  "Joining them later needs an external ``mppnccombine``",
-  ``_netcdf.qmd:106``), and ``input/command_line.*`` to ``examples/`` (its
-  only callers). ``mppnccombine.cpp`` itself is deleted, not moved: once
-  ``combine_parts`` passes the gate, nothing calls it.
-* Output slice validation runs twice today (``output_type.cpp:90-98`` and
-  ``meshblock.cpp:203-230``). It moves into the generated option checks
-  (section 7), and the ``meshblock.cpp`` copy goes (that copy is lane M's line,
-  noted in section 14).
+  keeps the schedule, both #313 schedule keys and the Welford statistics
+  (``output_type.cpp:285-381``).
 
-6. Question 3: diagnostics as consumers of the register and monitor
--------------------------------------------------------------------
+**Combining.** ``combine_parts`` reads only the attributes snapy writes,
+about 200 lines (*estimate*). It replaces ``mppnccombine.cpp`` once gate G-2
+passes (section 5).
 
-**Today.** ``src/diagnostics`` is dead (section 4). The live end-of-step
-"monitor" is ``print_cycle_diagnostics`` (``meshblock.cpp:1226-1339``). Every
-``ncycle_out`` cycles it computes domain totals of every conserved row, KE and
-PE, reduces them over the process group, and prints one line. It reads meters
-with ``.cpu()`` (``:1288-1295``) and prints with ``.item<double>()``
-(``:1319-1337``). It writes nothing to a file. The convection examples write
-their own CSV time series (``examples/planar_convection.cpp:3``,
-``spherical_convection.cpp:19``, ``cubed_sphere_convection.cpp:3``). The
-legacy ``HydroFlux`` diagnostic recomputed ``rho * v1`` from cell centres
-(``diagnostics/hydro_flux.cpp:56-63``). That is not the flux the scheme used.
+**Ownership.** The writer borrows the block's variables for one write and
+owns only host copies, its schedule and its statistics tensors.
 
-**Design** (skeleton ``diagnostics.hpp``). A ``Consumer`` has ``observe``
-(device only, every accepted step, gets the ``FluxRegisterView``,
-``MonitorView`` and a device ``dt``) and ``flush`` (collective, then a host
-read, only at its output cadence). Two consumers replace the dead module:
+**Moves out of src.**
 
-* ``BudgetConsumer``. For each row Q it accumulates, in FP64 on device,
-  ``boundary`` (the outward register flux through the physical domain
-  boundary, summed over the interval) and ``fixer[f]`` (the monitor's
-  per-fixer change). At ``flush`` it also takes ``total`` (the domain
-  integral) and writes ``residual = (total - total_prev) + boundary -
-  sum fixer``. A budget that closes shows ``residual`` at round-off.
-* ``HydroFluxProfile``. The horizontal mean of the registered x1 face flux,
-  time-integrated, on grid ``--F``. It is the intent of the legacy
-  ``hydro_flux.cpp``, computed from the scheme's own fluxes.
+* ``tools/snap_combine.cpp`` (about 30 lines), a command-line wrapper around
+  ``combine_parts`` for ``combine: false`` runs.
+* ``input/command_line.*`` to ``examples/``.
 
-The per-cell diagnostics stay field loaders of the writer core. A
-``FieldDiagnostic`` registry (key, grid, units, compute) replaces the
-``ContainVariable`` chains in ``load_diag_output_data.cpp`` (11 lines
-call it; ``rg -c 'ContainVariable\(' src/output/load_diag_output_data.cpp``).
+3.2 Diagnostics as register consumers (Q3)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Proposed budget time-series format** (skeleton ``budget_series.cdl``). One
-file per run, ``<output_dir>/<basename>.budget.nc``. NetCDF4 with an
-unlimited ``time`` dimension, appended by the root rank at each budget
-interval, and **every variable NC_DOUBLE**. Variables: ``time``, ``cycle``,
-``dt``, ``interval``; ``row_name``/``row_units`` (rows: ``mass``,
-``species/<name>``, ``energy`` (E+PE), ``aam``, ``scalar/<name>``);
-``fixer_name`` (``limiter``, ``positivity``, ``vic_clamp``,
-``gravity_work``, ``aam_closure``); ``total(time,row)``,
-``boundary(time,row)``, ``fixer(time,fixer,row)``,
-``residual(time,row)``; the monitor counters as scalars per record. It is
-requested like any output: ``- {type: budget, dt: 3600.}``.
+A ``Consumer`` has two methods:
 
-Why this format (open choice O-3 in section 13):
+* ``observe``: runs on the device every accepted step and reads the
+  register's step transfer, the monitor and a device ``dt``;
+* ``flush``: makes the collective and the host read, at its own cadence
+  only.
 
-* NetCDF is the format every snapy reader already handles (xarray,
-  ``pd_inspect.py``). It carries units and names, and ``time`` UNLIMITED
-  makes appending a record cheap. CSV loses units, needs a schema next to it,
-  and drifted per example (three different column sets in the convection
-  drivers).
-* Rows and fixers are *dimensions*, not variable-name suffixes, so adding a
-  species or a fixer changes no reader.
-* Double only, because the point is relative changes far below the 1e-7
-  that the default ``NC_FLOAT`` resolves (``output_type.hpp:79-83``).
-* The ``BudgetSeries`` writer goes through the same netcdf ``Sink`` as the
-  gridded writer (about 120 lines, *estimate*), so it adds no new I/O
-  dependency.
-* Restart carries the pending interval sums (``BudgetCarry``, section 8), so
-  an interval that straddles a restart closes. The tech report lists the loss
-  of run-to-date meters across restart as a known limit (chapter 16).
+Two consumers replace ``src/diagnostics``:
 
-7. Question 4: one options table
---------------------------------
+* ``BudgetConsumer``. For each row it accumulates in FP64:
 
-**Today.** One option is written in up to six places: the ``ADD_ARG``
-declaration with its default (``add_arg.h``), the ``report()`` line, the key
-list for ``check_keys`` and the typed read in ``from_yaml`` (with a second
-default, the bug class #352 fixed for three options), the pybind
-``ADD_OPTION`` line, the ``.pyi`` stub and the documentation. The counts show
-the drift: 213 ``ADD_ARG`` entries against 137 ``ADD_OPTION`` bindings
-(section 2). This revision did not match them name by name, so the 76 is a
-count difference, not a list of unbound options. ``hydro.hpp`` alone has 31
-entries and 20 bindings (``rg -c 'ADD_OPTION\(' python/csrc/pyhydro.cpp``);
-``forcing.hpp`` has 47 and 19.
+  * ``boundary``, the outward register transfer through the physical domain
+    boundary;
+  * ``fixer[f]``, the monitor's amount for each fixer.
 
-**Design** (skeleton ``options_table.yaml``, ``gen_options.py``). One YAML
-table per module, one row per option: ``name, key, type, default, env,
-python, doc``, plus cross-option ``checks``. ``gen_options.py`` emits (1)
-the C++ struct (``ADD_ARG``, ``report()``, ``clone()``), (2) ``from_yaml``
-with the key list passed to ``check_keys`` and one default per option,
-(3) the pybind lines, (4) the ``.pyi`` stubs (checked in, compared in CI)
-and (5) an ``rst`` page per module. It runs at CMake configure time and in
-``setup.py``. A one-time ``--import`` reads the pin's headers to seed the
-tables, and a test checks that the generated structs have the same members
-and defaults as the pin.
+  At each record it writes ``residual = (total - total_prev) + boundary -
+  sum fixer``.
 
-**Environment switches.** Each switch becomes a table row with an ``env``
-column:
+* ``HydroFluxProfile``: the horizontal mean of the registered x1 transfer,
+  on grid ``--F``.
 
-* ``SNAP_FLUX_COVARIANCE``, ``SNAP_X1_MASS_COVARIANCE``: delete the warning
-  stubs (``hydro.cpp:46-54``) one release after #352. They have had no
-  effect since #352.
-* ``SNAP_ANOMALY``: keep as the only ``env`` override (``anomaly`` row). It
-  is used by restart guidance ("Resume with SNAP_ANOMALY=0",
-  ``meshblock.cpp:1782``) and appears on 5 lines in ``tests/``
-  (``rg -n SNAP_ANOMALY tests | wc -l``). **FOR CHENG**: keep
-  the override, or make tests pass ``dynamics/anomaly``?
-* ``SNAP_FP32_STORAGE``/``_ROWS``: become ``dynamics/fp32-storage`` and
-  ``dynamics/fp32-storage-rows`` rows. The ``getenv`` path goes
-  (``fp32_storage.cpp`` 119 -> 95, *estimate*). **FOR CHENG**: the Step-0
-  emulation may no longer be wanted now that FP32 arithmetic is merged
-  (#361). If so, the 175 lines go entirely.
+The per-cell diagnostics stay as field loaders. A ``FieldDiagnostic``
+registry replaces the ``ContainVariable`` chains (11 lines,
+``rg -c 'ContainVariable\(' src/output/load_diag_output_data.cpp``). The
+cycle line becomes a printer over ``BudgetConsumer``'s totals. Its content
+is unchanged.
 
-**Scope.** The generator and tables are new lines outside ``src/`` (about 600,
-*estimate*; counted in section 11). The lines they remove are in other
-lanes' headers and bindings (``ADD_ARG`` blocks, ``from_yaml`` bodies,
-``python/csrc/py*.cpp``, 2,753 lines of ``.pyi``), so they are **not**
-claimed by this lane's line table. Lanes that own those files decide when
-to switch.
+**Budget time-series format** (``budget_series.cdl``):
 
-8. Question 5: restart
-----------------------
+* One file per run, ``<basename>.budget.nc``, NetCDF4, appended by the root
+  rank. Every variable is ``NC_DOUBLE``.
+* Dimensions: ``time`` (unlimited), ``row`` and ``fixer``.
+* Rows: ``mass``, ``species/<n>``, ``energy`` (E+PE), ``aam`` and
+  ``scalar/<n>``.
+* Fixers: ``limiter``, ``positivity``, ``vic_clamp``, ``gravity_work`` and
+  ``aam_closure``.
+* Variables: ``total``, ``boundary``, ``fixer``, ``residual``, and the
+  monitor counters.
+* Requested with ``- {type: budget, dt: ...}``.
 
-Skeleton ``restart.hpp`` holds the normative stored/derived table.
+Reasons for NetCDF rather than CSV:
 
-**Stored** (all kept from the pin): ``hydro_u`` as FP64 totals
-(``restart.cpp:44``); ``hydro_u_stored`` (the anomaly bits in the run dtype,
-``:45``); ``hydro_ref``, ``hydro_ref_species`` and the reference grid faces
-``hydro_ref_x{1,2,3}f`` (#367, ``:46-61``); ``hydro_restart_metadata``
-[version, stored-state bits] (``:50-53``); ``scalar_s`` (``scalar_r`` is
-dropped when it can be rebuilt, ``:30-34``); ``fill_solid_hydro_u`` and the
-boundary references when present; ``last_time``, ``last_cycle``; the output
-schedule (``file_number``, advanced ``next_time``, N legacy plus N v2 keys,
-``:73-99``, from #313). New: ``BudgetCarry``, the pending boundary and fixer
-sums since the last budget record.
+* every snapy reader already reads NetCDF;
+* units travel with the data;
+* adding a species or a fixer changes no reader;
+* double precision, because ``NC_FLOAT`` hides relative changes below
+  ``1e-7`` (``output_type.hpp:79-83``).
 
-**Derived** (never written): ``hydro_w``, ``scalar_r``
-(``meshblock.cpp:1827-1829``); the flux register and monitor counters (reset
-at load: they hold one step); CUDA graph executables, captured workspaces and
-cast caches (``V3_ROADMAP.md``: "Derived caches and graph executables are
-never serialized into restart files"); coordinates, metrics and
-reconstruction coefficients.
+3.3 Options table (Q4)
+~~~~~~~~~~~~~~~~~~~~~~
 
-**#367 metadata kept unchanged**: ``kHydroRestartVersion = 1``, the metadata
-name and the grid keys (``restart_metadata.hpp:9-12``), and the checks at
-``meshblock.cpp:1623-1653`` (version, dtype bits, shape, grid equality,
-perturbation-flux backgrounds). They move into ``check_restart_metadata`` next
-to the file contract, and ``MeshBlock`` calls it.
+**Table format.** One YAML table per module (``options_table.yaml``). Each
+row has the columns ``name``, ``key``, ``type``, ``default`` (the only
+default), ``env``, ``python`` and ``doc``, and a module can add cross-option
+``checks``.
+
+**Generator** (``gen_options.pyi``). It emits:
+
+* the C++ struct;
+* ``from_yaml``, with the ``check_keys`` list;
+* the pybind lines;
+* the ``.pyi`` stubs, which are checked in and compared in CI;
+* one ``rst`` page per module.
+
+It runs at CMake configure time and in ``setup.py``. A one-time migration
+seeds the tables from the pin's headers, and a test checks that the
+generated members and defaults equal the pin's.
+
+**Environment switches in the table:**
+
+* ``SNAP_FLUX_COVARIANCE`` and ``SNAP_X1_MASS_COVARIANCE``: the warning
+  stubs (``hydro.cpp:46-54``) are deleted.
+* ``SNAP_ANOMALY``: the row ``dynamics/anomaly`` with ``env: SNAP_ANOMALY``,
+  the only permanent override. It is named in the user-facing message at
+  ``meshblock.cpp:1782`` and used on 5 test lines. **FOR CHENG.**
+* ``SNAP_FP32_STORAGE`` and ``SNAP_FP32_STORAGE_ROWS``: the rows
+  ``dynamics/fp32-storage`` (``off|step|stage``) and
+  ``dynamics/fp32-storage-rows`` (list, empty means all), each with the old
+  variable in ``env`` for one release. The ``env_or`` helper
+  (``fp32_storage.cpp:24-27``) goes.
+
+  Today the configuration is process-wide, because "every block and rank
+  must round the same rows" (``fp32_storage.cpp:89``). As a deck key it is
+  per block, and blocks built from one deck agree, the same argument #352
+  used for the covariance keys. **FOR CHENG**: Step 0 may no longer be
+  wanted now that FP32 arithmetic is merged (#361). If not, all 175 lines go.
+
+**What the lane does not claim.** The ``ADD_ARG`` blocks, ``from_yaml``
+bodies, ``python/csrc/py*.cpp`` and ``.pyi`` stubs that the generator
+replaces belong to the lanes that own those files. They are not in this
+line budget.
+
+3.4 Restart (Q5)
+~~~~~~~~~~~~~~~~
+
+**Stored** (unchanged from the pin):
+
+* ``hydro_u``, FP64 totals (``restart.cpp:44``);
+* ``hydro_u_stored``, the anomaly bits in the run dtype (``:45``);
+* ``hydro_ref``, ``hydro_ref_species`` and ``hydro_ref_x{1,2,3}f``
+  (``:46-61``);
+* ``hydro_restart_metadata`` (``:50-53``);
+* ``scalar_s`` (``:30-34``);
+* ``fill_solid_hydro_u`` and the boundary references, when present;
+* ``last_time`` and ``last_cycle``;
+* the output schedule (``:73-99``).
+
+New: ``BudgetCarry``, the pending FP64 sums since the last budget record.
+This is output bookkeeping, not register state.
+
+**Derived** (never written):
+
+* ``hydro_w`` and ``scalar_r`` (``meshblock.cpp:1827-1829``);
+* **the flux register and the monitor** (requirement 10);
+* graph executables, captured workspaces and cast caches
+  (``V3_ROADMAP.md:80``);
+* coordinates, metrics and reconstruction coefficients.
+
+**The #367 metadata is kept unchanged** (``restart_metadata.hpp:9-12``).
+Its checks move from ``meshblock.cpp:1623-1653`` into
+``check_restart_metadata``.
 
 **Changes:**
 
-* The bundle writer (``combine_restart.cpp``) and reader
-  (``read_restart_file.cpp``) merge into ``restart.cpp`` with one
-  ``kRestartBundleMagic``. Today it is defined twice
-  (``combine_restart.cpp:16``, ``read_restart_file.cpp:23``).
-* The reader **throws** where it now prints to ``std::cerr`` and returns an
-  empty map (``read_restart_file.cpp:157-220``). Today the caller then stops
-  on "missing required variable: hydro_u" (``meshblock.cpp:1612``), which
-  hides the real cause (a truncated bundle or a wrong block).
-* **Hypothesis**: the reader extracts each block to a temporary file before
-  ``kintera::load_tensors`` (``read_restart_file.cpp:177-216``). Reading
-  through a memory stream would avoid that, if ``kintera::load_tensors``
-  accepts one. Not checked in kintera; question for whoever owns that API.
-* The bundle format (``SNAPY_RESTART_BUNDLE_V1``) and the file names stay, so
-  every existing restart file still loads.
+* The writer, the bundle code and the reader merge into one module, with one
+  bundle magic. Today it is defined twice: ``combine_restart.cpp:16`` and
+  ``read_restart_file.cpp:23``.
+* The reader throws an error instead of printing to ``std::cerr`` and
+  returning an empty map (``read_restart_file.cpp:157-220``).
 
-9. Question 6: ``src/utils``
-----------------------------
+3.5 ``src/utils`` (Q6)
+~~~~~~~~~~~~~~~~~~~~~~
+
+Moved:
+
+* ``fp64_store.hpp`` to ``src/hydro``; its only includer is
+  ``hydro.hpp:19``.
+* ``signal_handler.*`` to ``src/mesh``; its includers are ``mesh.cpp:28``
+  and ``meshblock.cpp:24``.
+* ``math/*.h`` to ``src/implicit``.
+
+Deleted:
+
+* ``pull_neighbors.*``, ``utils_dispatch.*`` and ``cuda_utils.*``: never
+  called.
+* ``vectorize.*``: ``Field.names`` replaces it.
+* ``refine.*``: its only caller is super-resolution output
+  (``output_type.cpp:143-187``), which no deck uses (it appears only at
+  ``tests/test_user_output.cpp:1144``). **FOR CHENG**: it is bound in Python
+  at ``pyoutput.cpp:43``.
+* ``utils/flip_zero.*``: the int-only copy (``flip_zero.h:30-80``) of the
+  templated ``bc/flip_zero_impl.h:24-202``. They have the same four
+  functions, except that ``reconstruct_solution`` writes in place in the
+  ``bc`` copy (``flip_zero_impl.h:202``). ``test_rectify`` is ported to
+  ``T = int`` (gate G-6).
+
+Kept: ``log.hpp``, ``loops.cuh``, ``on_host.hpp`` and
+``tensor_cast_cache.hpp`` (11, 8, 3 and 3 includers), and ``fp32_storage.*``
+(section 3.3).
+
+3.6 Decisions and FOR CHENG
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**D1 Formats that remain.**
+
+* ``netcdf``: requested by 18 of 25 ``examples/*.yaml`` and 4 files in
+  ``tests/``.
+* ``restart``.
+* ``pnetcdf``, as a sink. **FOR CHENG**: it is used by
+  ``examples/straka.yaml:57`` and ``shallow_splash.yaml:58``, and no test
+  runs it on several ranks (``tests/run_straka.cmake:28`` swaps it for
+  netcdf).
+* ``budget`` (new).
+
+Removed:
+
+* ``hdf5`` and ``fits`` stubs. **FOR CHENG**: #356 kept them as possibly
+  meant to be filled in.
+* the ``super-resolution`` option. **FOR CHENG.**
+* ``mppnccombine`` in the library, after gate G-2. **FOR CHENG**: is it
+  used on files snapy did not write?
+
+**D2 The legacy input parser goes.** ``parameter_input.*`` and
+``io_wrapper.*`` (1,357 lines) have no caller and no deck uses their format.
+If a workflow needs one, an Athena++-to-YAML converter belongs in
+``tools/``.
+
+**D3 ``src/diagnostics`` goes.** Register consumers replace it. Its todo
+list becomes budget rows or ``FieldDiagnostic`` entries when someone needs
+them, written against the register.
+
+**FOR CHENG, all items:**
+
+* pnetcdf;
+* hdf5/fits;
+* super-resolution;
+* outside use of mppnccombine;
+* the ``SNAP_ANOMALY`` override;
+* the FP32 storage emulation.
+
+3.7 Open choices made, with reasons
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+O-1 Baseline excludes ``.cpp_`` and ``diagnostics/CMakeLists.txt``. This is
+the only reading that gives 9,996. Those files are deleted but not counted.
+
+O-2 Moves are not cuts. Moving files leaves the repository's size the same.
+
+O-3 Budget in NetCDF, not CSV (section 3.2).
+
+O-4 pnetcdf stays. It costs about 130 lines with the core, and two example
+decks use it.
+
+O-5 mppnccombine is replaced, not moved to ``tools/``. The replacement is a
+fifth of the size and has no file-scope state. It is gated on bitwise
+variables.
+
+O-6 Generated files are not checked in, except the ``.pyi`` stubs, which
+IDEs need without a build.
+
+O-7 ``SNAP_ANOMALY`` stays as an override. It is named in a user-facing
+message.
+
+O-8 The FP32 storage variables keep an ``env`` column for one release, so
+existing scripts warn instead of silently changing behaviour.
+
+O-9 The line estimates come from the skeleton plus the live code they keep.
+A +50 % sensitivity is given in section 9.
+
+O-10 The cycle line stays, printed from the budget totals.
+
+4. Flux-register contract
+-------------------------
+
+Lane O **posts nothing** to the register or the monitor and **corrects
+nothing**. It is a reader only. What it reads, and the ordering it relies
+on:
+
+* **Reads.**
+
+  * The step transfer per axis, per conserved row (requirement 3).
+  * The per-fixer amounts and the monitor totals (requirements 6, 7).
+  * The row names and the dtype (requirement 8).
+
+* **Ordering.**
+
+  * ``observe`` runs after the global accept and before the next step's
+    register reset.
+  * ``flush`` and ``write`` run at their cadence, after ``observe``,
+    outside captured segments.
+  * On a redo, ``observe`` is not called for the rejected attempt.
+
+* **Writes.** Lane O writes no register state to restart (requirement 10).
+  After a restart the budget continues from ``BudgetCarry``, and the
+  register starts empty.
+
+Check against the ten requirements:
 
 .. list-table::
    :header-rows: 1
-   :widths: 28 30 42
+   :widths: 6 40 54
 
-   * - helper
-     - callers (``rg``, section 4)
-     - decision
-   * - ``fp64_store.hpp`` (85)
-     - ``hydro/hydro.hpp:19`` only
-     - **move** to ``src/hydro``
-   * - ``signal_handler.*`` (213)
-     - ``mesh.cpp:28``, ``meshblock.cpp:24``; takes ``MeshBlockImpl``
-       (``signal_handler.hpp:45``)
-     - **move** to ``src/mesh``; delete its duplicate ``input/signal.*``
-   * - ``refine.*`` (80)
-     - ``output_type.cpp:9`` (super-resolution), ``tests/test_refine.cpp``;
-       ``conservative_coarsen`` is used only by the test
-     - **delete** with ``super_resolution``. It is used by no deck and
-       ``tests/test_user_output.cpp:1144`` only, and it builds a whole second
-       ``MeshBlockImpl`` with raw ``new`` per write
-       (``output_type.cpp:143-187``). **FOR CHENG**: Python bindings expose it
-       (``pyoutput.cpp:43``); is it used from a notebook?
-   * - ``vectorize.*`` (70)
-     - ``netcdf.cpp``, ``pnetcdf.cpp``, ``hdf5.cpp``
-     - **delete**; ``Field.names`` is already a vector
-   * - ``flip_zero.{cpp,h}`` (350)
-     - ``tests/test_rectify.cpp`` only
-     - **delete**; port the test to ``bc/flip_zero_impl.h``
-   * - ``pull_neighbors.*``, ``utils_dispatch.*``, ``cuda_utils.*``
-     - none
-     - **delete**
-   * - ``fp32_storage.*`` (175)
-     - ``meshblock.cpp:622-638``, ``tests/test_fp32_storage.cpp``
-     - keep; env parsing replaced by option rows (section 7)
-   * - ``log.hpp`` (67), ``loops.cuh`` (150), ``on_host.hpp`` (72),
-       ``tensor_cast_cache.hpp`` (53)
-     - 11, 8, 3 and 3 including files
-     - **keep** (shared infrastructure)
-   * - ``src/math/{lubksb,ludcmp}.h`` (166)
-     - ``implicit/forward_sweep_impl.h`` only
-     - **move** to ``src/implicit`` (lane I decides)
+   * - req
+     - requirement (as quoted)
+     - lane O
+   * - 1
+     - one owner of every conservative face flux; one frame and area
+       weighting
+     - Lane O owns no flux. ``HydroFluxProfile`` and ``boundary`` use R's
+       documented weighting. Open question L-1.
+   * - 2
+     - named increments in a declared order; total and parts reportable
+     - The budget reports them as ``total``, ``boundary``, ``fixer[f]`` and
+       ``residual``, in R's declared order.
+   * - 3
+     - stage fluxes accumulated with the stage weights into the step
+       transfer
+     - **Adopted.** It replaces assumption A1 of the first draft. The
+       consumers read only the step transfer, never stage fluxes.
+   * - 4
+     - flux divergence and flux-derived terms read the register, never
+       rebuild
+     - ``HydroFluxProfile`` reads the register. The legacy recomputation
+       from cell centres (``hydro_flux.cpp:56-63``) goes. User callbacks
+       (``load_user_output_data.cpp:19``) get a read-only register view, so
+       ``*_flux`` outputs need not rebuild fluxes. Open question L-2.
+   * - 5
+     - shared face: two entries, one reconciliation rule; rotation owned by
+       coord
+     - The domain-boundary transfer has one entry per face. Lane O applies
+       no rotation and reads scalar sums only. Open question L-3.
+   * - 6
+     - one device-side monitor (mass, species, E+PE, AAM, scalars); no host
+       reads in a segment
+     - Its rows are the budget rows. The monitor is read on the host only in
+       ``flush``, outside segments (section 7).
+   * - 7
+     - every fixer and floor registers what it added
+     - **Adopted.** It replaces A2. ``fixer[f]`` is R's per-fixer amount,
+       and ``aam_closure`` is a fixer channel, not part of the flux.
+   * - 8
+     - stated dtype under FP32; fixed storage a graph can capture
+     - Lane O needs FP64 sums for the residual. It casts at ``observe`` if
+       R holds FP32. Open question L-4.
+   * - 9
+     - no added full-field copy per stage; memory and cost stated
+     - Lane O adds no per-stage work. Per accepted step it adds a few
+       reductions of the (nrows,) sums and one (nvar, nc1+1) profile sum.
+       *Estimate*; not measured.
+   * - 10
+     - the register is rebuilt, not written to restart
+     - **Adopted.** It replaces the first draft's "derived" assumption.
+       ``restart.hpp`` writes no register or monitor state.
 
-*flip_zero.cpp against src/bc/flip_zero_impl.h.* The ``utils``
-copy is the int-only original (``flip_zero.h:30-80``:
-``initialize_dp(int n, int *dp, ...)``, ``compute_min_flips(const int
-*inSeq, ...)``). The ``bc`` copy is the templated one the library uses
-(``flip_zero_impl.h:24-202``: ``initialize_dp(int n, T *dp, ...)``,
-``compute_min_flips(const T *inSeq, ...)``). The functions are the same
-four (``initialize_dp``, ``can_flip``, ``compute_min_flips``,
-``reconstruct_solution``), except that ``reconstruct_solution`` writes
-in place in the ``bc`` copy (``flip_zero_impl.h:202``, no ``outSeq``).
-**Hypothesis**: the DP is otherwise identical. A line-by-line diff was not
-done. The ported ``test_rectify`` (``T = int``) is the check: if the
-``bc`` copy passes the ``utils`` copy's test cases, the ``utils`` copy goes.
+Assumption A3 of the first draft (output outside captured segments, ``dt``
+as a device value) is not a register requirement. It moves to section 7 and
+question X-1/X-2. A4 (the budget rows) is now requirement 6. A5 (lane
+letters) is in 11.3 and 11.4.
 
-10. Question 7: output and diagnostics under FP32 and CUDA graphs
------------------------------------------------------------------
+5. Invariants and gates
+-----------------------
 
-Host reads on the output path at the pin (``rg -n '\.item<|\.cpu\(\)|to\(torch::kCPU\)|CopyFromTensor|InitFromTensor'``,
-counted per file): ``load_diag_output_data.cpp`` 14, ``netcdf.cpp`` 6,
-``pnetcdf.cpp`` 6, ``restart.cpp`` 7, ``output_type.cpp`` 3,
-``load_hydro_output_data.cpp`` 2, ``meshblock.cpp`` 34 (cycle line,
-restart load, redo and others).
+The identity: for every budget row,
+``total(t) - total(t_prev) = -boundary + sum_f fixer(f) + residual``. With
+FP64 accumulation, ``|residual|`` should be at round-off relative to
+``total``. The tolerance (proposed ``1e-12 * |total|``, *estimate*) is set
+by G0 baselines, not here.
 
-**Output-only, and outside captured segments** (assumption A3):
+.. list-table::
+   :header-rows: 1
+   :widths: 8 46 30 16
 
-* every ``GriddedWriter::write``: ``Frame::to_host`` (one copy per field),
-  coordinates (one copy per axis, replacing per-cell ``.item``,
-  ``netcdf.cpp:433-481``, ``output_type.cpp:438``);
-* restart writes (``.to(kCPU)``, ``restart.cpp:36-66``);
-* ``Consumer::flush`` (the budget collective and its host read) and the cycle
-  line. The cycle line becomes a printer over the ``BudgetConsumer``'s
-  device totals, so its ``.cpu()``/``.item`` (``meshblock.cpp:1288-1337``)
-  happen only every ``ncycle_out`` steps, as today.
+   * - gate
+     - test
+     - for which change
+     - kind
+   * - G-1
+     - All 25 ``examples/*.yaml``, 3 steps, every written file compared,
+       against the base (the #356 procedure)
+     - O1-O3, O5, O7 (no numerical change)
+     - bitwise
+   * - G-2
+     - ``combine_parts`` against ``mppnccombine`` on the example decks and
+       the #350 decks (6 panels, slices, ghost zones, double precision):
+       every variable, dimension and attribute
+     - O6
+     - bitwise
+   * - G-3
+     - The generated option structs have the members and defaults of the
+       pin; each module's deck parse equals the old parse on the in-tree
+       decks
+     - O4
+     - exact
+   * - G-4
+     - Restart round trip (FP32/FP64, anomaly, 4-block bundle, #367
+       mismatches still refused); a truncated bundle now throws
+     - O7
+     - bitwise, plus a RED test for the throw
+   * - G-5
+     - Budget residual on a closed box (no boundary flux) and on a run with
+       every fixer active, eager FP64 and FP32
+     - O8
+     - tolerance (G0)
+   * - G-6
+     - Ported ``test_rectify`` on ``bc/flip_zero_impl.h<int>``
+     - O2
+     - exact
 
-**On device every step, capturable** (inside or right after a segment, X
-decides): ``Consumer::observe`` and ``GriddedWriter::accumulate_stats``.
-Today ``AccumulateStats`` takes the host difference ``current_time -
-stat_last_time_`` (``output_type.cpp:308``) and runs every step
-(``meshblock.cpp:1210``). In V3 it takes ``dt`` as a device scalar (A3), so
-a capture does not bake the first step's ``dt`` into the graph.
+**Hypotheses the gates test:**
 
-**FP32.** Gridded outputs read totals: ``total_u`` adds the FP64 reference
-(``load_hydro_output_data.cpp:38``, ``meshblock.cpp:1257``), unchanged. The
-budget accumulates in FP64 (A1b) and writes ``NC_DOUBLE``. The netcdf
-default stays ``NC_FLOAT``, as documented at ``output_type.hpp:79-83``.
-Restart keeps #367's dtype rules.
+* ``combine_parts`` is complete for snapy's files (G-2).
+* The two ``flip_zero`` implementations agree (G-6).
 
-11. Question 8: line table
---------------------------
+**Hypotheses not covered by a gate:**
 
-Baseline per file is ``git show 9e5de2d4:<path> | wc -l``. "proposed" is
-what stays in the same file (or the new file), "moved" leaves the lane
-unchanged (not counted as cut), "cut" = pin − proposed − moved. Proposed
-lines of rewritten and new files are *estimates*. The CSV
-(``O_lines.csv``) has the same rows plus the 925 lines deleted outside the
-baseline.
+* The ``strtok`` race: two blocks of one process writing at once, which
+  ``combine_on_root``'s mutex (``writer_core.cpp:81-93``) anticipates. The
+  core removes ``strtok`` either way.
+* Reading restart tensors from a stream.
+* The ``SNAP_X1_CENTROID_EXACT`` read site.
+
+6. FP32 contract
+----------------
+
+* **Gridded output.** It reads totals: ``total_u`` adds the FP64 reference
+  (``load_hydro_output_data.cpp:38``; the cycle line at
+  ``meshblock.cpp:1257``). Files stay ``NC_FLOAT`` by default and
+  ``NC_DOUBLE`` with ``double_precision`` (``output_type.hpp:79-83``).
+  pnetcdf stays float only (``pnetcdf.cpp:58-61``).
+* **Budget.** Accumulation, totals and the file are all FP64. If the
+  register holds FP32 (requirement 8 leaves the dtype to R), ``observe``
+  casts each step's transfer to FP64 before accumulating. That loses
+  nothing that R kept.
+* **Restart.** #367's rules are unchanged: FP64 totals, anomaly bits in the
+  run dtype, FP64 background and grid, and rejection of changed grids.
+* **FP32 storage emulation.** It stays bitwise as long as the deck key
+  equals the old variable's value (G-3).
+
+7. CUDA-graph contract
+----------------------
+
+**Rule.** Every host read in lane O is in ``flush``, ``write`` or the
+restart code. All of these run after the global accept and outside captured
+segments (``V3_ROADMAP.md:101``: "Global CFL/retry decisions and output stay
+outside graphs").
+
+The only per-step work is ``Consumer::observe`` and
+``GriddedWriter::accumulate_stats``. Both are device-only and take ``dt`` as
+a device scalar. Today ``AccumulateStats`` uses the host difference
+``current_time - stat_last_time_`` (``output_type.cpp:308``); a graph would
+bake that value in.
+
+Mapping to the roadmap milestones:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 8 92
+
+   * - G
+     - lane O contribution
+   * - G0
+     - The host-read inventory of the output path:
+       ``load_diag_output_data.cpp`` 14, ``netcdf.cpp`` 6, ``pnetcdf.cpp``
+       6, ``restart.cpp`` 7, ``output_type.cpp`` 3,
+       ``load_hydro_output_data.cpp`` 2 (``rg -n
+       '\.item<|\.cpu\(\)|to\(torch::kCPU\)|CopyFromTensor|InitFromTensor'``).
+       The budget series is the file format for the "budgets" baselines
+       (``V3_ROADMAP.md:146``).
+   * - G1
+     - Consumers are the "persistent device diagnostics" whose aggregation
+       is "scheduled outside captured segments" (``:169-171``). The restart
+       reader triggers "checkpoint/restart invalidation" (``:172``); the
+       caller is question X-3.
+   * - G2
+     - The ``species/<n>`` and ``energy`` rows are the "water/energy
+       budgets" (``:208``).
+   * - G3
+     - "Keep fallback counters, clamp meters ... gravity work correct on
+       every replay" (``:224``): the ``vic_clamp`` and ``gravity_work``
+       channels are read only in ``flush``.
+   * - G4
+     - ``combine_on_root`` barriers and the budget collective are outside
+       segments. The budget series is the evidence for
+       "decomposition-invariance budgets" (``:254``).
+   * - G5
+     - "Establish FP32 budgets against eager FP64 ... angular momentum"
+       (``:273-275``): ``aam`` row, FP64 accumulation.
+   * - G6
+     - "Preserve global angular-momentum/gravity-work correction ordering"
+       (``:287``): the ``aam_closure`` channel is read after the closure.
+       Cubed-sphere combine uses the 3 x 2 panel layout
+       (``writer_core.cpp:68-76``).
+   * - G7
+     - The generated options docs carry the execution-selection keys.
+       Restart behaviour is documented with ``restart.hpp`` (``:305``).
+       Output cadence is held fixed in the benchmarks (``:307``).
+
+8. Cross-repository interface changes and merge order
+-----------------------------------------------------
+
+* **kintera**: no change required. Optional: a stream overload of
+  ``load_tensors``, so the bundle reader does not extract each block to a
+  temporary file (``read_restart_file.cpp:177-216``). **Hypothesis**: kintera
+  does not have one today; I did not check.
+* **pyharp, pydisort, commux**: none.
+* **snapy Python API**:
+
+  * ``OutputOptions.super_resolution`` is removed.
+  * The option bindings and stubs become generated.
+  * ``load_restart`` keeps its name and binds ``read_restart``.
+
+**Merge order.**
+
+1. O1-O7 (section 10) depend on no other lane.
+2. O8 (consumers and budget) merges after lane R's register and monitor
+   (Linfeng).
+3. The device ``dt`` part of O8 merges after lane X's executor hook (Xi).
+4. Other lanes switch their option headers to the generator after O4, in
+   any order.
+
+9. Line budget
+--------------
+
+The baseline per file is ``git show 9e5de2d4:<path> | wc -l``.
+
+* "proposed" is what stays in place, or the new file.
+* "moved" is not cut.
+* cut = pin − proposed − moved.
+
+Proposed sizes are *estimates*. The numbers are unchanged from the first
+revision: the restructuring changed no row, and no row was wrong.
 
 .. list-table::
    :header-rows: 1
@@ -1213,165 +1414,172 @@ baseline.
 
 **Totals.**
 
-* Baseline 9,996 (71 files). Kept or rewritten in place: 2,569. New in
-  ``src/``: 520. Moved out unchanged: 650 (``command_line`` 186 to
-  ``examples/``, ``fp64_store`` 85 to ``hydro``, ``signal_handler`` 213 to
-  ``mesh``, ``math`` 166 to ``implicit``).
-* Cut, ``src/`` only: **6,257 lines, 62.6 %**.
-* Cut including the new files outside ``src/`` (``gen_options.py``,
-  option tables, ``snap_combine``: 630): **5,627 lines, 56.3 %** against the
-  30 % target (2,999 lines).
-* Sensitivity: if every rewritten and new file comes in 50 % above its
-  estimate (3,255 estimated lines, +1,627), the cut is 4,000 lines, 40.0 %.
-* Named deletions (pure removals, no replacement): ``parameter_input.*``
-  993, ``io_wrapper.*`` 364, ``input/signal.*`` 187, ``src/diagnostics``
-  1,585, ``hdf5.cpp`` 27, ``output_formats.hpp`` 105 (folded),
-  ``pull_neighbors.*`` 249, ``utils_dispatch.*`` 131, ``cuda_utils.*`` 22,
-  ``utils/flip_zero.*`` 350, ``refine.*`` 80, ``vectorize.*`` 70. Total
-  4,163. Replaced by smaller code: ``mppnccombine.cpp`` 1,014 (by
-  ``combine_parts``, about 200), the netcdf/pnetcdf/``output_type``
-  duplication, and the restart merge.
-* Plus 925 lines outside the baseline (section 2).
+* Baseline: 9,996 lines in 71 files.
+* Kept in place: 2,569. New in ``src``: 520. Moved out unchanged: 650.
+* **Cut in ``src`` only: 6,257 lines (62.6 %).**
+* **Cut including the 630 new lines outside ``src``: 5,627 lines (56.3 %).**
+  The 30 % target is 2,999.
+* If every rewritten or new file is 50 % over its estimate: 4,000 lines
+  (40.0 %).
+* Pure deletions total 4,163 lines.
+* A further 925 lines outside the baseline are deleted and not counted.
 
-12. Decisions
+10. Migration
 -------------
 
-**D1 Output formats that remain.**
+The PR sequence is below. "Bitwise" means every state and every written
+file is byte-identical to the base (gate G-1). No lane O change touches
+arithmetic on the state, so every PR is bitwise except O8, which adds a new
+file.
 
-* ``netcdf`` (per-block parts plus root combine): **stays**, the primary
-  format. 18 of the 25 ``examples/*.yaml`` and 4 files in ``tests/`` request
-  it (``rg -l 'type: *"?netcdf' examples | wc -l``; same for ``tests``).
-* ``restart``: **stays**, format unchanged (bundle ``V1``, #367 metadata).
-* ``pnetcdf``: **stays, as a Sink** (about 130 lines instead of 431).
-  Reasons: two example decks use it (``examples/straka.yaml:57``,
-  ``examples/shallow_splash.yaml:58``); it is the only path that avoids a
-  root-side combine for large runs; and with the core it costs one sink.
-  **FOR CHENG**: no test runs it on several ranks (the test drivers replace
-  it by netcdf, ``tests/run_straka.cmake:28``,
-  ``tests/run_shallow_splash.cmake:28``). Is a production workflow on it? If
-  not, the 130 lines and the PnetCDF build option can go too.
-* ``budget`` (new): the time series of section 6.
-* ``hdf5``, ``fits``: **removed** (stubs, never built, section 4).
-  **FOR CHENG**: #356 kept them "possibly meant to be filled in". Was an HDF5
-  or FITS workflow planned?
-* ``super-resolution`` output option: **removed** with ``utils/refine``
-  (section 9, FOR CHENG there).
-* ``mppnccombine``: **removed from the library** once ``combine_parts``
-  passes its gate. **FOR CHENG**: does anyone run snapy's built-in
-  ``mppnccombine`` on files that snapy did not write? ``combine_parts`` only
-  understands snapy's own attributes.
+.. list-table::
+   :header-rows: 1
+   :widths: 6 50 18 26
 
-**D2 The legacy input parser goes.** ``parameter_input.*`` and
-``io_wrapper.*`` (1,357 lines) have no caller, no deck in that format exists,
-and every module reads YAML through ``from_yaml`` plus ``check_keys``
-(section 4). Removing them also removes the dead ``#include`` at
-``python/csrc/snapy.cpp:10``. No workflow is known to depend on them. If one
-does, ``FOR CHENG``: a converter from the Athena++ format to YAML belongs in
-``tools/``, not in the library.
+   * - PR
+     - change
+     - result
+     - why
+   * - O1
+     - Delete never-compiled code: ``src/diagnostics``, the ``.cpp_``
+       files, ``z.junk``, ``stride_iterator.hpp``
+     - bitwise
+     - no compiled file changes
+   * - O2
+     - Delete compiled but uncalled code: ``parameter_input``,
+       ``io_wrapper``, ``input/signal``, ``pull_neighbors``,
+       ``utils_dispatch``, ``cuda_utils``, the hdf5/fits stubs; port
+       ``test_rectify``
+     - bitwise
+     - no caller (section 2.1)
+   * - O3
+     - Moves: ``command_line`` to ``examples/``, ``fp64_store``,
+       ``signal_handler``, ``math``
+     - bitwise
+     - include paths only
+   * - O4
+     - Options table and generator; the output and hydro modules first;
+       the env rows; the covariance warnings deleted
+     - bitwise
+     - same members and defaults (G-3)
+   * - O5
+     - Writer core, netcdf and pnetcdf sinks; ``vectorize`` and
+       super-resolution removed
+     - bitwise files
+     - same values cast once, same layout (G-1)
+   * - O6
+     - ``combine_parts`` replaces ``mppnccombine``
+     - bitwise variables
+     - G-2
+   * - O7
+     - Restart merge; the reader throws
+     - bitwise
+     - same files (G-4)
+   * - O8
+     - Consumers, ``BudgetSeries``, the cycle line from the budget totals
+     - new file; cycle line bitwise if the summation order is kept
+     - if the reduction order changes, only the last digits of the
+       *printed* totals change, never the state
 
-**D3 ``src/diagnostics`` goes and is replaced by register consumers**
-(section 6). The todo list it carried (eddy flux, EKE, latent heating,
-tendency, convective heat flux, spherical AAM) becomes budget rows or
-``FieldDiagnostic`` entries when someone needs them, written against the
-register, not ported.
+**Options and paths removed:**
 
-13. Open choices made in this revision, with reasons
-----------------------------------------------------
+* output type ``hdf5`` (never registered);
+* the output key ``super-resolution`` and its Python binding;
+* the warnings for ``SNAP_FLUX_COVARIANCE`` and ``SNAP_X1_MASS_COVARIANCE``;
+* the ``SNAP_FP32_STORAGE`` and ``SNAP_FP32_STORAGE_ROWS`` variables, after
+  one release with a warning;
+* the Athena++ input format;
+* the built-in ``mppnccombine``;
+* the duplicate slice validation at ``meshblock.cpp:203-230``.
 
-O-1 **Baseline definition**: the ``.cpp_`` files and
-    ``diagnostics/CMakeLists.txt`` are outside the 9,996. That is the only
-    reading that reproduces the lane post's number. They are deleted, but
-    not counted.
+11. Open questions to other lanes
+---------------------------------
 
-O-2 **Moves are not cuts.** Moving ``command_line``, ``fp64_store``,
-    ``signal_handler`` and ``math`` out of the lane's directories leaves the
-    repository's size unchanged, so they are reported separately.
+**11.1 Lane R, Linfeng.** Requirements 3, 7 and 10 answered the earlier
+questions on step integration, per-fixer amounts (the axial closure is a
+fixer) and restart. The rest:
 
-O-3 **Budget format NetCDF, not CSV/JSON** (section 6). It reuses the writer
-    core's sink and the readers people already use, and it keeps units with
-    the data.
+L-1. Which conserved rows does the register hold (species, scalars, the AAM
+row of #357)? With which area weighting and frame (requirement 1)?
 
-O-4 **pnetcdf stays** (D1). Keeping it costs about 130 lines with the
-    core. Removing it would break two example decks without a decision from
-    Cheng.
+L-2. May the user output callback receive a read-only register view
+(requirement 4), so user ``*_flux`` outputs stop rebuilding fluxes?
 
-O-5 **mppnccombine replaced, not moved to tools.** A snapy-specific
-    combiner is about a fifth of the size and has no file-scope state. A
-    general GFDL tool in ``tools/`` would duplicate it. The replacement is
-    gated on bitwise-equal variables.
+L-3. Is the outward transfer through the physical domain boundary available
+directly, including on the cubed sphere after reconciliation (requirement
+5)? Or does the budget sum it from the per-face entries?
 
-O-6 **Generated files not checked in, except ``.pyi``.** IDEs need stubs
-    without a build. Everything else comes from the table at build time, so
-    the table and the code cannot disagree.
+L-4. In what dtype is the step transfer held in an FP32 run (requirement 8)?
+The budget needs FP64 sums. Does R accumulate in FP64, or does lane O cast
+at ``observe``?
 
-O-7 ``SNAP_ANOMALY`` **stays as an env override** (FOR CHENG). It is
-    named in a user-facing error message and on 5 test lines. The other
-    switches become deck keys.
+L-5. Who resets the register and monitor on a redo? Is a post-accept hook
+where ``observe`` runs guaranteed?
 
-O-8 **Line estimates** are from the skeleton plus the live code they keep.
-    The sensitivity case (+50 %) is given so the target does not rest on the
-    estimates.
+L-6. Does the monitor own the domain totals (requirement 6), or does lane
+O's ``BudgetConsumer`` compute them from the state? This decides who owns the
+cycle line.
 
-O-9 **The cycle line stays** (as a printer over the budget's totals). It is
-    how people watch runs today. Its content does not change.
+**11.2 Lane X, Xi.**
 
-14. Cross-lane questions (for the kickoff thread)
--------------------------------------------------
+X-1. Confirm that output, ``flush`` and restart run after the global accept
+and outside captured segments.
 
-**Lane R (register, monitor):**
+X-2. Can the executor give post-step consumers ``dt`` as a device scalar?
 
-R1. Does the register hold the step-integrated face flux ``sum b_s dt F_s``
-    of every conserved row per axis (A1), or per-stage fluxes? Which rows
-    (species, scalars, the AAM row of #357)?
-R2. In what dtype does the register accumulate in an FP32 run (A1b)? The
-    budget needs FP64 to close to round-off.
-R3. Is the boundary flux available per physical boundary face (the budget
-    needs only the domain boundary), and on the cubed sphere after the
-    panel-edge flux averaging?
-R4. Does the monitor expose each fixer's per-row change (A2), with names?
-    Is the AAM closure (#365) a fixer channel or part of the flux?
-R5. Who resets the register and monitor on a redo, and is a consumer's
-    ``observe`` guaranteed to run only after the accept decision?
+X-3. Who calls graph and cache invalidation after ``read_restart``:
+``MeshBlock`` or the executor?
 
-**Lane X (execution, graphs):**
+**11.3 Lane C, Tianhao.**
 
-X1. Confirm A3: all output, flush and restart work runs outside captured
-    segments, after the global accept.
-X2. Can X provide ``dt`` (and the stage weights, if needed) as a device
-    scalar to post-step consumers, so ``observe``/``accumulate_stats`` can
-    sit in or after a captured segment?
-X3. Restart must invalidate graphs and derived caches (``V3_ROADMAP.md``). Who
-    calls the invalidation after ``read_restart``: ``MeshBlock`` or X's
-    executor?
+* Lane C's draft names the layout lane "O" and diagnostics "EF"
+  (happysky19/snapy ``b7d1300f``, ``c.rst`` section 12). Which lane owns the
+  face-floor event counters that feed the monitor?
 
-**Other lanes:**
+**11.4 Kickoff thread (owners not named in my context).**
 
-* Lane C / kickoff: lane letters (A5). Lane C's draft calls the layout lane
-  "O" and diagnostics "EF". Which lane owns the face-floor event counters
-  that feed the monitor?
-* Lane M (mesh) or whoever owns ``meshblock.cpp``: drop the duplicate slice
-  validation (``meshblock.cpp:203-230``) once the generated option checks
-  have it. Accept ``signal_handler`` into ``src/mesh``.
-* Lane I: accept ``lubksb.h``/``ludcmp.h`` into ``src/implicit``.
-* Every lane that owns option headers: when to switch to the generated
-  structs (section 7).
+* Reconcile the lane letters (above).
+* Mesh owner: accept ``signal_handler`` into ``src/mesh`` and drop the
+  duplicate slice validation.
+* Implicit owner: accept ``lubksb.h`` and ``ludcmp.h``.
+* Owners of option headers: when to switch to the generator.
 
-15. Risks, hypotheses and what was not checked
-----------------------------------------------
+12. Skeleton index
+------------------
 
-* Nothing was built or run for this revision. All counts are ``wc -l`` and
-  ``rg`` at the pin. The proposed line counts are estimates.
-* ``combine_parts`` equal to ``mppnccombine`` is a gate, not a result.
-  mppnccombine also handles cases snapy does not write (several records,
-  missing values, 64-bit offsets). **Hypothesis**: snapy never writes them.
-* Hypotheses from sections 2, 5, 8 and 9: where ``SNAP_X1_CENTROID_EXACT``
-  is read; the ``strtok`` race; ``load_tensors`` from a stream; the
-  ``flip_zero`` DP equivalence.
-* The 137-vs-213 option binding count is a count difference. Options were
-  not matched name by name.
-* The ``;`` vs ``,`` split mismatch between the define and write passes
-  (section 5) is harmless for every name list read in this revision, because
-  ``GetGridType`` checks the ``path_``/``avg_``/``_flux`` affixes on the
-  whole string (``output_utils.cpp:212-238``). It was not tested. The core
-  removes it.
-* Tianhao's inventory: only the tech-report branch was found (section 1).
+``docs/v3/skeleton/O/`` holds declarations only: no function bodies, 279
+lines in total (``wc -l``), not built. The ``.hpp`` files were
+syntax-checked with ``clang++ -fsyntax-only`` against a stub torch header.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 8 66
+
+   * - file
+     - lines
+     - contents
+   * - ``writer_core.hpp``
+     - 97
+     - ``GridKind``, ``Field``, ``Frame``, ``Sink``, ``GriddedWriter``,
+       ``combine_parts``; #350 helpers kept (section 3.1)
+   * - ``diagnostics.hpp``
+     - 68
+     - ``FluxRegisterView`` (requirement 3), ``MonitorView``
+       (requirements 6, 7), ``Consumer``, ``BudgetConsumer``,
+       ``HydroFluxProfile``, ``FieldDiagnostic`` (sections 3.2, 4)
+   * - ``restart.hpp``
+     - 48
+     - The #367 contract, bundle magic, ``OutputSchedule``,
+       ``BudgetCarry``, read/write/check; no register state (requirement
+       10) (section 3.4)
+   * - ``options_table.yaml``
+     - 30
+     - Table format; output and hydro sample rows, including
+       ``SNAP_ANOMALY``, ``SNAP_FP32_STORAGE`` and
+       ``SNAP_FP32_STORAGE_ROWS`` (section 3.3)
+   * - ``gen_options.pyi``
+     - 17
+     - Generator interface (section 3.3)
+   * - ``budget_series.cdl``
+     - 19
+     - Budget time-series format (section 3.2)
