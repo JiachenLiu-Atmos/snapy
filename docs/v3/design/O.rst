@@ -392,6 +392,11 @@ Two consumers replace ``src/diagnostics``:
     again.
   * Counters (limiter, positivity, face-floor and p* counts; R:99-100)
     are counts and never enter it.
+  * The positivity census (RULING V3-2, section 4) is the per-step
+    ``positivity.carry``/``positivity.withhold`` amounts, which are
+    ``flux_correction`` (R.rst:620-621), plus the positivity counters and
+    ``pos_min`` (R.rst:549, 582-588). It enters the lifetime sums and the
+    cycle line, never the residual.
 
 * ``HydroFluxProfile``: the horizontal mean of the registered x1 transfer,
   on grid ``--F``.
@@ -411,7 +416,8 @@ is unchanged.
   ``scalar/<n>``.
 * Sources: every ``amount_names()`` entry whose ``kind`` is ``cell_source``,
   ``floor`` or ``fixer`` (for example A's ``aam_closure``, a ``fixer``).
-  ``positivity`` and ``vic.mass_clamped`` are ``flux_correction``, and
+  ``positivity.carry``, ``positivity.withhold`` (R.rst:620-621) and
+  ``vic.mass_clamped`` are ``flux_correction``, and
   ``chem.elements`` and ``vic.momentum_t.top`` are ``diagnostic``; these are
   reported, not added (R.rst:550-554, 572-575). The gravity-work fixer has
   no poster after Cheng's rulings (a) and (b) (R.rst:572-573).
@@ -762,6 +768,36 @@ and ``diagnostic`` are reported, never added.
 
   R.rst:460-463 says all monitor values are read in X's step-end read. X
   rev 3.1 narrows that to the retry flags, and O follows X (see 11.7).
+* **Positivity census (RULING V3-2).** From R's PR R-1, the positivity
+  census lives in R's monitor **per accepted step**. ``EfStatus``'s slots
+  move into the monitor in R-1 (R.rst:587-588). The census is:
+
+  * the ``flux_correction`` amounts ``positivity.carry`` and
+    ``positivity.withhold`` (R.rst:620-621);
+  * the int64 counters (``counters()``, R:100);
+  * the FP64 minimum ``pos_min`` (``minima()``, R:101; R.rst:549).
+
+  ``begin_step()`` zeroes it at each step start (R:48), and ``rollback()``
+  drops a rejected step's census on every block (R:86; R.rst:464-467). So
+  the monitor never holds more than one accepted step.
+
+  **Lane O keeps the lifetime sums.** ``observe`` runs after the accept and
+  before the next ``begin_step()`` (R.rst:560). It adds that step's census
+  to O's own device sums: counts and amounts are summed, and ``pos_min`` is
+  kept as a running minimum. ``flush`` reduces them across ranks (SUM, and
+  MIN for the minimum) with the budget sums, and prints them in the cycle
+  line's "run-to-date" fields (today ``meshblock.cpp:1329-1335``).
+
+  *Choices and reasons:*
+
+  * A rejected step never reaches O, because ``rollback()`` drops it
+    before ``observe``. So no second filter is needed.
+  * The lifetime sums are not written to restart. That keeps the stored
+    set unchanged (no file-format change) and matches the pin, where the
+    run-to-date meters restart at zero (Tianhao's report, chapter 16,
+    known limits).
+  * The census amounts stay out of the residual, because they are
+    ``flux_correction`` and already inside ``boundary``.
 * ``begin_step()`` zeroes the step and the monitor (R:48).
 * ``rollback()`` zeroes the register and the monitor on every block (R:86;
   R.rst:464-467).
@@ -1898,12 +1934,19 @@ carries its class, and ``O_lines.csv`` has the same column.
      - rewrite; live, rewritten
      - options struct generated; GriddedWriter only
    * - ``src/output/output_utils.cpp``
-     - 301
+     - 298
      - 120
      - 
-     - 181
+     - 178
      - rewrite; live, rewritten
-     - metadata of live fields only (unused canoe-era names dropped)
+     - metadata of live fields only; pin lines here exclude :53-55 (row below)
+   * - ``src/output/output_utils.cpp:53-55``
+     - 3
+     - 0
+     - 
+     - 3
+     - delete; dead names (src/turbulence not compiled); deletion with src/turbulence (F6)
+     - eps, tke, mut output names; deleted with src/turbulence (EF/F6, Cheng); O counts them
    * - ``src/output/output_utils.hpp``
      - 65
      - 30
@@ -2170,7 +2213,7 @@ carries its class, and ``O_lines.csv`` has the same column.
      - -300
      - new
      - options tables (data, in src), ~1.4 lines per option
-   * - **baseline (71 files)**
+   * - **baseline (71 files, 72 rows)**
      - **9996**
      - **3249**
      - **650**
@@ -2199,6 +2242,33 @@ carries its class, and ``O_lines.csv`` has the same column.
 * Not counted: 785 lines deleted outside the baseline. In lane X: all of
   ``src/interface`` (1,008, including ``stride_iterator.hpp`` 140) and the
   FP32 storage application in ``src/mesh`` (section 8.1).
+
+**``output_utils.cpp:53-55`` with ``src/turbulence`` (EF/F6, rev 5).**
+Cheng decided F6: ``src/turbulence`` is deleted (EF rev 3.4, ``b7bece9c``).
+At the pin, ``git show 9e5de2d4:src/output/output_utils.cpp | sed -n 53,55p``
+gives:
+
+.. code-block:: text
+
+   {"eps", "turbulent dissipation", "W/kg", "CCC"},
+   {"tke", "turbulent kinetic energy", "J/kg", "CCC"},
+   {"mut", "dynamic turbulent viscosity", "kg/(m.s)", "CCC"},
+
+No live code writes these names: ``src/turbulence`` is outside every glob
+(section 9.1). Lane O owns the file, so it counts the 3 lines. The line
+table now has a separate row, ``output_utils.cpp:53-55``: 3 → 0, cut 3. The
+rest of the file, 298 → 120, has cut 178.
+
+**The cut does not move** (choice and reason). The rewrite's 120-line
+estimate already kept only live field names (section 3.1, "metadata of live
+fields only"), so these 3 lines were already inside the file's 181-line
+reduction. Adding them on top would count them twice. Arithmetic:
+
+* before: 301 → 120, cut 181;
+* now: (298 → 120, cut 178) + (3 → 0, cut 3) = cut 181.
+
+Settled 5,357, target 5,787, strict 3,813 and ``src`` only 6,097 are
+unchanged. The roll-up stays 9,830 → 4,473 (9,830 − 5,357 = 4,473; 54.5 %).
 
 **``src/math`` (Xinyue's lane I answer).** Lane I takes ``lubksb.h`` and
 ``ludcmp.h`` at their path, ``src/math/``. Lane I's budget is 2,821 to

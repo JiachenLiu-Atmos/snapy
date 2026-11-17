@@ -41,7 +41,8 @@ src/output/netcdf_utils.hpp,29,0,0,29,"merge; live, merged",sanitize_netcdf_name
 src/output/output_formats.hpp,105,0,0,105,"delete; live, folded","HDF5Output, FITSOutput, commented classes; Netcdf/PNetcdf classes become Sinks"
 src/output/output_type.cpp,559,230,0,329,"rewrite; live, rewritten",options parser generated; linked list and slice/sum loops replaced by torch ops
 src/output/output_type.hpp,219,90,0,129,"rewrite; live, rewritten",options struct generated; GriddedWriter only
-src/output/output_utils.cpp,301,120,0,181,"rewrite; live, rewritten",metadata of live fields only (unused canoe-era names dropped)
+src/output/output_utils.cpp,298,120,0,178,"rewrite; live, rewritten",metadata of live fields only; pin lines here exclude :53-55 (row below)
+src/output/output_utils.cpp:53-55,3,0,0,3,delete; dead names (src/turbulence not compiled); deletion with src/turbulence (F6),"eps, tke, mut output names; deleted with src/turbulence (EF/F6, Cheng); O counts them"
 src/output/output_utils.hpp,65,30,0,35,"rewrite; live, rewritten",get_num_variables replaced by Field shape
 src/output/pnetcdf.cpp,431,130,0,301,"rewrite; live, rewritten",pnetcdf Sink only
 src/output/restart.cpp,130,260,0,-130,"rewrite; live, rewritten",writer + bundle + reader in one file

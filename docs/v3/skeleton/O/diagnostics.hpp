@@ -17,9 +17,9 @@ class RegisterMonitor;  // R:90-103; one per register instance (hydro, each
                         // Scalar module), owns the domain totals
 using Variables = std::map<std::string, torch::Tensor>;
 
-//! observe: device only, after accept, accumulates amounts every accepted
-//! step. flush: O's cross-rank SUM + host read at its cadence (X.rst@bac201d1
-//! :165-173); X keeps only the MAX retry read. Outside segments.
+//! observe: device only, after accept; adds the step's amounts and the
+//! positivity census (RULING V3-2; R:48, R:86) to O's lifetime sums. flush:
+//! cross-rank SUM/MIN + host read (X.rst@bac201d1:165-173). Outside segments.
 class Consumer {
  public:
   virtual ~Consumer() = default;
