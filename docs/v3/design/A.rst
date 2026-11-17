@@ -4,11 +4,10 @@ V3 design, lane A: rotation, axial angular momentum, sources, diffusion
 
 :Lane: A (rotation, axial angular momentum (AAM), source terms, diffusion)
 :Owner: Jiachen Liu (alternate: Xi Zhang)
-:Revision: 3 final (design and contract only, CHANGE 5). Re-cited to lane R's
-           frozen header 4c59162a; R-1..R-6 closed; R's three questions
-           answered (11.2); EF's Q-A1/Q-A2 (11.3); Zoey's Z4-Z6 and the
-           Z1-Z8 appendix; J1 (src/forcing 2,870 -> 2,086). Jiheng's
-           H1-H17 go in the next revision.
+:Revision: 4, part 1 (design and contract only, CHANGE 5): the radial rows
+           (failure masking, X's retry contract, the diffusion_radial.cpp
+           booking; 1.6). Rev 3 final (2b0ac426) is cited to lane R's frozen
+           header 4c59162a. src/forcing 2,870 -> 2,087.
 :Reviewers (round 2): Xi (lane X), Zoey
 :Pins: snapy ``9e5de2d4ce497d0b2d4da3295fc1fe969fe7e410``; kintera ``3f5ff938``
        (section 8); lane R frozen header ``happysky19/snapy@4c59162ae37080d0ab307b2823742b44f46da7c3``
@@ -156,6 +155,21 @@ Lane I's names: ``vic.mass_total`` (kept, R.rst:165-167), and the posts
   * the AAM key on grids with no axis;
   * a non-z rotation axis.
 * **Default:** ``off``.
+
+1.6 Revision 4 change log
+-------------------------
+
+* **Part 1 (radial rows; this commit):**
+
+  * the radial failure contract in 3.7: the temperature increment is masked
+    per column on failure, and abort stays the default;
+  * lane X's retry contract (X rev 3.3 ``0fe47c6f``, X.rst:146-157) for the
+    retry proposal, in 10.3 and 11.4. The cause is bit 6, not "bit 64" as
+    rev 3 had it;
+  * lane A books the ``diffusion_radial.cpp`` change (9.2, RULING V3-1):
+    ``src/forcing`` goes 2,086 -> 2,087.
+* **Still to come in rev 4:** Jiheng's H1-H17 by number, and Zoey's Z1-Z3,
+  Z7 and Z8 (appendix B).
 
 
 2. Concepts and current sites
@@ -460,6 +474,32 @@ Its part is an FP64 monitor amount only (R.rst:452-454).
 * **Radial conduction:** each half step posts its x1 heat flux with
   ``reg.post_split(1, "diffusion.radial", flux, 0.5, dt)`` (R:80-81). Its
   failure is a device flag (N3).
+* **Radial failure contract (rev 4, Tianhao's request).** At the pin the
+  check is a host ``TORCH_CHECK``: finite and positive ``next``
+  (``diffusion_radial.cpp:97-100``). The increment
+  ``u[IPR] += capacity · (next − temp)`` (``:101``) is applied only when the
+  check passes. In V3 the check becomes device-side and the increment is
+  masked:
+
+  * ``ok_col = (isfinite(next) & next > 0).all(-1)`` per column ``(k, j)``.
+    The SDIRK system couples a whole column (``:71-96``), so one bad cell
+    makes the column's solution untrusted. Masking the whole column, not single
+    cells, is lane A's choice.
+  * ``next = where(ok_col, next, temp)``. So the increment at ``:101`` is zero
+    on failed columns, and the energy row and ``u`` stay finite.
+  * The ``post_split`` wall flux is formed from the masked ``next``, so the
+    register and the state agree: a masked column posts zero.
+  * ``failed_ |= !ok_col.all()`` is a 0-d device flag, posted with
+    ``reg.flag_retry("diffusion.radial", failed_)`` (R:78). There is no host
+    read inside the segment.
+  * **Default action: abort** (unchanged from the pin's behaviour). X's
+    step-end read sees the flag and ends the run. The masking keeps the state
+    finite until that read.
+  * **Proposal: retry** (FOR CHENG, 10.3). The flag takes X's slot 8, cause
+    bit 6 (value 64). It is zeroed at step start and counts against
+    ``max_redo`` like bits 0-4 (X.rst:146-147, 155-157 at ``0fe47c6f``). The
+    redo restores ``split_initial_`` (``diffusion_radial.cpp:14-17``), so the
+    masked state is discarded.
 
 **Diffusion enters the register in phase 3, not phase 1.** Phases 1 and 2 are
 bitwise gated; diffusion has its own tolerance suite (G8); and one PR should
@@ -911,26 +951,29 @@ axial_momentum.cpp (new)              0     225    consumer, torque rules, ``Axi
                                                    flux form (45) + x1 source from ``vic.momentum_t`` (10)
 diffusion.cpp                       745     480    −70 options, −110 profile checks (schema), −40, −45
 diffusion_cubed_sphere.cpp          376     320    phase 3: −35 averaging, −15 divergence, −6
-diffusion_radial.cpp                103     103    ``post_split`` replaces nothing at the pin
+diffusion_radial.cpp                103     104    −4 host check (``:97-100``); +3 masked increment and
+                                                   flag (3.7); +2 ``post_split`` wall flux
 top_cool + bot_heat                 176      70    ``LayerHeat{side}``
 top_sponge + bot_sponge             156      50    ``Sponge{side}``
 relax_bot_temp/velo/comp            308     235    ``BottomSlab`` base
 body_heat + plume_forcing           100      70    base does ctor, reset, options
-**total**                          2870    2086
+**total**                          2870    2087
 =================================  ======  ======  =======================================================
 
-**Lane A: 2,870 → 2,086 lines (−784, −27.3 %), ``src/forcing`` only, new
+**Lane A: 2,870 → 2,087 lines (−783, −27.3 %), ``src/forcing`` only, new
 files included (RULING V3-1).**
 
 Arithmetic:
 
 * now: 674 + 232 + 745 + 376 + 103 + 176 + 156 + 308 + 100 = 2870
   (2.1, ``wc -l``);
-* after: 253 + 110 + 170 + 225 + 480 + 320 + 103 + 70 + 50 + 235 + 70 = 2086;
-* cut: 784 / 2870 = 0.273.
+* after: 253 + 110 + 170 + 225 + 480 + 320 + 104 + 70 + 50 + 235 + 70 = 2087;
+* cut: 783 / 2870 = 0.273.
 
 J1 drops rev 3 part 1's +8 ``coriolis.cpp`` lines: the metric source stays in
-coord (3.4). That moves the number from 2,094 to 2,086.
+coord (3.4). That moves the number from 2,094 to 2,086. Rev 4 books the
+``diffusion_radial.cpp`` change once, here (RULING V3-1; 3.7, 11.4): 103 ->
+104, an estimate, so 2,086 -> 2,087.
 
 Cross-references, not in lane A's number:
 
@@ -941,8 +984,8 @@ Cross-references, not in lane A's number:
 Rev 2's lane total (3,205 → 2,134) is withdrawn.
 
 **Precondition (N18): lane O's options schema lands before lane A's phase 1.**
-Without it, ``src/forcing`` would be 2,397 (−16.5 %) after phase 3 and 2,498
-(−13.0 %) before it (+131 options, +70 parser, +110 profile checks; +101 for
+Without it, ``src/forcing`` would be 2,398 (−16.4 %) after phase 3 and 2,499
+(−12.9 %) before it (+131 options, +70 parser, +110 profile checks; +101 for
 phase 3). Margin deletions that need no schema: the ``type`` key (5 lines, if
 Cheng removes type 123) and the legacy-key check ``diffusion.cpp:275-277``
 (3 lines).
@@ -1000,8 +1043,8 @@ change                                      replacement                         
 ``coriolis/type: 123``                      ``type: xyz``: identical in 3D       **FOR CHENG**
 AAM key on a grid with no rotation axis     refused (today a no-op + warning)    **FOR CHENG**
 non-z rotation axis                         refused; only z in V3 (S-1)          **FOR CHENG**
-radial-conduction positivity failure        device flag; abort kept (default)    **FOR CHENG** (redo needs
-                                            or redo                              cause bit 64 from X)
+radial-conduction positivity failure        device flag; abort kept (default)    **FOR CHENG** (redo uses
+                                            or redo                              X's slot 8, cause bit 6)
 ==========================================  ===================================  ==========================
 
 10.4 Decision log
@@ -1127,9 +1170,20 @@ D19 metric source stays in coord; −8 in coriolis.cpp      J1 (3.4, 9.2)
 11.4 Open
 ---------
 
-* **X-1, Xi.** Abort or redo for the radial failure (FOR CHENG, 10.3). If
-  redo, X adds the cause ``"diffusion.radial"`` to its retry decision (R:37,
-  78, 102).
+* **X-1, Xi.** Abort or redo for the radial failure is Cheng's call (FOR
+  CHENG, 10.3). For redo, lane A takes X's contract (X rev 3.3 ``0fe47c6f``):
+
+  * ``diffusion.radial`` is stack slot 8, mapped to cause bit 6 (value 64)
+    (X.rst:146-147);
+  * it is zeroed in ``kStepStart`` and counts against ``max_redo`` like bits
+    0-4, terminating without a restore (X.rst:155-157);
+  * lane A's side is the device flag and the masked increment (3.7), and the
+    request ``retry = {"diffusion.radial"}`` (R:37).
+
+  **Booking conflict, open for Xi.** X.rst:153-155 says that no lane claims
+  ``src/forcing/diffusion_radial.cpp``, so X books its change outside the
+  lane count. Under RULING V3-1 the file is lane A's (``src/forcing``), so
+  lane A books it (9.2), and X should drop that sentence.
 
 FOR CHENG: see 10.3.
 
