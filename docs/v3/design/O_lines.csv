@@ -52,9 +52,9 @@ src/utils/cuda_utils.cu,19,0,0,19,"delete; compiled by src glob, unreferenced",c
 src/utils/cuda_utils.h,3,0,0,3,"delete; compiled by src glob, unreferenced",one unused include in implicit_dispatch.cu:15
 src/utils/flip_zero.cpp,270,0,0,270,"delete; test-only, replaced (gate G-6)",int-only copy of bc/flip_zero_impl.h; test ported
 src/utils/flip_zero.h,80,0,0,80,"delete; test-only, replaced (gate G-6)",
-src/utils/fp32_storage.cpp,119,0,0,119,"delete; LIVE feature, removal approved by Cheng",FP32 storage emulation; removal approved by Cheng
-src/utils/fp32_storage.hpp,56,0,0,56,"delete; LIVE feature, removal approved by Cheng",same; meshblock.cpp:621-642 counts in lane X
-src/utils/fp64_store.hpp,85,0,85,0,"move; live, moved",to src/hydro (one includer: hydro.hpp)
+src/utils/fp32_storage.cpp,119,0,0,119,"delete; LIVE feature, removal approved by Cheng; joint row agreed with Xi, booked once in O",FP32 storage emulation; removal approved by Cheng
+src/utils/fp32_storage.hpp,56,0,0,56,"delete; LIVE feature, removal approved by Cheng; joint row agreed with Xi, booked once in O","same; the 28 emulation lines in src/mesh are X's (joint row 1, agreed with Xi)"
+src/utils/fp64_store.hpp,85,0,85,0,"move; live, moved; joint row agreed with Xi, booked once in O",to src/hydro (one includer: hydro.hpp)
 src/utils/log.hpp,67,67,0,0,"keep; live, kept",11 includers
 src/utils/loops.cuh,150,150,0,0,"keep; live, kept",8 CUDA dispatch files
 src/utils/on_host.hpp,72,72,0,0,"keep; live, kept",3 dispatch files (MPS)
@@ -62,9 +62,9 @@ src/utils/pull_neighbors.cpp,225,0,0,225,"delete; compiled by src glob, unrefere
 src/utils/pull_neighbors.hpp,24,0,0,24,"delete; compiled by src glob, unreferenced",
 src/utils/refine.cpp,69,0,0,69,delete; LIVE feature removed (FOR CHENG),"only caller: output super-resolution (deleted, FOR CHENG)"
 src/utils/refine.hpp,11,0,0,11,delete; LIVE feature removed (FOR CHENG),
-src/utils/signal_handler.cpp,146,0,146,0,"move; live, moved","to src/mesh (callers mesh.cpp, meshblock.cpp)"
-src/utils/signal_handler.hpp,67,0,67,0,"move; live, moved",to src/mesh
-src/utils/tensor_cast_cache.hpp,53,53,0,0,"keep; live, kept",3 includers
+src/utils/signal_handler.cpp,146,0,146,0,"move; live, moved; joint row agreed with Xi, booked once in O","to src/mesh (callers mesh.cpp, meshblock.cpp)"
+src/utils/signal_handler.hpp,67,0,67,0,"move; live, moved; joint row agreed with Xi, booked once in O",to src/mesh
+src/utils/tensor_cast_cache.hpp,53,53,0,0,"keep; live, kept; joint row agreed with Xi, booked once in O",3 includers
 src/utils/utils_dispatch.cpp,26,0,0,26,"delete; compiled by src glob, unreferenced",bdot_out has no caller
 src/utils/utils_dispatch.cu,92,0,0,92,"delete; compiled by src glob, unreferenced",
 src/utils/utils_dispatch.hpp,13,0,0,13,"delete; compiled by src glob, unreferenced",

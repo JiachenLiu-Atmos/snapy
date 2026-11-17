@@ -449,7 +449,7 @@ generated members and defaults equal the pin's.
   tabled (settled: Cheng approved removing the FP32 storage emulation).**
   The switches get no row in the options table. ``src/utils/fp32_storage.*``
   (175 lines, counted in O) is deleted together with its application in
-  ``meshblock.cpp:621-642`` (22 lines, counted in lane X; section 8.1).
+  lane X's files (28 lines, agreed with Xi; section 8.1).
 
 **What the lane does not claim.** The ``ADD_ARG`` blocks, ``from_yaml``
 bodies, ``python/csrc/py*.cpp`` and ``.pyi`` stubs that the generator
@@ -849,6 +849,15 @@ restart code. All of these run after the global accept and outside captured
 segments (``V3_ROADMAP.md:101``: "Global CFL/retry decisions and output stay
 outside graphs").
 
+``dt`` stays a host double in the first release (Xi's final answer; the
+device-``dt`` request at ``meshblock.cpp:1210`` is withdrawn). This breaks
+no lane O requirement:
+
+* requirement 6: there is no host read inside a segment, because every O
+  call runs after the accept;
+* requirement 8: O allocates no storage per step;
+* requirement 10: nothing is restarted.
+
 The only per-step work is ``Consumer::observe`` and
 ``GriddedWriter::accumulate_stats``. Both run on device, after the global
 accept and outside captured segments. They take X's host ``dt``
@@ -926,7 +935,9 @@ Line counts are ``wc -l`` at the pin. Moved code keeps its content; only its
 directory or file changes. How the moved lines are counted between lanes X
 and O is settled in the lane X thread and is not decided here.
 
-To the mesh owner (lane X, Xi):
+To the mesh owner (lane X, Xi). **Every row below is agreed with Xi**
+(lane X thread, rows 1-5) **and booked once, in X**; O's replacement code is
+inside O's estimates.
 
 .. list-table::
    :header-rows: 1
@@ -945,8 +956,16 @@ To the mesh owner (lane X, Xi):
      - Same as above.
    * - ``meshblock.cpp:203-230`` (``validate_slice``)
      - 28
-     - Delete. It repeats ``output_type.cpp:90-98``; the generated output
-       option checks (section 3.3) do both checks once.
+     - Delete. It repeats ``output_type.cpp:90-98``. The generated output
+       option checks (section 3.3) keep **both** checks, once each:
+
+       * slice against sum (``meshblock.cpp:205-209``,
+         ``output_type.cpp:90-98``);
+       * bounds and strict order (``meshblock.cpp:210-220``,
+         ``meshblock_options.cpp:68-78``).
+
+       They run on the host when the options are read, before any step,
+       so they do not touch ``dt``.
    * - ``meshblock.cpp:1623-1653`` (#367 restart metadata checks)
      - 31
      - Move into ``check_restart_metadata`` (``restart.hpp``), next to the
@@ -965,26 +984,35 @@ To the mesh owner (lane X, Xi):
      - 22
      - Delete. It is the third slice check; the generated checks replace it.
    * - ``meshblock.cpp:1210`` (``AccumulateStats`` call)
-     - 1
-     - Takes X's host ``dt`` (section 7).
-   * - ``meshblock.cpp:621-642`` (``round_storage``,
-       ``round_storage_after_stage``)
-     - 22
-     - **Delete; counted in lane X, not in O.** The FP32 storage emulation
-       is removed (settled by Cheng). Verified at the pin: ``:621``
-       ``bool MeshBlockImpl::round_storage(...)`` through ``:642``, the
-       closing brace of ``round_storage_after_stage``; 22 lines
-       (``git show 9e5de2d4:src/mesh/meshblock.cpp | sed -n 621,642p``).
-   * - Other emulation sites in X's files: ``meshblock.cpp:22`` (include),
-       ``:618`` (call), ``meshblock.hpp:207-215`` (declarations and
-       comment), ``mesh.cpp:358, 405`` (calls)
-     - 1 + 1 + 9 + 2
-     - Delete with the range above; counted in lane X. Outside both lanes:
-       ``python/csrc/pymesh.cpp:238-247, 331-343`` and
+     - 0
+     - **No change requested. The earlier request for a device ``dt`` is
+       withdrawn** (Xi refused it for the first release). ``dt`` stays a
+       host double. ``AccumulateStats`` keeps the host difference
+       ``current_time - stat_last_time_`` (``output_type.cpp:308``) and
+       runs in ``make_outputs`` after the accept (``meshblock.cpp:1207-1224``),
+       outside captured segments.
+   * - FP32 emulation sites (joint row 1, agreed): ``meshblock.cpp:22``
+       (include), ``:618`` (call), ``:620-635`` (blank + ``round_storage``
+       621-634 + blank), ``meshblock.hpp:207-213`` (comment + declaration),
+       ``mesh.cpp:403-405`` (call)
+     - 28
+     - **Delete; booked in X** (1 + 1 + 16 + 7 + 3, Xi's count). Lines X
+       already counts in its own items are not counted again:
+       ``meshblock.cpp:636-642`` (``round_storage_after_stage``),
+       ``meshblock.hpp:214-215`` and ``mesh.cpp:356-358``. O books only
+       ``src/utils/fp32_storage.*`` (175).
+
+       Outside both lanes: ``python/csrc/pymesh.cpp:238-247, 331-343`` and
        ``python/snapy/mesh.pyi:175, 220-222`` (the ``round_storage``
        bindings), ``tests/test_fp32_storage.cpp`` (79),
        ``tests/test_anomaly_storage.py:396`` (the ``fp32`` arm) and
        ``tests/CMakeLists.txt:8, 359, 816``.
+   * - Gravity-work fixer (joint row 2) and axial closure (joint row 3)
+     - 83 / 29
+     - X's and A's rows, listed here only because the cycle range overlaps.
+       ``meshblock.cpp:1336-1337`` (``fixgrav``) is inside X's 83 and is
+       not counted again in the cycle range. The closure is
+       ``meshblock.cpp:1009-1035`` and ``meshblock.hpp:223-228``.
 
 To the implicit owner (lane I, Xinyue):
 
@@ -1050,7 +1078,8 @@ rows changed from revision 1:
 * ``tools/snap_combine.cpp`` (+30, outside ``src``): removed. The wrapper is
   dropped (section 10.1).
 
-**Joint rows with lane X** (agreed in the lane X thread; Xi confirmed):
+**Joint rows with lane X: agreed with Xi and booked once** (lane X thread,
+Xi's final answer, rows 1-5):
 
 Each file is booked once (note 3 and note 4):
 
@@ -1062,8 +1091,14 @@ Each file is booked once (note 3 and note 4):
 
 * Booked in **X**:
 
-  * the emulation sites in ``src/mesh``: ``meshblock.cpp:621-642`` (22
-    lines, verified at the pin) and the other sites in section 8.1;
+  * the FP32 emulation sites in ``src/mesh`` (28: ``meshblock.cpp:22, 618,
+    620-635``; ``meshblock.hpp:207-213``; ``mesh.cpp:403-405``);
+  * the gravity-work fixer (83, including ``meshblock.cpp:1336-1337``) and
+    the axial closure (29, ``meshblock.cpp:1009-1035``,
+    ``meshblock.hpp:223-228``);
+  * the ``signal_handler`` move into ``src/mesh`` (213 lines, counted in
+    O as moved, not cut), ``meshblock.cpp:203-230``, and the restart and
+    printer rows of section 8.1;
   * all 1,008 lines of ``src/interface``: ``athena_arrays.hpp`` 669,
     ``init_from_tensor.hpp`` 199, ``stride_iterator.hpp`` 140;
   * every ``meshblock.cpp``/``meshblock_options.cpp`` range of section
@@ -1073,9 +1108,13 @@ Each file is booked once (note 3 and note 4):
   again in the cycle range. O's replacement code (``check_restart_metadata``,
   the budget printer, the generated slice checks) is inside O's estimates.
 
-X's ``src/interface`` deletion depends on O5: the writer without
+X's 1,008 ``src/interface`` lines depend on O5: the writer without
 ``AthenaArray`` and the port of ``tests/test_eos_io_core.cpp``
-(sections 3.1 and 10).
+(sections 3.1 and 10). With O5, X deletes 1,723 of 4,274 (40.3 %);
+without it, 827 (19.3 %) (Xi's figures).
+
+None of these rows changes an O number, so O's cut is unchanged by the
+agreement.
 
 **Baseline recheck (revision 2).** The per-directory sums at the pin,
 counting ``.cpp``/``.hpp``/``.h``/``.cu``/``.cuh`` and leaving out
@@ -1259,7 +1298,8 @@ stub is removed (settled by Cheng).
 9.2 Cut, by what supports it
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Baseline 9,996 throughout.
+Baseline 9,996 throughout. Xi's final joint-row agreement changes no O number,
+so every figure below is unchanged by it.
 
 .. list-table::
    :header-rows: 1
@@ -1720,21 +1760,21 @@ carries its class, and ``O_lines.csv`` has the same column.
      - 0
      - 
      - 119
-     - delete; LIVE feature, removal approved by Cheng
+     - delete; LIVE feature, removal approved by Cheng; joint row agreed with Xi, booked once in O
      - FP32 storage emulation; removal approved by Cheng
    * - ``src/utils/fp32_storage.hpp``
      - 56
      - 0
      - 
      - 56
-     - delete; LIVE feature, removal approved by Cheng
-     - same; meshblock.cpp:621-642 counts in lane X
+     - delete; LIVE feature, removal approved by Cheng; joint row agreed with Xi, booked once in O
+     - same; the 28 emulation lines in src/mesh are X's (joint row 1, agreed with Xi)
    * - ``src/utils/fp64_store.hpp``
      - 85
      - 0
      - 85
      - 0
-     - move; live, moved
+     - move; live, moved; joint row agreed with Xi, booked once in O
      - to src/hydro (one includer: hydro.hpp)
    * - ``src/utils/log.hpp``
      - 67
@@ -1790,21 +1830,21 @@ carries its class, and ``O_lines.csv`` has the same column.
      - 0
      - 146
      - 0
-     - move; live, moved
+     - move; live, moved; joint row agreed with Xi, booked once in O
      - to src/mesh (callers mesh.cpp, meshblock.cpp)
    * - ``src/utils/signal_handler.hpp``
      - 67
      - 0
      - 67
      - 0
-     - move; live, moved
+     - move; live, moved; joint row agreed with Xi, booked once in O
      - to src/mesh
    * - ``src/utils/tensor_cast_cache.hpp``
      - 53
      - 53
      - 
      - 0
-     - keep; live, kept
+     - keep; live, kept; joint row agreed with Xi, booked once in O
      - 3 includers
    * - ``src/utils/utils_dispatch.cpp``
      - 26
@@ -1963,8 +2003,8 @@ file.
      - no caller (section 2.1)
    * - O2b
      - Remove the FP32 storage emulation: ``src/utils/fp32_storage.*``
-       (O), ``meshblock.cpp:621-642`` and the other X sites (X, section
-       8.1), the ``round_storage`` bindings, ``test_fp32_storage`` and the
+       (O, 175) and the agreed X sites (X, 28; section 8.1), the
+       ``round_storage`` bindings, ``test_fp32_storage`` and the
        ``fp32`` arm of ``test_anomaly_storage.py``
      - bitwise for every run that does not set ``SNAP_FP32_STORAGE``
      - with the variable unset the emulation is off
@@ -1989,8 +2029,13 @@ file.
        check on ``Frame::to_host()``; the two ``MoistEOS`` cases
        (``:13-31``) are kept as they are.
      - bitwise files
-     - same values cast once, same layout (G-1). After O5, lane X can
-       delete ``src/interface`` (section 9).
+     - same values cast once, same layout (G-1). **Dependency:** lane X's
+       deletion of all 1,008 ``src/interface`` lines needs O5 first. That
+       means no ``AthenaArray`` left in O (``output_type.hpp:22, 99``,
+       ``output_utils.hpp:10, 47``, ``output_type.cpp:388, 399, 467,
+       521, 528, 535``, ``load_diag_output_data.cpp:120-332``) and
+       ``tests/test_eos_io_core.cpp:33-53`` ported (X: 1,723 of 4,274
+       with O5, 827 without).
    * - O6a
      - **Gate PR.** Add ``src/output/combine_parts.cpp`` and the G-2
        parity test. ``combine_blocks`` still calls ``mppnccombine``.
@@ -2134,14 +2179,20 @@ cycle line.
 
 **11.2 Lane X, Xi.**
 
-X-1. Confirm that output, ``flush`` and restart run after the global accept
-and outside captured segments.
+X-1. **Closed** (Xi, ``X.rst`` at ``77c65d5a``, answer X1): output,
+flushes and restart writes run in the host phase after the global accept,
+outside captured segments.
 
 X-2. Closed: O adopts X's host ``dt`` after the accept (``X.rst`` at
 ``77c65d5a``, answer X2).
 
-X-3. Who calls graph and cache invalidation after ``read_restart``:
-``MeshBlock`` or the executor?
+X-3. **Closed** (Xi, answer X3): after ``read_restart`` the Mesh calls
+``StageExecutor::invalidate()``. Restart never serializes graphs
+(``V3_ROADMAP.md:80``).
+
+X-4. **Closed** (Xi's final joint-row answer): the joint rows 1-5 of
+sections 8.1 and 9 are accepted. A device ``dt`` at ``meshblock.cpp:1210``
+is refused for the first release, and O withdraws that request.
 
 **11.3 Lane C, Tianhao.**
 
@@ -2152,7 +2203,7 @@ X-3. Who calls graph and cache invalidation after ``read_restart``:
 **11.4 Mesh owner (lane X, Xi), implicit owner (lane I, Xinyue), kickoff thread.**
 
 * Reconcile the lane letters (above).
-* Xi: accept the mesh items of section 8.1.
+* Xi: the mesh items of section 8.1 are **accepted** (rows 1-5).
 * Xinyue: accept the implicit items of section 8.1.
 * Owners of option headers: when to switch to the generator.
 
