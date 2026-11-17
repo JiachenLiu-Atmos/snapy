@@ -15,7 +15,7 @@ enum class AxialMode : uint8_t { off, transport, exact };
 struct AxialFluxView {
   torch::Tensor total[3];    //!< A-r1: reg.total(d), after the limiter carry
   torch::Tensor central[3];  //!< A-r2: reg.kept(d, "riemann.central"), x2/x3
-  torch::Tensor momentum_t;  //!< A-r5: vic.momentum_t[2], kept (R-4)
+  torch::Tensor momentum_t;  //!< A-r5: vic.momentum_t[2], kept per face (R-4)
 };
 
 //! flux-form torque of F_d per volume. Rule 1: #363's -(Omega/V) sum_f M_d,f
@@ -52,6 +52,9 @@ class AxialMomentum {
   //! post_implicit: today's axial_x1_source_, from vic.momentum_t
   void x1_source(torch::Tensor du, AxialFluxView const& f,
                  RotationGeometry const& g) const;
+  //! step end: K-weighted x1-wall reduction of reg.step_field(1) (R:91),
+  //! posted as cell_amount("aam.x1_wall") (R-4: lane A owns it)
+  void wall_torque(FluxRegister& reg, RotationGeometry const& g) const;
   torch::Tensor closure_sums() const;  //!< {R, I}, FP64 device; exact only
  private:
   AxialMode mode_;
@@ -70,8 +73,9 @@ class AxialClosureFixer : public Fixer {
   std::string name() const override;          //!< "aam.closure"
   std::vector<int> rows() const override;     //!< {IVY, IVZ}
   torch::Tensor partial_sums() const override;  //!< {R, I}, FP64
-  //! -w2 dt R / I rho s^2 along K on device (where-masked); posts
-  //! reg.cell_amount("aam.closure", V du) (R:83)
+  //! -w2 dt R / I rho s^2 along K on device (where-masked); stage_weight
+  //! must be the stage's own w2 (pin meshblock.cpp:1027), not c_s (R-6);
+  //! posts reg.cell_amount("aam.closure", V du) (R:83)
   void apply(torch::Tensor u, torch::Tensor const& global_sums, double dt,
              double stage_weight, FluxRegister& reg) const override;
  private:

@@ -78,7 +78,7 @@ class SourceRegistry {
   struct Run { RegisterPhase phase; bool capturable; size_t begin, end; };
   std::vector<Run> runs(RegisterPhase phase) const;
   //! budgets on (monitor cadence): each source's V * scratch goes to
-  //! reg.cell_amount(name, vol_du) (R:83), its AAM share to aam_ (R-3)
+  //! reg.cell_amount(name, vol_du) (R:83); R tracks AAM by name (R-3)
   void run(Run const& r, torch::Tensor du, StageState const& s,
            FluxRegister& reg, bool budgets);
   double max_time_step(StageState const& s) const;
@@ -86,7 +86,6 @@ class SourceRegistry {
  private:
   std::vector<std::unique_ptr<SourceTerm>> sources_;
   torch::Tensor scratch_;  //!< one FP64 field, allocated at reset (N17)
-  torch::Tensor aam_;  //!< [nsrc] FP64 device AAM shares, until R-3 answers
 };
 
 }  // namespace snap

@@ -18,7 +18,7 @@ class RotationGeometry {
   virtual torch::Tensor k_center() const = 0;
   virtual torch::Tensor k_center_lower() const = 0;
   virtual torch::Tensor kk_center() const = 0;
-  //! exact face average of k, in each face's panel frame (S-2), and
+  //! exact face average of k, in the panel face basis (S-2), and
   //! cos^2(lat) at x2/x3 faces
   virtual torch::Tensor k_face(int dir) const = 0;
   virtual torch::Tensor c2_face(int dir) const = 0;

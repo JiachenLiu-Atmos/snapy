@@ -47,7 +47,7 @@ class DiffusionFlux {
  private:
   DiffusionCoefficients c_;
   //! two-point (diffusion.cpp) and cubed-sphere 4-point evaluators; traction
-  //! goes to the panel frame by coord's rotation (S-2, S-3)
+  //! goes to the panel face basis by coord's rotation (S-2, S-3)
   torch::Tensor cartesian_face_flux(int dir, StageState const& s) const;
   torch::Tensor cubed_sphere_face_flux(int dir, StageState const& s) const;
   void exchange_traces(StageState const& s) const;  //!< own exchange (S-3)
