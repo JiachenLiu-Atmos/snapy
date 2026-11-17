@@ -74,7 +74,7 @@ class GriddedWriter {
   double next_time = 0.;
   int64_t schedule_key() const;     // legacy (#313)
   int64_t schedule_key_v2() const;  // exact cadence bits (#313)
-  void accumulate_stats(Variables const& vars, torch::Tensor dt_device);
+  void accumulate_stats(Variables const& vars, double dt);  // host dt
   void write(MeshBlockImpl* pmb, Variables const& vars, double time,
              bool final_write);
 

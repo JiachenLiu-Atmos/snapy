@@ -25,3 +25,8 @@ options:
   # env overrides the deck (hydro_options.cpp:84-95); FOR CHENG
   - {name: anomaly, key: anomaly, type: bool, default: false, env: SNAP_ANOMALY, doc: "anomaly storage"}
   # SNAP_FP32_STORAGE(_ROWS) get no row: the emulation is removed (Cheng)
+---
+module: coord   # proposed row; the owning lane decides (x1_centroid.cpp:68-79)
+yaml_node: geometry
+options:
+  - {name: x1_centroid_exact, key: x1-centroid-exact, type: bool, default: false, env: SNAP_X1_CENTROID_EXACT, doc: "r^2-weighted x1 means; same on every block"}

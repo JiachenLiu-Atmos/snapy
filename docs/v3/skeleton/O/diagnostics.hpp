@@ -13,7 +13,10 @@ namespace snap {
 class MeshBlockImpl;
 using Variables = std::map<std::string, torch::Tensor>;
 
-//! req 3: step transfer = sum_s b_s dt F_s, per axis, conserved rows
+//! req 3: step transfer = sum_s b_s dt F_s, per axis, conserved rows.
+//! C posts flux density per unit face area (C.rst@a7155840:755-757); if R
+//! exposes densities, O multiplies by face_area<d> (coordinate.cpp:706).
+//! Names are O's placeholders until lane R's header exists.
 struct FluxRegisterView {
   torch::Tensor dF1, dF2, dF3;  // undefined for a collapsed axis
   std::vector<std::string> rows;
@@ -32,11 +35,12 @@ class Consumer {
   virtual ~Consumer() = default;
   virtual void observe(MeshBlockImpl const& block, Variables const& vars,
                        FluxRegisterView const& reg, MonitorView const& mon,
-                       torch::Tensor dt_device) = 0;
+                       double dt) = 0;  // X's host dt, after accept
   virtual void flush(double time) = 0;
 };
 
-//! total(t) - total(t0) = -boundary + sum fixer + residual, FP64
+//! total - total_prev = -boundary + sum(source fixers) + residual, FP64;
+//! flux-type fixers are already in boundary and are reported, not re-added
 class BudgetConsumer : public Consumer {
  public:
   struct Row {
@@ -47,7 +51,7 @@ class BudgetConsumer : public Consumer {
   explicit BudgetConsumer(std::vector<Row> rows);
   void observe(MeshBlockImpl const& block, Variables const& vars,
                FluxRegisterView const& reg, MonitorView const& mon,
-               torch::Tensor dt_device) override;
+               double dt) override;
   void flush(double time) override;
 };
 
@@ -56,7 +60,7 @@ class HydroFluxProfile : public Consumer {
  public:
   void observe(MeshBlockImpl const& block, Variables const& vars,
                FluxRegisterView const& reg, MonitorView const& mon,
-               torch::Tensor dt_device) override;
+               double dt) override;
   void flush(double time) override;
 };
 

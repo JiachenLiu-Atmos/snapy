@@ -3,8 +3,9 @@
 V3 lane O: output, input, utilities, diagnostics, options schema
 =================================================================
 
-Revision 1 (restructured), 2026-11-18. Owner: Jiachen (alternate: Isaac).
-Reviewers: Tianhao (C) and Isaac (K). Design only: this branch proposes no
+Revision 2, 2026-11-18. Design and contract only: nothing in this branch
+was written as code, built, tested or run. Owner: Jiachen (alternate: chen sihe).
+Reviewers: Tianhao (C) and chen sihe (K). Design only: this branch proposes no
 implementation change. Declarations are in ``docs/v3/skeleton/O/`` (not
 built). The line table is section 9, with the same rows in
 ``docs/v3/design/O_lines.csv``.
@@ -184,12 +185,14 @@ Commands behind the rows (run at the pin):
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 * **Set-up.** ``meshblock.cpp:232-249`` picks ``restart``, ``netcdf`` or
-  ``pnetcdf``. The slice checks run twice: ``output_type.cpp:90-98`` and
-  ``meshblock.cpp:203-230``.
+  ``pnetcdf``. The slice checks run three times:
+  ``output_type.cpp:90-98`` (slice against sum),
+  ``meshblock_options.cpp:65-86`` (bounds and order) and
+  ``meshblock.cpp:203-230`` (both).
 * **Write.** ``make_outputs`` (``meshblock.cpp:1207-1224``) calls
   ``AccumulateStats`` every step (``:1210``) and writes when
   ``current_time >= next_time``.
-* **#350's writer core** (186 lines; merge ``ffaffdd5``) shares
+* **#350's writer core** (186 lines; merge ``ffaffdd25f3b7d3d63204fde84cdcbb476f08517``) shares
   ``output_range``, ``make_output_dir``, ``output_block_location``,
   ``combine_on_root`` and ``glob_block_files``. It did not touch the format
   code.
@@ -215,7 +218,8 @@ Commands behind the rows (run at the pin):
 2.3 Monitor, fixers and budgets today (Q3)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``print_cycle_diagnostics`` (``meshblock.cpp:1226-1339``) does the following
+``print_cycle_diagnostics`` (``meshblock.cpp:1226-1339``; the line is
+produced at ``:1232-1338``) does the following
 every ``ncycle_out`` cycles:
 
 * sums the conserved rows, KE and PE (``:1257-1283``);
@@ -281,9 +285,11 @@ finds:
   ``fp32_storage.hpp:19-25``, applied at ``meshblock.cpp:621-642``, and
   validated with messages naming the variables (``fp32_storage.cpp:36, 57,
   79``).
-* ``SNAP_X1_CENTROID_EXACT`` appears 49 times, but no ``getenv`` in
-  ``src/`` names it. **Hypothesis**: it is read through the
-  ``layout.hpp:40`` helper, which I did not trace.
+* ``SNAP_X1_CENTROID_EXACT`` is read once per process at
+  ``x1_centroid.cpp:68-79``, through ``get_env`` (``layout.hpp:39-42``).
+  It appears 53 times in 21 files over the repository, ``docs/v3``
+  excluded. A proposed table row is in section 3.3; the owning lane
+  decides.
 
 3. Target design
 ----------------
@@ -350,8 +356,9 @@ combiner command-line wrapper is added (section 10.1).
 
 A ``Consumer`` has two methods:
 
-* ``observe``: runs on the device every accepted step and reads the
-  register's step transfer, the monitor and a device ``dt``;
+* ``observe``: runs on the device every accepted step, after the accept,
+  and reads the register's step transfer, the monitor and X's host ``dt``
+  (section 7);
 * ``flush``: makes the collective and the host read, at its own cadence
   only.
 
@@ -365,6 +372,18 @@ Two consumers replace ``src/diagnostics``:
 
   At each record it writes ``residual = (total - total_prev) + boundary -
   sum fixer``.
+
+  **No double counting.**
+
+  * Fixer *amounts* (conserved-quantity changes, requirement 7) enter the
+    identity.
+  * Event *meters* (limiter cut fraction, positivity events, face-floor
+    and p* counts) are counts and never enter it.
+  * A fixer that changes face fluxes before they are posted is already
+    inside ``boundary``. It is reported as a part (requirement 2) and not
+    added again.
+  * Only source-type fixers enter ``sum fixer``: gravity work, the AAM
+    closure and the VIC clamp.
 
 * ``HydroFluxProfile``: the horizontal mean of the registered x1 transfer,
   on grid ``--F``.
@@ -420,6 +439,9 @@ generated members and defaults equal the pin's.
 
 * ``SNAP_FLUX_COVARIANCE`` and ``SNAP_X1_MASS_COVARIANCE``: the warning
   stubs (``hydro.cpp:46-54``) are deleted.
+* ``SNAP_X1_CENTROID_EXACT`` (read at ``x1_centroid.cpp:68-79``): a proposed
+  row ``geometry/x1-centroid-exact`` with this ``env`` (note 14). The lane
+  that owns ``src/coord`` decides whether to adopt it.
 * ``SNAP_ANOMALY``: the row ``dynamics/anomaly`` with ``env: SNAP_ANOMALY``,
   the only permanent override. It is named in the user-facing message at
   ``meshblock.cpp:1782`` and used on 5 test lines. **FOR CHENG.**
@@ -672,10 +694,16 @@ letters) is in 11.3 and 11.4.
 -----------------------
 
 The identity: for every budget row,
-``total(t) - total(t_prev) = -boundary + sum_f fixer(f) + residual``. With
+``total - total_prev = -boundary + sum_f fixer(f) + residual``, the sum
+over source-type fixers only (section 3.2). With
 FP64 accumulation, ``|residual|`` should be at round-off relative to
 ``total``. The tolerance (proposed ``1e-12 * |total|``, *estimate*) is set
 by G0 baselines, not here.
+
+**Every gate below is a specification.** None is written and none has been
+run in this round. Each states its identity, the cases it would run on, and
+whether it is bitwise or within a tolerance. The PRs that would carry them
+are planned in section 10 and not started.
 
 .. list-table::
    :header-rows: 1
@@ -717,10 +745,10 @@ by G0 baselines, not here.
      - O2
      - exact
 
-**Gate G-2 in detail.** The gate PR (O6a) adds ``combine_parts`` next to
-``mppnccombine`` and a test. For each case the test runs with
-``combine: false``, so the part files stay. It then merges the same parts
-twice: once with ``mppnccombine(-r ...)`` exactly as
+**Gate G-2 in detail (specification).** The planned gate PR (O6a) would add ``combine_parts`` next to
+``mppnccombine`` and a test. For each case the test would run with
+``combine: false``, so the part files stay. It would then merge the same
+parts twice: once with ``mppnccombine(-r ...)`` exactly as
 ``combine_netcdf.cpp:64-73`` calls it, and once with ``combine_parts``.
 
 Cases, all at the pin:
@@ -790,7 +818,8 @@ only after that (O6b).
   ``combine_on_root``'s mutex (``writer_core.cpp:81-93``) anticipates. The
   core removes ``strtok`` either way.
 * Reading restart tensors from a stream.
-* The ``SNAP_X1_CENTROID_EXACT`` read site.
+* That sedimentation's settling flux is posted as a register increment
+  (note 16).
 
 6. FP32 contract
 ----------------
@@ -821,10 +850,15 @@ segments (``V3_ROADMAP.md:101``: "Global CFL/retry decisions and output stay
 outside graphs").
 
 The only per-step work is ``Consumer::observe`` and
-``GriddedWriter::accumulate_stats``. Both are device-only and take ``dt`` as
-a device scalar. Today ``AccumulateStats`` uses the host difference
-``current_time - stat_last_time_`` (``output_type.cpp:308``); a graph would
-bake that value in.
+``GriddedWriter::accumulate_stats``. Both run on device, after the global
+accept and outside captured segments. They take X's host ``dt``
+(``double``), as ``X.rst`` (``77c65d5a``, answer X2) keeps it: a host double
+chosen at step start (``meshblock.cpp:773``). Nothing runs inside a graph,
+so no value is baked in, and requirement 6's no-host-read rule holds. A
+device ``dt`` comes only if X parameterizes graphs later.
+
+The monitor's host read is X's stacked step-end retry read
+(``meshblock.cpp:1566``, ``X.rst:122``). O adds none per step.
 
 Mapping to the roadmap milestones:
 
@@ -918,15 +952,21 @@ To the mesh owner (lane X, Xi):
      - Move into ``check_restart_metadata`` (``restart.hpp``), next to the
        file contract; ``_init_from_restart`` calls it. The behaviour and
        messages are unchanged.
-   * - ``meshblock.cpp:1226-1339`` (``print_cycle_diagnostics``) and
-       ``mesh/cycle_diagnostics.hpp`` (16)
+   * - ``meshblock.cpp:1226-1339`` (``print_cycle_diagnostics``; the line
+       is produced at ``:1232-1338``) and ``mesh/cycle_diagnostics.hpp``
+       (16)
      - 114 + 16
      - Becomes a printer over ``BudgetConsumer``'s totals (section 3.2). It
        merges with O8, after lane R's monitor. The printed content is
-       unchanged.
+       unchanged. X books 1226-1346, including the ``print_cycle_info``
+       wrapper (``:1341-1346``), which stays. ``:1336-1337`` (``fixgrav``)
+       is counted once, in X's gravity row.
+   * - ``meshblock_options.cpp:65-86`` (``check_slice``)
+     - 22
+     - Delete. It is the third slice check; the generated checks replace it.
    * - ``meshblock.cpp:1210`` (``AccumulateStats`` call)
      - 1
-     - Takes ``dt`` as a device scalar (section 7).
+     - Takes X's host ``dt`` (section 7).
    * - ``meshblock.cpp:621-642`` (``round_storage``,
        ``round_storage_after_stage``)
      - 22
@@ -984,7 +1024,8 @@ Moved to owners outside lanes X and I, listed for completeness:
 1. O1-O7 (section 10) depend on no other lane.
 2. O8 (consumers and budget) merges after lane R's register and monitor
    (Linfeng).
-3. The device ``dt`` part of O8 merges after lane X's executor hook (Xi).
+3. O8's ``observe`` call site merges with lane X's post-accept host phase
+   (Xi).
 4. Other lanes switch their option headers to the generator after O4, in
    any order.
 
@@ -1011,13 +1052,26 @@ rows changed from revision 1:
 
 **Joint rows with lane X** (agreed in the lane X thread; Xi confirmed):
 
-* Booked in **O**: ``src/utils/fp32_storage.*`` (119 + 56 = 175, deleted).
+Each file is booked once (note 3 and note 4):
+
+* Booked in **O**:
+
+  * ``src/utils/fp32_storage.*`` (119 + 56 = 175), deleted;
+  * ``src/utils/fp64_store.hpp`` (85), moved to ``src/hydro``, not cut;
+  * ``src/utils/tensor_cast_cache.hpp`` (53), kept.
+
 * Booked in **X**:
 
   * the emulation sites in ``src/mesh``: ``meshblock.cpp:621-642`` (22
-    lines, verified at the pin) and the other sites listed in section 8.1;
-  * all 1,008 lines of ``src/interface``, including
-    ``athena_arrays.hpp`` and ``stride_iterator.hpp``.
+    lines, verified at the pin) and the other sites in section 8.1;
+  * all 1,008 lines of ``src/interface``: ``athena_arrays.hpp`` 669,
+    ``init_from_tensor.hpp`` 199, ``stride_iterator.hpp`` 140;
+  * every ``meshblock.cpp``/``meshblock_options.cpp`` range of section
+    8.1, and ``mesh/cycle_diagnostics.hpp`` (16).
+
+  ``meshblock.cpp:1336-1337`` sits in X's gravity row and is not counted
+  again in the cycle range. O's replacement code (``check_restart_metadata``,
+  the budget printer, the generated slice checks) is inside O's estimates.
 
 X's ``src/interface`` deletion depends on O5: the writer without
 ``AthenaArray`` and the port of ``tests/test_eos_io_core.cpp``
@@ -1044,7 +1098,7 @@ includes its ``CMakeLists.txt`` and the two ``.cpp_`` files.
 All commands were run on a worktree whose files outside ``docs/v3`` equal
 the pin: ``git diff --stat 9e5de2d4 HEAD -- . ':!docs/v3'`` is empty.
 
-**How things get built at the pin.**
+**What the CMake lists compile at the pin** (read, not built).
 
 * The top-level ``CMakeLists.txt:151`` adds only ``src``. The other two
   ``add_subdirectory`` calls, at ``:156`` and ``:161``, add ``tests`` and
@@ -1093,7 +1147,7 @@ class. None reaches ``src/diagnostics``. (``cycle_diagnostics`` is
 built, not included, not bound, not used by tests or decks. Dead.**
 
 **(b) Legacy parser ``parameter_input.*`` (993) and ``io_wrapper.*`` (364),
-plus the duplicate ``input/signal.*`` (187): built, but no symbol is
+plus the duplicate ``input/signal.*`` (187): compiled by the ``src`` glob, but no symbol is
 referenced.**
 
 These files **are compiled** into ``libsnap`` by the ``input/*.cpp`` glob
@@ -1216,7 +1270,7 @@ Baseline 9,996 throughout.
      - Cheng's removals (``22cd9512``)
      - combiner plan (this head)
      - depends on
-   * - **settled**
+   * - **settled** (unchanged by the note fixes)
      - 4,413 (44.1 %)
      - 5,347 (53.5 %)
      - **5,377 (53.8 %)**
@@ -1227,7 +1281,8 @@ Baseline 9,996 throughout.
      - **5,807 (58.1 %)**
      - plus G-6 (``flip_zero``, 350) and Cheng on super-resolution
        (``refine``, 80)
-   * - strict reading (built-but-unreferenced group (b), 1,544, kept)
+   * - strict reading (group (b), compiled by the ``src`` glob but
+       unreferenced, 1,544, kept)
      - 2,869 (28.7 %)
      - 3,803 (38.0 %)
      - **3,833 (38.3 %)**
@@ -1235,17 +1290,43 @@ Baseline 9,996 throughout.
    * - ``src`` only (no lines outside ``src``)
      - 6,257 (62.6 %)
      - 6,407 (64.1 %)
-     - **6,407 (64.1 %)**
-     - unchanged: the combiner moved between two ``src`` rows
+     - **6,107 (61.1 %)**
+     - note 6: ``src/options/*.yaml`` (300) is now counted in ``src``
 
 What the settled cut contains:
 
 * never-compiled code (a);
-* built-but-unreferenced code (b) and the other unreferenced utilities;
+* code compiled by the ``src`` glob but unreferenced (b), and the other
+  unreferenced utilities;
 * the rewrites and merges;
 * Cheng's approved removals: ``mppnccombine.cpp`` (−1,014, with the
   ``combine_parts.cpp`` addition of +200), the hdf5/fits stubs and
   ``fp32_storage.*`` (−175).
+
+**Pure deletions** (files removed with no replacement code): **3,813**
+lines.
+
+* ``src/diagnostics``: 1,585;
+* ``parameter_input.*``: 993;
+* ``io_wrapper.*``: 364;
+* ``input/signal.*``: 187;
+* ``pull_neighbors.*``: 249;
+* ``utils_dispatch.*``: 131;
+* ``cuda_utils.*``: 22;
+* ``hdf5.cpp``: 27;
+* ``refine.*``: 80;
+* ``fp32_storage.*``: 175.
+
+Rev 1's 4,163 also counted 525 replaced lines (note 2).
+
+Commands:
+
+* ``python3 line_table.py`` (worker workspace), which reads
+  ``git show 9e5de2d4:<path> | wc -l`` for every row;
+* the per-directory baseline check in section 9.
+
+Settled = target − ``flip_zero`` (350) − ``refine`` (80). Strict = settled
+− 1,544.
 
 The +30 from revision 2 part 2 comes from dropping the ``snap-combine``
 wrapper. If every rewritten or new file is 50 % over its estimate, the
@@ -1401,28 +1482,28 @@ carries its class, and ``O_lines.csv`` has the same column.
      - 0
      - 
      - 305
-     - delete; built, unreferenced
+     - delete; compiled by src glob, unreferenced
      - only reached from parameter_input
    * - ``src/input/io_wrapper.hpp``
      - 59
      - 0
      - 
      - 59
-     - delete; built, unreferenced
+     - delete; compiled by src glob, unreferenced
      - 
    * - ``src/input/parameter_input.cpp``
      - 873
      - 0
      - 
      - 873
-     - delete; built, unreferenced
+     - delete; compiled by src glob, unreferenced
      - legacy Athena++ parser; no caller
    * - ``src/input/parameter_input.hpp``
      - 120
      - 0
      - 
      - 120
-     - delete; built, unreferenced
+     - delete; compiled by src glob, unreferenced
      - only an unused include in python/csrc/snapy.cpp:10 and hdf5.cpp:6
    * - ``src/input/read_restart_file.cpp``
      - 236
@@ -1443,14 +1524,14 @@ carries its class, and ``O_lines.csv`` has the same column.
      - 0
      - 
      - 124
-     - delete; built, unreferenced
+     - delete; compiled by src glob, unreferenced
      - older copy of utils/signal_handler; no includer
    * - ``src/input/signal.hpp``
      - 63
      - 0
      - 
      - 63
-     - delete; built, unreferenced
+     - delete; compiled by src glob, unreferenced
      - 
    * - ``src/math/lubksb.h``
      - 71
@@ -1485,7 +1566,7 @@ carries its class, and ``O_lines.csv`` has the same column.
      - 0
      - 
      - 27
-     - delete; built, unreferenced; removal approved by Cheng
+     - delete; compiled by src glob, unreferenced; removal approved by Cheng
      - stub; body only under never-defined HDF5OUTPUT, signature does not match the header
    * - ``src/output/load_diag_output_data.cpp``
      - 338
@@ -1611,14 +1692,14 @@ carries its class, and ``O_lines.csv`` has the same column.
      - 0
      - 
      - 19
-     - delete; built, unreferenced
+     - delete; compiled by src glob, unreferenced
      - checkCudaError has no caller
    * - ``src/utils/cuda_utils.h``
      - 3
      - 0
      - 
      - 3
-     - delete; built, unreferenced
+     - delete; compiled by src glob, unreferenced
      - one unused include in implicit_dispatch.cu:15
    * - ``src/utils/flip_zero.cpp``
      - 270
@@ -1681,14 +1762,14 @@ carries its class, and ``O_lines.csv`` has the same column.
      - 0
      - 
      - 225
-     - delete; built, unreferenced
+     - delete; compiled by src glob, unreferenced
      - only commented-out calls (equation_of_state.cpp:254-257)
    * - ``src/utils/pull_neighbors.hpp``
      - 24
      - 0
      - 
      - 24
-     - delete; built, unreferenced
+     - delete; compiled by src glob, unreferenced
      - 
    * - ``src/utils/refine.cpp``
      - 69
@@ -1730,21 +1811,21 @@ carries its class, and ``O_lines.csv`` has the same column.
      - 0
      - 
      - 26
-     - delete; built, unreferenced
+     - delete; compiled by src glob, unreferenced
      - bdot_out has no caller
    * - ``src/utils/utils_dispatch.cu``
      - 92
      - 0
      - 
      - 92
-     - delete; built, unreferenced
+     - delete; compiled by src glob, unreferenced
      - 
    * - ``src/utils/utils_dispatch.hpp``
      - 13
      - 0
      - 
      - 13
-     - delete; built, unreferenced
+     - delete; compiled by src glob, unreferenced
      - 
    * - ``src/utils/vectorize.cpp``
      - 24
@@ -1795,13 +1876,13 @@ carries its class, and ``O_lines.csv`` has the same column.
      - -200
      - new
      - BudgetConsumer
-   * - ``src/diagnostics/hydro_flux.cpp``
+   * - ``src/diagnostics/hydro_flux_profile.cpp``
      - 
      - 80
      - 
      - -80
      - new
-     - HydroFluxProfile from the register
+     - HydroFluxProfile from the register (new file; the old hydro_flux.cpp row above is its deletion)
    * - ``tools/gen_options.py``
      - 
      - 300
@@ -1814,18 +1895,18 @@ carries its class, and ``O_lines.csv`` has the same column.
      - 300
      - 
      - -300
-     - new, outside src
-     - options tables (data), ~1.4 lines per option
+     - new
+     - options tables (data, in src), ~1.4 lines per option
    * - **baseline (71 files)**
      - **9996**
-     - **2939**
+     - **3239**
      - **650**
-     - **6407**
+     - **6107**
      - 
-     - src only: 64.1% cut
+     - src only: 61.1% cut
    * - **including new files outside src**
      - 
-     - **600**
+     - **300**
      - 
      - **5807**
      - 
@@ -1834,25 +1915,28 @@ carries its class, and ``O_lines.csv`` has the same column.
 **Totals.**
 
 * Baseline: 9,996 lines in 71 files (rechecked at the pin, section 9).
-* Kept in place: 2,219. Added in ``src``: 720, of which
-  ``combine_parts.cpp`` is 200. Moved out unchanged: 650. Added outside
-  ``src``: 600 (``gen_options.py`` and the option tables).
-* Cut in ``src`` only: 6,407 lines (64.1 %).
+* Kept in place: 2,219. Moved out unchanged: 650.
+* Added in ``src``: 1,020, all *estimates*. Of these,
+  ``combine_parts.cpp`` is 200 and the option tables
+  (``src/options/*.yaml``) are 300.
+* Added outside ``src``: 300 (``tools/gen_options.py``).
+* Cut in ``src`` only: 6,107 lines (61.1 %).
 * Design target, including the additions outside ``src``: 5,807 lines
   (58.1 %).
 * **Settled: 5,377 lines (53.8 %).** The 30 % target is 2,999.
 * Not counted:
 
   * 785 lines deleted outside the baseline;
-  * in lane X: ``stride_iterator.hpp`` (140) and the rest of
-    ``src/interface``, and the FP32 storage application in ``src/mesh``
-    (22 + 13, section 8.1).
+  * in lane X: all of ``src/interface`` (1,008, including
+    ``stride_iterator.hpp`` 140) and the FP32 storage application in
+    ``src/mesh`` (section 8.1, counted by X's joint table).
 
 10. Migration
 -------------
 
-The PR sequence is below. The combiner gate PR (O6a) comes before the
-deletion PR (O6b). "Bitwise" means every state and every written
+The PR sequence below is a **plan**. No PR is started in this round, and
+nothing in it has been written, built or run. The combiner gate PR (O6a)
+comes before the deletion PR (O6b). "Bitwise" means every state and every written
 file is byte-identical to the base (gate G-1). No lane O change touches
 arithmetic on the state, so every PR is bitwise except O8, which adds a new
 file.
@@ -1933,7 +2017,15 @@ file.
 
 **Decision (approved by Cheng; settled): yes.** ``combine_parts``
 (``src/output/combine_parts.cpp``, about 200 lines, *estimate*) replaces
-``mppnccombine.cpp``. In-run combining stays, and ``combine`` keeps its
+``mppnccombine.cpp``. In this round it exists only as an interface
+(declaration in ``writer_core.hpp``); it is not written.
+
+* **Takes:** the output path and the part paths of the ``-r <outfile>
+  <infiles...>`` form that ``combine_netcdf.cpp:64-73`` builds.
+* **Writes:** one merged NETCDF4 file at the output path, then removes the
+  parts.
+* **Returns:** 0, or a netcdf error code. ``combine_netcdf.cpp:77-83``
+  turns a nonzero code into the existing exception. In-run combining stays, and ``combine`` keeps its
 default of true (``src/output/output_type.hpp:85``:
 ``ADD_ARG(bool, combine) = true;``). Users see no change: one merged netcdf
 file per output frame, ``<basename>.out<n>.<kkkkk>.nc``, as today.
@@ -2045,7 +2137,8 @@ cycle line.
 X-1. Confirm that output, ``flush`` and restart run after the global accept
 and outside captured segments.
 
-X-2. Can the executor give post-step consumers ``dt`` as a device scalar?
+X-2. Closed: O adopts X's host ``dt`` after the accept (``X.rst`` at
+``77c65d5a``, answer X2).
 
 X-3. Who calls graph and cache invalidation after ``read_restart``:
 ``MeshBlock`` or the executor?
@@ -2063,12 +2156,189 @@ X-3. Who calls graph and cache invalidation after ``read_restart``:
 * Xinyue: accept the implicit items of section 8.1.
 * Owners of option headers: when to switch to the generator.
 
+**11.5 Responses to Tianhao's round-2 notes 1-17 (on rev 1 ``a39e0e8d``).**
+Each citation was checked at the pin before it was accepted. The note texts
+reached this revision as one-line summaries. **Note 1's text did not reach
+this revision**, so it has no disposition here.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 5 13 82
+
+   * - #
+     - reply
+     - change made, with ``file:line`` at the pin
+   * - 1
+     - open
+     - The note text was not available to this revision. It will be answered
+       on receipt.
+   * - 2
+     - accept
+     - Rev 1's "pure deletions 4,163" included 525 lines that are replaced,
+       not purely deleted: ``output_formats.hpp`` 105 (folded into the core),
+       ``vectorize.*`` 70 (``Field.names``) and ``utils/flip_zero.*`` 350
+       (the ``bc`` copy). Section 9 now states pure deletions as **3,813**:
+       ``src/diagnostics`` 1,585, ``parameter_input.*`` 993,
+       ``io_wrapper.*`` 364, ``input/signal.*`` 187, ``pull_neighbors.*``
+       249, ``utils_dispatch.*`` 131, ``cuda_utils.*`` 22, ``hdf5.cpp`` 27,
+       ``refine.*`` 80, ``fp32_storage.*`` 175.
+   * - 3
+     - accept
+     - Each file is booked once (section 9, joint rows), agreeing with the
+       X/O table Xi confirmed:
+
+       * ``fp32_storage.*`` 175 in O, deleted;
+       * ``fp64_store.hpp`` 85 in O, moved to ``src/hydro``, not cut;
+       * ``tensor_cast_cache.hpp`` 53 in O, kept.
+
+       X books none of the three.
+   * - 4
+     - accept
+     - Joint accounting (sections 8.1 and 9):
+
+       * X books all of ``src/interface``: ``athena_arrays.hpp`` 669,
+         ``init_from_tensor.hpp`` 199, ``stride_iterator.hpp`` 140. This is
+         conditional on O5.
+       * X books every ``meshblock.cpp`` range and
+         ``cycle_diagnostics.hpp`` (16).
+       * O's replacement code stays inside O's estimates.
+       * ``meshblock.cpp:1336-1337`` (``fixgrav``) sits in X's gravity row
+         and is not counted again inside the cycle range.
+       * O takes only the #367 checks (``:1623-1653``) out of
+         ``_init_from_restart``. The rest of ``1603-1833`` stays in
+         ``src/mesh``.
+   * - 5
+     - accept
+     - A third slice check exists: ``meshblock_options.cpp:65-86`` (bounds
+       and order, 22 lines). Sections 2.2 and 8.1 now list three sites. The
+       generated checks replace all of them. The ``meshblock_options.cpp``
+       and ``meshblock.cpp`` lines are X's to delete.
+   * - 6
+     - accept
+     - ``src/options/*.yaml`` (300, *estimate*) is now counted as an
+       addition in ``src``.
+
+       * ``src``-only cut: 6,407 → **6,107 (61.1 %)**.
+       * Settled cut: 5,377 (53.8 %), unchanged.
+       * Design target: 5,807 (58.1 %), unchanged.
+       * Strict cut: 3,833 (38.3 %), unchanged.
+
+       The last three are unchanged because they already subtracted every
+       addition.
+   * - 7
+     - accept
+     - Section 3.2 now states a double-counting rule.
+
+       * Fixer *amounts* are conserved-quantity changes (requirement 7) and
+         enter the identity.
+       * Event *meters* (``lim_cut``, ``positivity_severe``, floor and p*
+         counts) are counts and never enter it.
+       * A fixer that changes face fluxes before they are posted is
+         already inside ``boundary``. It is reported as a part
+         (requirement 2) and not added again.
+       * Only source-type fixers (gravity work, AAM closure, VIC clamp)
+         enter ``sum fixer``.
+   * - 8
+     - accept
+     - Lane C posts flux density per unit face area, in the global frame,
+       per (direction, stage) slot (``riemann.hpp:18-21`` and ``C.rst``
+       755-757 at C's head ``a7155840803fb95ff0d1563f5b3e2792b87f7594``).
+
+       * ``FluxRegisterView`` is now documented as the step transfer.
+       * If R exposes densities, O multiplies by ``face_area<d>`` as
+         ``coordinate.cpp:706`` does.
+       * R's header is still not published: no ``v3-design/R`` branch on
+         any of the 10 forks of chengcli/snapy. The names stay O's
+         placeholders (L-1).
+   * - 9
+     - accept
+     - ``budget_series.cdl`` now has ``int64 face_floor_count`` (C's
+       ``FaceFloor`` int64 counter, ``C.rst`` :660 at ``a7155840``) and
+       ``int64 pstar_clamp_count`` (``FaceFlux::events`` bit 0, uint8 per
+       face, ``riemann.hpp:30``).
+
+       * Counts are ``int64``.
+       * Fractions and minima are ``double``.
+   * - 10
+     - accept (adopt X)
+     - O adopts X's host ``dt`` after the accept (``X.rst`` X2 answer at
+       ``77c65d5a``: "dt and the stage weights stay host doubles";
+       ``meshblock.cpp:773``).
+
+       * ``observe`` and ``accumulate_stats`` take ``double dt``.
+       * This breaks no requirement: both run after the accept, outside
+         captured segments, so requirement 6's rule (no host read inside a
+         segment) holds and nothing is baked into a graph.
+       * X-2 is closed. Skeleton ``diagnostics.hpp`` and
+         ``writer_core.hpp`` are changed.
+   * - 11
+     - accept
+     - The monitor is read on the host every step already: X stacks it
+       into the step-end retry read (``meshblock.cpp:1566``, "the one
+       device-to-host read"; ``X.rst`` :122).
+
+       * O adds no host read per step.
+       * ``observe`` accumulates the monitor on device every accepted step,
+         before R resets it.
+       * ``flush`` reads O's own sums only at its cadence.
+   * - 12
+     - accept
+     - ``BudgetCarry`` (``restart.hpp``) now stores ``total_prev``
+       (nrows), ``pending`` (nrows) and ``fixer_pending`` (nfixers,
+       nrows), all float64 on CPU, with row and fixer names. Without
+       ``total_prev``, the first interval after a restart could not close.
+   * - 13
+     - accept
+     - The line is produced at ``meshblock.cpp:1232-1338``, the function
+       body after the signature at ``1226-1231``. Sections 2.3 and 8.1 cite
+       it. X's range, 1226-1346, also covers the ``print_cycle_info``
+       wrapper (``:1341-1346``), which stays in ``src/mesh``.
+   * - 14
+     - accept, in part
+     - The read site is found: ``x1_centroid.cpp:68-79``, through
+       ``get_env`` (``layout.hpp:39-42``). That closes rev 1's hypothesis.
+       ``options_table.yaml`` gets a proposed ``geometry/x1-centroid-exact``
+       row with ``env: SNAP_X1_CENTROID_EXACT``; the owning lane decides.
+
+       Counts:
+
+       * ``rg -o 'SNAP_X1_CENTROID_EXACT' --hidden -g '!.git' -g
+         '!docs/v3/**' .``: **53** occurrences in **21** files;
+       * over ``src python tests examples``: 49 in 18.
+
+       The "14" was not reproduced.
+   * - 15
+     - accept
+     - The #350 merge is cited by its full sha,
+       ``ffaffdd25f3b7d3d63204fde84cdcbb476f08517``.
+   * - 16
+     - accept, static
+     - Two static checks:
+
+       * **Cubed-sphere exchange.** It is at ``hydro_forward.cpp:1033-``
+         (``if (playout->options->type() == "cubed-sphere")``). O reads
+         only R's reconciled transfer (requirement 5). On the sphere the
+         domain boundary is x1 only, so the budget's ``boundary`` uses
+         only x1 faces there.
+       * **``d_sed``.** No such symbol exists at the pin (``rg -n -w d_sed
+         src python tests examples`` is empty). The settling flux is part
+         of ``flux1``'s species rows (``flux_positivity.hpp:120``), so it
+         reaches the budget through ``boundary``. **Hypothesis**:
+         sedimentation is posted as a register increment, not a source.
+         This is a question for R and A.
+   * - 17
+     - accept
+     - The new file is renamed ``src/diagnostics/hydro_flux_profile.cpp``,
+       so it no longer shares a row name with the deleted
+       ``hydro_flux.cpp``. ``total(t0)`` is renamed ``total_prev``
+       everywhere (``diagnostics.hpp``, ``budget_series.cdl``, sections 3.2
+       and 5).
+
 12. Skeleton index
 ------------------
 
-``docs/v3/skeleton/O/`` holds declarations only: no function bodies, 278
-lines in total (``wc -l``), not built. The ``.hpp`` files were
-syntax-checked with ``clang++ -fsyntax-only`` against a stub torch header.
+``docs/v3/skeleton/O/`` holds declarations only: no function bodies, 292
+lines in total (``wc -l``). Nothing in it is compiled or run.
 
 .. list-table::
    :header-rows: 1
@@ -2082,23 +2352,23 @@ syntax-checked with ``clang++ -fsyntax-only`` against a stub torch header.
      - ``GridKind``, ``Field``, ``Frame``, ``Sink``, ``GriddedWriter``,
        ``combine_parts``; #350 helpers kept (section 3.1)
    * - ``diagnostics.hpp``
-     - 68
+     - 72
      - ``FluxRegisterView`` (requirement 3), ``MonitorView``
        (requirements 6, 7), ``Consumer``, ``BudgetConsumer``,
        ``HydroFluxProfile``, ``FieldDiagnostic`` (sections 3.2, 4)
    * - ``restart.hpp``
-     - 48
+     - 50
      - The #367 contract, bundle magic, ``OutputSchedule``,
        ``BudgetCarry``, read/write/check; no register state (requirement
        10) (section 3.4)
    * - ``options_table.yaml``
-     - 27
-     - Table format; output and hydro sample rows, including
-       ``SNAP_ANOMALY`` (the FP32 storage switches are removed, not tabled;
-       section 3.3)
+     - 32
+     - Table format; output, hydro and geometry sample rows, including
+       ``SNAP_ANOMALY`` and the proposed ``SNAP_X1_CENTROID_EXACT`` row (the
+       FP32 storage switches are removed, not tabled; section 3.3)
    * - ``gen_options.pyi``
      - 17
      - Generator interface (section 3.3)
    * - ``budget_series.cdl``
-     - 19
+     - 22
      - Budget time-series format (section 3.2)

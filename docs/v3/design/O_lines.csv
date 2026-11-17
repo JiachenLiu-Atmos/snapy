@@ -18,19 +18,19 @@ src/input/check_keys.cpp,33,33,0,0,"keep; live, kept",called by generated parser
 src/input/check_keys.hpp,21,21,0,0,"keep; live, kept",
 src/input/command_line.cpp,130,0,130,0,"move; live, moved","to examples/ (only callers: run_hydro.cpp, jupiter_evap_precip_1d.cpp)"
 src/input/command_line.hpp,56,0,56,0,"move; live, moved",to examples/
-src/input/io_wrapper.cpp,305,0,0,305,"delete; built, unreferenced",only reached from parameter_input
-src/input/io_wrapper.hpp,59,0,0,59,"delete; built, unreferenced",
-src/input/parameter_input.cpp,873,0,0,873,"delete; built, unreferenced",legacy Athena++ parser; no caller
-src/input/parameter_input.hpp,120,0,0,120,"delete; built, unreferenced",only an unused include in python/csrc/snapy.cpp:10 and hdf5.cpp:6
+src/input/io_wrapper.cpp,305,0,0,305,"delete; compiled by src glob, unreferenced",only reached from parameter_input
+src/input/io_wrapper.hpp,59,0,0,59,"delete; compiled by src glob, unreferenced",
+src/input/parameter_input.cpp,873,0,0,873,"delete; compiled by src glob, unreferenced",legacy Athena++ parser; no caller
+src/input/parameter_input.hpp,120,0,0,120,"delete; compiled by src glob, unreferenced",only an unused include in python/csrc/snapy.cpp:10 and hdf5.cpp:6
 src/input/read_restart_file.cpp,236,0,0,236,"merge; live, merged",into output/restart.cpp
 src/input/read_restart_file.hpp,21,0,0,21,"merge; live, merged",into restart.hpp
-src/input/signal.cpp,124,0,0,124,"delete; built, unreferenced",older copy of utils/signal_handler; no includer
-src/input/signal.hpp,63,0,0,63,"delete; built, unreferenced",
+src/input/signal.cpp,124,0,0,124,"delete; compiled by src glob, unreferenced",older copy of utils/signal_handler; no includer
+src/input/signal.hpp,63,0,0,63,"delete; compiled by src glob, unreferenced",
 src/math/lubksb.h,71,0,71,0,"move; live, moved",to src/implicit (one includer: forward_sweep_impl.h)
 src/math/ludcmp.h,95,0,95,0,"move; live, moved",to src/implicit
 src/output/combine_netcdf.cpp,87,0,0,87,"merge; live, merged","into writer_core.cpp (combine step, no argv building)"
 src/output/combine_restart.cpp,123,0,0,123,"merge; live, merged",into restart.cpp (bundle writer)
-src/output/hdf5.cpp,27,0,0,27,"delete; built, unreferenced; removal approved by Cheng","stub; body only under never-defined HDF5OUTPUT, signature does not match the header"
+src/output/hdf5.cpp,27,0,0,27,"delete; compiled by src glob, unreferenced; removal approved by Cheng","stub; body only under never-defined HDF5OUTPUT, signature does not match the header"
 src/output/load_diag_output_data.cpp,338,260,0,78,"rewrite; live, rewritten",field-diagnostic registry replaces ContainVariable chains
 src/output/load_hydro_output_data.cpp,186,150,0,36,"rewrite; live, rewritten",appends Fields; names from the field registry
 src/output/load_scalar_output_data.cpp,64,50,0,14,"rewrite; live, rewritten",appends Fields
@@ -48,8 +48,8 @@ src/output/restart.cpp,130,260,0,-130,"rewrite; live, rewritten",writer + bundle
 src/output/restart_metadata.hpp,13,13,0,0,"keep; live, kept",#367 contract
 src/output/writer_core.cpp,138,220,0,-82,"rewrite; live, rewritten",Frame transform and packing; the combiner is its own addition row
 src/output/writer_core.hpp,48,110,0,-62,"rewrite; live, rewritten","Frame, Field, Sink, GriddedWriter"
-src/utils/cuda_utils.cu,19,0,0,19,"delete; built, unreferenced",checkCudaError has no caller
-src/utils/cuda_utils.h,3,0,0,3,"delete; built, unreferenced",one unused include in implicit_dispatch.cu:15
+src/utils/cuda_utils.cu,19,0,0,19,"delete; compiled by src glob, unreferenced",checkCudaError has no caller
+src/utils/cuda_utils.h,3,0,0,3,"delete; compiled by src glob, unreferenced",one unused include in implicit_dispatch.cu:15
 src/utils/flip_zero.cpp,270,0,0,270,"delete; test-only, replaced (gate G-6)",int-only copy of bc/flip_zero_impl.h; test ported
 src/utils/flip_zero.h,80,0,0,80,"delete; test-only, replaced (gate G-6)",
 src/utils/fp32_storage.cpp,119,0,0,119,"delete; LIVE feature, removal approved by Cheng",FP32 storage emulation; removal approved by Cheng
@@ -58,16 +58,16 @@ src/utils/fp64_store.hpp,85,0,85,0,"move; live, moved",to src/hydro (one include
 src/utils/log.hpp,67,67,0,0,"keep; live, kept",11 includers
 src/utils/loops.cuh,150,150,0,0,"keep; live, kept",8 CUDA dispatch files
 src/utils/on_host.hpp,72,72,0,0,"keep; live, kept",3 dispatch files (MPS)
-src/utils/pull_neighbors.cpp,225,0,0,225,"delete; built, unreferenced",only commented-out calls (equation_of_state.cpp:254-257)
-src/utils/pull_neighbors.hpp,24,0,0,24,"delete; built, unreferenced",
+src/utils/pull_neighbors.cpp,225,0,0,225,"delete; compiled by src glob, unreferenced",only commented-out calls (equation_of_state.cpp:254-257)
+src/utils/pull_neighbors.hpp,24,0,0,24,"delete; compiled by src glob, unreferenced",
 src/utils/refine.cpp,69,0,0,69,delete; LIVE feature removed (FOR CHENG),"only caller: output super-resolution (deleted, FOR CHENG)"
 src/utils/refine.hpp,11,0,0,11,delete; LIVE feature removed (FOR CHENG),
 src/utils/signal_handler.cpp,146,0,146,0,"move; live, moved","to src/mesh (callers mesh.cpp, meshblock.cpp)"
 src/utils/signal_handler.hpp,67,0,67,0,"move; live, moved",to src/mesh
 src/utils/tensor_cast_cache.hpp,53,53,0,0,"keep; live, kept",3 includers
-src/utils/utils_dispatch.cpp,26,0,0,26,"delete; built, unreferenced",bdot_out has no caller
-src/utils/utils_dispatch.cu,92,0,0,92,"delete; built, unreferenced",
-src/utils/utils_dispatch.hpp,13,0,0,13,"delete; built, unreferenced",
+src/utils/utils_dispatch.cpp,26,0,0,26,"delete; compiled by src glob, unreferenced",bdot_out has no caller
+src/utils/utils_dispatch.cu,92,0,0,92,"delete; compiled by src glob, unreferenced",
+src/utils/utils_dispatch.hpp,13,0,0,13,"delete; compiled by src glob, unreferenced",
 src/utils/vectorize.cpp,24,0,0,24,"delete; live, folded",strtok split; replaced by a split in writer_core
 src/utils/vectorize.hpp,46,0,0,46,"delete; live, folded",
 src/output/combine_parts.cpp,0,200,0,-200,new,ADDITION: snapy-specific combiner replacing mppnccombine.cpp (-r form only; gate G-2)
@@ -75,9 +75,9 @@ src/output/budget_series.cpp,0,120,0,-120,new,BudgetSeries netcdf writer
 src/output/budget_series.hpp,0,30,0,-30,new,
 src/diagnostics/consumer.hpp,0,90,0,-90,new,"Consumer, register/monitor views"
 src/diagnostics/budget.cpp,0,200,0,-200,new,BudgetConsumer
-src/diagnostics/hydro_flux.cpp,0,80,0,-80,new,HydroFluxProfile from the register
+src/diagnostics/hydro_flux_profile.cpp,0,80,0,-80,new,HydroFluxProfile from the register (new file; the old hydro_flux.cpp row above is its deletion)
 tools/gen_options.py,0,300,0,-300,new (outside src),options generator
-src/options/*.yaml,0,300,0,-300,new (outside src),"options tables (data), ~1.4 lines per option"
+src/options/*.yaml,0,300,0,-300,new,"options tables (data, in src), ~1.4 lines per option"
 src/z.junk/load_athena_output_data.cpp_,585,0,0,585,delete (outside baseline),"not in the 9,996"
 src/diagnostics/radiative_flux.cpp_,108,0,0,108,delete (outside baseline),"not in the 9,996"
 src/diagnostics/v1_moments.cpp_,73,0,0,73,delete (outside baseline),"not in the 9,996"

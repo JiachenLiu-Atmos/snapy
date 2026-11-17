@@ -31,10 +31,12 @@ struct OutputSchedule {
 
 //! budget sums since the last record (FP64), so an interval closes across
 //! a restart; output bookkeeping, not register state
-struct BudgetCarry {
+struct BudgetCarry {  // all tensors float64, stored on CPU
   double last_record_time = 0.;
-  std::vector<std::string> rows;
-  torch::Tensor pending;
+  std::vector<std::string> rows, fixers;
+  torch::Tensor total_prev;     // (nrows,) totals at the last record
+  torch::Tensor pending;        // (nrows,) boundary transfer since then
+  torch::Tensor fixer_pending;  // (nfixers, nrows) source-fixer amounts
 };
 
 void write_restart(MeshBlockImpl* pmb, Variables const& vars, double time,

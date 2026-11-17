@@ -12,8 +12,11 @@ variables:
     double total(time, row) ;       // domain integral at the record
     double boundary(time, row) ;    // outward register transfer over the interval
     double fixer(time, fixer, row) ; // per-fixer amounts (req 7)
-    double residual(time, row) ;    // dtotal + boundary - sum fixer
+    double residual(time, row) ;    // total-total_prev+boundary-sum fixer
     double lim_cut_fraction(time) ; int64 positivity_severe(time) ;
     double positivity_theta_min(time) ; double vic_clamp_max(time) ;
+    // C's counters (C.rst@a7155840:660, riemann.hpp:30): counts are int64
+    int64 face_floor_count(time) ;   // FaceFloor rho/p/species floors
+    int64 pstar_clamp_count(time) ;  // FaceFlux::events bit0 (hllc p*)
     :snapy_budget_version = 1 ;
 }
