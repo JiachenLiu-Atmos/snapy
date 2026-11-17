@@ -385,15 +385,13 @@ Two consumers replace ``src/diagnostics``:
 
   **No double counting.**
 
-  * Fixer *amounts* (conserved-quantity changes, requirement 7) enter the
-    identity.
-  * Event *meters* (limiter cut fraction, positivity events, face-floor
-    and p* counts) are counts and never enter it.
-  * A fixer that changes face fluxes before they are posted is already
-    inside ``boundary``. It is reported as a part (requirement 2) and not
-    added again.
-  * Only source-type fixers enter ``sum fixer``: gravity work, the AAM
-    closure and the VIC clamp.
+  * Amounts of ``AmountKind`` ``cell_source``, ``floor`` and ``fixer``
+    enter the identity (R:28-33; R.rst:484-488).
+  * A ``flux_correction`` amount is a face change already inside
+    ``boundary``. It is reported as a part (requirement 2) and not added
+    again.
+  * Counters (limiter, positivity, face-floor and p* counts; R:100-101)
+    are counts and never enter it.
 
 * ``HydroFluxProfile``: the horizontal mean of the registered x1 transfer,
   on grid ``--F``.
@@ -453,6 +451,9 @@ generated members and defaults equal the pin's.
   the pin (``hydro_options.cpp:55, 67``). ``integration/execution`` and
   ``integration/execution-strict`` are sample rows with **provisional**
   names, which are Cheng's call (``V3_ROADMAP.md:300-301``).
+* Lane S's options parsing is **accepted** into the schema (rev 4, section
+  9.3). The ``geometry``, ``distribute`` and ``boundary-condition/internal``
+  options become generated rows. S keeps its grid and repartition logic.
 * ``SNAP_X1_CENTROID_EXACT`` (read at ``x1_centroid.cpp:68-79``): a proposed
   row ``geometry/x1-centroid-exact`` with this ``env`` (note 14). The lane
   that owns ``src/coord`` decides whether to adopt it.
@@ -501,8 +502,8 @@ today's stored set, so this needs no FOR CHENG item.
 **Load into fixed storage (Xi note 9).** The restart load ``copy_``\ s each
 stored tensor into its ``StateStore`` buffer, cast to the dtype of that
 buffer's ``PrecisionPolicy`` row (lane X). A restart is written only after
-an accepted step: at stage 0, with the register empty (R:23-24). So the
-file needs no new stage or dtype field.
+an accepted step, after ``begin_step()`` has zeroed the register (R:50;
+R.rst:398-401). So the file needs no new stage or dtype field.
 
 **Derived** (never written):
 
@@ -536,7 +537,7 @@ Moved:
   ``hydro.hpp:19``.
 * ``signal_handler.*`` to ``src/mesh``; its includers are ``mesh.cpp:28``
   and ``meshblock.cpp:24``.
-* ``math/*.h`` to ``src/implicit``.
+* ``math/*.h`` to lane I, at ``src/math/`` (Xinyue accepted; section 9).
 
 Deleted:
 
@@ -639,10 +640,12 @@ O-10 The cycle line stays, printed from the budget totals.
 -------------------------
 
 Lane O **posts nothing** to the register or the monitor and **corrects
-nothing**. It is a reader only. The names below are lane R's, from its
-provisional header (Tianhao): happysky19/snapy
-``543ff84f4adb4b79c3f43fa7c2f0a5a6eb54fa48``,
-``docs/v3/skeleton/R/flux_register.hpp``, cited as ``R:<line>``.
+nothing**. It is a reader only. The names below are lane R's **frozen
+header, rev 4 (R.rst rev 2)**: happysky19/snapy
+``175af2fca68f5ae615b2b169a2d79f433df0b719``,
+``docs/v3/skeleton/R/flux_register.hpp``, cited as ``R:<line>``. R's
+contract text is ``docs/v3/design/R.rst`` at the same sha, cited as
+``R.rst:<line>``. This replaces the provisional header ``543ff84f``.
 
 **What lane O reads, with R's exact signatures:**
 
@@ -653,59 +656,78 @@ provisional header (Tianhao): happysky19/snapy
    * - R's declaration
      - lane O's use
    * - ``torch::Tensor FluxRegister::step_field(int dim) const;``
-       (R:91, "FP64 sum c_s dt F, per area")
-     - ``HydroFluxProfile`` (dim 1). Dim 1 must be requested in
-       ``RegisterRequest::step_field`` (R:56-59), which X passes to
-       ``FluxRegister::reset`` (R:65-66). The values are per unit face area
-       (R:5-8). O multiplies by ``CoordinateImpl::face_area1()``
-       (``coordinate.hpp:254``, defined at ``coordinate.cpp:614``; also
-       ``face_area2/3``, ``coordinate.hpp:259, 264``), the same areas the
-       divergence applies (``coordinate.cpp:732-746``).
-   * - ``torch::Tensor RegisterMonitor::domain_total() const;`` (R:101,
-       "per row, step-end state, FP64")
-     - ``BudgetConsumer``'s ``total``. **R owns the domain totals** (R:21-22,
-       R:96); O sums them over blocks in ``flush``.
-   * - ``torch::Tensor RegisterMonitor::boundary(int dim) const;`` (R:100,
-       "outward step transfer, FP64")
-     - ``BudgetConsumer``'s ``boundary``, summed over ``dim``. O reads it as
-       **area-integrated**: an amount in ``domain_total()``'s units, with
-       the face area already applied by R. O applies no area to it. The
-       area is applied once, only to ``step_field`` in
-       ``HydroFluxProfile``. R:100 does not state the units, so the
-       confirmation is added to R-O1 (Xi note 3b).
-   * - ``torch::Tensor RegisterMonitor::amounts(std::string const& name)
-       const;`` (R:99, "(nrows,) FP64")
-     - Single increments, read one name at a time. This is each fixer's or
-       floor's amount from ``FluxRegister::cell_amount`` (R:83-84) or
-       ``Fixer::apply`` (R:106-116), and each ``scale`` amount (R:76-78).
-       Per-face single increments exist only for kept parts (R:9-12, R:82);
-       lane O needs none.
-   * - ``torch::Tensor RegisterMonitor::counters() const;`` (R:102, "floors,
-       p* clamps, events")
-     - The ``budget_series.cdl`` counter variables.
+       (R:85, "kRegister, per unit area")
+     - ``HydroFluxProfile`` (dim 1).
 
-**When.** The monitor is stacked into X's one step-end read
-(R:21-22, ``meshblock.cpp:1566``). R resets it at ``begin_stage(0)`` and on
-``rollback()`` (R:23-24). Lane O never calls ``FluxRegister`` mutators
-(R:68-93); it only uses ``step_field`` and the monitor.
+       * Dim 1 must be requested in ``RegisterRequest::step_field``
+         (R:40), which X passes to ``FluxRegister::reset`` (R:45-46).
+       * Units are per unit face area (R:5).
+       * **The only place O applies an area**: it multiplies by
+         ``CoordinateImpl::face_area1()`` (``coordinate.hpp:254``, defined
+         at ``coordinate.cpp:614``; ``face_area2/3`` at
+         ``coordinate.hpp:259, 264``). The divergence applies the same
+         areas (``coordinate.cpp:732-746``).
+   * - ``std::vector<std::string> RegisterMonitor::row_names() const;``
+       (R:94)
+     - The budget rows: the conserved rows in row order, then the derived
+       rows ``e+pe`` (lane I) and ``aam`` (lane A) (R:35-36;
+       R.rst:462-476). Scalars have their own register instance and
+       monitor, one per Scalar module (R:43; R.rst:474). ``BudgetConsumer``
+       reads every instance.
+   * - ``torch::Tensor RegisterMonitor::domain_total() const;`` (R:99,
+       "fluid cells, (nrows,) FP64")
+     - ``total``. **R owns the domain totals** (R:90-91; R.rst:394-397). O
+       sums them over blocks in ``flush``.
+   * - ``torch::Tensor RegisterMonitor::boundary(int dim) const;`` (R:98,
+       "area-integrated, outward, FP64")
+     - ``boundary``, summed over ``dim``. It is **area-integrated**
+       (R.rst:489-493), so O applies no area to it. Derived rows have no
+       ``boundary`` entry; their owners post the transfer as a
+       ``derived_amount("<row>.boundary.<dim>", ..., cell_source)``
+       (R:73-75; R.rst:476-479), and the formula below needs no special
+       case.
+   * - ``std::vector<std::string> amount_names() const;`` (R:95),
+       ``AmountKind kind(std::string const& name) const;`` (R:96),
+       ``torch::Tensor amounts(std::string const& name) const;`` (R:97,
+       "(nrows,) FP64")
+     - **Single increments**, read one name at a time. ``AmountKind``
+       (R:28-33):
 
-**Conflict sent to lane R (pending, Tianhao).** Lane O does not design
-around these points until R answers:
+       * ``flux_correction`` is already inside ``boundary`` and is reported
+         only.
+       * ``cell_source``, ``floor`` and ``fixer`` are added.
 
-* **R-O1.** The rows of ``domain_total``, ``boundary`` and ``amounts`` are
-  not named, and requirement 6's E+PE, AAM and scalars are not shown
-  (R:99-101). Proposed: ``row_names()`` and stated coverage. Also confirm
-  that ``boundary(dim)`` is area-integrated (R:100).
-* **R-O2.** ``counters()`` has no names, order or dtype (R:102). Proposed:
-  ``counter_names()``, int64.
-* **R-O3.** ``amounts(name)`` does not say whether an amount is a
-  flux correction already inside ``boundary`` (``scale``/``add``, R:74-78)
-  or a cell source (``cell_amount``, R:83-84). Proposed: an
-  ``AmountKind kind(name)`` query. For ``gravity_work`` as a source fixer,
-  O counts only the fixer's correction (today's
-  ``gravity_work_fix`` accumulator, ``hydro.hpp:301-311``), not R's
-  gravity-work face posts (R:27), which are inside ``boundary``
-  (Xi note 3c).
+       ``gravity_work`` as a source is the fixer's correction only
+       (Xi note 3c). R's gravity-work face posts are inside ``boundary``
+       (R:21).
+   * - ``counter_names()`` (R:100), ``counters()`` (R:101, int64);
+       ``minima()`` (R:102, FP64)
+     - The ``counter`` and ``minimum`` variables of ``budget_series.cdl``,
+       by name. Counts never enter the budget identity.
+
+**The budget identity** (R.rst:484-488):
+``residual = delta domain_total + sum_d boundary(d) - sum amounts(name)``
+over ``kind(name)`` in {``cell_source``, ``floor``, ``fixer``}.
+
+**When.**
+
+* The monitor is read once, in X's step-end read (R.rst:394-397;
+  ``meshblock.cpp:1566``).
+* ``begin_step()`` zeroes the step and the monitor (R:50).
+* ``rollback()`` zeroes the register and the monitor on every block (R:87;
+  R.rst:398-401).
+* ``observe`` runs after the accept and before the next ``begin_step()``
+  (R.rst:494).
+* Lane O calls no ``FluxRegister`` mutator (R:45-87). It uses only
+  ``step_field`` and the monitor (``FluxRegister::monitor()``, R:88).
+
+**R-O1, R-O2 and R-O3 are settled** by the frozen header:
+
+* R-O1: ``row_names()`` (R:94), with the derived rows ``e+pe`` and
+  ``aam`` (R:36) and scalars per instance. ``boundary(dim)`` is
+  area-integrated (R:98).
+* R-O2: ``counter_names()`` and int64 ``counters()`` (R:100-101).
+* R-O3: ``AmountKind`` and ``kind(name)`` (R:28-33, R:96).
 
 * **Ordering.**
 
@@ -731,9 +753,10 @@ Check against the ten requirements:
    * - 1
      - one owner of every conservative face flux; one frame and area
        weighting
-     - Lane O owns no flux. R's posts are per unit face area, in global
-       components, and the divergence applies ``face_area<d>`` (R:5-8).
-       O applies ``CoordinateImpl::face_area1()`` to ``step_field(1)``.
+     - Lane O owns no flux. R's posts are per unit face area, in coord's
+       ``flux2global<d>_`` frame (R:5-6). O applies
+       ``CoordinateImpl::face_area1()`` to ``step_field(1)`` only.
+       ``boundary(dim)`` is already area-integrated (R:98).
    * - 2
      - named increments in a declared order; total and parts reportable
      - The budget reports them as ``total``, ``boundary``, ``fixer[f]`` and
@@ -758,23 +781,27 @@ Check against the ten requirements:
    * - 6
      - one device-side monitor (mass, species, E+PE, AAM, scalars); no host
        reads in a segment
-     - R owns the monitor and the domain totals (R:21-22, R:97-104). The
-       monitor's host read is lane X's step-end retry read
-       (``meshblock.cpp:1566``; ``X.rst:120-121`` at ``77c65d5a``), and O
-       adds no host read per step (section 7). ``flush`` adds only the
-       cross-rank reduction of the FP64 sums at the budget cadence. The row
-       coverage is pending R-O1.
+     - R owns the monitor and the domain totals (R:90-104). The rows are
+       ``row_names()``: conserved, then ``e+pe`` and ``aam``, with scalars
+       per instance (R:94, R:36, R:43). The monitor's host read is lane X's
+       step-end read (R.rst:394-397; ``meshblock.cpp:1566``; ``X.rst:120-121``
+       at ``77c65d5a``). O adds no host read per step (section 7), and
+       ``flush`` adds only the cross-rank reduction of the FP64 sums at the
+       budget cadence.
    * - 7
      - every fixer and floor registers what it added
-     - **Adopted.** It replaces A2. ``fixer[f]`` is
-       ``RegisterMonitor::amounts(name)`` (R:99) for each ``Fixer::name()``
-       (R:110). ``aam_closure`` is A's ``AxialClosureFixer`` (R:106). The
-       amount kind is pending R-O3.
+     - **Adopted.** It replaces A2. Each source is
+       ``RegisterMonitor::amounts(name)`` (R:97) with ``kind(name)`` in
+       {``cell_source``, ``floor``, ``fixer``} (R:28-33, R:96).
+       ``aam_closure`` is A's ``AxialClosureFixer`` (R:105), which posts
+       ``AmountKind::fixer`` (R:112-113).
    * - 8
      - stated dtype under FP32; fixed storage a graph can capture
-     - R accumulates in FP64 in both precisions (``kRegister``, R:13-15),
-       and every monitor value O reads is FP64 (R:91, R:99-101). No cast is
-       needed. L-4 is closed.
+     - Step sums and amounts are FP64, and FP32 on MPS, which has no FP64
+       (R.rst:387, 561). Every monitor value O reads is FP64 there (R:97-99,
+       R:102); counters are int64 (R:101). O casts nothing on CUDA or CPU.
+       On MPS, O widens to double on the host after the read, and the
+       residual tolerance is FP32-level (section 6). L-4 is closed.
    * - 9
      - no added full-field copy per stage; memory and cost stated
      - Lane O adds no per-stage work and no persistent or graph-visible
@@ -784,7 +811,8 @@ Check against the ten requirements:
    * - 10
      - the register is rebuilt, not written to restart
      - **Adopted.** It replaces the first draft's "derived" assumption.
-       ``restart.hpp`` writes no register or monitor state.
+       ``restart.hpp`` writes no register or monitor state. R: "Nothing is
+       written to restart" (R.rst:401).
 
 Assumption A3 of the first draft (output outside captured segments, ``dt``
 as a device value) is not a register requirement. It moves to section 7 and
@@ -795,8 +823,9 @@ letters) is in 11.3 and 11.4.
 -----------------------
 
 The identity: for every budget row,
-``total - total_prev = -boundary + sum_f fixer(f) + residual``, the sum
-over source-type fixers only (section 3.2). With
+``residual = delta domain_total + sum_d boundary(d) - sum amounts`` over
+the kinds ``cell_source``, ``floor`` and ``fixer`` (R.rst:484-488;
+section 3.2). With
 FP64 accumulation, ``|residual|`` should be at round-off relative to
 ``total``. The tolerance (proposed ``1e-12 * |total|``, *estimate*) is set
 by G0 baselines, not here.
@@ -934,8 +963,10 @@ only after that (O6b).
   ``NC_DOUBLE`` with ``double_precision`` (``output_type.hpp:79-83``).
   pnetcdf stays float only (``pnetcdf.cpp:58-61``).
 * **Budget.** Accumulation, totals and the file are all FP64. R holds every
-  value O reads in FP64 in both precisions (R:13-15, R:91, R:99-101), so
-  ``observe`` casts nothing (Xi note 3a).
+  value O reads in FP64 (R:97-99, R:102), so ``observe`` casts nothing (Xi
+  note 3a). The exception is MPS, which has no FP64: R's sums are FP32
+  there (R.rst:387). O widens them to double after the read, and G-5's
+  residual tolerance on MPS is FP32-level.
 * **Restart.** #367's rules are unchanged: FP64 totals, anomaly bits in the
   run dtype, FP64 background and grid, and rejection of changed grids.
 * **FP32 storage emulation.** Removed (settled by Cheng). Runs that never
@@ -1151,7 +1182,8 @@ To the implicit owner (lane I, Xinyue):
      - change and reason
    * - ``src/math/lubksb.h``
      - 71
-     - Move to ``src/implicit``. Its only includer is
+     - **Accepted by Xinyue (lane I)**, at its current path ``src/math/``.
+       It counts in lane I and in neither lane's cut. Its only includer is
        ``implicit/forward_sweep_impl.h:14``.
        ``tests/test_lu_failure.cpp:2`` reaches it through
        ``forward_sweep_impl.h``, so the test needs no edit.
@@ -1714,14 +1746,14 @@ carries its class, and ``O_lines.csv`` has the same column.
      - 71
      - 0
      - move; live, moved
-     - to src/implicit (one includer: forward_sweep_impl.h)
+     - to lane I (Xinyue accepted); in neither lane's cut; out of O's roll-up baseline
    * - ``src/math/ludcmp.h``
      - 95
      - 0
      - 95
      - 0
      - move; live, moved
-     - to src/implicit
+     - to lane I (Xinyue accepted); in neither lane's cut; out of O's roll-up baseline
    * - ``src/output/combine_netcdf.cpp``
      - 87
      - 0
@@ -2065,6 +2097,20 @@ carries its class, and ``O_lines.csv`` has the same column.
      - -300
      - new, outside src
      - options generator
+   * - ``src/options/*.yaml (lane S parsing: _pi aliases, cross-option checks)``
+     - 
+     - 10
+     - 
+     - -10
+     - new
+     - ADDITION for S's options parsing (accepted); S counts the deletion
+   * - ``tools/gen_options.py (scale/alias column for S's _pi keys)``
+     - 
+     - 10
+     - 
+     - -10
+     - new, outside src
+     - ADDITION for S's options parsing (accepted)
    * - ``src/options/*.yaml``
      - 
      - 300
@@ -2074,47 +2120,163 @@ carries its class, and ``O_lines.csv`` has the same column.
      - options tables (data, in src), ~1.4 lines per option
    * - **baseline (71 files)**
      - **9996**
-     - **3239**
+     - **3249**
      - **650**
-     - **6107**
+     - **6097**
      - 
-     - src only: 61.1% cut
+     - src only: 61.0% cut
    * - **including new files outside src**
      - 
-     - **300**
+     - **310**
      - 
-     - **5807**
+     - **5787**
      - 
-     - 58.1% cut; target 30% = 2,999
+     - 57.9% cut; target 30% = 2,999
 
-**Totals.**
+**Totals (rev 4).**
 
-* Baseline: 9,996 lines in 71 files (rechecked at the pin, section 9).
+* Brief's baseline: 9,996 lines in 71 files, rechecked at the pin.
 * Kept in place: 2,219. Moved out unchanged: 650.
-* Added in ``src``: 1,020, all *estimates*. Of these,
-  ``combine_parts.cpp`` is 200 and the option tables
-  (``src/options/*.yaml``) are 300.
-* Added outside ``src``: 300 (``tools/gen_options.py``).
-* Cut in ``src`` only: 6,107 lines (61.1 %).
-* Design target, including the additions outside ``src``: 5,807 lines
-  (58.1 %).
-* **Settled: 5,377 lines (53.8 %).** The 30 % target is 2,999.
-* Not counted:
+* Added in ``src``: 1,030, all *estimates*. That is ``combine_parts.cpp``
+  200, the option tables 300 + 10, and the rest.
+* Added outside ``src``: 310 (``tools/gen_options.py`` 300 + 10).
+* **Settled cut: 5,357 lines** (was 5,377). It moved by −20, the new lines
+  for S's options rows (section 9.3).
+* Design target: 5,787 (was 5,807). Strict: 3,813 (was 3,833). ``src``
+  only: 6,097 (was 6,107).
+* Not counted: 785 lines deleted outside the baseline. In lane X: all of
+  ``src/interface`` (1,008, including ``stride_iterator.hpp`` 140) and the
+  FP32 storage application in ``src/mesh`` (section 8.1).
 
-  * 785 lines deleted outside the baseline;
-  * in lane X: all of ``src/interface`` (1,008, including
-    ``stride_iterator.hpp`` 140) and the FP32 storage application in
-    ``src/mesh`` (section 8.1, counted by X's joint table).
+**``src/math`` (Xinyue's lane I answer).** Lane I takes ``lubksb.h`` and
+``ludcmp.h`` at their path, ``src/math/``. Lane I's budget is 2,821 to
+2,033 with them.
 
-**PLACEHOLDER: lane I answer pending (Xinyue).** The rows
-``src/math/lubksb.h`` (71) and ``src/math/ludcmp.h`` (95) move to
-``src/implicit`` and sit in the "moved" column (166). Moves are not cut, so
-the answer cannot change the cut; only the row's owner note changes. The
-answer will be filled in by a later revision.
+* At the pin, ``git show 9e5de2d4:src/math/lubksb.h | wc -l`` gives 71 and
+  ``.../ludcmp.h`` gives 95: 166 lines.
+* ``src/math`` is **in neither lane's cut**. O never cut it (its rows are in
+  the "moved" column), and lane I keeps the files.
+* O's brief baseline (9,996) and O's after figure (4,619 in rev 3) **did
+  include** the 166 lines. O's cut (5,377 in rev 3) did not.
+* So that the 166 lines are counted once, in lane I, **O's roll-up drops
+  them from both baseline and after**:
 
-Revision 3 part 1 (lane R's names in section 4 and the skeleton) changes no
-line-table row. The cut is unchanged: settled 5,377 (53.8 %), target 5,807
-(58.1 %), strict 3,833 (38.3 %), ``src`` only 6,107 (61.1 %).
+  * baseline 9,996 − 166 = **9,830**;
+  * settled after 9,830 − 5,357 = **4,473**;
+  * settled cut 5,357 = **54.5 %**.
+
+* Against the brief's 9,996 the same cut is 53.6 %. The after figure would
+  then be 4,639, but that double counts 166 lines with lane I.
+
+.. list-table:: Rev 4 cut. Commands: ``python3 line_table.py``; the
+   ``src/math`` ``wc -l`` above.
+   :header-rows: 1
+   :widths: 28 18 18 18 18
+
+   * - cut
+     - lines
+     - after (9,830 base)
+     - % of 9,830
+     - % of 9,996
+   * - settled
+     - 5,357
+     - 4,473
+     - 54.5
+     - 53.6
+   * - design target
+     - 5,787
+     - 4,043
+     - 58.9
+     - 57.9
+   * - strict
+     - 3,813
+     - 6,017
+     - 38.8
+     - 38.1
+   * - ``src`` only
+     - 6,097
+     - 3,733
+     - 62.0
+     - 61.0
+
+9.3 Lane S's options YAML parsing (accepted into O's schema)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Decision: accepted** (Jiachen, rev 4). Lane O owns the generated options
+schema. Lane X declined move A for that reason (``S.rst`` section 9 at
+XinyueWang05/snapy ``d03e48880dc28b33eca6c62ff6ad8ad162bdcdb2``, move A,
+``S.rst:1323-1330``). Options rows belong in the one generated table, not
+in another hand-written parser. **S counts the deletion; O counts only its
+new lines.**
+
+S's move A names 226 lines. Verified at the pin with
+``git show 9e5de2d4:<file> | sed -n <a>,<b>p | wc -l``:
+
+* ``coord/coordinate.cpp:62-240``: 179 lines;
+* ``layout/layout.cpp:249-272``: 24 lines;
+* ``bc/internal_boundary.cpp:14-36``: 23 lines.
+
+Read line by line, 127 of them are options parsing, which O's schema
+takes. 99 are grid or layout logic, which stays with S.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 8 58
+
+   * - range at the pin
+     - lines
+     - content and owner
+   * - ``coordinate.cpp:62-114``
+     - 53
+     - **O schema.** Keys ``geometry/type`` and ``geometry/bounds/*``,
+       including the ``x2min_pi``-style keys scaled by pi, read into the
+       global bounds.
+   * - ``coordinate.cpp:125-149``
+     - 25
+     - **O schema.** Keys ``geometry/cells/nx1..3``, ``x1rat`` and ``x1f``,
+       and the cross-option checks (x1rat xor x1f, x1f size ``nx1+1``,
+       x1f end points against the bounds) as ``checks`` rows.
+   * - ``coordinate.cpp:213-214``
+     - 2
+     - **O schema.** ``cells/nghost``, ``cells/interp_order``.
+   * - ``layout.cpp:249-272``
+     - 24
+     - **O schema.** ``distribute/*`` keys, plus the ``BACKEND`` and
+       ``DEVICE`` env rows (``:265-266``).
+   * - ``internal_boundary.cpp:14-36``
+     - 23
+     - **O schema.** ``boundary-condition/internal/*`` keys.
+   * - ``coordinate.cpp:115-124``
+     - 10
+     - **Stays with S.** A grid rule: ``bounds`` without ``cells`` sets one
+       cell per axis and the block bounds.
+   * - ``coordinate.cpp:150-178``
+     - 29
+     - **Stays with S.** Stretched-x1 face construction from ``x1rat``, the
+       monotonicity and width-ratio checks, and ``x1f_interior``.
+   * - ``coordinate.cpp:179-212``
+     - 34
+     - **Stays with S.** Builds a ``Layout`` and checks block divisibility.
+   * - ``coordinate.cpp:215-240``
+     - 26
+     - **Stays with S.** ``repartition`` and the per-block ghost checks
+       (#313).
+   * - **total**
+     - **226**
+     - 127 to O's schema, 99 stay with S
+
+**O's new lines: +20** (*estimate*). The options themselves are already
+among the 213 ``ADD_ARG`` entries that O's 300-line table estimate covers
+(``coordinate.hpp`` 22, ``layout.hpp`` 27, ``internal_boundary.hpp`` 3). O
+adds only:
+
+* about 10 lines in ``src/options/*.yaml``: the pi-scaled alias rows and
+  the cross-option checks;
+* about 10 lines in ``tools/gen_options.py``: an ``alias``/scale column.
+
+These are the two addition rows in the table above. Whether S deletes the
+127 lines or all 226 is S's count; O books none of the deletion.
+``Xinyue``'s confirmation of the ranges is pending in the lane O thread.
 
 10. Migration
 -------------
@@ -2179,7 +2341,11 @@ file.
      - include paths only
    * - O4
      - Options table and generator; the output and hydro modules first;
-       the env rows; the covariance warnings deleted
+       the env rows; the covariance warnings deleted. Then lane S's options
+       parsing (section 9.3): the ``geometry``, ``distribute`` and
+       ``boundary-condition/internal`` rows and the checks, with the
+       ``alias``/scale column for the pi-scaled keys. S deletes its parsing
+       lines in its own PR after this one.
      - bitwise
      - same members and defaults (G-3)
    * - O5
@@ -2321,34 +2487,35 @@ in snapy changes for them.
 11. Open questions to other lanes
 ---------------------------------
 
-**11.1 Lane R** (provisional header by Tianhao, happysky19/snapy
-``543ff84f``). Requirements 3, 7 and 10 answered the earlier questions on
+**11.1 Lane R** (frozen header rev 4, R.rst rev 2, happysky19/snapy
+``175af2fc``). Requirements 3, 7 and 10 answered the earlier questions on
 step integration, per-fixer amounts (the axial closure is a fixer) and
-restart. The header answers L-4, L-5 and L-6 and part of L-1:
+restart. The frozen header closes the rest except L-2 and L-3:
 
-L-1. **Partly closed.** The weighting and frame are per unit face area and
-global components (R:5-8). Which rows the monitor holds is open, as conflict
-R-O1 (section 4).
+L-1. **Closed**: rows by ``row_names()`` (R:94; R.rst:462-476); per unit
+area in coord's frame (R:5-6).
 
-L-2. May the user output callback receive a read-only register view
-(requirement 4), so user ``*_flux`` outputs stop rebuilding fluxes?
+L-2. **Open.** May the user output callback receive a read-only register
+view (requirement 4), so user ``*_flux`` outputs stop rebuilding fluxes?
 
-L-3. Is the outward transfer through the physical domain boundary available
-directly, including on the cubed sphere after reconciliation (requirement
-5)? Or does the budget sum it from the per-face entries?
+L-3. **Partly closed**: ``boundary(dim)`` is the block's physical-boundary
+sum, area-integrated (R:98; R.rst:489-493). Whether a cubed-sphere panel
+seam counts as physical is S's reconciliation rule (``replace``, R:64-65).
 
-L-4. **Closed**: FP64 in both precisions (``kRegister``, R:13-15; R:91,
-R:99-101).
+L-4. **Closed**: FP64, and FP32 on MPS (R.rst:387, 561).
 
-L-5. **Closed**: ``begin_stage(0)`` zeroes the step and ``rollback()``
-resets all (R:23-24). The monitor is read in X's step-end read (R:21-22).
+L-5. **Closed**: ``begin_step()`` (R:50) and ``rollback()`` (R:87;
+R.rst:398-401); ``observe`` runs before the next ``begin_step()``
+(R.rst:494).
 
-L-6. **Closed**: R's ``RegisterMonitor`` owns the domain totals
-(``domain_total()``, R:101; R:21-22). Lane O reads it and prints the cycle
-line from it.
+L-6. **Closed**: R's ``RegisterMonitor`` owns the domain totals (R:99;
+R:90-91). Lane O prints the cycle line from them.
 
-R-O1, R-O2 and R-O3: the conflict sent to Tianhao (section 4). They are
-open until R answers.
+R-O1, R-O2 and R-O3: **settled** in the frozen header (section 4).
+
+Citations ``R:<line>`` in the response tables 11.5 and 11.6 refer to the
+provisional header ``543ff84f``, as written at the time. Sections 3-7
+cite the frozen header ``175af2fc``.
 
 **11.2 Lane X, Xi.**
 
@@ -2379,10 +2546,10 @@ is refused for the first release, and O withdraws that request.
 * Xi: the mesh items of section 8.1 are **accepted** (rows 1-5).
 * Xinyue: accept the implicit items of section 8.1.
 
-  **PLACEHOLDER: lane I answer pending (Xinyue).** Moving
-  ``src/math/lubksb.h`` (71) and ``src/math/ludcmp.h`` (95) to
-  ``src/implicit``. The answer will be filled in by a later revision. Until
-  then both files stay in O's "moved" column (166 lines, not cut).
+  **Closed** (Xinyue, lane I thread): lane I accepts ``lubksb.h`` (71) and
+  ``ludcmp.h`` (95) at ``src/math/``. Lane I's budget is 2,821 to 2,033
+  with them. They are in neither lane's cut, and O's roll-up baseline drops
+  them (section 9).
 * Owners of option headers: when to switch to the generator.
 
 
@@ -2704,21 +2871,21 @@ lines in total (``wc -l``). Nothing in it is compiled or run.
      - lines
      - contents
    * - ``writer_core.hpp``
-     - 100
+     - 98
      - ``GridKind``, ``Field``, ``Frame``, ``Sink``, ``GriddedWriter``,
        ``combine_parts``; #350 helpers kept (section 3.1)
    * - ``diagnostics.hpp``
-     - 64
+     - 61
      - ``Consumer``, ``BudgetConsumer``, ``HydroFluxProfile`` and
        ``FieldDiagnostic``, reading lane R's ``FluxRegister::step_field`` and
-       ``RegisterMonitor`` (R header ``543ff84f``; sections 3.2, 4)
+       ``RegisterMonitor`` (frozen R header ``175af2fc``; sections 3.2, 4)
    * - ``restart.hpp``
      - 57
      - The #367 contract, bundle magic, ``OutputSchedule``,
        ``BudgetCarry``, read/write/check; no register state (requirement
        10) (section 3.4)
    * - ``options_table.yaml``
-     - 39
+     - 45
      - Table format; output, hydro and geometry sample rows, including
        ``SNAP_ANOMALY`` and the proposed ``SNAP_X1_CENTROID_EXACT`` row (the
        FP32 storage switches are removed, not tabled; section 3.3)
@@ -2726,5 +2893,5 @@ lines in total (``wc -l``). Nothing in it is compiled or run.
      - 15
      - Generator interface (section 3.3)
    * - ``budget_series.cdl``
-     - 24
+     - 23
      - Budget time-series format (section 3.2)

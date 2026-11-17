@@ -1,9 +1,7 @@
 #pragma once
 // V3 lane O skeleton: declarations only, not built. Pin 9e5de2d4.
-// One writer core. Replaces OutputData list + slice/sum loops
-// (output_type.cpp:201-244, 415-557), the two layout copies in netcdf.cpp
-// and pnetcdf.cpp, utils/vectorize.*, and mppnccombine.cpp.
-// Ownership: borrows block variables for one write; owns host copies only.
+// One writer core (O.rst 3.1): replaces OutputData, the two sink layout
+// copies, vectorize and mppnccombine. Borrows vars; owns host copies only.
 #include <cstdint>
 #include <functional>
 #include <map>

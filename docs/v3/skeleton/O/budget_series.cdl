@@ -1,24 +1,23 @@
 // V3 lane O skeleton: budget time series (CDL). <basename>.budget.nc,
-// NetCDF4, root rank appends one record per interval, all NC_DOUBLE.
-// Sources: R's RegisterMonitor (happysky19/snapy 543ff84f, flux_register.hpp
-// :97-104), summed over blocks. Row/counter layout pending R-O1, R-O2.
+// NetCDF4, root rank appends one record per interval, all sums NC_DOUBLE.
+// Source: R's RegisterMonitor (happysky19/snapy 175af2fc, R:91-104), summed
+// over blocks; one row set per register instance (hydro, each Scalar).
 netcdf budget {
 dimensions:
-    time = UNLIMITED ; row = 6 ; fixer = 5 ; nchar = 32 ;
+    time = UNLIMITED ; row = 7 ; source = 5 ; counter = 5 ; minimum = 1 ;
+    nchar = 48 ;
 variables:
     double time(time) ; int64 cycle(time) ; double dt(time) ;
     double interval(time) ;
-    char row_name(row, nchar) ;    // mass, species/<n>, energy (E+PE), aam, scalar/<n>
-    char row_units(row, nchar) ;
-    char fixer_name(fixer, nchar) ; // limiter, positivity, vic_clamp, gravity_work, aam_closure
-    double total(time, row) ;       // domain_total() (R:101) at the record
-    double boundary(time, row) ;    // sum_d boundary(dim) (R:100) over interval
-    double fixer(time, fixer, row) ; // amounts(name) (R:99), cell sources (R-O3)
-    double residual(time, row) ;    // total-total_prev+boundary-sum fixer
-    double lim_cut_fraction(time) ; int64 positivity_severe(time) ;
-    double positivity_theta_min(time) ; double vic_clamp_max(time) ;
-    // from counters() (R:102); names/dtype pending R-O2; C: int64 (C.rst:660)
-    int64 face_floor_count(time) ;   // FaceFloor rho/p/species floors
-    int64 pstar_clamp_count(time) ;  // FaceFlux::events bit0 (hllc p*)
+    char row_name(row, nchar) ;          // row_names() (R:94): conserved, e+pe, aam
+    char source_name(source, nchar) ;    // amount_names() (R:95), kind != flux_correction
+    char counter_name(counter, nchar) ;  // counter_names() (R:100)
+    char minimum_name(minimum, nchar) ;  // record_min names, e.g. pos_min
+    double total(time, row) ;            // domain_total() (R:99)
+    double boundary(time, row) ;         // sum_d boundary(d) (R:98), area-integrated
+    double source(time, source, row) ;   // amounts(name) (R:97)
+    double residual(time, row) ;         // dtotal + boundary - sum source
+    int64 counter(time, counter) ;       // counters() (R:101), int64
+    double minimum(time, minimum) ;      // minima() (R:102)
     :snapy_budget_version = 1 ;
 }

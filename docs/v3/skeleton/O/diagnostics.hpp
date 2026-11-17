@@ -1,9 +1,9 @@
 #pragma once
 // V3 lane O skeleton: declarations only, not built. Pin 9e5de2d4.
-// Diagnostics as readers of lane R's register (provisional header,
-// happysky19/snapy 543ff84f docs/v3/skeleton/R/flux_register.hpp, "R:" below).
+// Diagnostics as readers of lane R's register, FROZEN header rev 4
+// (happysky19/snapy 175af2fc docs/v3/skeleton/R/flux_register.hpp, "R:").
 // Replaces src/diagnostics/ (never compiled). O reads after the accept and
-// never posts (R:96). Points marked R-O1..3 wait on O's conflict note to R.
+// before the next begin_step (R.rst:494), never posts (R:90).
 #include <map>
 #include <string>
 #include <vector>
@@ -12,14 +12,14 @@
 
 namespace snap {
 class MeshBlockImpl;
-class CoordinateImpl;
-class FluxRegister;     // R:62-94; O reads step_field(dim) only (R:91)
-class RegisterMonitor;  // R:97-104; R owns the domain totals (R:21-22)
+class FluxRegister;     // R:43-89; O reads step_field(dim) only (R:85)
+class RegisterMonitor;  // R:91-104; one per register instance (hydro, each
+                        // Scalar module), owns the domain totals
 using Variables = std::map<std::string, torch::Tensor>;
 
-//! observe: device only, after accept, X's host dt. The monitor's host read
-//! is X's step-end retry read; flush adds only the cross-rank FP64 reduction
-//! at the budget cadence, outside every captured segment.
+//! observe: device only, after accept, host dt of the accepted step. The
+//! monitor's host read is X's step-end read (R.rst:394-397); flush adds only
+//! the cross-rank FP64 reduction at the budget cadence, outside segments.
 class Consumer {
  public:
   virtual ~Consumer() = default;
@@ -29,25 +29,22 @@ class Consumer {
   virtual void flush(double time) = 0;
 };
 
-//! total - total_prev = -sum_d boundary(d) + sum(cell sources) + residual,
-//! FP64. total = mon.domain_total() (R:101), boundary = mon.boundary(dim)
-//! (R:100), sources = mon.amounts(name) (R:99) of cell_amount posts (R:84).
-//! Row names (R-O1), counter names (R-O2) and amount kinds (R-O3) pending.
+//! residual = delta domain_total() + sum_d boundary(d) - sum amounts(name)
+//! over kind(name) in {cell_source, floor, fixer} (R.rst:484-488), FP64.
+//! Rows: row_names() (R:94), conserved then derived "e+pe", "aam".
+//! boundary(d) is area-integrated (R:98); flux_correction is report only.
 class BudgetConsumer : public Consumer {
  public:
-  struct Row {
-    std::string name, units;  // "mass", "species/H2O", "energy", "aam"
-  };
-  explicit BudgetConsumer(std::vector<Row> rows);
+  explicit BudgetConsumer(std::vector<RegisterMonitor const*> monitors);
   void observe(MeshBlockImpl const& block, Variables const& vars,
                FluxRegister const& reg, RegisterMonitor const& mon,
                double dt) override;
   void flush(double time) override;
 };
 
-//! horizontal mean of the x1 step transfer: reg.step_field(1) (R:91, FP64,
-//! per unit area; dim 1 requested in RegisterRequest::step_field, R:56-59)
-//! times CoordinateImpl::face_area1() (coordinate.hpp:254). Grid "--F".
+//! horizontal mean of reg.step_field(1) (R:85, kRegister, per unit area;
+//! RegisterRequest::step_field, R:40) times CoordinateImpl::face_area1()
+//! (coordinate.hpp:254). Grid "--F". The only place O applies an area.
 class HydroFluxProfile : public Consumer {
  public:
   void observe(MeshBlockImpl const& block, Variables const& vars,

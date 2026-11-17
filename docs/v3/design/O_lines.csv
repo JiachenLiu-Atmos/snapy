@@ -26,8 +26,8 @@ src/input/read_restart_file.cpp,236,0,0,236,"merge; live, merged",into output/re
 src/input/read_restart_file.hpp,21,0,0,21,"merge; live, merged",into restart.hpp
 src/input/signal.cpp,124,0,0,124,"delete; compiled by src glob, unreferenced",older copy of utils/signal_handler; no includer
 src/input/signal.hpp,63,0,0,63,"delete; compiled by src glob, unreferenced",
-src/math/lubksb.h,71,0,71,0,"move; live, moved",to src/implicit (one includer: forward_sweep_impl.h)
-src/math/ludcmp.h,95,0,95,0,"move; live, moved",to src/implicit
+src/math/lubksb.h,71,0,71,0,"move; live, moved",to lane I (Xinyue accepted); in neither lane's cut; out of O's roll-up baseline
+src/math/ludcmp.h,95,0,95,0,"move; live, moved",to lane I (Xinyue accepted); in neither lane's cut; out of O's roll-up baseline
 src/output/combine_netcdf.cpp,87,0,0,87,"merge; live, merged","into writer_core.cpp (combine step, no argv building)"
 src/output/combine_restart.cpp,123,0,0,123,"merge; live, merged",into restart.cpp (bundle writer)
 src/output/hdf5.cpp,27,0,0,27,"delete; compiled by src glob, unreferenced; removal approved by Cheng","stub; body only under never-defined HDF5OUTPUT, signature does not match the header"
@@ -77,6 +77,8 @@ src/diagnostics/consumer.hpp,0,90,0,-90,new,"Consumer, register/monitor views"
 src/diagnostics/budget.cpp,0,200,0,-200,new,BudgetConsumer
 src/diagnostics/hydro_flux_profile.cpp,0,80,0,-80,new,HydroFluxProfile from the register (new file; the old hydro_flux.cpp row above is its deletion)
 tools/gen_options.py,0,300,0,-300,new (outside src),options generator
+"src/options/*.yaml (lane S parsing: _pi aliases, cross-option checks)",0,10,0,-10,new,ADDITION for S's options parsing (accepted); S counts the deletion
+tools/gen_options.py (scale/alias column for S's _pi keys),0,10,0,-10,new (outside src),ADDITION for S's options parsing (accepted)
 src/options/*.yaml,0,300,0,-300,new,"options tables (data, in src), ~1.4 lines per option"
 src/z.junk/load_athena_output_data.cpp_,585,0,0,585,delete (outside baseline),"not in the 9,996"
 src/diagnostics/radiative_flux.cpp_,108,0,0,108,delete (outside baseline),"not in the 9,996"

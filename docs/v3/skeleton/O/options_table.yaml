@@ -8,11 +8,8 @@ yaml_node: outputs[]
 options:
   - {name: dt, key: dt, type: double, default: 0., doc: "interval [s]"}
   - {name: file_type, key: type, type: "enum[netcdf,pnetcdf,restart,budget]", default: null, doc: "required"}
-  - {name: variables, key: variables, type: "list[string]", default: [], doc: "field registry keys"}
   - {name: x1_slice, key: x1_slice, type: "list[double]", default: [], doc: "x1 cells to keep [m]"}
   - {name: output_sumx1, key: output_sumx1, type: bool, default: false, doc: "sum over x1"}
-  - {name: double_precision, key: double_precision, type: bool, default: false, doc: "NC_DOUBLE"}
-  - {name: combine, key: combine, type: bool, default: true, doc: "join parts on root"}
 checks:
   - "!(x1_slice.size() && output_sumx1) : Cannot request both slice and sum along x1"
 ---
@@ -23,7 +20,6 @@ options:
   - {name: x1_mass_covariance, key: x1-mass-covariance, type: bool, default: false, doc: "#352"}
   # env overrides the deck (hydro_options.cpp:84-95); FOR CHENG
   - {name: anomaly, key: anomaly, type: bool, default: false, env: SNAP_ANOMALY, doc: "anomaly storage"}
-  # SNAP_FP32_STORAGE(_ROWS) get no row: the emulation is removed (Cheng)
   # exists at the pin (hydro_options.cpp:55,67; hydro.hpp:76, default float64)
   - {name: precision, key: precision, type: "enum[float64,float32]", default: float64, doc: "dynamics precision"}
 ---
@@ -33,7 +29,17 @@ options:
   - {name: execution, key: execution, type: "enum[eager,graph]", default: eager, doc: "execution selection (G7)"}
   - {name: execution_strict, key: execution-strict, type: bool, default: false, doc: "refuse instead of eager fallback"}
 ---
-module: coord   # proposed row; the owning lane decides (x1_centroid.cpp:68-79)
+module: coord   # lane S parsing accepted (coordinate.cpp:62-114,125-149,213-214)
 yaml_node: geometry
 options:
-  - {name: x1_centroid_exact, key: x1-centroid-exact, type: bool, default: false, env: SNAP_X1_CENTROID_EXACT, doc: "r^2-weighted x1 means; same on every block"}
+  - {name: global_x2min, key: bounds/x2min, alias: {bounds/x2min_pi: "pi"}, type: double, default: 0., doc: "x2 lower bound"}
+  - {name: x1rat, key: cells/x1rat, type: double, default: null, doc: "x1 stretch ratio"}
+  - {name: x1_centroid_exact, key: x1-centroid-exact, type: bool, default: false, env: SNAP_X1_CENTROID_EXACT, doc: "proposed; owner decides"}
+checks:
+  - "!(x1rat && x1f) : geometry: give cells/x1rat or x1f, not both (#280)"
+---
+module: layout  # layout.cpp:249-272; also bc/internal_boundary.cpp:14-36
+yaml_node: distribute
+options:
+  - {name: pz, key: nb1, type: int, default: 1, doc: "blocks along x1"}
+  - {name: backend, key: null, type: string, default: gloo, env: BACKEND, doc: "process-group backend"}
