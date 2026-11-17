@@ -8,10 +8,17 @@ namespace snap {
 
 class AxialMomentum;  // axial_momentum.hpp
 
-//! -2 Omega x m, m = (m1, rho v2, rho v3); -m1 v_h/r stays in coord (J1). Twice:
-//! pre_implicit (m1 = 0; through the scheme-9 solve), post_implicit (m1 rows,
-//! R:21). m1 = phi_lo * lo + phi_hi * hi, phi = A x mass rows of total(1),
-//! which holds the vic.* posts in post_implicit (R:20-21; R.rst:521-523)
+//! H3: m1 = phi_lo lo + phi_hi hi, phi = A x mass rows of total(1) (R:20-21);
+//! built under #355's gate, read by Coriolis and x1_mass_source_ (S-8, R-7)
+class X1Momentum {
+ public:
+  torch::Tensor m1(FluxRegister const& reg) const;  //!< [nk, nj, ni]
+ private:
+  torch::Tensor lo_, hi_;  //!< lane A (S-1); hold 1/(2rV), no /dt
+};
+
+//! -2 Omega x m, m = (m1, rho v2, rho v3); -m1 v_h/r stays in coord (J1).
+//! Twice: pre_implicit (m1 = 0), post_implicit (m1 rows from X1Momentum, R:21)
 class Coriolis : public SourceTerm {
  public:
   Coriolis(double omega1, double omega2, double omega3, bool traditional,
@@ -23,8 +30,7 @@ class Coriolis : public SourceTerm {
   double omega_[3];
   bool traditional_;
   AxialMomentum* aam_;   //!< exact: adds the F_d torque in pre_implicit
-  torch::Tensor omega_local_;  //!< lane A (S-1), from coord's rotation data
-  torch::Tensor m1_lo_, m1_hi_;  //!< lane A (S-1); lo/hi hold 1/(2rV), no /dt
+  torch::Tensor omega_local_;  //!< lane A (S-1); centre frame from S (S-6)
 };
 
 //! shared by both evaluators; x1 profiles frozen after build (lane O schema)
@@ -36,9 +42,8 @@ struct DiffusionCoefficients {
   bool no_slip = false;
 };
 
-//! phase 3 (A.rst 3.7): posts "diffusion" (viscous momentum flux, energy flux
-//! -k grad T . n - v_f . tau . n) with reg.add (R:57-58); no divergence of its
-//! own. Its part is an FP64 monitor amount only (R.rst:452-454)
+//! phase 3 (A.rst 3.7): posts the "diffusion" energy flux with reg.add
+//! (R:57-58); momentum stays Cartesian-channel until gate G9b (H9)
 class DiffusionFlux {
  public:
   explicit DiffusionFlux(DiffusionCoefficients c);
@@ -47,7 +52,7 @@ class DiffusionFlux {
  private:
   DiffusionCoefficients c_;
   //! two-point (diffusion.cpp) and cubed-sphere 4-point evaluators; traction
-  //! goes to the panel face basis by coord's rotation (S-2, S-3)
+  //! goes to coord's flux2global<d>_ frame (S-2, S-3)
   torch::Tensor cartesian_face_flux(int dir, StageState const& s) const;
   torch::Tensor cubed_sphere_face_flux(int dir, StageState const& s) const;
   void exchange_traces(StageState const& s) const;  //!< own exchange (S-3)
@@ -65,9 +70,8 @@ class DiffusionSource : public SourceTerm {
   std::shared_ptr<DiffusionFlux const> flux_;
 };
 
-//! Strang-split radial conduction (A.rst 3.7); each half step posts its x1
-//! heat flux, reg.post_split(1, "diffusion.radial", flux, 0.5, dt) (R:80-81);
-//! failure: host check before the increment, abort as at the pin (A.rst 3.7)
+//! Strang-split radial conduction (A.rst 3.7): post_split(1, "diffusion.radial",
+//! flux, 0.5, dt) (R:80-81); failure aborts before the increment, as at the pin
 class RadialConduction : public SourceTerm {
  public:
   explicit RadialConduction(DiffusionCoefficients c);

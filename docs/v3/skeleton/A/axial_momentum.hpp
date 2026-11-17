@@ -34,19 +34,16 @@ class AxialMomentum {
   AxialMomentum(AxialMode mode, double omega,
                 std::unique_ptr<FaceTorqueRule> rule);
   AxialMode mode() const;
-  //! R:32-39: keep riemann.central@2/@3 (exact), derived {"aam"}, retry,
-  //! vic.momentum_t@1 (R-4); vic.mass_total is not needed (A.rst 3.4)
+  //! R:32-39: keep riemann.central@2/@3, vic.momentum_t@1; derived {"aam"}
   RegisterRequest request() const;
-  //! reset checks: z axis (others refused, FOR CHENG); exact needs FP64, no
-  //! perturbation-flux (until G10, A.rst 6.2), nu_iso == 0 (until phase 3)
+  //! reset: geometry non-null, Omega || axis (H5, H7); exact: FP64, no pert.
+  //! flux (G10), nu_iso == 0 (phase 3), interp_order == 4 (hydro.cpp:63-66)
   void check(StageState const& s, bool fp32, bool perturbation_flux,
              double nu_iso) const;
-  //! divergence phase: rewrite the K component of du's divergence from
-  //! total(d) (today's conserve_axial_momentum_, same arithmetic)
+  //! divergence phase: K component of du from total(d) (conserve_axial_momentum_)
   void flux_form(torch::Tensor div, AxialFluxView const& f,
                  RotationGeometry const& g) const;
-  //! exact, pre_implicit: add the torque of F_d = total - central along K,
-  //! and record this block's closure sums {R, I} on the device
+  //! exact, pre_implicit: torque of F_d = total - central along K; {R, I}
   void add_torque(torch::Tensor du, torch::Tensor force_cell,
                   AxialFluxView const& f, StageState const& s);
   //! post_implicit: today's axial_x1_source_, from vic.momentum_t
@@ -57,6 +54,9 @@ class AxialMomentum {
   void wall_torque(FluxRegister& reg, RotationGeometry const& g) const;
   void aam_total(torch::Tensor u, FluxRegister& reg,
                  RotationGeometry const& g) const;
+  //! H4 (pending S-4): rows' K component, on-axis rule gnomonic_equiangle:499
+  void rate_to_rows(torch::Tensor row2, torch::Tensor row3,
+                    torch::Tensor target, RotationGeometry const& g) const;
   torch::Tensor closure_sums() const;  //!< {R, I}, FP64 device; exact only
  private:
   AxialMode mode_;
@@ -66,19 +66,17 @@ class AxialMomentum {
   torch::Tensor rho_;   //!< interior density the increment scales with
 };
 
-//! the closure as a registered fixer (A.rst 3.3, 5.2), R:104-116; the
-//! registry is lane X's. {R, I} FP64 on device; X's global phase reduces
-//! them via host (never captured; X.rst:98, 187)
+//! the closure as a registered fixer (A.rst 3.3, 5.2; R:104-116); registry is
+//! X's; {R, I} FP64 on device, reduced via host (X.rst:98, 187)
 class AxialClosureFixer : public Fixer {
  public:
   explicit AxialClosureFixer(AxialMomentum const* aam);  //!< non-owning
   std::string name() const override;          //!< "aam.closure"
   std::vector<int> rows() const override;     //!< {IVY, IVZ}
   torch::Tensor partial_sums() const override;  //!< {R, I}, FP64
-  //! -w2 dt R / I rho s^2 along K (where-masked); stage_weight = w2 of the
-  //! stage just combined (R:111; pin meshblock.cpp:1027); posts
-  //! cell_amount("aam.closure", V du, 1.0, AmountKind::fixer) (R:67-70) and
-  //! derived_amount("aam.closure", "aam", dL, 1.0, AmountKind::fixer)
+  //! -w2 dt R / I rho s^2 along K; stage_weight = w2 of the stage (R:111,
+  //! meshblock.cpp:1027); cell_amount("aam.closure", V du, 1.0, fixer) and
+  //! derived_amount("aam.closure", "aam", dL, 1.0, fixer) (R:67-74)
   void apply(torch::Tensor u, torch::Tensor const& global_sums, double dt,
              double stage_weight, FluxRegister& reg) const override;
  private:

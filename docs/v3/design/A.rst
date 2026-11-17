@@ -4,10 +4,9 @@ V3 design, lane A: rotation, axial angular momentum, sources, diffusion
 
 :Lane: A (rotation, axial angular momentum (AAM), source terms, diffusion)
 :Owner: Jiachen Liu (alternate: Xi Zhang)
-:Revision: 4, part 2a (design and contract only, CHANGE 5): Cheng's
-           decision keeps the radial-conduction abort for V3 (settled); the
-           ``diffusion.radial`` retry cause is reserved (4.3); the retry path
-           is out of the PR plan; src/forcing 2,870 -> 2,088 (1.6).
+:Revision: 4 final (design and contract only, CHANGE 5). Rev 4 parts: radial
+           rows, Cheng's abort decision, Jiheng's H1-H17 (appendix C),
+           Zoey's statuses (appendix B). src/forcing 2,870 -> 2,088 (1.6).
 :Reviewers (round 2): Xi (lane X), Zoey
 :Pins: snapy ``9e5de2d4ce497d0b2d4da3295fc1fe969fe7e410``; kintera ``3f5ff938``
        (section 8); lane R frozen header ``happysky19/snapy@4c59162ae37080d0ab307b2823742b44f46da7c3``
@@ -18,7 +17,7 @@ V3 design, lane A: rotation, axial angular momentum, sources, diffusion
 :Previous: rev 1 ``2c9589c6``; rev 2 ``afd08eaa``, ``b6a40897``; rev 3
            part 1 ``9ee83756``
 :Skeleton: ``docs/v3/skeleton/A/``, four headers in namespace ``snap``,
-           declarations only, 299 lines (``wc -l docs/v3/skeleton/A/*``);
+           declarations only, 298 lines (``wc -l docs/v3/skeleton/A/*``);
            index in section 12
 
 All snapy ``path:line`` references are at the pin ``9e5de2d4`` unless another
@@ -150,9 +149,18 @@ Lane I's names: ``vic.mass_total`` (kept, R.rst:165-167), and the posts
     decision, lane A thread 1794951687). A failed radial solve stops the run,
     as at the pin, and no behaviour changes. ``diffusion.radial`` stays a
     reserved retry cause (4.3).
-* **Settled with lane S** (lane S thread): coord owns the rotation data;
-  registered fluxes stay in the panel face basis; diffusion keeps its own exchange
-  until phase 3.
+* **Settled with lane S**, as S rev 1.1 records it (``d03e4888``,
+  S.rst:65-74, 1002-1012):
+
+  * coord owns ``PanelRotation`` and ``AxialRotationData``. Lane A reads them
+    and owns the Coriolis rate, the closure, ``omega_local`` and the m1
+    weights (S-1);
+  * posts are in coord's ``flux2global<d>_`` frame (S-2; R:4-5);
+  * diffusion keeps its own exchange until phase 3, then moves onto S's
+    ``Exchange::seam_slab`` (S-3).
+
+  Anything beyond that text is worded **lane A proposal, pending lane S**
+  (3.8, 11.4).
 * **FOR CHENG** (open proposals with their "what changes" rows; nothing waits
   on them; section 10.3):
 
@@ -181,8 +189,21 @@ Lane I's names: ``vic.mass_total`` (kept, R.rst:165-167), and the posts
   (10.1). ``diffusion_radial.cpp`` is recounted 103 -> 105 (9.2), so
   ``src/forcing`` goes 2,087 -> 2,088. "Refusing ``full``" moves back to the
   open proposals, as the PM lists it with Cheng.
-* **Still to come in rev 4:** Jiheng's H1-H17 by number, and Zoey's Z1-Z3,
-  Z7 and Z8 (appendix B).
+* **Final part:**
+
+  * Jiheng's H1-H17 are answered by number in appendix C;
+  * S-1..S-3 are restated as S rev 1.1 wrote them (1.5, 3.8);
+  * new lane A proposals pending S or R: S-4 to S-8, R-7, R-8 (11.4);
+  * m1 moves into ``X1Momentum`` (3.4);
+  * viscous momentum stays in the Cartesian channel until G9b (3.7);
+  * G5 moves to phase 2 (4.1); new gates G3b and G9b, G10's metric, and
+    hypotheses H13-H15 (5.3, 5.4);
+  * §7.3 gains the Z6 sentence and the radial split exchange;
+  * the 10.3 rows gain H6's three cases and H12's ``interp_order`` refusal;
+  * ``hydro.hpp``'s 68 lines go in the R cross-references (H17);
+  * appendix B is updated for Zoey's statuses.
+
+  ``src/forcing`` stays 2,870 -> 2,088.
 
 
 2. Concepts and current sites
@@ -252,8 +273,9 @@ mesh.cpp:364, 367-382                                  17  X        closure over
 What each owner counts:
 
 * **R** counts the hydro ranges: 136 lines in ``hydro_forward.cpp`` (of which
-  ``:988``, the "(3.A) Calculate dimension 2 LR states" heading, stays) and 33
-  in ``hydro.cpp``. R's "after" holds the lines lane A leaves there, an
+  ``:988``, the "(3.A) Calculate dimension 2 LR states" heading, stays), 33
+  in ``hydro.cpp``, and 68 in ``hydro.hpp`` (``:89-133, 219-236, 462-466``,
+  the AAM options, accessors and state; H17). R's "after" holds the lines lane A leaves there, an
   estimated 25 + 15 (two phase hooks, the mode predicate and the ``full``
   refusal).
 * **S** counts all 301 ``gnomonic_equiangle.*`` AAM lines and
@@ -431,6 +453,19 @@ includes the ``vic`` posts (R-4, answered).
 ``omega_local`` and the m1 weights ``lo``/``hi`` are lane A's (S-1). They
 are built at reset from coord's rotation data and the x1 geometry.
 
+**m1 is not private to Coriolis (H3).**
+
+* Lane A builds m1 once per stage in ``post_implicit``, in a standalone
+  ``X1Momentum`` (skeleton), from ``A_f total(1)`` (R ``hydro_stage.hpp:61-62``).
+* It does so whenever #355's gate holds (``hydro_forward.cpp:1319-1322``: a
+  gnomonic grid, or spherical-polar with Coriolis; ``nc1 > 1``; not shallow
+  water), with or without Coriolis.
+* Coord's metric source ``x1_mass_source_`` (S) needs m1 without Coriolis
+  (``:1650-1657, 1676``), so it reads ``X1Momentum`` too, as does
+  ``Coriolis``.
+* Who calls it: hydro's ``post_implicit`` (R) calls ``X1Momentum``, then
+  Coriolis, then S's metric source. That order is question R-7 (11.4).
+
 3.5 FP32 restriction on exact (Q5)
 ----------------------------------
 
@@ -479,12 +514,27 @@ code around it (X.rst:350). X registers it through R's ``cell_amount``
 the viscous momentum flux and the energy flux ``−k ∇T · n − v_f · τ · n``.
 Its part is an FP64 monitor amount only (R.rst:452-454).
 
-* The cubed-sphere traction is rotated into the panel face basis by coord's rotation
+* The cubed-sphere traction is rotated into coord's ``flux2global<d>_`` frame by coord's rotation
   (S-2).
-* Diffusion keeps its own exchange (``share_fluxes``, then the 7-channel
-  penalty traces) until phase 3 (S-3 accepted). From phase 3, the flux
-  averaging is R's ``replace`` with S's transport (R:63-64), and the penalty
-  traces keep diffusion's own exchange.
+* Diffusion keeps its own four-round seam exchange (``share_fluxes``,
+  ``diffusion_cubed_sphere.cpp:132-143``) until phase 3. In phase 3 it moves
+  onto S's ``Exchange::seam_slab`` as a face-slab row (S-3 as S answered it,
+  S.rst:1010-1012). This replaces rev 3's "R's replace for the averaging, own
+  exchange for the traces". The exchange then carries the 7-channel traces;
+  the averaged flux is posted to the register.
+* **Viscous metric terms (H9; hypothesis H13, untested).** Hydro's metric
+  source covers only pressure and ``ρvv`` (``gnomonic_equiangle.cpp:654-659``).
+  Rotating the Cartesian traction into coord's ``flux2global<d>_`` frame and
+  taking R's divergence may therefore lose the viscous metric terms that the
+  Cartesian-channel divergence carries today
+  (``diffusion_cubed_sphere.cpp:369-372``).
+
+  * Lane A's choice: phase 3 posts only the **energy** flux, a scalar with no
+    metric term.
+  * The viscous **momentum** keeps its Cartesian-channel divergence as a
+    ``DiffusionSource`` until gate G9b (5.3) shows the register route matches
+    it.
+  * This keeps phase 3 correct whichever way H13 turns out.
 * **Radial conduction:** each half step posts its x1 heat flux with
   ``reg.post_split(1, "diffusion.radial", flux, 0.5, dt)`` (R:80-81).
 * **Radial failure: abort, settled (Cheng's decision, 1.5).** The pin's host
@@ -527,19 +577,44 @@ not mix a register defect with a diffusion defect. Until then, ``exact`` with
 3.8 Where the AAM geometry lives (Q8), settled with lane S
 ----------------------------------------------------------
 
-**S-1 accepted.** Lane S's coord owns the rotation and the rotation data:
+**S-1, as lane S answered it** (S.rst:1004-1008; ``coord_rotation.hpp:15-18,
+48-55`` at ``d03e4888``). Coord owns:
 
-* the axis;
-* ``k`` and its exact face averages;
-* ``cos² lat`` at faces;
-* the rate-to-rows projection;
-* ``has_on_axis_cell``, set at reset, which replaces the host read at
-  ``gnomonic_equiangle.cpp:506``.
+* ``RotationAxis`` (a Cartesian unit vector, only z supported);
+* ``AxialRotationData``: ``k_cell``, ``k_face2``/``k_face3``, ``cos2_lat`` and
+  ``rate_to_rows_``.
 
-Lane A reads them through ``RotationGeometry`` (skeleton) and owns the AAM
-physics: the flux form, the x1 sources, the Coriolis rate, ``omega_local``,
-the m1 weights, the torque rules and the closure. These move into
+Lane A reads them through one accessor (``RotationGeometry`` in the skeleton
+mirrors ``AxialRotationData``). Lane A owns the AAM physics: the flux form,
+the x1 sources, the Coriolis rate, ``omega_local``, the m1 weights, the
+torque rules and the closure. These move into
 ``src/forcing/axial_momentum.cpp`` and ``coriolis.cpp``.
+
+**Lane A's own side (Jiheng's H5, H7, H11):**
+
+* ``rotation_geometry()`` is null on grids without an axis. That null, not
+  the type string (``hydro.cpp:28-29``), keys lane A's refusal of the AAM key
+  and whether lane A requests the derived row ``"aam"`` (R:34). Lane A
+  requests it only when the geometry is non-null (H5).
+* The Ω ∥ axis check reads ``RotationAxis::unit``, not ``omega2``/``omega3``
+  (``hydro.cpp:32``) (H7).
+* Geometry is read through that one accessor, never by ``dynamic_cast``
+  (``coriolis.cpp:182-183``) (H11).
+
+**Lane A proposals, pending lane S** (11.4, S-4 to S-6):
+
+* **H4.** Lane A owns ``rate_to_rows``, including its on-axis conservation
+  rule (``gnomonic_equiangle.cpp:499-514``), and S exposes only data plus an
+  on-axis mask (``has_on_axis_cell`` today in the skeleton). S also checks
+  ``nx2 >= 3`` at reset when an on-axis cell exists: with one cell per side
+  the shares at ``:509-512`` fall off the slices. S rev 1.1 lists
+  ``rate_to_rows_`` as coord's, so this needs S's agreement.
+* **H5.** Coord also provides ``K = s·k̂`` with the exact face averages ``K_f``,
+  radial factor included, and ``s²``. Today lane A forms the radial factor
+  itself (``gnomonic_equiangle.cpp:563-567``).
+* **H7.** ``omega_local`` needs a never-null centre-frame call on every grid,
+  not only ``PanelRotation`` on the cubed sphere. Today the per-grid set-up is
+  ``coriolis.cpp:85-151``.
 
 **A non-z axis is out of V3 scope.** The axis is a declared parameter; only z
 is supported, and others are refused (FOR CHENG, 10.3).
@@ -554,7 +629,7 @@ is supported, and others are refused (FOR CHENG, 10.3).
 **Requirement 1.** From phase 3 lane A owns one post, ``diffusion``. It is a
 flux density per unit area and time at the step dt, in the register's
 components (R:4-5). The area weighting is the register's divergence. Registered
-fluxes stay in the panel face basis, and S rotates at seams (S-2).
+fluxes stay in coord's ``flux2global<d>_`` frame, and S rotates at seams (S-2).
 ``A F · K_f`` is derived, never posted.
 
 **Requirement 2.**
@@ -584,9 +659,13 @@ fluxes stay in the panel face basis, and S rotates at seams (S-2).
 **Requirement 5.**
 
 * AAM reads the reconciled total.
-* ``K_f`` comes from coord's rotation data in the panel face basis (S-2).
-* **Gate G5 has a precondition:** R's ``replace`` (R:63-64) and S's seam
-  rotation and transport must have landed. Until then G5 is not run.
+* ``K_f`` comes from coord's rotation data in coord's ``flux2global<d>_`` frame (S-2).
+* **G5 runs in phase 2 (H10).** On x2/x3 faces, single-valuedness comes from
+  S's face-state sync before the solve (``hydro_forward.cpp:1004-1048``),
+  which is already in place. R's panel-seam ``replace`` with
+  ``SeamRule::owner_copy`` (R ``hydro_stage.hpp:49-51``, phase ``reconcile``,
+  R:16) is the register's slot for it. G5 checks the scalar ``A F · K_f``
+  after that slot.
 * Diffusion keeps its own exchange until phase 3 (S-3).
 
 **Requirement 10.** Nothing lane A adds is restart-written:
@@ -602,7 +681,7 @@ fluxes stay in the panel face basis, and S rotates at seams (S-2).
 ====  ========  ==================================================================
 req   section   status for lane A
 ====  ========  ==================================================================
-1     4.1       complies; panel face basis (S-2); diffusion owner from phase 3
+1     4.1       complies; ``flux2global<d>_`` frame (S-2); diffusion owner from phase 3
 2     4.1       complies with R:14-22, 32-39; vic.momentum_t@1 kept (R-4)
 3     4.1       complies: R:85, post_split (R:80-81); stage_weight = w2 of
                 the stage (R:111, R-6 closed)
@@ -746,10 +825,12 @@ G2    kept ``riemann.central`` vs today's central:    AAM test (``test_axial_mom
       ≤ 1e-13; L2 analogue reported                   x2/x3 faces
 G3    ``exact`` AAM drift ≤ 1e-12 relative            arm (l): 3D at Ω = 5e-6 and 7e-5; W2 at 1 Ω and  tolerance  2
                                                       4 Ω
+G3b   block-count invariance (H14): AAM drift and     W2 C16, ``exact``, 200 steps; plan only          1e-12 rel  2
+      {R, I} with nb = 1 vs nb = 4
 G4    ``off`` and ``transport`` against the           arms (a)-(c), (f)-(h); on sedimentation decks    bitwise    2
       reference                                       see the EF-3 rule below                          (rule)
-G5    seam single-valuedness of ``A F · K_f``         W2 C16, one stage, every panel-seam face; after  1e-14 rel  2
-                                                      R's replace and S's seam rotation land
+G5    seam single-valuedness of ``A F · K_f``         W2 C16, one stage, every panel-seam face, after  1e-14 rel  2
+                                                      the face-state sync and R's ``owner_copy`` slot
 G6    closure: declared vs measured AAM change        arm (l) decks                                    1e-12 rel  2
 G7    sponge / drag torque booked = AAM change        ``relax-bot-velo`` drag arm and a top-sponge     1e-15 of   2
                                                       arm, FP64, budgets on                            L
@@ -759,9 +840,19 @@ G8    diffusion suite                                 ``test_diffusion_cubed_sph
                                                       ``test_diffusion_x1_scale``, convection-onset
                                                       notes
 G9    viscous torque booked as physical               new arm: ``exact`` with ``nu_iso > 0``, W2 C16   1e-12 rel  3
+G9b   register route vs Cartesian-channel             solid-body rotation (zero strain) and uniform    1e-12 rel  3
+      divergence of the viscous momentum (H9)         shear, C16, one stage; plan only
 G10   FP32 + perturbation-flux AAM drift vs FP64      arms (f)-(h), (k), (l) in FP32 with              drift      4
                                                       perturbation-flux                                ≤ 1e-12
 ====  ==============================================  ===============================================  =========  =====
+
+**G10's metric (H15, plan only).**
+``max_t abs(L(t) − L(0) − Σ booked AAM amounts) / abs(L(0))``, with every term
+in FP64 from R's monitor (R.rst:452-454). The seam AAM flux ``A F · K_f`` is
+reconciled in FP64, and lane A reads only the FP64 ``K_f`` master, never the
+compute-dtype cast views (6.1). Hypothesis H15: FP32 seam rotation rounds at
+about 1e-7 per stage, which could put 1e-12 out of reach for ``transport``;
+G10 then reports ``transport`` and holds only ``exact`` to 1e-12.
 
 **EF-3 rule for G4** (appendix B, item 3). G4 is bitwise against a reference
 that contains every change merged before lane A's phase-2 PR. If lane EF's
@@ -796,6 +887,11 @@ H11  EF's floors and repairs leave the momentum rows unchanged    read from the 
      (no AAM amount)                                              and G3 with floors active
 H12  the kept ``vic.momentum_t`` top face is round-off when the   gate G3 with ``implicit-scheme: 9``
      solve conserves column tangential momentum (11.2 c)
+H13  the register route loses the viscous metric terms (H9)       gate G9b (plan only)
+H14  diffusion and the {R, I} sum order are not invariant in nb   gate G3b (plan only)
+     (H14)
+H15  FP32 seam rotation (about 1e-7 per stage) puts 1e-12 out     gate G10 with its FP64 metric (plan only)
+     of reach for ``transport`` (H15)
 ===  ===========================================================  ==============================================
 
 
@@ -821,7 +917,7 @@ EF's P2 factor / P3 carry on ``total(d)``   FP64              flux dtype (FP32) 
 R's step field and amounts                  FP64              FP64; FP32 on MPS (R.rst:452-454)
 AAM flux form, torque rate, R and I         FP64              FP64; summed in FP64 before reduction
 ``diffusion`` part                          FP64 amounts      FP64 amounts (R.rst:452-454)
-rotation data                               FP64              lane S's master and cast views
+rotation data                               FP64              lane A reads the FP64 master only (H15)
 ==========================================  ================  =========================================
 
 6.2 What lifts the restriction on exact (Q5)
@@ -910,6 +1006,19 @@ included.
   closure's {R, I} (two FP64 numbers) through the host and never captures it.
 * The pre- and post-implicit phases are segments around lane I's solve.
 * ``capturable = false`` sources are eager segments.
+* **Order against EF's exchange (Z6).** The flux form, F_d and the closure
+  residual R read ``total(d)`` in the ``divergence`` phase. So they run after
+  EF's ``limit`` phase: total read, theta sync (an exchange), carry, scale
+  (R:17-18; EF.rst:648). That includes #370's cross-panel syncs of theta, the
+  species enthalpy and the donor velocity (``730b3500``
+  ``hydro_forward.cpp:1230, 1254-1271``). Nothing lane A reads in a stage
+  precedes that exchange.
+* **Radial split exchange (H13).** The first radial half step at
+  ``meshblock.cpp:715`` is followed by ``apply_boundaries`` and
+  ``exchange_ghost_zones`` (``:716-717``). That is an exchange segment at
+  step start, outside the stages and after R's ``post_split`` (R:6). It
+  belongs in S's exchange table (S-7), with its order relative to
+  ``post_split`` stated by R (R-8).
 
 
 8. Cross-repository interface changes and merge order
@@ -1008,6 +1117,11 @@ Arithmetic:
 J1 drops rev 3 part 1's +8 ``coriolis.cpp`` lines: the metric source stays in
 coord (3.4). That moves the number from 2,094 to 2,086.
 
+**H9 sensitivity.** The ``diffusion_cubed_sphere.cpp`` row's −15 assumes gate
+G9b passes. If it fails, the viscous momentum keeps its Cartesian-channel
+divergence and projection (``:369-373``, 5 lines; 3.7), and the number would
+be 2,093 (−27.1 %).
+
 Rev 4 books the ``diffusion_radial.cpp`` change once, here (RULING V3-1;
 3.7, 11.4). With the abort kept (part 2a), the host check stays and only the
 two ``post_split`` lines are added: 103 -> 105, an estimate. That makes
@@ -1015,7 +1129,8 @@ two ``post_split`` lines are added: 103 -> 105, an estimate. That makes
 
 Cross-references, not in lane A's number:
 
-* R: hydro AAM ranges 136 + 33, with 25 + 15 remaining in R's "after";
+* R: hydro AAM ranges 136 + 33, with 25 + 15 remaining in R's "after"; and
+  ``hydro.hpp:89-133, 219-236, 462-466`` (68; H17);
 * S: gnomonic 301 and ``coordinate.hpp`` 23;
 * X: mesh 51.
 
@@ -1082,11 +1197,25 @@ change                                      replacement                         
 ``conserve-axial-momentum: full``           refused with a message naming        **open proposal** (FOR
                                             ``exact``; what changes: a deck      CHENG)
                                             with ``full`` stops at reset
-                                            instead of running ``exact``
+                                            instead of running ``exact``.
+                                            ``exact`` keeps ``full``'s
+                                            ``interp_order != 4`` refusal
+                                            (``hydro.cpp:63-66``; H12)
 ``conserve-axial-momentum-closure``         removed; ``exact`` includes the      **settled** (Cheng)
                                             closure; refused by ``check_keys``
 ``coriolis/type: 123``                      ``type: xyz``: identical in 3D       **FOR CHENG**
-AAM key on a grid with no rotation axis     refused (today a no-op + warning)    **FOR CHENG**
+AAM key on a grid with no rotation axis     refused, keyed on a null             **FOR CHENG**
+                                            ``rotation_geometry()`` (H5). What
+                                            changes, by case (H6;
+                                            ``hydro.cpp:28-30, 70-76``): (1)
+                                            no axis (Cartesian, cylindrical):
+                                            silent no-op today, refused; (2)
+                                            an axis but no AAM code
+                                            (spherical-polar): silent no-op
+                                            today, refused; (3) gnomonic with
+                                            a non-axial Coriolis (``omega2``
+                                            or ``omega3`` set): warning and
+                                            no-op today, refused
 non-z rotation axis                         refused; only z in V3 (S-1)          **FOR CHENG**
 radial-conduction positivity failure        abort kept, as at the pin; no        **settled** (Cheng,
                                             behaviour change; retry cause        1794951687)
@@ -1229,13 +1358,55 @@ D20 radial abort kept; ``diffusion.radial`` reserved      Cheng's decision (1.5,
   Request: X drops the "V3 retries it" and booking sentences, and keeps slot
   8 as reserved.
 
+**New in rev 4 (from Jiheng's H notes).** These are lane A proposals for lane
+S or R to confirm. The proposed owner is in brackets.
+
+* **S-4, Xinyue (lane S): ``rate_to_rows`` and the on-axis rule (H4).**
+  Lane A proposes to own ``rate_to_rows``, including the on-axis conservation
+  rule (``gnomonic_equiangle.cpp:499-514``) [owner: A], while coord exposes the
+  rotation data plus an on-axis mask and checks ``nx2 >= 3`` at reset when an
+  on-axis cell exists (``:509-512``) [owner: S]. S rev 1.1 lists
+  ``rate_to_rows_`` as coord's (``coord_rotation.hpp:52-54``). Do you agree to
+  move it?
+* **S-5, Xinyue (lane S): ``K`` and ``s²`` from coord (H5).** Can coord provide
+  ``K = s·k̂``, its exact face averages ``K_f`` with the radial factor, and
+  ``s²``, next to ``k_cell``/``k_face2``/``k_face3``? Today lane A forms the
+  radial factor (``gnomonic_equiangle.cpp:563-567``). [owner: S]
+* **S-6, Xinyue (lane S): a centre-frame call on every grid (H7).**
+  ``omega_local`` (lane A's, S-1) needs a never-null centre-frame call on every
+  grid: Cartesian, cylindrical, spherical-polar and gnomonic. Today that is
+  ``coriolis.cpp:85-151``, and ``PanelRotation`` covers the cubed sphere only.
+  [owner: S]
+* **S-7, Xinyue (lane S): exchange-table rows lane A depends on (H11,
+  H13).** Three entries:
+
+  * #370's cross-panel syncs of theta, the species enthalpy and the donor
+    velocity (``730b3500`` ``hydro_forward.cpp:1230, 1254-1271``);
+  * diffusion's own exchange, ``phyid 12`` (``diffusion_cubed_sphere.cpp:143``),
+    until phase 3;
+  * the radial split's ``apply_boundaries``/``exchange_ghost_zones`` at step
+    start (``meshblock.cpp:716-717``).
+
+  Can these go in S's exchange table? [owner: S]
+* **S-8, Xinyue (lane S): the metric source reads A's m1 (H3).** Coord's
+  ``x1_mass_source_`` reads lane A's ``X1Momentum`` m1, not a Coriolis
+  private. [owners: A provides, S consumes]
+* **R-7, Tianhao (lane R): post_implicit order (H3).** Does hydro's
+  ``post_implicit`` (R ``hydro_stage.hpp:61-64``) call lane A's
+  ``X1Momentum`` whenever #355's gate holds (``hydro_forward.cpp:1319-1322``),
+  even without Coriolis, then Coriolis, then S's metric source? [owner: R]
+* **R-8, Tianhao (lane R): order of the radial exchange (H13).** R:6 orders
+  ``post_split`` at ``meshblock.cpp:715``, but not the exchange at
+  ``:716-717``. Please state whether that exchange comes after
+  ``post_split``. [owners: R, with X]
+
 FOR CHENG: see 10.3.
 
 
 12. Skeleton index
 ==================
 
-``wc -l docs/v3/skeleton/A/*`` gives 299 lines, with declarations only, in
+``wc -l docs/v3/skeleton/A/*`` gives 298 lines, with declarations only, in
 namespace ``snap``. The headers include lane R's ``flux_register.hpp``. A
 syntax check against R's frozen header at ``4c59162a`` passes.
 
@@ -1247,16 +1418,17 @@ file (lines)                declarations                                        
                             ``capturable``), ``StageState``, ``SourceTerm``,
                             ``SourceRegistry`` (``Run``, ``runs``, ``run``,
                             ``scratch_``)
-``axial_momentum.hpp``      ``AxialMode``, ``AxialFluxView`` (``total``, ``central``,       3.1-3.3, 5.1,
-(88)                        ``momentum_t``), ``FaceTorqueRule``, ``AxialMomentum``          5.2, 6.2, 7.3
-                            (``request``, ``wall_torque``, ``aam_total``),
-                            ``AxialClosureFixer : Fixer``
-``coriolis_diffusion.hpp``  ``Coriolis`` (``omega_local_``, ``m1_lo_``, ``m1_hi_``),        3.4, 3.7, 3.6
-(89)                        ``DiffusionCoefficients``, ``DiffusionFlux``,
-                            ``DiffusionSource``, ``RadialConduction`` (``post_split``,
-                            ``failed_``), ``Sponge``, ``LayerHeat``, ``BottomSlab``
-``rotation_geometry.hpp``   ``RotationGeometry``, lane S's: ``axis``, k fields,             3.8
-(32)                        ``rate_to_rows``, ``has_on_axis_cell``
+``axial_momentum.hpp``      ``AxialMode``, ``AxialFluxView`` (``total``, ``central``,       3.1-3.3, 3.8,
+(86)                        ``momentum_t``), ``FaceTorqueRule``, ``AxialMomentum``          5.1, 5.2, 6.2,
+                            (``request``, ``check``, ``wall_torque``, ``aam_total``,        7.3
+                            ``rate_to_rows``, H4), ``AxialClosureFixer : Fixer``
+``coriolis_diffusion.hpp``  ``X1Momentum`` (H3), ``Coriolis`` (``omega_local_``),           3.4, 3.7, 3.6
+(92)                        ``DiffusionCoefficients``, ``DiffusionFlux``,
+                            ``DiffusionSource``, ``RadialConduction`` (``post_split``),
+                            ``Sponge``, ``LayerHeat``, ``BottomSlab``
+``rotation_geometry.hpp``   ``RotationGeometry``, a read view of S's                        3.8
+(30)                        ``AxialRotationData``: ``axis_unit``, k fields,
+                            ``on_axis_mask``, ``has_on_axis_cell``
 ==========================  ==============================================================  ===============
 
 
@@ -1304,12 +1476,11 @@ N14 withdraws N2 and supersedes N5 where they overlap.
 Appendix B: Zoey's round-2 review (Z1-Z8)
 ==========================================
 
-Rev 2 answered three points from Zoey's report by topic. This revision
-answers by number the notes the PM carried into this thread (Z4, Z5, Z6). Her
-formal text for Z1-Z3, Z7 and Z8 was not in my inputs, so those keep their
-rev 2 topical answers, and their status is "to be confirmed against her text".
+Statuses follow Zoey's recheck at ``76904ce8``, as posted in the lane A thread.
+Her full numbered text was still to be posted, so Z1-Z3 keep their rev 2
+topical answers.
 
-* **Z1-Z3 (status: answered by topic in rev 2; numbering to be confirmed).**
+* **Z1-Z3 (status: closed; lines moved).**
   The three rev 2 points stand:
 
   * the flux form reads ``total(d)`` after the limiter's carry, and F_d is the
@@ -1317,15 +1488,96 @@ rev 2 topical answers, and their status is "to be confirmed against her text".
     R.rst:455-457);
   * gates compare against main with #370 (5.3, D15; new G7s);
   * the EF-3 rule for G4 (5.3).
-* **Z4 (status: done).** §5.2 now lists EF's floors and repairs (F1:
+* **Z4 (status: closed).** §5.2 now lists EF's floors and repairs (F1:
   ``eos.floor``, ``eos.borrow``, ``eos.fix_vapor``) and the positivity posts
   P2 and P3, each with its AAM effect (EF.rst:556-597). §11.3 answers Q-A1
   (yes) and Q-A2 (no objection, with the ``specific_heat_cv`` correction).
-* **Z5 (status: superseded by Cheng's decision).** The radial failure keeps
+* **Z5 (status: moot).** ``diffusion.radial`` is a reserved cause (4.3), so
+  no flag rides EF's ``EfStatus`` in V3. The radial failure keeps
   the abort, so no flag rides EF's ``EfStatus`` in V3. The reserved path
   would use ``flag_retry("diffusion.radial")`` (R:78) and, until R's PR R-1,
   EF's ``EfStatus`` in X's stacked read (EF.rst:319-342, 606-607) (4.3).
-* **Z6 (status: done).** §6.1 gains the P2/P3 dtype row: flux dtype in
-  ``total(d)``, FP64 amounts, and the flux form and F_d formed in FP64.
-* **Z7, Z8 (status: text not available).** These will be answered by number
-  when the formal notes are posted.
+* **Z6 (status: done in rev 4 final).** §6.1 has the P2/P3 dtype row (flux
+  dtype in ``total(d)``, FP64 amounts, the flux form and F_d formed in FP64).
+  §7.3 now has the missing sentence: the flux form, F_d and R run in the
+  ``divergence`` phase, after EF's theta sync (an exchange) and #370's
+  cross-panel syncs.
+* **Z7 (status: no change requested).** The count is now 2,870 -> 2,088
+  (−27.2 %), and the 9.2 rows sum to it.
+* **Z8 (status: no change requested).**
+
+
+Appendix C: Jiheng's round-2 notes H1-H17
+=========================================
+
+Jiheng's notes cite lane A at ``9ee83756``. Each cited line was re-found at
+``76904ce8`` before editing, and other sites were checked at the pin
+``9e5de2d4`` and at lane R ``4c59162a``. The H1-H17 here are Jiheng's note
+numbers; the hypothesis ids of 5.4 (H1-H15) are lane A's own and are a
+separate list.
+
+**Choices this revision made where the notes left them open, with the
+reasons:**
+
+* **H1 is declined, not accepted.** S rev 1.1 states S-1..S-3 in its own
+  text. Calling them pending would misstate lane S. Only the parts beyond
+  that text are marked pending.
+* **H9: phase 3 registers only the energy flux.** A scalar flux has no metric
+  term, so this is correct whichever way H13 resolves. The −15 in 9.2 assumes
+  G9b passes, and the cost if it fails is stated (2,093).
+* **H4: the skeleton already moves ``rate_to_rows`` into ``AxialMomentum``,
+  marked pending S-4.** ``RotationGeometry`` keeps only the mask. If S
+  declines, this reverts with no other change.
+* **H14/H15: the new gates are G3b and G9b, plus G10's metric, all marked as
+  plans only.** Nothing is run under CHANGE 5.
+* **H3: the gate for building m1 stays #355's gate** (``hydro_forward.cpp:1319-1322``),
+  so its bits are unchanged.
+
+* **H1 (decline, with the reason).** Lane S did answer S-1..S-3. S rev 1.1
+  (``d03e4888``, the current ``v3-design/S`` head, checked with ``ls-remote``)
+  records them as settled at S.rst:65-74 and 1002-1012. So lane A keeps them
+  settled, but restates them as S wrote them (1.5, 3.8). Everything beyond
+  S's text is now worded "lane A proposal, pending lane S": H4, H5, H7, the
+  exchange rows and m1 (3.8; 11.4 S-4 to S-8).
+* **H2 (agree; already resolved).** J1 is unchanged: ``x1_mass_source_`` stays
+  in coord, and S's count is 166 − 13 = 153 physics lines (2.2, 3.4).
+* **H3 (accept).** m1 moves out of ``Coriolis`` into lane A's standalone
+  ``X1Momentum``. It is built whenever #355's gate holds, and both Coriolis
+  and coord's metric source read it (3.4; skeleton
+  ``coriolis_diffusion.hpp``). The cross-lane parts are R-7 and S-8.
+* **H4 (accept as a lane A proposal, pending S).** Lane A owns
+  ``rate_to_rows`` and the on-axis rule; S exposes data plus the on-axis mask
+  and checks ``nx2 >= 3`` (3.8; S-4). Skeleton: ``rate_to_rows`` moves to
+  ``AxialMomentum``.
+* **H5 (accept).** On lane A's side, a null ``rotation_geometry()`` keys the
+  refusal and the ``"aam"`` request (3.8). The axis as a Cartesian unit vector
+  matches S's ``RotationAxis::unit`` (``coord_rotation.hpp:15-18``). ``K``,
+  ``K_f`` and ``s²`` from coord are question S-5. The AAM-key refusal stays a
+  FOR CHENG proposal, keyed on the null geometry (10.3).
+* **H6 (accept).** The 10.3 row now lists the three cases with what changes
+  in each, citing ``hydro.cpp:28-30, 70-76``.
+* **H7 (accept).** On lane A's side, the Ω ∥ axis check reads
+  ``RotationAxis::unit`` (3.8). The never-null centre frame is question S-6.
+* **H8 (accept).** "Panel face basis" becomes "coord's ``flux2global<d>_``
+  frame" throughout (R:4-5; S.rst:118-122).
+* **H9 (accept as a hypothesis, H13).** Phase 3 posts only diffusion's energy
+  flux, and the viscous momentum keeps its Cartesian-channel divergence until
+  gate G9b (plan only) shows the register route matches (3.7, 5.3).
+* **H10 (accept).** G5 runs in phase 2, after S's face-state sync and R's
+  ``owner_copy`` slot (R ``hydro_stage.hpp:49-51``, R:16) (4.1, 5.3).
+* **H11 (accept).** Geometry is read through one accessor, not by
+  ``dynamic_cast`` (3.8). The #370 syncs and ``phyid 12`` are question S-7.
+* **H12 (accept).** ``exact`` keeps ``full``'s ``interp_order != 4`` refusal
+  (``hydro.cpp:63-66``; skeleton ``AxialMomentum::check``). Refusing ``full``
+  itself stays a FOR CHENG proposal (10.3).
+* **H13 (accept).** The radial split exchange at ``meshblock.cpp:716-717`` is
+  in 7.3. Cross-lane parts: S-7 (S's table) and R-8 (its order).
+* **H14 (accept as a hypothesis, H14).** New gate G3b, nb = 1 vs nb = 4 on W2
+  C16, as a plan only (5.3).
+* **H15 (accept as a hypothesis, H15).** G10's metric is defined in FP64, and
+  lane A reads only the FP64 ``K_f`` (5.3, 6.1), as a plan only.
+* **H16 (agree).** The ranges sum to R 136 + 33, S 166 + 135 = 301 and X 51,
+  matching RULING V3-1.
+* **H17 (accept).** ``hydro.hpp:89-133, 219-236, 462-466`` (68 lines, R's) is
+  added to both cross-reference lists (2.2, 9.2). Lane A's number does not
+  change: RULING V3-1 counts it in R.
