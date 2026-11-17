@@ -2,8 +2,8 @@
 // V3 lane O skeleton: declarations only, not built. Pin 9e5de2d4.
 // One module for restart write, bundle and read. Replaces restart.cpp,
 // combine_restart.cpp, read_restart_file.*. Stored vs derived: O.rst sec. 3.
-// Register requirement 10: the flux register and monitor are derived and are
-// never written here.
+// Register requirement 10 (R header 543ff84f:23-24, "Nothing to restart"):
+// the FluxRegister and RegisterMonitor are derived, never written here.
 #include <array>
 #include <cstdint>
 #include <map>

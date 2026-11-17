@@ -1,5 +1,7 @@
 // V3 lane O skeleton: budget time series (CDL). <basename>.budget.nc,
 // NetCDF4, root rank appends one record per interval, all NC_DOUBLE.
+// Sources: R's RegisterMonitor (happysky19/snapy 543ff84f, flux_register.hpp
+// :97-104), summed over blocks. Row/counter layout pending R-O1, R-O2.
 netcdf budget {
 dimensions:
     time = UNLIMITED ; row = 6 ; fixer = 5 ; nchar = 32 ;
@@ -9,13 +11,13 @@ variables:
     char row_name(row, nchar) ;    // mass, species/<n>, energy (E+PE), aam, scalar/<n>
     char row_units(row, nchar) ;
     char fixer_name(fixer, nchar) ; // limiter, positivity, vic_clamp, gravity_work, aam_closure
-    double total(time, row) ;       // domain integral at the record
-    double boundary(time, row) ;    // outward register transfer over the interval
-    double fixer(time, fixer, row) ; // per-fixer amounts (req 7)
+    double total(time, row) ;       // domain_total() (R:101) at the record
+    double boundary(time, row) ;    // sum_d boundary(dim) (R:100) over interval
+    double fixer(time, fixer, row) ; // amounts(name) (R:99), cell sources (R-O3)
     double residual(time, row) ;    // total-total_prev+boundary-sum fixer
     double lim_cut_fraction(time) ; int64 positivity_severe(time) ;
     double positivity_theta_min(time) ; double vic_clamp_max(time) ;
-    // C's counters (C.rst@a7155840:660, riemann.hpp:30): counts are int64
+    // from counters() (R:102); names/dtype pending R-O2; C: int64 (C.rst:660)
     int64 face_floor_count(time) ;   // FaceFloor rho/p/species floors
     int64 pstar_clamp_count(time) ;  // FaceFlux::events bit0 (hllc p*)
     :snapy_budget_version = 1 ;

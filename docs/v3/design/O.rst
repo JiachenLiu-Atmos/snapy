@@ -5,7 +5,8 @@ V3 lane O: output, input, utilities, diagnostics, options schema
 
 Revision 2, 2026-11-18. Design and contract only: nothing in this branch
 was written as code, built, tested or run. Owner: Jiachen (alternate: chen sihe).
-Reviewers: Tianhao (C) and chen sihe (K). Design only: this branch proposes no
+Reviewers: Tianhao (C) and Xi (X), who replaces chen sihe as second
+reviewer (chen sihe did not reply in the lane K thread). Design only: this branch proposes no
 implementation change. Declarations are in ``docs/v3/skeleton/O/`` (not
 built). The line table is section 9, with the same rows in
 ``docs/v3/design/O_lines.csv``.
@@ -606,14 +607,63 @@ O-10 The cycle line stays, printed from the budget totals.
 -------------------------
 
 Lane O **posts nothing** to the register or the monitor and **corrects
-nothing**. It is a reader only. What it reads, and the ordering it relies
-on:
+nothing**. It is a reader only. The names below are lane R's, from its
+provisional header (Tianhao): happysky19/snapy
+``543ff84f4adb4b79c3f43fa7c2f0a5a6eb54fa48``,
+``docs/v3/skeleton/R/flux_register.hpp``, cited as ``R:<line>``.
 
-* **Reads.**
+**What lane O reads, with R's exact signatures:**
 
-  * The step transfer per axis, per conserved row (requirement 3).
-  * The per-fixer amounts and the monitor totals (requirements 6, 7).
-  * The row names and the dtype (requirement 8).
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - R's declaration
+     - lane O's use
+   * - ``torch::Tensor FluxRegister::step_field(int dim) const;``
+       (R:91, "FP64 sum c_s dt F, per area")
+     - ``HydroFluxProfile`` (dim 1). Dim 1 must be requested in
+       ``RegisterRequest::step_field`` (R:56-59), which X passes to
+       ``FluxRegister::reset`` (R:65-66). The values are per unit face area
+       (R:5-8). O multiplies by ``CoordinateImpl::face_area1()``
+       (``coordinate.hpp:254``, defined at ``coordinate.cpp:614``; also
+       ``face_area2/3``, ``coordinate.hpp:259, 264``), the same areas the
+       divergence applies (``coordinate.cpp:732-746``).
+   * - ``torch::Tensor RegisterMonitor::domain_total() const;`` (R:101,
+       "per row, step-end state, FP64")
+     - ``BudgetConsumer``'s ``total``. **R owns the domain totals** (R:21-22,
+       R:96); O sums them over blocks in ``flush``.
+   * - ``torch::Tensor RegisterMonitor::boundary(int dim) const;`` (R:100,
+       "outward step transfer, FP64")
+     - ``BudgetConsumer``'s ``boundary``, summed over ``dim``.
+   * - ``torch::Tensor RegisterMonitor::amounts(std::string const& name)
+       const;`` (R:99, "(nrows,) FP64")
+     - Single increments, read one name at a time. This is each fixer's or
+       floor's amount from ``FluxRegister::cell_amount`` (R:83-84) or
+       ``Fixer::apply`` (R:106-116), and each ``scale`` amount (R:76-78).
+       Per-face single increments exist only for kept parts (R:9-12, R:82);
+       lane O needs none.
+   * - ``torch::Tensor RegisterMonitor::counters() const;`` (R:102, "floors,
+       p* clamps, events")
+     - The ``budget_series.cdl`` counter variables.
+
+**When.** The monitor is stacked into X's one step-end read
+(R:21-22, ``meshblock.cpp:1566``). R resets it at ``begin_stage(0)`` and on
+``rollback()`` (R:23-24). Lane O never calls ``FluxRegister`` mutators
+(R:68-93); it only uses ``step_field`` and the monitor.
+
+**Conflict sent to lane R (pending, Tianhao).** Lane O does not design
+around these points until R answers:
+
+* **R-O1.** The rows of ``domain_total``, ``boundary`` and ``amounts`` are
+  not named, and requirement 6's E+PE, AAM and scalars are not shown
+  (R:99-101). Proposed: ``row_names()`` and stated coverage.
+* **R-O2.** ``counters()`` has no names, order or dtype (R:102). Proposed:
+  ``counter_names()``, int64.
+* **R-O3.** ``amounts(name)`` does not say whether an amount is a
+  flux correction already inside ``boundary`` (``scale``/``add``, R:74-78)
+  or a cell source (``cell_amount``, R:83-84). Proposed: an
+  ``AmountKind kind(name)`` query.
 
 * **Ordering.**
 
@@ -639,8 +689,9 @@ Check against the ten requirements:
    * - 1
      - one owner of every conservative face flux; one frame and area
        weighting
-     - Lane O owns no flux. ``HydroFluxProfile`` and ``boundary`` use R's
-       documented weighting. Open question L-1.
+     - Lane O owns no flux. R's posts are per unit face area, in global
+       components, and the divergence applies ``face_area<d>`` (R:5-8).
+       O applies ``CoordinateImpl::face_area1()`` to ``step_field(1)``.
    * - 2
      - named increments in a declared order; total and parts reportable
      - The budget reports them as ``total``, ``boundary``, ``fixer[f]`` and
@@ -665,16 +716,20 @@ Check against the ten requirements:
    * - 6
      - one device-side monitor (mass, species, E+PE, AAM, scalars); no host
        reads in a segment
-     - Its rows are the budget rows. The monitor is read on the host only in
-       ``flush``, outside segments (section 7).
+     - R owns the monitor and the domain totals (R:21-22, R:97-104), stacked
+       into X's step-end read. O adds no host read. The row coverage is
+       pending R-O1.
    * - 7
      - every fixer and floor registers what it added
-     - **Adopted.** It replaces A2. ``fixer[f]`` is R's per-fixer amount,
-       and ``aam_closure`` is a fixer channel, not part of the flux.
+     - **Adopted.** It replaces A2. ``fixer[f]`` is
+       ``RegisterMonitor::amounts(name)`` (R:99) for each ``Fixer::name()``
+       (R:110). ``aam_closure`` is A's ``AxialClosureFixer`` (R:106). The
+       amount kind is pending R-O3.
    * - 8
      - stated dtype under FP32; fixed storage a graph can capture
-     - Lane O needs FP64 sums for the residual. It casts at ``observe`` if
-       R holds FP32. Open question L-4.
+     - R accumulates in FP64 in both precisions (``kRegister``, R:13-15),
+       and every monitor value O reads is FP64 (R:91, R:99-101). No cast is
+       needed. L-4 is closed.
    * - 9
      - no added full-field copy per stage; memory and cost stated
      - Lane O adds no per-stage work. Per accepted step it adds a few
@@ -1996,6 +2051,16 @@ carries its class, and ``O_lines.csv`` has the same column.
     ``stride_iterator.hpp`` 140) and the FP32 storage application in
     ``src/mesh`` (section 8.1, counted by X's joint table).
 
+**PLACEHOLDER: lane I answer pending (Xinyue).** The rows
+``src/math/lubksb.h`` (71) and ``src/math/ludcmp.h`` (95) move to
+``src/implicit`` and sit in the "moved" column (166). Moves are not cut, so
+the answer cannot change the cut; only the row's owner note changes. The
+answer will be filled in by a later revision.
+
+Revision 3 part 1 (lane R's names in section 4 and the skeleton) changes no
+line-table row. The cut is unchanged: settled 5,377 (53.8 %), target 5,807
+(58.1 %), strict 3,833 (38.3 %), ``src`` only 6,107 (61.1 %).
+
 10. Migration
 -------------
 
@@ -2177,12 +2242,14 @@ in snapy changes for them.
 11. Open questions to other lanes
 ---------------------------------
 
-**11.1 Lane R, Linfeng.** Requirements 3, 7 and 10 answered the earlier
-questions on step integration, per-fixer amounts (the axial closure is a
-fixer) and restart. The rest:
+**11.1 Lane R** (provisional header by Tianhao, happysky19/snapy
+``543ff84f``). Requirements 3, 7 and 10 answered the earlier questions on
+step integration, per-fixer amounts (the axial closure is a fixer) and
+restart. The header answers L-4, L-5 and L-6 and part of L-1:
 
-L-1. Which conserved rows does the register hold (species, scalars, the AAM
-row of #357)? With which area weighting and frame (requirement 1)?
+L-1. **Partly closed.** The weighting and frame are per unit face area and
+global components (R:5-8). Which rows the monitor holds is open, as conflict
+R-O1 (section 4).
 
 L-2. May the user output callback receive a read-only register view
 (requirement 4), so user ``*_flux`` outputs stop rebuilding fluxes?
@@ -2191,16 +2258,18 @@ L-3. Is the outward transfer through the physical domain boundary available
 directly, including on the cubed sphere after reconciliation (requirement
 5)? Or does the budget sum it from the per-face entries?
 
-L-4. In what dtype is the step transfer held in an FP32 run (requirement 8)?
-The budget needs FP64 sums. Does R accumulate in FP64, or does lane O cast
-at ``observe``?
+L-4. **Closed**: FP64 in both precisions (``kRegister``, R:13-15; R:91,
+R:99-101).
 
-L-5. Who resets the register and monitor on a redo? Is a post-accept hook
-where ``observe`` runs guaranteed?
+L-5. **Closed**: ``begin_stage(0)`` zeroes the step and ``rollback()``
+resets all (R:23-24). The monitor is read in X's step-end read (R:21-22).
 
-L-6. Does the monitor own the domain totals (requirement 6), or does lane
-O's ``BudgetConsumer`` compute them from the state? This decides who owns the
-cycle line.
+L-6. **Closed**: R's ``RegisterMonitor`` owns the domain totals
+(``domain_total()``, R:101; R:21-22). Lane O reads it and prints the cycle
+line from it.
+
+R-O1, R-O2 and R-O3: the conflict sent to Tianhao (section 4). They are
+open until R answers.
 
 **11.2 Lane X, Xi.**
 
@@ -2230,12 +2299,16 @@ is refused for the first release, and O withdraws that request.
 * Reconcile the lane letters (above).
 * Xi: the mesh items of section 8.1 are **accepted** (rows 1-5).
 * Xinyue: accept the implicit items of section 8.1.
+
+  **PLACEHOLDER: lane I answer pending (Xinyue).** Moving
+  ``src/math/lubksb.h`` (71) and ``src/math/ludcmp.h`` (95) to
+  ``src/implicit``. The answer will be filled in by a later revision. Until
+  then both files stay in O's "moved" column (166 lines, not cut).
 * Owners of option headers: when to switch to the generator.
 
 **11.5 Responses to Tianhao's round-2 notes 1-17 (on rev 1 ``a39e0e8d``).**
 Each citation was checked at the pin before it was accepted. The note texts
-reached this revision as one-line summaries. **Note 1's text did not reach
-this revision**, so it has no disposition here.
+reached this revision as one-line summaries.
 
 .. list-table::
    :header-rows: 1
@@ -2245,9 +2318,10 @@ this revision**, so it has no disposition here.
      - reply
      - change made, with ``file:line`` at the pin
    * - 1
-     - open
-     - The note text was not available to this revision. It will be answered
-       on receipt.
+     - agree
+     - Closed as ``agree``. The section titles follow the kickoff's twelve in
+       order (1-12), and section 4 checks requirements 1-10 one by one. No
+       change was needed.
    * - 2
      - accept
      - Rev 1's "pure deletions 4,163" included 525 lines that are replaced,
@@ -2320,12 +2394,13 @@ this revision**, so it has no disposition here.
        per (direction, stage) slot (``riemann.hpp:18-21`` and ``C.rst``
        755-757 at C's head ``a7155840803fb95ff0d1563f5b3e2792b87f7594``).
 
-       * ``FluxRegisterView`` is now documented as the step transfer.
-       * If R exposes densities, O multiplies by ``face_area<d>`` as
-         ``coordinate.cpp:706`` does.
-       * R's header is still not published: no ``v3-design/R`` branch on
-         any of the 10 forks of chengcli/snapy. The names stay O's
-         placeholders (L-1).
+       * Revision 3: lane O now uses R's names (header ``543ff84f``).
+         ``FluxRegister::step_field(dim)`` is the FP64 step transfer per
+         unit area (R:91), and O multiplies it by
+         ``CoordinateImpl::face_area1()`` (``coordinate.hpp:254``; the
+         divergence applies the same areas at ``coordinate.cpp:732-746``).
+       * The placeholder ``FluxRegisterView`` and ``MonitorView`` types are
+         removed (section 4).
    * - 9
      - accept
      - ``budget_series.cdl`` now has ``int64 face_floor_count`` (C's
@@ -2414,7 +2489,7 @@ this revision**, so it has no disposition here.
 12. Skeleton index
 ------------------
 
-``docs/v3/skeleton/O/`` holds declarations only: no function bodies, 292
+``docs/v3/skeleton/O/`` holds declarations only: no function bodies, 285
 lines in total (``wc -l``). Nothing in it is compiled or run.
 
 .. list-table::
@@ -2429,10 +2504,10 @@ lines in total (``wc -l``). Nothing in it is compiled or run.
      - ``GridKind``, ``Field``, ``Frame``, ``Sink``, ``GriddedWriter``,
        ``combine_parts``; #350 helpers kept (section 3.1)
    * - ``diagnostics.hpp``
-     - 72
-     - ``FluxRegisterView`` (requirement 3), ``MonitorView``
-       (requirements 6, 7), ``Consumer``, ``BudgetConsumer``,
-       ``HydroFluxProfile``, ``FieldDiagnostic`` (sections 3.2, 4)
+     - 63
+     - ``Consumer``, ``BudgetConsumer``, ``HydroFluxProfile`` and
+       ``FieldDiagnostic``, reading lane R's ``FluxRegister::step_field`` and
+       ``RegisterMonitor`` (R header ``543ff84f``; sections 3.2, 4)
    * - ``restart.hpp``
      - 50
      - The #367 contract, bundle magic, ``OutputSchedule``,
@@ -2447,5 +2522,5 @@ lines in total (``wc -l``). Nothing in it is compiled or run.
      - 17
      - Generator interface (section 3.3)
    * - ``budget_series.cdl``
-     - 22
+     - 24
      - Budget time-series format (section 3.2)
