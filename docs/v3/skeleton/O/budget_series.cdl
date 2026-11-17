@@ -1,6 +1,6 @@
 // V3 lane O skeleton: budget time series (CDL). <basename>.budget.nc,
 // NetCDF4, root rank appends one record per interval, all sums NC_DOUBLE.
-// Source: R's RegisterMonitor (happysky19/snapy 175af2fc, R:91-104), summed
+// Source: R's RegisterMonitor (happysky19/snapy 4c59162a, R:90-103), summed
 // over blocks; one row set per register instance (hydro, each Scalar).
 netcdf budget {
 dimensions:
@@ -9,15 +9,15 @@ dimensions:
 variables:
     double time(time) ; int64 cycle(time) ; double dt(time) ;
     double interval(time) ;
-    char row_name(row, nchar) ;          // row_names() (R:94): conserved, e+pe, aam
-    char source_name(source, nchar) ;    // amount_names() (R:95), kind != flux_correction
-    char counter_name(counter, nchar) ;  // counter_names() (R:100)
+    char row_name(row, nchar) ;          // row_names() (R:93): conserved, e+pe, aam
+    char source_name(source, nchar) ;    // amount_names() (R:94), kind added (R:25-31)
+    char counter_name(counter, nchar) ;  // counter_names() (R:99)
     char minimum_name(minimum, nchar) ;  // record_min names, e.g. pos_min
-    double total(time, row) ;            // domain_total() (R:99)
-    double boundary(time, row) ;         // sum_d boundary(d) (R:98), area-integrated
-    double source(time, source, row) ;   // amounts(name) (R:97)
+    double total(time, row) ;            // domain_total() (R:98)
+    double boundary(time, row) ;         // sum_d boundary(d) (R:97), area-integrated
+    double source(time, source, row) ;   // amounts(name) (R:96)
     double residual(time, row) ;         // dtotal + boundary - sum source
-    int64 counter(time, counter) ;       // counters() (R:101), int64
-    double minimum(time, minimum) ;      // minima() (R:102)
+    int64 counter(time, counter) ;       // counters() (R:100), int64
+    double minimum(time, minimum) ;      // minima() (R:101)
     :snapy_budget_version = 1 ;
 }

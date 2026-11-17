@@ -2,8 +2,7 @@
 // V3 lane O skeleton: declarations only, not built. Pin 9e5de2d4.
 // One module for restart write, bundle and read. Replaces restart.cpp,
 // combine_restart.cpp, read_restart_file.*. Stored vs derived: O.rst sec. 3.
-// Register requirement 10 (R header 543ff84f:23-24, "Nothing to restart"):
-// the FluxRegister and RegisterMonitor are derived, never written here.
+// Req 10: register and monitor never written (R.rst@4c59162a:463-467).
 #include <array>
 #include <cstdint>
 #include <map>
@@ -23,12 +22,13 @@ inline constexpr std::array<char const*, 3> kHydroReferenceGrid = {
     "hydro_ref_x1f", "hydro_ref_x2f", "hydro_ref_x3f"};
 inline constexpr char kRestartBundleMagic[] = "SNAPY_RESTART_BUNDLE_V1";
 
-//! the stored keys (Xi note 1). Every other Variables entry and every
-//! register/StateStore tensor stays out (req 10); scalar_r is rebuilt.
-inline constexpr std::array<char const*, 12> kRestartStoredKeys = {
+//! stored keys (Xi note 1; J16: solid, restart.cpp:31-38 -> meshblock.cpp:
+//! 1733-1744). Registers/StateStore stay out (req 10); scalar_r is rebuilt.
+inline constexpr std::array<char const*, 14> kRestartStoredKeys = {
     "hydro_u", "hydro_w", "hydro_u_stored", "hydro_ref", "hydro_ref_species",
-    "scalar_s", "fill_solid_hydro_u", "boundary_reference_w",
-    "boundary_reference_r", "last_time", "last_cycle", "output_key"};
+    "scalar_s", "solid", "fill_solid_hydro_u", "fill_solid_hydro_w",
+    "boundary_reference_w", "boundary_reference_r", "last_time", "last_cycle",
+    "output_key"};
 
 struct OutputSchedule {
   std::vector<int64_t> file_number;  // by position (out<n>)

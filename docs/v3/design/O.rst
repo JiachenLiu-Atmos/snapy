@@ -386,11 +386,11 @@ Two consumers replace ``src/diagnostics``:
   **No double counting.**
 
   * Amounts of ``AmountKind`` ``cell_source``, ``floor`` and ``fixer``
-    enter the identity (R:28-33; R.rst:484-488).
+    enter the identity (R:25-31; R.rst:550-554).
   * A ``flux_correction`` amount is a face change already inside
     ``boundary``. It is reported as a part (requirement 2) and not added
     again.
-  * Counters (limiter, positivity, face-floor and p* counts; R:100-101)
+  * Counters (limiter, positivity, face-floor and p* counts; R:99-100)
     are counts and never enter it.
 
 * ``HydroFluxProfile``: the horizontal mean of the registered x1 transfer,
@@ -409,8 +409,12 @@ is unchanged.
 * Dimensions: ``time`` (unlimited), ``row`` and ``fixer``.
 * Rows: ``mass``, ``species/<n>``, ``energy`` (E+PE), ``aam`` and
   ``scalar/<n>``.
-* Fixers: ``limiter``, ``positivity``, ``vic_clamp``, ``gravity_work`` and
-  ``aam_closure``.
+* Sources: every ``amount_names()`` entry whose ``kind`` is ``cell_source``,
+  ``floor`` or ``fixer`` (for example A's ``aam_closure``, a ``fixer``).
+  ``positivity`` and ``vic.mass_clamped`` are ``flux_correction``, and
+  ``chem.elements`` and ``vic.momentum_t.top`` are ``diagnostic``; these are
+  reported, not added (R.rst:550-554, 572-575). The gravity-work fixer has
+  no poster after Cheng's rulings (a) and (b) (R.rst:572-573).
 * Variables: ``total``, ``boundary``, ``fixer``, ``residual``, and the
   monitor counters.
 * Requested with ``- {type: budget, dt: ...}``.
@@ -484,12 +488,20 @@ line budget.
 * ``hydro_w`` (copied with every other defined entry of ``vars``,
   ``restart.cpp:31-38``; kept stored, Xi note 1);
 * ``scalar_s`` (``:30-34``);
-* ``fill_solid_hydro_u`` and the boundary references, when present;
+* ``solid``, ``fill_solid_hydro_u`` and ``fill_solid_hydro_w``, when present
+  (J16). ``solid`` is a ``vars`` entry set at initialization
+  (``meshblock.cpp:514, 541-561``). ``restart.cpp:31-38`` writes it with
+  every defined entry, and ``_init_from_restart`` restores it in its
+  move-to-device loop (``meshblock.cpp:1733-1744``). It is then read by the
+  solid fill (``:936-938``) and the time step (``:602-603``).
+  ``fill_solid_hydro_w`` is read at ``hydro.cpp:495``;
+* the boundary references, when present;
 * ``last_time`` and ``last_cycle``;
 * the output schedule (``:73-99``).
 
 The stored set is the explicit list ``kRestartStoredKeys`` in
-``restart.hpp``. ``write_restart`` copies only those keys. Registers and
+``restart.hpp`` (14 keys, with ``solid`` and ``fill_solid_hydro_w`` added
+for J16). ``write_restart`` copies only those keys. Registers and
 ``StateStore`` tensors are never in the ``Variables`` it copies
 (requirement 10).
 
@@ -502,8 +514,8 @@ today's stored set, so this needs no FOR CHENG item.
 **Load into fixed storage (Xi note 9).** The restart load ``copy_``\ s each
 stored tensor into its ``StateStore`` buffer, cast to the dtype of that
 buffer's ``PrecisionPolicy`` row (lane X). A restart is written only after
-an accepted step, after ``begin_step()`` has zeroed the register (R:50;
-R.rst:398-401). So the file needs no new stage or dtype field.
+an accepted step, after ``begin_step()`` has zeroed the register (R:48;
+R.rst:464-467). So the file needs no new stage or dtype field.
 
 **Derived** (never written):
 
@@ -641,11 +653,31 @@ O-10 The cycle line stays, printed from the budget totals.
 
 Lane O **posts nothing** to the register or the monitor and **corrects
 nothing**. It is a reader only. The names below are lane R's **frozen
-header, rev 4 (R.rst rev 2)**: happysky19/snapy
-``175af2fca68f5ae615b2b169a2d79f433df0b719``,
+header, rev 4.2 (R.rst rev 2.2)**: happysky19/snapy
+``4c59162ae37080d0ab307b2823742b44f46da7c3``,
 ``docs/v3/skeleton/R/flux_register.hpp``, cited as ``R:<line>``. R's
 contract text is ``docs/v3/design/R.rst`` at the same sha, cited as
-``R.rst:<line>``. This replaces the provisional header ``543ff84f``.
+``R.rst:<line>``. Every ``R:``/``R.rst:`` citation in this document is at
+that sha.
+
+**What rev 2.2 changed, checked against O** (R.rst:20-50):
+
+* ``weights()`` (R:50) returns the stage's ``harp::IntegratorWeight`` so
+  that a **poster** can pass its ``stage_weight``. **O does not need it.**
+  O posts nothing, and every value it reads (``step_field``, ``amounts``,
+  ``boundary``, ``domain_total``) already carries the weights (R:85;
+  R.rst:555-559).
+* ``AmountKind::diagnostic`` (R:30) is for amounts that change no row
+  (``chem.elements``, ``vic.momentum_t.top``; R.rst:503-504, 790-793).
+  **O excludes ``diagnostic`` amounts from the budget residual** and only
+  reports them. R's formula adds only ``cell_source``, ``floor`` and
+  ``fixer`` (R.rst:550-554).
+* ``after_combine`` (R:22) is now entered after **each** stage's combine
+  (R.rst:35-36), and its amounts accumulate into the step like the others
+  (``end_stage``, R:85). **O reads amounts only once per accepted step**, in
+  ``observe`` after the accept and before the next ``begin_step()``
+  (R.rst:560). By then every stage's ``after_combine`` amounts are inside
+  the step sums, so the per-stage entry changes nothing for O.
 
 **What lane O reads, with R's exact signatures:**
 
@@ -656,78 +688,95 @@ contract text is ``docs/v3/design/R.rst`` at the same sha, cited as
    * - R's declaration
      - lane O's use
    * - ``torch::Tensor FluxRegister::step_field(int dim) const;``
-       (R:85, "kRegister, per unit area")
+       (R:84, "kRegister, per unit area")
      - ``HydroFluxProfile`` (dim 1).
 
        * Dim 1 must be requested in ``RegisterRequest::step_field``
-         (R:40), which X passes to ``FluxRegister::reset`` (R:45-46).
-       * Units are per unit face area (R:5).
+         (R:38), which X passes to ``FluxRegister::reset`` (R:43-44).
+       * Units are per unit face area (R:4).
        * **The only place O applies an area**: it multiplies by
          ``CoordinateImpl::face_area1()`` (``coordinate.hpp:254``, defined
          at ``coordinate.cpp:614``; ``face_area2/3`` at
          ``coordinate.hpp:259, 264``). The divergence applies the same
          areas (``coordinate.cpp:732-746``).
    * - ``std::vector<std::string> RegisterMonitor::row_names() const;``
-       (R:94)
+       (R:93)
      - The budget rows: the conserved rows in row order, then the derived
-       rows ``e+pe`` (lane I) and ``aam`` (lane A) (R:35-36;
-       R.rst:462-476). Scalars have their own register instance and
-       monitor, one per Scalar module (R:43; R.rst:474). ``BudgetConsumer``
+       rows ``e+pe`` (lane I) and ``aam`` (lane A) (R:33-34;
+       R.rst:528-542). Scalars have their own register instance and
+       monitor, one per Scalar module (R:41; R.rst:539-540). ``BudgetConsumer``
        reads every instance.
-   * - ``torch::Tensor RegisterMonitor::domain_total() const;`` (R:99,
+   * - ``torch::Tensor RegisterMonitor::domain_total() const;`` (R:98,
        "fluid cells, (nrows,) FP64")
-     - ``total``. **R owns the domain totals** (R:90-91; R.rst:394-397). O
+     - ``total``. **R owns the domain totals** (R:89-90; R.rst:460-463). O
        sums them over blocks in ``flush``.
-   * - ``torch::Tensor RegisterMonitor::boundary(int dim) const;`` (R:98,
+   * - ``torch::Tensor RegisterMonitor::boundary(int dim) const;`` (R:97,
        "area-integrated, outward, FP64")
      - ``boundary``, summed over ``dim``. It is **area-integrated**
-       (R.rst:489-493), so O applies no area to it. Derived rows have no
+       (R.rst:555-559), so O applies no area to it. Derived rows have no
        ``boundary`` entry; their owners post the transfer as a
        ``derived_amount("<row>.boundary.<dim>", ..., cell_source)``
-       (R:73-75; R.rst:476-479), and the formula below needs no special
+       (R:72-74; R.rst:542-545), and the formula below needs no special
        case.
-   * - ``std::vector<std::string> amount_names() const;`` (R:95),
-       ``AmountKind kind(std::string const& name) const;`` (R:96),
-       ``torch::Tensor amounts(std::string const& name) const;`` (R:97,
+   * - ``std::vector<std::string> amount_names() const;`` (R:94),
+       ``AmountKind kind(std::string const& name) const;`` (R:95),
+       ``torch::Tensor amounts(std::string const& name) const;`` (R:96,
        "(nrows,) FP64")
      - **Single increments**, read one name at a time. ``AmountKind``
-       (R:28-33):
+       (R:25-31):
 
        * ``flux_correction`` is already inside ``boundary`` and is reported
          only.
        * ``cell_source``, ``floor`` and ``fixer`` are added.
+       * ``diagnostic`` changes no row and is reported only.
 
-       ``gravity_work`` as a source is the fixer's correction only
+       The gravity-work fixer has no poster after Cheng's rulings
+       (R.rst:572-573). If it returns, only its correction is a source
        (Xi note 3c). R's gravity-work face posts are inside ``boundary``
-       (R:21).
-   * - ``counter_names()`` (R:100), ``counters()`` (R:101, int64);
-       ``minima()`` (R:102, FP64)
+       (R:19).
+   * - ``counter_names()`` (R:99), ``counters()`` (R:100, int64);
+       ``minima()`` (R:101, FP64)
      - The ``counter`` and ``minimum`` variables of ``budget_series.cdl``,
        by name. Counts never enter the budget identity.
 
-**The budget identity** (R.rst:484-488):
+**The budget identity** (R.rst:550-554):
 ``residual = delta domain_total + sum_d boundary(d) - sum amounts(name)``
-over ``kind(name)`` in {``cell_source``, ``floor``, ``fixer``}.
+over ``kind(name)`` in {``cell_source``, ``floor``, ``fixer``}. ``flux_correction``
+and ``diagnostic`` are reported, never added.
 
 **When.**
 
-* The monitor is read once, in X's step-end read (R.rst:394-397;
-  ``meshblock.cpp:1566``).
-* ``begin_step()`` zeroes the step and the monitor (R:50).
-* ``rollback()`` zeroes the register and the monitor on every block (R:87;
-  R.rst:398-401).
+* **Cross-rank amount SUM: lane O's.** Lane X rev 3.1 assigns it to O and
+  keeps only the MAX read of the retry flags at step end
+  (UCzhangxi/snapy ``bac201d1c06e3eba3f804979789fdf83ff9baa30``,
+  ``X.rst:103-105, 165-173``; ``meshblock.cpp:1559-1568`` at the pin).
+  In O:
+
+  * ``observe`` accumulates the FP64 amounts, boundary sums and totals on
+    the device every accepted step. There is no host read and no
+    collective.
+  * ``flush`` does the cross-rank SUM of those FP64 sums (``Layout``'s
+    process group) and the one host read, once per output interval. The
+    output interval is the budget record, and the cycle line every
+    ``ncycle_out`` cycles.
+
+  R.rst:460-463 says all monitor values are read in X's step-end read. X
+  rev 3.1 narrows that to the retry flags, and O follows X (see 11.7).
+* ``begin_step()`` zeroes the step and the monitor (R:48).
+* ``rollback()`` zeroes the register and the monitor on every block (R:86;
+  R.rst:464-467).
 * ``observe`` runs after the accept and before the next ``begin_step()``
-  (R.rst:494).
-* Lane O calls no ``FluxRegister`` mutator (R:45-87). It uses only
-  ``step_field`` and the monitor (``FluxRegister::monitor()``, R:88).
+  (R.rst:560).
+* Lane O calls no ``FluxRegister`` mutator (R:43-86). It uses only
+  ``step_field`` and the monitor (``FluxRegister::monitor()``, R:87).
 
 **R-O1, R-O2 and R-O3 are settled** by the frozen header:
 
-* R-O1: ``row_names()`` (R:94), with the derived rows ``e+pe`` and
-  ``aam`` (R:36) and scalars per instance. ``boundary(dim)`` is
-  area-integrated (R:98).
-* R-O2: ``counter_names()`` and int64 ``counters()`` (R:100-101).
-* R-O3: ``AmountKind`` and ``kind(name)`` (R:28-33, R:96).
+* R-O1: ``row_names()`` (R:93), with the derived rows ``e+pe`` and
+  ``aam`` (R:34) and scalars per instance. ``boundary(dim)`` is
+  area-integrated (R:97).
+* R-O2: ``counter_names()`` and int64 ``counters()`` (R:99-100).
+* R-O3: ``AmountKind`` and ``kind(name)`` (R:25-31, R:95).
 
 * **Ordering.**
 
@@ -754,9 +803,9 @@ Check against the ten requirements:
      - one owner of every conservative face flux; one frame and area
        weighting
      - Lane O owns no flux. R's posts are per unit face area, in coord's
-       ``flux2global<d>_`` frame (R:5-6). O applies
+       ``flux2global<d>_`` frame (R:4-5). O applies
        ``CoordinateImpl::face_area1()`` to ``step_field(1)`` only.
-       ``boundary(dim)`` is already area-integrated (R:98).
+       ``boundary(dim)`` is already area-integrated (R:97).
    * - 2
      - named increments in a declared order; total and parts reportable
      - The budget reports them as ``total``, ``boundary``, ``fixer[f]`` and
@@ -781,25 +830,25 @@ Check against the ten requirements:
    * - 6
      - one device-side monitor (mass, species, E+PE, AAM, scalars); no host
        reads in a segment
-     - R owns the monitor and the domain totals (R:90-104). The rows are
+     - R owns the monitor and the domain totals (R:89-103). The rows are
        ``row_names()``: conserved, then ``e+pe`` and ``aam``, with scalars
-       per instance (R:94, R:36, R:43). The monitor's host read is lane X's
-       step-end read (R.rst:394-397; ``meshblock.cpp:1566``; ``X.rst:120-121``
-       at ``77c65d5a``). O adds no host read per step (section 7), and
-       ``flush`` adds only the cross-rank reduction of the FP64 sums at the
-       budget cadence.
+       per instance (R:93, R:34, R:41). X reads only the retry flags at step
+       end (``X.rst:165-173`` at ``bac201d1``). O's ``observe`` accumulates
+       on the device with no host read per step. O's ``flush`` makes the
+       cross-rank SUM and the host read once per output interval (section 4,
+       "When").
    * - 7
      - every fixer and floor registers what it added
      - **Adopted.** It replaces A2. Each source is
-       ``RegisterMonitor::amounts(name)`` (R:97) with ``kind(name)`` in
-       {``cell_source``, ``floor``, ``fixer``} (R:28-33, R:96).
-       ``aam_closure`` is A's ``AxialClosureFixer`` (R:105), which posts
-       ``AmountKind::fixer`` (R:112-113).
+       ``RegisterMonitor::amounts(name)`` (R:96) with ``kind(name)`` in
+       {``cell_source``, ``floor``, ``fixer``} (R:25-31, R:95).
+       ``aam_closure`` is A's ``AxialClosureFixer`` (R:104), which posts
+       ``AmountKind::fixer`` (R:111-112).
    * - 8
      - stated dtype under FP32; fixed storage a graph can capture
      - Step sums and amounts are FP64, and FP32 on MPS, which has no FP64
-       (R.rst:387, 561). Every monitor value O reads is FP64 there (R:97-99,
-       R:102); counters are int64 (R:101). O casts nothing on CUDA or CPU.
+       (R.rst:453, 644). Every monitor value O reads is FP64 there (R:96-98,
+       R:101); counters are int64 (R:100). O casts nothing on CUDA or CPU.
        On MPS, O widens to double on the host after the read, and the
        residual tolerance is FP32-level (section 6). L-4 is closed.
    * - 9
@@ -812,7 +861,7 @@ Check against the ten requirements:
      - the register is rebuilt, not written to restart
      - **Adopted.** It replaces the first draft's "derived" assumption.
        ``restart.hpp`` writes no register or monitor state. R: "Nothing is
-       written to restart" (R.rst:401).
+       written to restart" (R.rst:467).
 
 Assumption A3 of the first draft (output outside captured segments, ``dt``
 as a device value) is not a register requirement. It moves to section 7 and
@@ -824,7 +873,7 @@ letters) is in 11.3 and 11.4.
 
 The identity: for every budget row,
 ``residual = delta domain_total + sum_d boundary(d) - sum amounts`` over
-the kinds ``cell_source``, ``floor`` and ``fixer`` (R.rst:484-488;
+the kinds ``cell_source``, ``floor`` and ``fixer`` (R.rst:550-554;
 section 3.2). With
 FP64 accumulation, ``|residual|`` should be at round-off relative to
 ``total``. The tolerance (proposed ``1e-12 * |total|``, *estimate*) is set
@@ -963,9 +1012,9 @@ only after that (O6b).
   ``NC_DOUBLE`` with ``double_precision`` (``output_type.hpp:79-83``).
   pnetcdf stays float only (``pnetcdf.cpp:58-61``).
 * **Budget.** Accumulation, totals and the file are all FP64. R holds every
-  value O reads in FP64 (R:97-99, R:102), so ``observe`` casts nothing (Xi
+  value O reads in FP64 (R:96-98, R:101), so ``observe`` casts nothing (Xi
   note 3a). The exception is MPS, which has no FP64: R's sums are FP32
-  there (R.rst:387). O widens them to double after the read, and G-5's
+  there (R.rst:453). O widens them to double after the read, and G-5's
   residual tolerance on MPS is FP32-level.
 * **Restart.** #367's rules are unchanged: FP64 totals, anomaly bits in the
   run dtype, FP64 background and grid, and rejection of changed grids.
@@ -1004,8 +1053,10 @@ does today. Nothing runs inside a graph,
 so no value is baked in, and requirement 6's no-host-read rule holds. A
 device ``dt`` comes only if X parameterizes graphs later.
 
-The monitor's host read is X's stacked step-end retry read
-(``meshblock.cpp:1566``, ``X.rst:122``). O adds none per step.
+X's step-end host read is only the MAX of the retry flags
+(``meshblock.cpp:1566``; ``X.rst:165-173`` at ``bac201d1``). O's monitor
+read is in ``flush``: the cross-rank SUM and one host read per output
+interval, outside every captured segment. O adds none per step.
 
 Mapping to the roadmap milestones:
 
@@ -1033,8 +1084,8 @@ Mapping to the roadmap milestones:
        budgets" (``:208``).
    * - G3
      - "Keep fallback counters, clamp meters ... gravity work correct on
-       every replay" (``:224``): the ``vic_clamp`` and ``gravity_work``
-       channels are read only in ``flush``.
+       every replay" (``:224``): R's amounts and counters (for example
+       ``vic.mass_clamped``) are read only in ``flush``.
    * - G4
      - ``combine_on_root`` barriers and the budget collective are outside
        segments. The budget series is the evidence for
@@ -1183,6 +1234,7 @@ To the implicit owner (lane I, Xinyue):
    * - ``src/math/lubksb.h``
      - 71
      - **Accepted by Xinyue (lane I)**, at its current path ``src/math/``.
+       Lane I's 2,821 includes it (``I.rst`` rev 2, ``8c2ba226``).
        It counts in lane I and in neither lane's cut. Its only includer is
        ``implicit/forward_sweep_impl.h:14``.
        ``tests/test_lu_failure.cpp:2`` reaches it through
@@ -2150,7 +2202,9 @@ carries its class, and ``O_lines.csv`` has the same column.
 
 **``src/math`` (Xinyue's lane I answer).** Lane I takes ``lubksb.h`` and
 ``ludcmp.h`` at their path, ``src/math/``. Lane I's budget is 2,821 to
-2,033 with them.
+2,033, and **lane I's 2,821 includes these 166 lines** (Xinyue, lane I
+thread; ``I.rst`` rev 2 at XinyueWang05/snapy ``8c2ba226``). So the roll-up
+below, 9,830 to 4,473, counts them once, in lane I. **Closed.**
 
 * At the pin, ``git show 9e5de2d4:src/math/lubksb.h | wc -l`` gives 71 and
   ``.../ludcmp.h`` gives 95: 166 lines.
@@ -2276,7 +2330,10 @@ adds only:
 
 These are the two addition rows in the table above. Whether S deletes the
 127 lines or all 226 is S's count; O books none of the deletion.
-``Xinyue``'s confirmation of the ranges is pending in the lane O thread.
+O keeps 127/99 in this revision. **The final ranges follow S rev 2**
+(Xinyue, ``S.rst`` section 9, due 18:00 EST). O maps to schema rows
+exactly the rows S deletes. If S's ranges differ from the 127 above, the
+next revision adjusts 9.3; O's +20 does not depend on the split.
 
 10. Migration
 -------------
@@ -2487,35 +2544,34 @@ in snapy changes for them.
 11. Open questions to other lanes
 ---------------------------------
 
-**11.1 Lane R** (frozen header rev 4, R.rst rev 2, happysky19/snapy
-``175af2fc``). Requirements 3, 7 and 10 answered the earlier questions on
+**11.1 Lane R** (frozen header rev 4.2, R.rst rev 2.2, happysky19/snapy
+``4c59162a``). Requirements 3, 7 and 10 answered the earlier questions on
 step integration, per-fixer amounts (the axial closure is a fixer) and
 restart. The frozen header closes the rest except L-2 and L-3:
 
-L-1. **Closed**: rows by ``row_names()`` (R:94; R.rst:462-476); per unit
-area in coord's frame (R:5-6).
+L-1. **Closed**: rows by ``row_names()`` (R:93; R.rst:528-542); per unit
+area in coord's frame (R:4-5).
 
 L-2. **Open.** May the user output callback receive a read-only register
 view (requirement 4), so user ``*_flux`` outputs stop rebuilding fluxes?
 
 L-3. **Partly closed**: ``boundary(dim)`` is the block's physical-boundary
-sum, area-integrated (R:98; R.rst:489-493). Whether a cubed-sphere panel
-seam counts as physical is S's reconciliation rule (``replace``, R:64-65).
+sum, area-integrated (R:97; R.rst:555-559). Whether a cubed-sphere panel
+seam counts as physical is S's reconciliation rule (``replace``, R:63-64).
 
-L-4. **Closed**: FP64, and FP32 on MPS (R.rst:387, 561).
+L-4. **Closed**: FP64, and FP32 on MPS (R.rst:453, 644).
 
-L-5. **Closed**: ``begin_step()`` (R:50) and ``rollback()`` (R:87;
-R.rst:398-401); ``observe`` runs before the next ``begin_step()``
-(R.rst:494).
+L-5. **Closed**: ``begin_step()`` (R:48) and ``rollback()`` (R:86;
+R.rst:464-467); ``observe`` runs before the next ``begin_step()``
+(R.rst:560).
 
-L-6. **Closed**: R's ``RegisterMonitor`` owns the domain totals (R:99;
-R:90-91). Lane O prints the cycle line from them.
+L-6. **Closed**: R's ``RegisterMonitor`` owns the domain totals (R:98;
+R:89-90). Lane O prints the cycle line from them.
 
 R-O1, R-O2 and R-O3: **settled** in the frozen header (section 4).
 
-Citations ``R:<line>`` in the response tables 11.5 and 11.6 refer to the
-provisional header ``543ff84f``, as written at the time. Sections 3-7
-cite the frozen header ``175af2fc``.
+Every ``R:`` and ``R.rst:`` citation in this document, including the
+response tables 11.5 and 11.6, is at ``4c59162a`` (rev 4 re-cite).
 
 **11.2 Lane X, Xi.**
 
@@ -2547,9 +2603,9 @@ is refused for the first release, and O withdraws that request.
 * Xinyue: accept the implicit items of section 8.1.
 
   **Closed** (Xinyue, lane I thread): lane I accepts ``lubksb.h`` (71) and
-  ``ludcmp.h`` (95) at ``src/math/``. Lane I's budget is 2,821 to 2,033
-  with them. They are in neither lane's cut, and O's roll-up baseline drops
-  them (section 9).
+  ``ludcmp.h`` (95) at ``src/math/``. Lane I's 2,821 (to 2,033) includes
+  them (``I.rst`` rev 2, ``8c2ba226``). They are in neither lane's cut, and
+  O's roll-up is 9,830 to 4,473 (section 9).
 * Owners of option headers: when to switch to the generator.
 
 
@@ -2641,9 +2697,9 @@ reached this revision as one-line summaries.
        per (direction, stage) slot (``riemann.hpp:18-21`` and ``C.rst``
        755-757 at C's head ``a7155840803fb95ff0d1563f5b3e2792b87f7594``).
 
-       * Revision 3: lane O now uses R's names (header ``543ff84f``).
+       * Lane O now uses R's names (frozen header ``4c59162a``).
          ``FluxRegister::step_field(dim)`` is the FP64 step transfer per
-         unit area (R:91), and O multiplies it by
+         unit area (R:84), and O multiplies it by
          ``CoordinateImpl::face_area1()`` (``coordinate.hpp:254``; the
          divergence applies the same areas at ``coordinate.cpp:732-746``).
        * The placeholder ``FluxRegisterView`` and ``MonitorView`` types are
@@ -2773,13 +2829,14 @@ named.
      - Three changes:
 
        * (a) Section 6 no longer casts in ``observe``, because R holds
-         FP64 in both precisions (R:13-15).
+         FP64, and FP32 on MPS (R.rst:453).
        * (b) Section 4: O reads ``boundary(dim)`` as area-integrated, so
-         the area is applied once, only to ``step_field``. R:100 does not
-         state the units, so a confirmation is added to R-O1.
+         the area is applied once, only to ``step_field``. R now states it
+         (R:97; R.rst:555-559).
        * (c) R-O3: ``gravity_work`` as a source fixer is the fixer's
-         correction only (``hydro.hpp:301-311``), not R's face work (R:27),
-         which is inside ``boundary``.
+         correction only (``hydro.hpp:301-311``), not R's face work (R:19),
+         which is inside ``boundary``. Since R rev 2 the fixer has no poster
+         (R.rst:572-573).
    * - 4
      - accept
      - One choice: the **host dt of the accepted step**.
@@ -2834,7 +2891,8 @@ named.
      - Section 3.4: on load, each stored tensor is ``copy_``\ ed into its
        ``StateStore`` buffer, cast to that buffer's ``PrecisionPolicy`` row
        dtype. A restart is written only after an accepted step (stage 0,
-       register empty, R:23-24), so the file needs no new stage or dtype
+       register empty after ``begin_step()``, R:48; R.rst:464-467), so the
+       file needs no new stage or dtype
        field.
    * - 10
      - accept
@@ -2857,6 +2915,34 @@ named.
        are in ``src/diagnostics``. The O1 row now says it closes lane X's
        row. The line count is unaffected: neither lane cuts it twice.
 
+**11.7 Answer to lane R** (``R.rst:1603-1604`` at ``4c59162a``: "O: confirm
+``AmountKind`` and the budget formula of 4.2 against ``c12f78bb``").
+
+**Agree.** I checked R's ``AmountKind`` (R:25-31) and the budget formula of
+R.rst 4.2 (R.rst:550-554) against O's identity (section 4, "The budget
+identity"; section 5; ``diagnostics.hpp``). They are the same:
+
+``residual = delta domain_total + sum_d boundary(d) - sum amounts`` of
+kinds ``cell_source``, ``floor`` and ``fixer``. ``flux_correction`` and
+``diagnostic`` are reported only.
+
+Area-integrated ``boundary(dim)`` (R:97; R.rst:555-559) and the
+derived-row convention, ``derived_amount("<row>.boundary.<dim>", ...,
+cell_source)`` (R.rst:542-545), need no special case in O.
+
+Three alignments on O's side, made in this revision, none of them a
+conflict:
+
+1. O's fixer list followed R.rst:572-575. ``gravity_work`` is dropped (no
+   poster after Cheng's rulings). ``positivity`` and ``vic.mass_clamped``
+   are ``flux_correction``.
+2. The reset point is ``begin_step()`` (R:48), not ``begin_stage(0)``.
+3. Read timing follows lane X rev 3.1 (``X.rst:165-173`` at ``bac201d1``).
+   X reads only the retry flags at step end, and O's ``flush`` makes the
+   amount SUM and the host read. R.rst:460-463 still says all monitor
+   values are read in X's step-end read. **Request to R:** narrow that
+   sentence to the retry flags so R, X and O read the same.
+
 12. Skeleton index
 ------------------
 
@@ -2878,7 +2964,7 @@ lines in total (``wc -l``). Nothing in it is compiled or run.
      - 61
      - ``Consumer``, ``BudgetConsumer``, ``HydroFluxProfile`` and
        ``FieldDiagnostic``, reading lane R's ``FluxRegister::step_field`` and
-       ``RegisterMonitor`` (frozen R header ``175af2fc``; sections 3.2, 4)
+       ``RegisterMonitor`` (frozen R header ``4c59162a``; sections 3.2, 4)
    * - ``restart.hpp``
      - 57
      - The #367 contract, bundle magic, ``OutputSchedule``,
