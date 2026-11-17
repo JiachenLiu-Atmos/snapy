@@ -4,10 +4,10 @@ V3 design, lane A: rotation, axial angular momentum, sources, diffusion
 
 :Lane: A (rotation, axial angular momentum (AAM), source terms, diffusion)
 :Owner: Jiachen Liu (alternate: Xi Zhang)
-:Revision: 4, part 1 (design and contract only, CHANGE 5): the radial rows
-           (failure masking, X's retry contract, the diffusion_radial.cpp
-           booking; 1.6). Rev 3 final (2b0ac426) is cited to lane R's frozen
-           header 4c59162a. src/forcing 2,870 -> 2,087.
+:Revision: 4, part 2a (design and contract only, CHANGE 5): Cheng's
+           decision keeps the radial-conduction abort for V3 (settled); the
+           ``diffusion.radial`` retry cause is reserved (4.3); the retry path
+           is out of the PR plan; src/forcing 2,870 -> 2,088 (1.6).
 :Reviewers (round 2): Xi (lane X), Zoey
 :Pins: snapy ``9e5de2d4ce497d0b2d4da3295fc1fe969fe7e410``; kintera ``3f5ff938``
        (section 8); lane R frozen header ``happysky19/snapy@4c59162ae37080d0ab307b2823742b44f46da7c3``
@@ -97,7 +97,8 @@ name or call                               R:line      what lane A does with it
 ``RegisterRequest``                        32-39       ``keep`` (35): ``riemann.central@2``, ``@3``
                                                        (``exact``), ``vic.momentum_t@1``, kept per face;
                                                        ``derived`` (34): ``"aam"``; ``retry`` (37):
-                                                       ``"diffusion.radial"``; ``step_field`` (38): {1}
+                                                       none in V3 (``diffusion.radial`` reserved,
+                                                       4.3); ``step_field`` (38): {1}
 ``riemann.central``                        35          a kept part written in place by C's kernel
                                                        (R.rst:357-359), one summed mass row on x2/x3
                                                        (R.rst:165-168), totals (R.rst:958-961), never
@@ -115,7 +116,8 @@ name or call                               R:line      what lane A does with it
                                                        closure (1.0, ``fixer``)
 ``derived_amount(name, row, v, w, kind)``  72-74       every AAM amount, on the derived row ``"aam"``
 ``derived_total(row, value)``              75          the step-end AAM total ``L``
-``flag_retry(cause, any)``                 78          the radial-conduction failure flag
+``flag_retry(cause, any)``                 78          not called by lane A in V3 (radial abort kept,
+                                                       4.3)
 ``begin_stage(int, IntegratorWeight)``,    11, 49-50   ``w2`` of the stage for ``stage_weight``; there is
 ``weights()``                                          no ``StageWeights`` type any more
 ``RegisterPhase``                          14-23       sources in ``pre_implicit``; m1 rows in
@@ -143,16 +145,20 @@ Lane I's names: ``vic.mass_total`` (kept, R.rst:165-167), and the posts
 
   * ``full`` becomes ``exact``;
   * the closure key is removed;
-  * the old ``full`` is refused with a message naming ``exact``;
-  * the closure is a registered fixer inside ``exact``.
+  * the closure is a registered fixer inside ``exact``;
+  * **the radial-conduction failure keeps the abort for V3** (Cheng's
+    decision, lane A thread 1794951687). A failed radial solve stops the run,
+    as at the pin, and no behaviour changes. ``diffusion.radial`` stays a
+    reserved retry cause (4.3).
 * **Settled with lane S** (lane S thread): coord owns the rotation data;
   registered fluxes stay in the panel face basis; diffusion keeps its own exchange
   until phase 3.
-* **FOR CHENG** (nothing waits on them; section 10.3):
+* **FOR CHENG** (open proposals with their "what changes" rows; nothing waits
+  on them; section 10.3):
 
-  * abort versus redo for the radial check;
   * Coriolis ``type: 123``;
   * the AAM key on grids with no axis;
+  * refusing the old ``full`` with a message naming ``exact``;
   * a non-z rotation axis.
 * **Default:** ``off``.
 
@@ -168,6 +174,13 @@ Lane I's names: ``vic.mass_total`` (kept, R.rst:165-167), and the posts
     rev 3 had it;
   * lane A books the ``diffusion_radial.cpp`` change (9.2, RULING V3-1):
     ``src/forcing`` goes 2,086 -> 2,087.
+* **Part 2a (Cheng's decision):** the abort is kept and settled (1.5, 3.7,
+  7.1, 10.3, 11.4). The masking and flag of part 1 are withdrawn from V3 and
+  kept only as a note on the reserved future path (3.7). ``diffusion.radial``
+  is a reserved cause in 4.3, and the retry path is out of the PR plan
+  (10.1). ``diffusion_radial.cpp`` is recounted 103 -> 105 (9.2), so
+  ``src/forcing`` goes 2,087 -> 2,088. "Refusing ``full``" moves back to the
+  open proposals, as the PM lists it with Cheng.
 * **Still to come in rev 4:** Jiheng's H1-H17 by number, and Zoey's Z1-Z3,
   Z7 and Z8 (appendix B).
 
@@ -338,7 +351,8 @@ tensor (``hydro_forward.cpp:1089-1090``, used by both ``:1108`` and
 
 **Modes: off | transport | exact (settled by Cheng).**
 
-* The old ``full`` is refused with a message naming ``exact``.
+* Lane A proposes that the old ``full`` is refused with a message naming
+  ``exact``. This is still open with Cheng (10.3).
 * The closure key is refused by ``check_keys`` (``hydro_options.cpp:56``).
 * ``full`` without the closure survives only as a test hook on
   ``AxialMomentum`` (arm (l), ``tests/test_axial_momentum_flux_form.py:332,
@@ -472,34 +486,38 @@ Its part is an FP64 monitor amount only (R.rst:452-454).
   averaging is R's ``replace`` with S's transport (R:63-64), and the penalty
   traces keep diffusion's own exchange.
 * **Radial conduction:** each half step posts its x1 heat flux with
-  ``reg.post_split(1, "diffusion.radial", flux, 0.5, dt)`` (R:80-81). Its
-  failure is a device flag (N3).
-* **Radial failure contract (rev 4, Tianhao's request).** At the pin the
-  check is a host ``TORCH_CHECK``: finite and positive ``next``
-  (``diffusion_radial.cpp:97-100``). The increment
-  ``u[IPR] += capacity · (next − temp)`` (``:101``) is applied only when the
-  check passes. In V3 the check becomes device-side and the increment is
-  masked:
+  ``reg.post_split(1, "diffusion.radial", flux, 0.5, dt)`` (R:80-81).
+* **Radial failure: abort, settled (Cheng's decision, 1.5).** The pin's host
+  check stays: finite and positive ``next`` (``diffusion_radial.cpp:97-100``).
+  It runs before the increment ``u[IPR] += capacity · (next − temp)``
+  (``:101``). So a failed column's increment is never applied, and the run
+  stops, as today.
 
-  * ``ok_col = (isfinite(next) & next > 0).all(-1)`` per column ``(k, j)``.
-    The SDIRK system couples a whole column (``:71-96``), so one bad cell
-    makes the column's solution untrusted. Masking the whole column, not single
-    cells, is lane A's choice.
-  * ``next = where(ok_col, next, temp)``. So the increment at ``:101`` is zero
-    on failed columns, and the energy row and ``u`` stay finite.
-  * The ``post_split`` wall flux is formed from the masked ``next``, so the
-    register and the state agree: a masked column posts zero.
-  * ``failed_ |= !ok_col.all()`` is a 0-d device flag, posted with
-    ``reg.flag_retry("diffusion.radial", failed_)`` (R:78). There is no host
-    read inside the segment.
-  * **Default action: abort** (unchanged from the pin's behaviour). X's
-    step-end read sees the flag and ends the run. The masking keeps the state
-    finite until that read.
-  * **Proposal: retry** (FOR CHENG, 10.3). The flag takes X's slot 8, cause
-    bit 6 (value 64). It is zeroed at step start and counts against
-    ``max_redo`` like bits 0-4 (X.rst:146-147, 155-157 at ``0fe47c6f``). The
-    redo restores ``split_initial_`` (``diffusion_radial.cpp:14-17``), so the
-    masked state is discarded.
+  * **Tianhao's masking request, answered under abort.** The masking was
+    there to keep ``u`` finite until a device flag was read. With the host
+    check before ``:101``, no failed increment ever reaches ``u``, so V3 needs
+    no mask and no device flag.
+  * **The host read is not inside a stage segment.** The half steps run at
+    the step's split points, before stage 0 (``meshblock.cpp:715``) and after
+    the last stage's combine (``:903-905``). The register orders them
+    ``begin_step`` < ``post_split`` < stages (R:6), and X treats the check as
+    a segment end (X.rst:153 at ``0fe47c6f``). Requirement 6 is therefore not
+    affected.
+  * **Note on the reserved path only (not in the PR plan).** If Cheng ever
+    moves to reject-and-retry, the host check must become device-side, and
+    then the increment needs a mask. A device flag does not stop ``:101``,
+    and a redo would otherwise restore from a state that already holds the
+    failed increment. The design for that is part 1's:
+
+    * a per-column ``ok`` mask, because SDIRK couples each column
+      (``:71-96``);
+    * ``next = where(ok, next, temp)``;
+    * the wall flux from the masked ``next``;
+    * ``reg.flag_retry("diffusion.radial", ...)`` on the reserved cause (4.3).
+
+    I keep it as this note because it is the only part of the reserved path
+    that is not an interface: 4.3 fixes the names, and this fixes the order
+    "mask before increment".
 
 **Diffusion enters the register in phase 3, not phase 1.** Phases 1 and 2 are
 bitwise gated; diffusion has its own tolerance suite (G8); and one PR should
@@ -591,7 +609,7 @@ req   section   status for lane A
 4     4.1       complies from phase 2; diffusion from phase 3
 5     4.1       complies from phase 3; G5 after R's replace and S's seam rotation
 6     5.1, 7.1  complies after the 7.1 host reads go; AAM is the derived row
-                (R:34, 72-75); radial flag via ``flag_retry`` (R:78)
+                (R:34, 72-75); radial host check stays at a segment end (3.7)
 7     5.2       complies: ``AxialClosureFixer : Fixer`` posts ``cell_amount``;
                 species-clip floor owned and registered by X
 8     6, 7.1    complies: parts kFlux, amounts FP64 (FP32 on MPS)
@@ -599,6 +617,24 @@ req   section   status for lane A
 9     7.2       memory stated from shapes; cost is a measurement plan
 10    4.1       complies: nothing restart-written (R.rst:467)
 ====  ========  ==================================================================
+
+4.3 Reserved retry cause ``diffusion.radial``
+---------------------------------------------
+
+The retry cause ``diffusion.radial`` stays in the contract as a **reserved**
+slot. It is named in lane X's retry stack (X rev 3.3 ``0fe47c6f``):
+
+* stack slot 8, mapped to cause bit 6 (value 64) (X.rst:146-147);
+* zeroed in ``kStepStart`` and counted against ``max_redo`` like bits 0-4
+  (X.rst:155-157).
+
+Lane A does not write it in V3, because Cheng keeps the abort (1.5, 3.7). Lane
+A's ``RegisterRequest::retry`` is empty in V3 (R:37), and lane A makes no
+``flag_retry`` call (R:78).
+
+A later move to reject-and-retry needs no interface change: lane A would add
+``"diffusion.radial"`` to ``retry`` and call ``flag_retry``. The device mask in
+the note in 3.7 would then become part of that PR, not of V3's.
 
 
 5. Invariants and gates
@@ -821,13 +857,12 @@ today                                                   V3
 ``meshblock.cpp:1018`` two ``.item()``                  device scale in ``Fixer::apply``
 ``gnomonic_equiangle.cpp:506`` on-axis ``.item()``      ``has_on_axis_cell`` set at reset (S)
 ``diffusion.cpp:507`` ``torch::equal`` per call         frozen options, checked at build (lane O)
-``diffusion_radial.cpp:97-100`` aborting check          ``reg.flag_retry("diffusion.radial", any)``
-                                                        (R:78), read in X's one step-end read
-                                                        (R:102). Until R's PR R-1 moves the retry
-                                                        flags, it rides EF's ``EfStatus`` tensor in
-                                                        X's stacked read (EF.rst:319-342, 606-607;
-                                                        ``meshblock.cpp:1559-1566``) (Z5). Action
-                                                        stays abort (FOR CHENG: redo)
+``diffusion_radial.cpp:97-100`` aborting check          stays, as at the pin (Cheng's decision,
+                                                        settled): the check runs before the increment
+                                                        (``:101``), at the step's split points
+                                                        (``meshblock.cpp:715, 903-905``), a segment
+                                                        end (X.rst:153). ``diffusion.radial`` is a
+                                                        reserved cause (4.3)
 ``specific_heat_cv`` -> ``species_cv_ref`` host read     EF caches the reference cv on the host (Q-A2):
 per call (``moist_base.cpp:28``), from                  ``body_heat.cpp:49``,
 ``body_heat.cpp:49``, ``relax_bot_temp.cpp:69``,         ``relax_bot_temp.cpp:69``,
@@ -951,29 +986,32 @@ axial_momentum.cpp (new)              0     225    consumer, torque rules, ``Axi
                                                    flux form (45) + x1 source from ``vic.momentum_t`` (10)
 diffusion.cpp                       745     480    −70 options, −110 profile checks (schema), −40, −45
 diffusion_cubed_sphere.cpp          376     320    phase 3: −35 averaging, −15 divergence, −6
-diffusion_radial.cpp                103     104    −4 host check (``:97-100``); +3 masked increment and
-                                                   flag (3.7); +2 ``post_split`` wall flux
+diffusion_radial.cpp                103     105    host check kept (abort, 3.7); +2 ``post_split`` wall
+                                                   flux (phase 3); no mask or flag in V3
 top_cool + bot_heat                 176      70    ``LayerHeat{side}``
 top_sponge + bot_sponge             156      50    ``Sponge{side}``
 relax_bot_temp/velo/comp            308     235    ``BottomSlab`` base
 body_heat + plume_forcing           100      70    base does ctor, reset, options
-**total**                          2870    2087
+**total**                          2870    2088
 =================================  ======  ======  =======================================================
 
-**Lane A: 2,870 → 2,087 lines (−783, −27.3 %), ``src/forcing`` only, new
+**Lane A: 2,870 → 2,088 lines (−782, −27.2 %), ``src/forcing`` only, new
 files included (RULING V3-1).**
 
 Arithmetic:
 
 * now: 674 + 232 + 745 + 376 + 103 + 176 + 156 + 308 + 100 = 2870
   (2.1, ``wc -l``);
-* after: 253 + 110 + 170 + 225 + 480 + 320 + 104 + 70 + 50 + 235 + 70 = 2087;
-* cut: 783 / 2870 = 0.273.
+* after: 253 + 110 + 170 + 225 + 480 + 320 + 105 + 70 + 50 + 235 + 70 = 2088;
+* cut: 782 / 2870 = 0.272.
 
 J1 drops rev 3 part 1's +8 ``coriolis.cpp`` lines: the metric source stays in
-coord (3.4). That moves the number from 2,094 to 2,086. Rev 4 books the
-``diffusion_radial.cpp`` change once, here (RULING V3-1; 3.7, 11.4): 103 ->
-104, an estimate, so 2,086 -> 2,087.
+coord (3.4). That moves the number from 2,094 to 2,086.
+
+Rev 4 books the ``diffusion_radial.cpp`` change once, here (RULING V3-1;
+3.7, 11.4). With the abort kept (part 2a), the host check stays and only the
+two ``post_split`` lines are added: 103 -> 105, an estimate. That makes
+2,086 -> 2,088. Part 1's 104 (−4 check, +3 mask and flag) is withdrawn.
 
 Cross-references, not in lane A's number:
 
@@ -984,7 +1022,7 @@ Cross-references, not in lane A's number:
 Rev 2's lane total (3,205 → 2,134) is withdrawn.
 
 **Precondition (N18): lane O's options schema lands before lane A's phase 1.**
-Without it, ``src/forcing`` would be 2,398 (−16.4 %) after phase 3 and 2,499
+Without it, ``src/forcing`` would be 2,399 (−16.4 %) after phase 3 and 2,500
 (−12.9 %) before it (+131 options, +70 parser, +110 profile checks; +101 for
 phase 3). Margin deletions that need no schema: the ``type`` key (5 lines, if
 Cheng removes type 123) and the legacy-key check ``diffusion.cpp:275-277``
@@ -1012,6 +1050,11 @@ Cheng removes type 123) and the legacy-key check ``diffusion.cpp:275-277``
 3. **Phase 3** (G8, G9): diffusion posts to the register; ``post_split``.
 4. **Phase 4** (G10): FP32 and perturbation-flux for ``exact``.
 
+**Not in the PR plan:** the radial retry path (``flag_retry`` for
+``diffusion.radial``, the device mask and the flag). The abort stays as at
+the pin (Cheng's decision; 3.7, 4.3). No phase touches
+``diffusion_radial.cpp:97-101``; phase 3 adds only its ``post_split`` lines.
+
 10.2 Sites changed by the full → exact decision, by lane
 --------------------------------------------------------
 
@@ -1036,15 +1079,18 @@ listed here and are not in lane A's ``src/forcing`` number.
 ==========================================  ===================================  ==========================
 change                                      replacement                          status
 ==========================================  ===================================  ==========================
-``conserve-axial-momentum: full``           refused with a message naming        **settled** (Cheng)
-                                            ``exact``
+``conserve-axial-momentum: full``           refused with a message naming        **open proposal** (FOR
+                                            ``exact``; what changes: a deck      CHENG)
+                                            with ``full`` stops at reset
+                                            instead of running ``exact``
 ``conserve-axial-momentum-closure``         removed; ``exact`` includes the      **settled** (Cheng)
                                             closure; refused by ``check_keys``
 ``coriolis/type: 123``                      ``type: xyz``: identical in 3D       **FOR CHENG**
 AAM key on a grid with no rotation axis     refused (today a no-op + warning)    **FOR CHENG**
 non-z rotation axis                         refused; only z in V3 (S-1)          **FOR CHENG**
-radial-conduction positivity failure        device flag; abort kept (default)    **FOR CHENG** (redo uses
-                                            or redo                              X's slot 8, cause bit 6)
+radial-conduction positivity failure        abort kept, as at the pin; no        **settled** (Cheng,
+                                            behaviour change; retry cause        1794951687)
+                                            reserved (4.3)
 ==========================================  ===================================  ==========================
 
 10.4 Decision log
@@ -1054,7 +1100,7 @@ radial-conduction positivity failure        device flag; abort kept (default)   
 #   decision                                              reason (section)
 === ====================================================  ==========================================
 D1  F_c is the kept ``riemann.central``                   no second flux evaluation (3.1; R:35)
-D2  modes ``off | transport | exact``; full refused       settled by Cheng (3.2, 10.3)
+D2  modes ``off | transport | exact``; no closure key     settled by Cheng; ``full`` refusal open (10.3)
 D3  default ``off``; AAM budget always reported           bitwise migration (3.2)
 D4  ``AxialClosureFixer : Fixer``; X's registry           requirement 7; R:104-116 (3.3)
 D5  one Coriolis; m1 from ``total(1)`` in post_implicit   requirement 4; R:21 (3.4)
@@ -1073,6 +1119,7 @@ D17 lane A owns the K-weighted x1-wall AAM reduction      R-4 answer (5.1)
 D18 AAM on derived row ``aam``; wall transfer             R:34, 72-75; R.rst:542-546 (5.1, 11.2 b)
     ``aam.boundary.1`` at step end, weight 1.0
 D19 metric source stays in coord; −8 in coriolis.cpp      J1 (3.4, 9.2)
+D20 radial abort kept; ``diffusion.radial`` reserved      Cheng's decision (1.5, 3.7, 4.3)
 === ====================================================  ==========================================
 
 
@@ -1170,20 +1217,17 @@ D19 metric source stays in coord; −8 in coriolis.cpp      J1 (3.4, 9.2)
 11.4 Open
 ---------
 
-* **X-1, Xi.** Abort or redo for the radial failure is Cheng's call (FOR
-  CHENG, 10.3). For redo, lane A takes X's contract (X rev 3.3 ``0fe47c6f``):
-
-  * ``diffusion.radial`` is stack slot 8, mapped to cause bit 6 (value 64)
-    (X.rst:146-147);
-  * it is zeroed in ``kStepStart`` and counts against ``max_redo`` like bits
-    0-4, terminating without a restore (X.rst:155-157);
-  * lane A's side is the device flag and the masked increment (3.7), and the
-    request ``retry = {"diffusion.radial"}`` (R:37).
-
-  **Booking conflict, open for Xi.** X.rst:153-155 says that no lane claims
-  ``src/forcing/diffusion_radial.cpp``, so X books its change outside the
-  lane count. Under RULING V3-1 the file is lane A's (``src/forcing``), so
-  lane A books it (9.2), and X should drop that sentence.
+* **X-1, Xi (updated for Cheng's decision).** The radial failure keeps the
+  abort for V3 (1.5). ``diffusion.radial`` stays named in X's retry stack as a
+  reserved slot (slot 8, cause bit 6; X.rst:146-147, 155-157 at
+  ``0fe47c6f``). Lane A neither requests nor writes it in V3 (4.3).
+* **X.rst:153-155, for Xi.** That passage says V3 retries a radial failure
+  ("a behaviour change") and that X books the ``diffusion_radial.cpp`` change
+  outside the lane count. With the abort kept, there is no retry change to
+  book. The only V3 change in ``diffusion_radial.cpp`` is lane A's two
+  ``post_split`` lines (phase 3), booked in lane A under RULING V3-1 (9.2).
+  Request: X drops the "V3 retries it" and booking sentences, and keeps slot
+  8 as reserved.
 
 FOR CHENG: see 10.3.
 
@@ -1224,9 +1268,9 @@ N14 withdraws N2 and supersedes N5 where they overlap.
 * **N1 (accept).** Host copies are listed in 7.1, and {R, I} come from
   ``Fixer::partial_sums()`` on the device.
 * **N2 (withdrawn by N14).** ``dt`` is a host double (R:113-115).
-* **N3 (accept).** The radial check becomes a device flag that joins X's
-  stacked redo flags (``meshblock.cpp:1559-1560``). The action stays abort;
-  redo is FOR CHENG plus lane X (X-1, including the stage-0 reset order).
+* **N3 (accept, then superseded by Cheng's decision).** The abort is kept with
+  the pin's host check at a segment end (3.7), so no device flag is written in
+  V3. ``diffusion.radial`` is a reserved cause (4.3).
 * **N4 (accept).** G2 uses the normalised e_∞; the error scale is H3.
 * **N5 (accept; superseded in part by N14 and by the fixer removal).** The
   placement stands. The 7-vector does not: with the gravity-work fixer removed
@@ -1277,10 +1321,10 @@ rev 2 topical answers, and their status is "to be confirmed against her text".
   ``eos.floor``, ``eos.borrow``, ``eos.fix_vapor``) and the positivity posts
   P2 and P3, each with its AAM effect (EF.rst:556-597). §11.3 answers Q-A1
   (yes) and Q-A2 (no objection, with the ``specific_heat_cv`` correction).
-* **Z5 (status: done).** The radial failure flag is
-  ``reg.flag_retry("diffusion.radial", any)`` (R:78). Until R's PR R-1 moves
-  the retry flags, it rides EF's ``EfStatus`` tensor in X's stacked read
-  (EF.rst:319-342, 606-607; ``meshblock.cpp:1559-1566``) (7.1).
+* **Z5 (status: superseded by Cheng's decision).** The radial failure keeps
+  the abort, so no flag rides EF's ``EfStatus`` in V3. The reserved path
+  would use ``flag_retry("diffusion.radial")`` (R:78) and, until R's PR R-1,
+  EF's ``EfStatus`` in X's stacked read (EF.rst:319-342, 606-607) (4.3).
 * **Z6 (status: done).** §6.1 gains the P2/P3 dtype row: flux dtype in
   ``total(d)``, FP64 amounts, and the flux form and F_d formed in FP64.
 * **Z7, Z8 (status: text not available).** These will be answered by number

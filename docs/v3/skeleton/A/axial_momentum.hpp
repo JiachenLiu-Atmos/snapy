@@ -6,8 +6,8 @@
 
 namespace snap {
 
-//! dynamics/conserve-axial-momentum (A.rst 3.2, settled). "full" and the
-//! conserve-axial-momentum-closure key are refused with a message naming exact
+//! dynamics/conserve-axial-momentum (A.rst 3.2): modes settled; closure key
+//! removed; refusing "full" with a message naming exact is a proposal (10.3)
 enum class AxialMode : uint8_t { off, transport, exact };
 
 //! register reads (A.rst 3.1, 4.1); views valid to the next begin_stage

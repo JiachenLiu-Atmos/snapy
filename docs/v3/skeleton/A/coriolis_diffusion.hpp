@@ -67,7 +67,7 @@ class DiffusionSource : public SourceTerm {
 
 //! Strang-split radial conduction (A.rst 3.7); each half step posts its x1
 //! heat flux, reg.post_split(1, "diffusion.radial", flux, 0.5, dt) (R:80-81);
-//! on failure the increment is masked per column (pin diffusion_radial:97-101)
+//! failure: host check before the increment, abort as at the pin (A.rst 3.7)
 class RadialConduction : public SourceTerm {
  public:
   explicit RadialConduction(DiffusionCoefficients c);
@@ -80,7 +80,6 @@ class RadialConduction : public SourceTerm {
   SourceDeclaration decl_;
   DiffusionCoefficients c_;
   torch::Tensor split_initial_;
-  torch::Tensor failed_;  //!< 0-d; flag_retry("diffusion.radial") (R:78); X slot 8
 };
 
 //! merged modules (A.rst 3.6), deck keys unchanged; BottomSlab: relax-bot-*
