@@ -4,9 +4,10 @@ V3 design, lane A: rotation, axial angular momentum, sources, diffusion
 
 :Lane: A (rotation, axial angular momentum (AAM), source terms, diffusion)
 :Owner: Jiachen Liu (alternate: Xi Zhang)
-:Revision: 4 final (design and contract only, CHANGE 5). Rev 4 parts: radial
-           rows, Cheng's abort decision, Jiheng's H1-H17 (appendix C),
-           Zoey's statuses (appendix B). src/forcing 2,870 -> 2,088 (1.6).
+:Revision: 4.1 (design and contract only, CHANGE 5): C9, the proposal that
+           ``exact`` refuses the upwind and plume-roe Riemann solvers at
+           ``reset()`` (3.2, 10.3; FOR CHENG). Rev 4 final is 4e0827b8.
+           src/forcing 2,870 -> 2,088 (1.6).
 :Reviewers (round 2): Xi (lane X), Zoey
 :Pins: snapy ``9e5de2d4ce497d0b2d4da3295fc1fe969fe7e410``; kintera ``3f5ff938``
        (section 8); lane R frozen header ``happysky19/snapy@4c59162ae37080d0ab307b2823742b44f46da7c3``
@@ -17,7 +18,7 @@ V3 design, lane A: rotation, axial angular momentum, sources, diffusion
 :Previous: rev 1 ``2c9589c6``; rev 2 ``afd08eaa``, ``b6a40897``; rev 3
            part 1 ``9ee83756``
 :Skeleton: ``docs/v3/skeleton/A/``, four headers in namespace ``snap``,
-           declarations only, 298 lines (``wc -l docs/v3/skeleton/A/*``);
+           declarations only, 299 lines (``wc -l docs/v3/skeleton/A/*``);
            index in section 12
 
 All snapy ``path:line`` references are at the pin ``9e5de2d4`` unless another
@@ -167,7 +168,9 @@ Lane I's names: ``vic.mass_total`` (kept, R.rst:165-167), and the posts
   * Coriolis ``type: 123``;
   * the AAM key on grids with no axis;
   * refusing the old ``full`` with a message naming ``exact``;
-  * a non-z rotation axis.
+  * a non-z rotation axis;
+  * whether ``exact`` refuses the upwind and plume-roe Riemann solvers at
+    ``reset()`` (C9; 3.2).
 * **Default:** ``off``.
 
 1.6 Revision 4 change log
@@ -204,6 +207,17 @@ Lane I's names: ``vic.mass_total`` (kept, R.rst:165-167), and the posts
   * appendix B is updated for Zoey's statuses.
 
   ``src/forcing`` stays 2,870 -> 2,088.
+* **Rev 4.1, part 1 (C9):**
+
+  * section 3.2 states lane A's proposal that ``exact`` refuses
+    ``dynamics/riemann-solver/type`` upwind and plume-roe at ``reset()``,
+    worded to match lane C rev 6.2 (``bcac27c9``, C.rst:765-770,
+    1103-1105);
+  * a 10.3 row records it, and whether to refuse is in FOR CHENG (1.5);
+  * the skeleton adds the check to ``AxialMomentum::check``'s contract
+    comment;
+  * no count changes: the check is one ``TORCH_CHECK`` inside the
+    ``axial_momentum.cpp`` estimate of 9.2.
 
 
 2. Concepts and current sites
@@ -379,6 +393,37 @@ tensor (``hydro_forward.cpp:1089-1090``, used by both ``:1108`` and
 * ``full`` without the closure survives only as a test hook on
   ``AxialMomentum`` (arm (l), ``tests/test_axial_momentum_flux_form.py:332,
   565``).
+
+**C9, lane A's proposal: ``exact`` refuses the upwind and plume-roe solvers
+at ``reset()``.** Whether to refuse is a question for Cheng (FOR CHENG, 1.5,
+10.3).
+
+* **The check.** In ``AxialMomentum::check`` (skeleton), with mode ``exact``,
+  ``dynamics/riemann-solver/type`` must be one of hllc, lmars, roe or
+  shallow-roe. The type comes from the deck through ``riemann_solver.cpp:58,
+  67`` and ``hydro_options.cpp:32``, is dispatched at
+  ``riemann_solver.cpp:96-110`` ("upwind" at ``:102``, "plume-roe" at
+  ``:106``), and defaults to hllc (``riemann_solver.hpp:33``).
+* **The reason.** ``exact`` needs ``riemann.central``, the summed hydro mass
+  row (3.1). Lane C defines it for hllc, lmars, roe and shallow-roe; upwind
+  and plume-roe have no hydro mass rows, so ``riemann.central`` is undefined
+  for them. C.rst:765-770 (section 3.6) says: "Lane C proposes that an option
+  that needs it refuse at ``reset()`` with a message naming the solver. That
+  check is lane A's (A2; Jiachen's C9)". Section 4 says the same
+  (C.rst:1103-1105: "a mode that needs ``central`` should refuse them at
+  ``reset()``; that check is lane A's (A2)"). ``transport`` reads only
+  ``total(d)``, so it is not refused.
+* **The message**, naming the solver as C asks: "dynamics/conserve-axial-
+  momentum: exact needs riemann.central, which riemann-solver type '<type>'
+  does not provide; use hllc, lmars, roe or shallow-roe".
+* **Where it sits.** It sits with today's reset refusals of the same kind:
+  ``full`` needs ``interp_order: 4`` (``hydro.cpp:63-66``, kept for ``exact``,
+  H12), the closure key needs ``full`` (``:67-69``), and perturbation-flux
+  needs HLLC (``:207-210``).
+* **What changes:** nothing for any deck. Neither solver works as a hydro
+  solver at the pin (C.rst:476-488), and no deck or test runs either in hydro.
+  A misconfigured ``exact`` run would stop at ``reset()`` with that message,
+  instead of failing in the solver or using an undefined central part.
 
 Evidence, from the PR bodies (not rerun):
 
@@ -1217,6 +1262,11 @@ AAM key on a grid with no rotation axis     refused, keyed on a null            
                                             or ``omega3`` set): warning and
                                             no-op today, refused
 non-z rotation axis                         refused; only z in V3 (S-1)          **FOR CHENG**
+``exact`` with ``riemann-solver/type``       refused at ``reset()`` with a        **FOR CHENG** (C9,
+upwind or plume-roe                         message naming the solver (3.2);     proposal)
+                                            what changes: nothing for any deck
+                                            (neither works as a hydro solver at
+                                            the pin, C.rst:476-488)
 radial-conduction positivity failure        abort kept, as at the pin; no        **settled** (Cheng,
                                             behaviour change; retry cause        1794951687)
                                             reserved (4.3)
@@ -1249,6 +1299,7 @@ D18 AAM on derived row ``aam``; wall transfer             R:34, 72-75; R.rst:542
     ``aam.boundary.1`` at step end, weight 1.0
 D19 metric source stays in coord; −8 in coriolis.cpp      J1 (3.4, 9.2)
 D20 radial abort kept; ``diffusion.radial`` reserved      Cheng's decision (1.5, 3.7, 4.3)
+D21 ``exact`` refuses upwind and plume-roe (proposal)     no ``riemann.central``; C9 (3.2, 10.3)
 === ====================================================  ==========================================
 
 
@@ -1406,7 +1457,7 @@ FOR CHENG: see 10.3.
 12. Skeleton index
 ==================
 
-``wc -l docs/v3/skeleton/A/*`` gives 298 lines, with declarations only, in
+``wc -l docs/v3/skeleton/A/*`` gives 299 lines, with declarations only, in
 namespace ``snap``. The headers include lane R's ``flux_register.hpp``. A
 syntax check against R's frozen header at ``4c59162a`` passes.
 
@@ -1419,7 +1470,7 @@ file (lines)                declarations                                        
                             ``SourceRegistry`` (``Run``, ``runs``, ``run``,
                             ``scratch_``)
 ``axial_momentum.hpp``      ``AxialMode``, ``AxialFluxView`` (``total``, ``central``,       3.1-3.3, 3.8,
-(86)                        ``momentum_t``), ``FaceTorqueRule``, ``AxialMomentum``          5.1, 5.2, 6.2,
+(87)                        ``momentum_t``), ``FaceTorqueRule``, ``AxialMomentum``          5.1, 5.2, 6.2,
                             (``request``, ``check``, ``wall_torque``, ``aam_total``,        7.3
                             ``rate_to_rows``, H4), ``AxialClosureFixer : Fixer``
 ``coriolis_diffusion.hpp``  ``X1Momentum`` (H3), ``Coriolis`` (``omega_local_``),           3.4, 3.7, 3.6

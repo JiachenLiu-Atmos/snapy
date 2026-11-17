@@ -37,9 +37,10 @@ class AxialMomentum {
   //! R:32-39: keep riemann.central@2/@3, vic.momentum_t@1; derived {"aam"}
   RegisterRequest request() const;
   //! reset: geometry non-null, Omega || axis (H5, H7); exact: FP64, no pert.
-  //! flux (G10), nu_iso == 0 (phase 3), interp_order == 4 (hydro.cpp:63-66)
+  //! flux (G10), nu_iso == 0 (phase 3), interp_order == 4 (hydro.cpp:63-66),
+  //! riemann_type in {hllc, lmars, roe, shallow-roe} (C9 proposal, A.rst 3.2)
   void check(StageState const& s, bool fp32, bool perturbation_flux,
-             double nu_iso) const;
+             double nu_iso, std::string const& riemann_type) const;
   //! divergence phase: K component of du from total(d) (conserve_axial_momentum_)
   void flux_form(torch::Tensor div, AxialFluxView const& f,
                  RotationGeometry const& g) const;
