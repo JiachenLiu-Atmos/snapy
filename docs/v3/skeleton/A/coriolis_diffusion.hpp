@@ -8,10 +8,10 @@ namespace snap {
 
 class AxialMomentum;  // axial_momentum.hpp
 
-//! -2 Omega x m, m = (m1, rho v2, rho v3), and -m1 v_h / r. Registered twice:
+//! -2 Omega x m, m = (m1, rho v2, rho v3); -m1 v_h/r stays in coord (J1). Twice:
 //! pre_implicit (m1 = 0; through the scheme-9 solve), post_implicit (m1 rows,
-//! R:50). m1 = phi_lo * lo + phi_hi * hi, phi = A x mass rows of total(1),
-//! which holds the vic.* posts in post_implicit (R:25-28, 49; R-4)
+//! R:21). m1 = phi_lo * lo + phi_hi * hi, phi = A x mass rows of total(1),
+//! which holds the vic.* posts in post_implicit (R:20-21; R.rst:521-523)
 class Coriolis : public SourceTerm {
  public:
   Coriolis(double omega1, double omega2, double omega3, bool traditional,
@@ -37,8 +37,8 @@ struct DiffusionCoefficients {
 };
 
 //! phase 3 (A.rst 3.7): posts "diffusion" (viscous momentum flux, energy flux
-//! -k grad T . n - v_f . tau . n) with reg.add (R:74-75); no divergence of its
-//! own. Its part is an FP64 monitor amount only (R:12)
+//! -k grad T . n - v_f . tau . n) with reg.add (R:57-58); no divergence of its
+//! own. Its part is an FP64 monitor amount only (R.rst:452-454)
 class DiffusionFlux {
  public:
   explicit DiffusionFlux(DiffusionCoefficients c);
@@ -67,7 +67,7 @@ class DiffusionSource : public SourceTerm {
 
 //! Strang-split radial conduction (diffusion_radial.cpp, kept); each half
 //! step posts its x1 heat flux with reg.post_split(1, "diffusion.radial",
-//! flux, 0.5, dt) (R:85-87)
+//! flux, 0.5, dt) (R:80-81), after begin_step (R:6, 48)
 class RadialConduction : public SourceTerm {
  public:
   explicit RadialConduction(DiffusionCoefficients c);
@@ -80,7 +80,7 @@ class RadialConduction : public SourceTerm {
   SourceDeclaration decl_;
   DiffusionCoefficients c_;
   torch::Tensor split_initial_;
-  torch::Tensor failed_;  //!< device flag on the redo slot, not a host read (N3)
+  torch::Tensor failed_;  //!< reg.flag_retry("diffusion.radial", failed_) (R:78)
 };
 
 //! merged modules (A.rst 3.6), deck keys unchanged; BottomSlab: relax-bot-*

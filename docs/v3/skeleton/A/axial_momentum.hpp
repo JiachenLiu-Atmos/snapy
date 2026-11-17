@@ -11,7 +11,7 @@ namespace snap {
 enum class AxialMode : uint8_t { off, transport, exact };
 
 //! register reads (A.rst 3.1, 4.1); views valid to the next begin_stage
-//! (R:9-12, 20); undefined = direction inactive
+//! (R:82-83; R.rst:165-168); undefined = direction inactive
 struct AxialFluxView {
   torch::Tensor total[3];    //!< A-r1: reg.total(d), after the limiter carry
   torch::Tensor central[3];  //!< A-r2: reg.kept(d, "riemann.central"), x2/x3
@@ -34,7 +34,7 @@ class AxialMomentum {
   AxialMomentum(AxialMode mode, double omega,
                 std::unique_ptr<FaceTorqueRule> rule);
   AxialMode mode() const;
-  //! parts lane A asks R to keep (R:56-60): riemann.central@2/@3 in exact,
+  //! R:32-39: keep riemann.central@2/@3 (exact), derived {"aam"}, retry,
   //! vic.momentum_t@1 (R-4); vic.mass_total is not needed (A.rst 3.4)
   RegisterRequest request() const;
   //! reset checks: z axis (others refused, FOR CHENG); exact needs FP64, no
@@ -52,9 +52,11 @@ class AxialMomentum {
   //! post_implicit: today's axial_x1_source_, from vic.momentum_t
   void x1_source(torch::Tensor du, AxialFluxView const& f,
                  RotationGeometry const& g) const;
-  //! step end: K-weighted x1-wall reduction of reg.step_field(1) (R:91),
-  //! posted as cell_amount("aam.x1_wall") (R-4: lane A owns it)
+  //! step end: derived_amount("aam.boundary.1", "aam", v, 1.0, cell_source)
+  //! of step_field(1) (R:84), and derived_total("aam", L) (R:72-75)
   void wall_torque(FluxRegister& reg, RotationGeometry const& g) const;
+  void aam_total(torch::Tensor u, FluxRegister& reg,
+                 RotationGeometry const& g) const;
   torch::Tensor closure_sums() const;  //!< {R, I}, FP64 device; exact only
  private:
   AxialMode mode_;
@@ -64,7 +66,7 @@ class AxialMomentum {
   torch::Tensor rho_;   //!< interior density the increment scales with
 };
 
-//! the closure as a registered fixer (A.rst 3.3, 5.2), R:106-116; the
+//! the closure as a registered fixer (A.rst 3.3, 5.2), R:104-116; the
 //! registry is lane X's. {R, I} FP64 on device; X's global phase reduces
 //! them via host (never captured; X.rst:98, 187)
 class AxialClosureFixer : public Fixer {
@@ -73,9 +75,10 @@ class AxialClosureFixer : public Fixer {
   std::string name() const override;          //!< "aam.closure"
   std::vector<int> rows() const override;     //!< {IVY, IVZ}
   torch::Tensor partial_sums() const override;  //!< {R, I}, FP64
-  //! -w2 dt R / I rho s^2 along K on device (where-masked); stage_weight
-  //! must be the stage's own w2 (pin meshblock.cpp:1027), not c_s (R-6);
-  //! posts reg.cell_amount("aam.closure", V du) (R:83)
+  //! -w2 dt R / I rho s^2 along K (where-masked); stage_weight = w2 of the
+  //! stage just combined (R:111; pin meshblock.cpp:1027); posts
+  //! cell_amount("aam.closure", V du, 1.0, AmountKind::fixer) (R:67-70) and
+  //! derived_amount("aam.closure", "aam", dL, 1.0, AmountKind::fixer)
   void apply(torch::Tensor u, torch::Tensor const& global_sums, double dt,
              double stage_weight, FluxRegister& reg) const override;
  private:

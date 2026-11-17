@@ -1,6 +1,5 @@
 // V3 lane A skeleton: source-term interface (A.rst 3.6, 5.1, 7.1). Declarations
-// only. Register types are lane R's header, happysky19/snapy@543ff84f
-// docs/v3/skeleton/R/flux_register.hpp (cited "R:line").
+// only. "R:line" = lane R's frozen flux_register.hpp, happysky19/snapy@4c59162a.
 #pragma once
 
 #include <torch/torch.h>
@@ -16,8 +15,7 @@ namespace snap {
 
 class RotationGeometry;  // lane S (S-1), see rotation_geometry.hpp
 
-//! physical: sponge, drag, heating, relaxation, viscosity (kept);
-//! numerical: a discretisation torque; fixer: global correction (closure)
+//! physical (sponge, drag, heating, relaxation, viscosity), numerical, fixer
 enum class SourceKind : uint8_t { physical, numerical, fixer };
 
 //! conserved rows a source may touch; a write outside them is a debug error
@@ -32,7 +30,7 @@ struct SourceRegion {
 //! what a source declares at construction; read by the monitor and the graph
 struct SourceDeclaration {
   std::string name;  //!< deck key, e.g. "top-sponge-lyr"; the cell_amount name
-  //! R:43-51; sources use pre_implicit or post_implicit (m1 rows, #355)
+  //! R:14-23; sources use pre_implicit or post_implicit (m1 rows, #355)
   RegisterPhase phase = RegisterPhase::pre_implicit;
   bool split = false;  //!< operator-split around the step (radial conduction)
   SourceKind kind = SourceKind::physical;
@@ -46,7 +44,7 @@ struct SourceDeclaration {
 struct StageState {
   torch::Tensor w;     //!< primitive state, this block
   torch::Tensor temp;  //!< W->T, computed once per stage by Hydro
-  double dt = 0.0;     //!< host double, read at step start (N14; R:113-115)
+  double dt = 0.0;     //!< host double, read at step start (N14; R:111-115)
   int stage = 0;
   CoordinateImpl const* coord = nullptr;    //!< non-owning
   RotationGeometry const* rot = nullptr;    //!< non-owning; null: no axis
@@ -78,7 +76,8 @@ class SourceRegistry {
   struct Run { RegisterPhase phase; bool capturable; size_t begin, end; };
   std::vector<Run> runs(RegisterPhase phase) const;
   //! budgets on (monitor cadence): each source's V * scratch goes to
-  //! reg.cell_amount(name, vol_du) (R:83); R tracks AAM by name (R-3)
+  //! reg.cell_amount(name, vol_du, w2_s, AmountKind::cell_source) and its AAM
+  //! share via reg.derived_amount(name, "aam", v, w2_s, ...) (R:67-74)
   void run(Run const& r, torch::Tensor du, StageState const& s,
            FluxRegister& reg, bool budgets);
   double max_time_step(StageState const& s) const;

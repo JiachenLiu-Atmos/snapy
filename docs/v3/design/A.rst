@@ -4,18 +4,22 @@ V3 design, lane A: rotation, axial angular momentum, sources, diffusion
 
 :Lane: A (rotation, axial angular momentum (AAM), source terms, diffusion)
 :Owner: Jiachen Liu (alternate: Xi Zhang)
-:Revision: 3, part 1 (design and contract only, CHANGE 5). RULING V3-1
-           (one lane number, src/forcing only); lane R's answers R-3..R-5;
-           lane X check fixes. Answers Xi's N1-N18 (appendix A) and Zoey's
-           review (appendix B).
+:Revision: 3 final (design and contract only, CHANGE 5). Re-cited to lane R's
+           frozen header 4c59162a; R-1..R-6 closed; R's three questions
+           answered (11.2); EF's Q-A1/Q-A2 (11.3); Zoey's Z4-Z6 and the
+           Z1-Z8 appendix; J1 (src/forcing 2,870 -> 2,086). Jiheng's
+           H1-H17 go in the next revision.
 :Reviewers (round 2): Xi (lane X), Zoey
 :Pins: snapy ``9e5de2d4ce497d0b2d4da3295fc1fe969fe7e410``; kintera ``3f5ff938``
-       (section 8); lane R header ``happysky19/snapy@543ff84f4adb4b79c3f43fa7c2f0a5a6eb54fa48``
-       ``docs/v3/skeleton/R/flux_register.hpp`` (cited "R:line"); lane X
+       (section 8); lane R frozen header ``happysky19/snapy@4c59162ae37080d0ab307b2823742b44f46da7c3``
+       ``docs/v3/skeleton/R/flux_register.hpp`` (cited "R:line") and R.rst at
+       the same sha (cited "R.rst:line"); lane EF ``zoeyzyhu/snapy@c21dd66e``
+       (cited "EF.rst:line"); lane X
        design ``77c65d5aac1f96ff6c34a45ef48faeb996c2128e`` (cited "X.rst:line")
-:Previous: rev 1 ``2c9589c6``; rev 2 part 1 ``afd08eaa``
+:Previous: rev 1 ``2c9589c6``; rev 2 ``afd08eaa``, ``b6a40897``; rev 3
+           part 1 ``9ee83756``
 :Skeleton: ``docs/v3/skeleton/A/``, four headers in namespace ``snap``,
-           declarations only, 297 lines (``wc -l docs/v3/skeleton/A/*``);
+           declarations only, 299 lines (``wc -l docs/v3/skeleton/A/*``);
            index in section 12
 
 All snapy ``path:line`` references are at the pin ``9e5de2d4`` unless another
@@ -49,8 +53,11 @@ and appendix B answers Zoey's review.
 --------------------
 
 * snapy ``9e5de2d4``: all ``src/``, ``tests/`` and ``python/`` references.
-* Lane R header at ``543ff84f``: the register contract. Its names and
-  signatures replace every placeholder name of rev 2 part 1.
+* Lane R frozen header at ``4c59162a`` (R rev 2.2): the register contract.
+  Every R citation in this revision is re-cited from ``543ff84f`` to
+  ``4c59162a`` and checked against it (rev 3 final).
+* Lane EF design at ``c21dd66e`` (EF rev 3.1): floors, the positivity posts P2
+  and P3, ``EfStatus``, and its questions Q-A1/Q-A2 to lane A.
 * Lane X design at ``77c65d5a``: the global phase, segments and line rows.
 * kintera ``3f5ff938`` (section 8). pyharp ``6bc01d53`` and pydisort
   ``9e7f0075`` are not used by lane A.
@@ -82,41 +89,52 @@ in the lane A thread).
 9. No added full-field copy per stage; memory and cost stated.
 10. The register is rebuilt, not written to restart.
 
-1.4 Register names lane A uses (lane R header, 543ff84f)
---------------------------------------------------------
+1.4 Register names lane A uses (lane R frozen header, 4c59162a)
+---------------------------------------------------------------
 
 =========================================  ==========  ====================================================
 name or call                               R:line      what lane A does with it
 =========================================  ==========  ====================================================
-``RegisterRequest::keep``                  56-60       asks for ``riemann.central@2``, ``@3`` (``exact``)
-                                                       and ``vic.momentum_t@1``, kept per face (R-4,
-                                                       answered); ``step_field`` = {1}
-``riemann.central``                        9-12        one summed mass row (dry + species), from the
-                                                       solver's own face states, totals under
-                                                       perturbation flux, valid to the next
-                                                       ``begin_stage``
-``FluxRegister::total(d)``                 20, 89      the reconciled, limited and carried total, read in
+``RegisterRequest``                        32-39       ``keep`` (35): ``riemann.central@2``, ``@3``
+                                                       (``exact``), ``vic.momentum_t@1``, kept per face;
+                                                       ``derived`` (34): ``"aam"``; ``retry`` (37):
+                                                       ``"diffusion.radial"``; ``step_field`` (38): {1}
+``riemann.central``                        35          a kept part written in place by C's kernel
+                                                       (R.rst:357-359), one summed mass row on x2/x3
+                                                       (R.rst:165-168), totals (R.rst:958-961), never
+                                                       scaled (R.rst:455-457)
+``FluxRegister::total(d)``                 82          the reconciled, limited and carried total, read in
                                                        the divergence phase (flux form) and in
                                                        ``post_implicit`` (m1)
-``FluxRegister::kept(d, part)``            90          ``riemann.central``, ``vic.momentum_t``
-``FluxRegister::step_field(1)``            59, 91      the stage-weighted step face transfer; lane A owns
-                                                       its K-weighted x1-wall reduction (R-4, answered)
-``FluxRegister::add(dim, name, rows, x)``  74-75       ``diffusion`` posts (phase 3)
-``FluxRegister::post_split(...)``          85-87       split radial conduction, weight 0.5 per half step
-``FluxRegister::cell_amount(name, vdu)``   83          per-source amounts, the closure, floors
-``RegisterPhase``                          43-51       sources in ``pre_implicit``; m1 rows in
-                                                       ``post_implicit``
-``class Fixer``                            106-116     base of ``AxialClosureFixer``; registry is lane X's
-``RegisterMonitor``                        96-104      R owns the monitor and tracks AAM by named source;
-                                                       lane A posts through ``cell_amount`` (R-3,
-                                                       answered)
+``FluxRegister::kept(d, part)``            83          ``riemann.central``, ``vic.momentum_t``
+``FluxRegister::step_field(1)``            84          the stage-weighted step face transfer per unit
+                                                       area; lane A owns its K-weighted x1-wall reduction
+``FluxRegister::add(dim, name, rows, x)``  57-58       ``diffusion`` posts (phase 3)
+``FluxRegister::post_split(...)``          80-81       split radial conduction, weight 0.5 per half step;
+                                                       after ``begin_step()`` (6, 48)
+``cell_amount(name, vol_du, w, kind)``     67-70       per-source amounts (``w2_s``, ``cell_source``); the
+                                                       closure (1.0, ``fixer``)
+``derived_amount(name, row, v, w, kind)``  72-74       every AAM amount, on the derived row ``"aam"``
+``derived_total(row, value)``              75          the step-end AAM total ``L``
+``flag_retry(cause, any)``                 78          the radial-conduction failure flag
+``begin_stage(int, IntegratorWeight)``,    11, 49-50   ``w2`` of the stage for ``stage_weight``; there is
+``weights()``                                          no ``StageWeights`` type any more
+``RegisterPhase``                          14-23       sources in ``pre_implicit``; m1 rows in
+                                                       ``post_implicit``; fixers in ``after_combine``
+``AmountKind``                             25-31       ``cell_source``, ``fixer``, ``diagnostic``
+``class Fixer``                            104-116     base of ``AxialClosureFixer``; registry and
+                                                       collective are lane X's (104)
+``RegisterMonitor``                        89-103      R owns the monitor; AAM is the derived row
+                                                       ``aam`` (R.rst:538, 698-703)
 =========================================  ==========  ====================================================
 
-The posting order lane A relies on is R:25-28: x1 riemann < sedimentation <
-x1 seam replace < x2/x3 riemann and covariance < positivity < divergence <
-forcings and gravity work < implicit < post_implicit < end_stage.
+The posting order lane A relies on is the ``RegisterPhase`` order (R:14-22):
+sweep (riemann, sedimentation, covariance) < reconcile < limit (EF's carry P3,
+then scale P2) < divergence < pre_implicit < implicit < post_implicit <
+after_combine. The step frame is ``begin_step`` < ``post_split`` < stages <
+``after_combine`` (R:6).
 
-Lane I's names: ``vic.mass_total`` (kept, R:49), and the posts
+Lane I's names: ``vic.mass_total`` (kept, R.rst:165-167), and the posts
 ``vic.mass_dry``, ``vic.mass_species`` and ``vic.momentum_t[2]``.
 
 1.5 Decisions recorded
@@ -211,9 +229,14 @@ What each owner counts:
   in ``hydro.cpp``. R's "after" holds the lines lane A leaves there, an
   estimated 25 + 15 (two phase hooks, the mode predicate and the ``full``
   refusal).
-* **S** counts all 301 ``gnomonic_equiangle.*`` AAM lines. Of these, 166 are
-  lane A's physics, which moves into ``src/forcing`` as new lane-A lines
-  (9.2), and 135 are the rotation data. S also counts ``coordinate.hpp``'s 23.
+* **S** counts all 301 ``gnomonic_equiangle.*`` AAM lines and
+  ``coordinate.hpp``'s 23. Of the 301:
+
+  * 135 are the rotation data;
+  * 153 are AAM physics, which moves into ``src/forcing`` as new lane-A lines
+    (9.2);
+  * 13 are ``x1_mass_source_`` (``.cpp:664-674``, ``.hpp:84-85``), the metric
+    source every cubed-sphere run uses. It stays in coord with S (J1).
 * **X** counts the mesh lines.
 
 This replaces rev 2's "A counts 335 outside ``src/forcing``".
@@ -260,20 +283,20 @@ id     read                                             phase        used by
 =====  ===============================================  ===========  ======================================
 A-r1   ``reg.total(d)``, d = 1, 2, 3: reconciled,       divergence   transport and exact: K-component in
        after the positivity scale and carry                          flux form; torque of F_d
-       (R:16-19, 25-28)
+       (R:14-18, 56-61)
 A-r2   ``reg.kept(d, "riemann.central")``, d = 2,       divergence,  exact: F_d = total − central; closure
        3: one summed mass row, never scaled             pre_impl.    residual R
-       (R:18-19), valid to the next ``begin_stage``
+       (R.rst:455-457), read in the same stage
 A-r3   ``reg.total(1)`` mass rows (dry + species) in    post_impl.   m1 (#355): explicit plus the
        ``post_implicit``, which holds the                            ``vic.mass_dry``/``vic.mass_species``
-       ``vic.*`` posts (R:49; R-4 answered)                          posts
+       ``vic.*`` posts (R:20; R-4 answered)                          posts
 A-r5   ``reg.kept(1, "vic.momentum_t")``, per face      post_impl.   ``x1_source``; drops the prefix sum
                                                                      (``gnomonic_equiangle.cpp:541-543``)
 =====  ===============================================  ===========  ======================================
 
 **F_d is the limited mass flux minus the pre-limiter central flux** (appendix
-B, item 1). The total is scaled by the positivity limiter (R:76-78) and
-gains its carry (R:16). The kept central part is never scaled (R:18-19). So
+B, item 1). The total is scaled by the positivity limiter (R:60-61) and
+gains its carry (R:56-58). The kept central part is never scaled (R.rst:455-457). So
 ``F_d = total(d) mass rows − kept central`` contains the covariance, the
 withheld species mass and everything else that is not central. This is what
 today's ``_flux2 − cen2`` holds (``hydro_forward.cpp:1359``, after the limiter
@@ -281,17 +304,17 @@ at ``:1165-1190``).
 
 **The flux form reads the momentum rows after the limiter's carry.** Lane A's
 K-rewrite runs on ``du`` in the divergence phase, which comes after
-positivity (R:25-28, 46-47). This is correct only with #370's seam-consistent
+positivity (R:17-18). This is correct only with #370's seam-consistent
 carry; hence the gate reference in 5.3.
 
-Lane A therefore needs from lane R exactly the R:25-28 order:
+Lane A therefore needs from lane R exactly the R:14-22 order:
 
 * ``riemann`` with ``keep`` before covariance and positivity;
 * positivity's scale and carry before divergence;
 * ``vic.*`` posts before ``post_implicit``.
 
 Face states (placeholder): the header builds ``riemann.central`` "from the
-solver's own face states" (R:10-11). Rev 1 asked for the post-terrain states.
+solver's own face states" (R.rst:357-359; K4 at R.rst:809-810). Rev 1 asked for the post-terrain states.
 A separate check is comparing the two. At the pin, lane A's own read finds one
 tensor (``hydro_forward.cpp:1089-1090``, used by both ``:1108`` and
 ``:1109``). The result is recorded in R-1.
@@ -324,8 +347,8 @@ rule 1.
 3.3 The closure as a registered fixer (Q3)
 ------------------------------------------
 
-``AxialClosureFixer : Fixer`` (R:106-116). The fixer registry is lane X's
-(R:106).
+``AxialClosureFixer : Fixer`` (R:104-116). The fixer registry and
+collective are lane X's (R:104).
 
 * ``name()`` returns ``"aam.closure"``, and ``rows()`` returns {IVY, IVZ}.
 * ``partial_sums()`` returns {R, I} as FP64 device tensors, with
@@ -334,16 +357,18 @@ rule 1.
 
   * ``dt`` is the host double (N14);
   * it adds ``−w2 dt R / I · ρ s²`` along K, ``where``-masked;
-  * it posts ``reg.cell_amount("aam.closure", V du)`` (R:83, 115).
-* **w2 check.** At the pin the increment uses that stage's own weight,
-  ``pintg->stages[stage].wght2()`` (``meshblock.cpp:1027``). R's ``Fixer::apply``
-  has a ``stage_weight`` argument (R:114), so the signature can carry it.
-  ``StageWeights`` holds ``w2`` per stage (R:54), so the registry has it.
-  But the header does not say which value ``stage_weight`` is: ``w2_s`` (what
-  lane A needs, because the increment is applied inside the stage) or
-  ``c_s = w2_s Π_{t>s} w1_t`` (R:13-15, the end-of-stage step weight). That is
-  open question R-6 (section 11). Lane A's contract is
-  ``stage_weight = w2_s``.
+  * it posts the momentum-row change with
+    ``reg.cell_amount("aam.closure", V du, 1.0, AmountKind::fixer)``
+    (R:67-70, 111-112);
+  * it posts the AAM change with
+    ``reg.derived_amount("aam.closure", "aam", −w2 dt R, 1.0, AmountKind::fixer)``
+    (R:72-74; R.rst:698-701).
+* **w2 (R-6, closed by the frozen header).** ``stage_weight`` is "w2 of the
+  stage just combined" (R:111). That matches the pin, where the increment uses
+  that stage's own weight, ``pintg->stages[stage].wght2()``
+  (``meshblock.cpp:1027``). X's registry reads it from ``weights()`` after
+  ``begin_stage(int, harp::IntegratorWeight const&)`` (R:49-50). There is no
+  ``StageWeights`` type any more.
 * **The collective carries {R, I} only: two FP64 numbers per stage.**
 
   * Rev 2's "7-vector" added the gravity-work fixer's five sums
@@ -359,11 +384,15 @@ rule 1.
 3.4 One Coriolis and metric source (Q4)
 ---------------------------------------
 
-``force = −2 Ω × m``, with ``m = (m1, ρ v2, ρ v3)``, plus the metric pair
-``−m1 v_h / r``. The source is registered in two phases:
+``force = −2 Ω × m``, with ``m = (m1, ρ v2, ρ v3)``. The metric pair
+``−m1 v_h / r`` stays in coord's ``x1_mass_source_``
+(``gnomonic_equiangle.cpp:664-674``, declared at ``.hpp:84-85``; 13 lines),
+which every cubed-sphere run uses. Lane S keeps it, and lane A's source calls
+it with lane A's m1 (J1; this revision drops rev 3 part 1's "+8 metric lines in
+``coriolis.cpp``"). The source is registered in two phases:
 
 * ``RegisterPhase::pre_implicit`` (m1 = 0; through the scheme-9 solve);
-* ``RegisterPhase::post_implicit`` (the m1 rows, R:50).
+* ``RegisterPhase::post_implicit`` (the m1 rows, R:21).
 
 ``m1 = φ_lo·lo + φ_hi·hi``, where φ is the face area times the mass rows of
 ``reg.total(1)`` read in ``post_implicit`` (A-r3). This already contains the
@@ -413,23 +442,23 @@ PlumeForcing             ``PlumeForcing``                     unchanged arithmet
 N16). Their species clip (``meshblock.cpp:879-884``) is a floor **owned by
 lane X**, because ``meshblock.cpp`` is X's file and X's item w rewrites the
 code around it (X.rst:350). X registers it through R's ``cell_amount``
-(R:83).
+(R:69-70, kind floor).
 
 3.7 Diffusion as a register contributor (Q7), from phase 3
 ----------------------------------------------------------
 
-**Phase 3:** ``DiffusionFlux`` posts ``diffusion`` with ``reg.add`` (R:74-75):
+**Phase 3:** ``DiffusionFlux`` posts ``diffusion`` with ``reg.add`` (R:57-58):
 the viscous momentum flux and the energy flux ``−k ∇T · n − v_f · τ · n``.
-Its part is an FP64 monitor amount only (R:12).
+Its part is an FP64 monitor amount only (R.rst:452-454).
 
 * The cubed-sphere traction is rotated into the panel face basis by coord's rotation
   (S-2).
 * Diffusion keeps its own exchange (``share_fluxes``, then the 7-channel
   penalty traces) until phase 3 (S-3 accepted). From phase 3, the flux
-  averaging is R's ``replace`` with S's transport (R:79-80), and the penalty
+  averaging is R's ``replace`` with S's transport (R:63-64), and the penalty
   traces keep diffusion's own exchange.
 * **Radial conduction:** each half step posts its x1 heat flux with
-  ``reg.post_split(1, "diffusion.radial", flux, 0.5, dt)`` (R:85-87). Its
+  ``reg.post_split(1, "diffusion.radial", flux, 0.5, dt)`` (R:80-81). Its
   failure is a device flag (N3).
 
 **Diffusion enters the register in phase 3, not phase 1.** Phases 1 and 2 are
@@ -466,24 +495,24 @@ is supported, and others are refused (FOR CHENG, 10.3).
 
 **Requirement 1.** From phase 3 lane A owns one post, ``diffusion``. It is a
 flux density per unit area and time at the step dt, in the register's
-components (R:5-8). The area weighting is the register's divergence. Registered
+components (R:4-5). The area weighting is the register's divergence. Registered
 fluxes stay in the panel face basis, and S rotates at seams (S-2).
 ``A F · K_f`` is derived, never posted.
 
 **Requirement 2.**
 
 * Lane A posts ``diffusion`` (phase 3) and ``post_split`` entries, and keeps
-  ``riemann.central`` and ``vic.momentum_t`` (R:56-60).
-* The order is R:25-28 (3.1).
-* Lane A's parts are FP64 monitor amounts (R:12).
+  ``riemann.central`` and ``vic.momentum_t`` (R:35).
+* The order is R:14-22 (3.1).
+* Lane A's parts are FP64 monitor amounts (R.rst:452-454).
 
 **Requirement 3.**
 
 * R's ``end_stage`` weights the stage total with
-  ``c_s = w2_s Π_{t>s} w1_t`` (R:13-15).
+  ``c_s = w2_s Π_{t>s} w1_t`` (R:85; R.rst:371-376).
 * The closure applies ``stage_weight`` inside ``Fixer::apply``.
 * The radial conduction posts through ``post_split`` with weight 0.5 per half
-  step (R:85-87).
+  step (R:80-81).
 
 **Requirement 4.**
 
@@ -498,14 +527,14 @@ fluxes stay in the panel face basis, and S rotates at seams (S-2).
 
 * AAM reads the reconciled total.
 * ``K_f`` comes from coord's rotation data in the panel face basis (S-2).
-* **Gate G5 has a precondition:** R's ``replace`` (R:79-80) and S's seam
+* **Gate G5 has a precondition:** R's ``replace`` (R:63-64) and S's seam
   rotation and transport must have landed. Until then G5 is not run.
 * Diffusion keeps its own exchange until phase 3 (S-3).
 
 **Requirement 10.** Nothing lane A adds is restart-written:
 
 * lane A adds no ``Variables`` entry (``restart.cpp:31-37``);
-* R rebuilds the register (R:23-24);
+* R rebuilds the register (R:48, 86; R.rst:464-467);
 * lane A's buffers (``omega_local``, the m1 weights, ``scratch_``)
   are rebuilt at reset.
 
@@ -516,19 +545,19 @@ fluxes stay in the panel face basis, and S rotates at seams (S-2).
 req   section   status for lane A
 ====  ========  ==================================================================
 1     4.1       complies; panel face basis (S-2); diffusion owner from phase 3
-2     4.1       complies with R:9-12, 25-28, 56-60; vic.momentum_t@1 kept (R-4)
-3     4.1       complies: R:13-15, post_split (R:85-87); stage_weight = w2_s
-                is R-6
+2     4.1       complies with R:14-22, 32-39; vic.momentum_t@1 kept (R-4)
+3     4.1       complies: R:85, post_split (R:80-81); stage_weight = w2 of
+                the stage (R:111, R-6 closed)
 4     4.1       complies from phase 2; diffusion from phase 3
 5     4.1       complies from phase 3; G5 after R's replace and S's seam rotation
-6     5.1, 7.1  complies after the 7.1 host reads go; R's monitor tracks AAM
-                by named source (R-3); radial flag joins X's stacked read
+6     5.1, 7.1  complies after the 7.1 host reads go; AAM is the derived row
+                (R:34, 72-75); radial flag via ``flag_retry`` (R:78)
 7     5.2       complies: ``AxialClosureFixer : Fixer`` posts ``cell_amount``;
                 species-clip floor owned and registered by X
-8     6, 7.1    complies: kept parts FP32 storage, FP64 accumulation (R-5);
-                MPS pending with R
+8     6, 7.1    complies: parts kFlux, amounts FP64 (FP32 on MPS)
+                (R.rst:452-454; R-5 closed)
 9     7.2       memory stated from shapes; cost is a measurement plan
-10    4.1       complies: nothing restart-written (R:23-24)
+10    4.1       complies: nothing restart-written (R.rst:467)
 ====  ========  ==================================================================
 
 
@@ -538,23 +567,41 @@ req   section   status for lane A
 5.1 Monitor (requirement 6)
 ---------------------------
 
-The monitor is lane R's (R:21-22, 96-104).
+The monitor is lane R's (R:87, 89-103).
 
 * On monitor steps each lane-A source writes into the registry's one FP64
   ``scratch_``, zeroed per source.
-* The registry posts ``reg.cell_amount(name, V·scratch)`` (R:83), then adds the
-  scratch once to ``du`` (FP64 run) or ``_forcing_work`` (FP32 run).
+* The registry posts ``reg.cell_amount(name, V·scratch, w2_s,
+  AmountKind::cell_source)`` (R:67-70). ``w2_s`` is used because the scratch
+  is this stage's ``du`` (R:68). It then adds the scratch once to ``du`` (FP64
+  run) or ``_forcing_work`` (FP32 run).
 * Bitwise: every lane-A source writes each element at most once and none reads
   ``du``. The exception outside lane A is ``const_gravity.cpp:52, 58, 63``.
-* **AAM by named source (R-3, answered by Tianhao):** R's monitor tracks AAM
-  for each named ``cell_amount``. Lane A posts its sources, the closure and
-  the x1-wall torque through ``cell_amount``, and keeps no AAM buffer of its
-  own.
-* **x1-wall AAM (R-4, answered):** ``step_field(1)`` (R:91) is the
-  stage-weighted step face transfer, per area. Lane A owns its K-weighted
-  boundary reduction over the x1 wall faces, ``Σ_wall A r_f K · F_step``, and
-  posts the result through ``cell_amount("aam.x1_wall", ...)``. It requests
-  ``step_field = {1}`` (R:59).
+* **AAM is a derived row (R:34, 72-75; R.rst:538, 698-703).** Lane A
+  requests ``derived = {"aam"}``. AAM goes in through two calls:
+
+  * each source's share: ``derived_amount(name, "aam", Σ V r K · scratch,
+    w2_s, AmountKind::cell_source)``;
+  * the closure's: ``derived_amount("aam.closure", "aam", ..., 1.0,
+    AmountKind::fixer)`` (3.3).
+
+  At step end, ``derived_total("aam", L)`` posts ``L = Σ V r K · m`` over
+  fluid cells, after the last ``after_combine``. ``cell_amount`` carries only
+  the conserved rows. Lane A keeps no AAM buffer of its own.
+* **x1-wall AAM, "<row>.boundary.<dim>" convention (R.rst:542-546, 701-703).**
+  ``step_field(1)`` (R:84) is the stage-weighted step face transfer per unit
+  area, and already carries dt and the stage weights (R.rst:557-558). Lane A
+  owns its K-weighted reduction over the physical x1 wall faces,
+  ``Σ_wall A_f r_f K · F_step``, inflow positive.
+
+  * It is posted once at step end as
+    ``derived_amount("aam.boundary.1", "aam", value, 1.0,
+    AmountKind::cell_source)``. Weight 1.0 is used because the value is
+    already weighted.
+  * The name ``aam.boundary.1`` replaces rev 3 part 1's ``aam.x1_wall``.
+  * No ``aam.boundary.2`` or ``.3`` is posted: the cubed sphere has no
+    physical x2/x3 boundary, and grids without an axis have no AAM row.
+  * It requests ``step_field = {1}`` (R:38).
 * Budgets on and budgets off are two graph topologies.
 
 5.2 Fixers and floors (requirement 7)
@@ -563,12 +610,45 @@ The monitor is lane R's (R:21-22, 96-104).
 =============================  =======  =============  ==========  ========================================
 fixer / floor                  kind     rows           registers   declares
 =============================  =======  =============  ==========  ========================================
-AAM closure (``exact``)        fixer    IVY, IVZ       A (Fixer)   ``cell_amount("aam.closure", V du)``;
-                                                                   AAM change ``−w2 dt R`` (G6)
+AAM closure (``exact``)        fixer    IVY, IVZ       A (Fixer)   ``cell_amount(…, 1.0, fixer)``;
+                                                                   ``derived_amount`` AAM ``−w2 dt R``
+                                                                   (G6)
 user-forcing species clip      floor    ICY.., IDN     X (owner)   species mass withheld per stage, via
-(``meshblock.cpp:879-884``)                                        ``cell_amount`` (R:83)
+(``meshblock.cpp:879-884``)                                        ``cell_amount(…, floor)`` (R:69-70)
 side-study torque (rule 2)     numer.   IVY, IVZ       A           its AAM rate; no reduction
 =============================  =======  =============  ==========  ========================================
+
+**Lane EF's floors, repairs and positivity posts, and their AAM effect (Z4).**
+The table cites EF rev 3.1 at ``c21dd66e`` and the pin. "AAM effect" is lane
+A's reading at the pin.
+
+====  ====================================  ===========  ===============  ==============================================
+id    post (EF.rst:556-597)                 phase        kind             AAM effect (lane A)
+====  ====================================  ===========  ===============  ==============================================
+P2    ``scale(d, "positivity.withhold",     limit        flux_correction  mass rows only, so no momentum change. It is
+      species, factor)``                                                  inside ``total(d)``, so it enters F_d (the
+      (``flux_positivity.cpp:99-121``)                                    ``exact`` torque) and m1 on x1. No AAM leak,
+                                                                          and no AAM amount.
+P3    ``add(d, "positivity.carry",          limit        flux_correction  changes the momentum flux rows. The flux form
+      {IPR}/{IVX..IVZ}, ...)``                                            reads ``total(d)`` after P3 (Q-A1), so the
+      (``flux_positivity.cpp:124-167``)                                   carry telescopes, and AAM changes only through
+                                                                          boundary faces. Needs #370's seam-consistent
+                                                                          carry (G7s). No AAM amount.
+F1    ``cell_amount("eos.floor", ...,       after\_      floor            density floor (``equation_of_state.cpp:244-
+      1.0, floor)``                         combine                       250``) and energy floor (``:268-287``) leave
+                                                                          the momentum rows alone, so AAM does not
+                                                                          change. NaN zeroing (``:236-238``) does touch
+                                                                          momentum, but it raises ``ef.nan`` and the
+                                                                          step is redone. No AAM amount.
+F1    ``eos.borrow`` (``:307-324``),        after\_      floor            species rows only (EF.rst:192-202: mass
+      ``eos.fix_vapor`` (``:326-380``)      combine                       conserving), so AAM does not change. No AAM
+                                                                          amount.
+====  ====================================  ===========  ===============  ==============================================
+
+So no EF floor, repair or positivity post needs a ``derived_amount`` on
+``aam``. The monitor's AAM budget closes from lane A's own amounts, the
+``aam.boundary.1`` transfer and the closure. That the floors leave momentum
+unchanged is read from the pin code, not run (hypothesis H11).
 
 5.3 Gates (specified, not run)
 ------------------------------
@@ -636,6 +716,10 @@ H8   NCCL or commux/UCX capture of the fixer collective           not needed: X 
 H9   on MPS (no FP64; ``meshblock.cpp:1057``) {R, I} can be       unverified; no MPS gate
      reduced on the host in FP64
 H10  #370's carry makes G3 and G7s pass on sedimentation decks    gate G7s (tolerance)
+H11  EF's floors and repairs leave the momentum rows unchanged    read from the pin (5.2); gate G7s
+     (no AAM amount)                                              and G3 with floors active
+H12  the kept ``vic.momentum_t`` top face is round-off when the   gate G3 with ``implicit-scheme: 9``
+     solve conserves column tangential momentum (11.2 c)
 ===  ===========================================================  ==============================================
 
 
@@ -654,9 +738,13 @@ per-source ``scratch_`` (monitor steps)     FP64              not used: amounts 
 kept ``riemann.central``,                   FP64              FP32 storage on CUDA, FP64 accumulation
 ``vic.momentum_t``                                            (R-5); MPS pending with R; lane A forms
                                                               ``F − F_c`` and the rate in FP64
-R's step accumulator                        FP64              FP64 (R:13-14)
+EF's P2 factor / P3 carry on ``total(d)``   FP64              flux dtype (FP32) in ``total(d)`` (kFlux,
+                                                              R.rst:452-453); their amounts FP64
+                                                              (R.rst:452-454); lane A forms the flux form
+                                                              and F_d from them in FP64 (Z6)
+R's step field and amounts                  FP64              FP64; FP32 on MPS (R.rst:452-454)
 AAM flux form, torque rate, R and I         FP64              FP64; summed in FP64 before reduction
-``diffusion`` part                          FP64 amounts      FP64 amounts (R:12)
+``diffusion`` part                          FP64 amounts      FP64 amounts (R.rst:452-454)
 rotation data                               FP64              lane S's master and cast views
 ==========================================  ================  =========================================
 
@@ -666,7 +754,7 @@ rotation data                               FP64              lane S's master an
 Three things lift today's refusal (``hydro_forward.cpp:993-995``) together:
 
 1. a consistent central part, which the header gives as totals under
-   perturbation flux (R:11);
+   perturbation flux (R.rst:958-961);
 2. FP64 accumulation of the rate and of R and I;
 3. gate G10.
 
@@ -681,7 +769,7 @@ Until G10 passes, ``exact`` refuses FP32 and perturbation-flux at reset.
 
 * The lane-A buffers have fixed shapes and are allocated at reset:
   ``omega_local``, the m1 weights, ``scratch_`` and ``{R, I}``.
-* The kept parts live in R's storage (R:64-66).
+* The kept parts live in R's storage (R:43-44).
 * ``dt`` is a host double, read at step start (X.rst:93, 180; R:113-115).
 * Sources with ``capturable = false`` run in eager segments.
 
@@ -693,10 +781,19 @@ today                                                   V3
 ``meshblock.cpp:1018`` two ``.item()``                  device scale in ``Fixer::apply``
 ``gnomonic_equiangle.cpp:506`` on-axis ``.item()``      ``has_on_axis_cell`` set at reset (S)
 ``diffusion.cpp:507`` ``torch::equal`` per call         frozen options, checked at build (lane O)
-``diffusion_radial.cpp:97-100`` aborting check          device flag joined to X's stacked redo flags
-                                                        (``meshblock.cpp:1559-1560``, read once at
-                                                        ``:1566``); action stays abort (FOR CHENG:
-                                                        redo)
+``diffusion_radial.cpp:97-100`` aborting check          ``reg.flag_retry("diffusion.radial", any)``
+                                                        (R:78), read in X's one step-end read
+                                                        (R:102). Until R's PR R-1 moves the retry
+                                                        flags, it rides EF's ``EfStatus`` tensor in
+                                                        X's stacked read (EF.rst:319-342, 606-607;
+                                                        ``meshblock.cpp:1559-1566``) (Z5). Action
+                                                        stays abort (FOR CHENG: redo)
+``specific_heat_cv`` -> ``species_cv_ref`` host read     EF caches the reference cv on the host (Q-A2):
+per call (``moist_base.cpp:28``), from                  ``body_heat.cpp:49``,
+``body_heat.cpp:49``, ``relax_bot_temp.cpp:69``,         ``relax_bot_temp.cpp:69``,
+``diffusion.cpp:566``                                   ``diffusion.cpp:566``,
+                                                        ``diffusion_cubed_sphere.cpp:200`` and
+                                                        ``diffusion_radial.cpp:36`` lose the read
 ``diffusion.cpp:677-743`` ``max_time_step``             stays, in the driver's dt step
 ======================================================  ===============================================
 
@@ -762,7 +859,7 @@ Merge order (provider first), inside snapy:
 
 1. lane O schema;
 2. lane A phase 1;
-3. lane R register (``543ff84f`` contract), lane I ``vic.*``, lane X global
+3. lane R register (``4c59162a`` frozen contract), lane I ``vic.*``, lane X global
    phase and segments, lane S rotation data and seam rotation;
 4. lane A phase 2;
 5. lane A phase 3;
@@ -807,8 +904,9 @@ file                               now     after   basis
 forcing.hpp                         674     253    options 326 -> 150 via schema (O); classes 270 -> 70;
                                                    includes and comments 78 -> 40; −7 lane-I lines
 source_term.hpp (new)                 0     110    base and registry
-coriolis.cpp                        232     178    −28 (123), −38 (glue), +4 (two phases), +8 metric
-                                                   ``−m1 v/r``; Ω set-up stays (``omega_local``, S-1)
+coriolis.cpp                        232     170    −28 (123), −38 (glue), +4 (two phases); Ω set-up
+                                                   stays (``omega_local``, S-1); the metric source
+                                                   stays in coord (J1)
 axial_momentum.cpp (new)              0     225    consumer, torque rules, ``AxialClosureFixer`` (170) +
                                                    flux form (45) + x1 source from ``vic.momentum_t`` (10)
 diffusion.cpp                       745     480    −70 options, −110 profile checks (schema), −40, −45
@@ -818,18 +916,21 @@ top_cool + bot_heat                 176      70    ``LayerHeat{side}``
 top_sponge + bot_sponge             156      50    ``Sponge{side}``
 relax_bot_temp/velo/comp            308     235    ``BottomSlab`` base
 body_heat + plume_forcing           100      70    base does ctor, reset, options
-**total**                          2870    2094
+**total**                          2870    2086
 =================================  ======  ======  =======================================================
 
-**Lane A: 2,870 → 2,094 lines (−776, −27.0 %), ``src/forcing`` only, new
+**Lane A: 2,870 → 2,086 lines (−784, −27.3 %), ``src/forcing`` only, new
 files included (RULING V3-1).**
 
 Arithmetic:
 
 * now: 674 + 232 + 745 + 376 + 103 + 176 + 156 + 308 + 100 = 2870
   (2.1, ``wc -l``);
-* after: 253 + 110 + 178 + 225 + 480 + 320 + 103 + 70 + 50 + 235 + 70 = 2094;
-* cut: 776 / 2870 = 0.270.
+* after: 253 + 110 + 170 + 225 + 480 + 320 + 103 + 70 + 50 + 235 + 70 = 2086;
+* cut: 784 / 2870 = 0.273.
+
+J1 drops rev 3 part 1's +8 ``coriolis.cpp`` lines: the metric source stays in
+coord (3.4). That moves the number from 2,094 to 2,086.
 
 Cross-references, not in lane A's number:
 
@@ -840,8 +941,8 @@ Cross-references, not in lane A's number:
 Rev 2's lane total (3,205 → 2,134) is withdrawn.
 
 **Precondition (N18): lane O's options schema lands before lane A's phase 1.**
-Without it, ``src/forcing`` would be 2,405 (−16.2 %) after phase 3 and 2,506
-(−12.7 %) before it (+131 options, +70 parser, +110 profile checks; +101 for
+Without it, ``src/forcing`` would be 2,397 (−16.5 %) after phase 3 and 2,498
+(−13.0 %) before it (+131 options, +70 parser, +110 profile checks; +101 for
 phase 3). Margin deletions that need no schema: the ``type`` key (5 lines, if
 Cheng removes type 123) and the legacy-key check ``diffusion.cpp:275-277``
 (3 lines).
@@ -909,13 +1010,13 @@ radial-conduction positivity failure        device flag; abort kept (default)   
 === ====================================================  ==========================================
 #   decision                                              reason (section)
 === ====================================================  ==========================================
-D1  F_c is the kept ``riemann.central``                   no second flux evaluation (3.1; R:9-12)
+D1  F_c is the kept ``riemann.central``                   no second flux evaluation (3.1; R:35)
 D2  modes ``off | transport | exact``; full refused       settled by Cheng (3.2, 10.3)
 D3  default ``off``; AAM budget always reported           bitwise migration (3.2)
-D4  ``AxialClosureFixer : Fixer``; X's registry           requirement 7; R:106-116 (3.3)
-D5  one Coriolis; m1 from ``total(1)`` in post_implicit   requirement 4; R:50 (3.4)
+D4  ``AxialClosureFixer : Fixer``; X's registry           requirement 7; R:104-116 (3.3)
+D5  one Coriolis; m1 from ``total(1)`` in post_implicit   requirement 4; R:21 (3.4)
 D6  FP32 lifted only by G10                               6.2
-D7  per-source scratch + ``cell_amount``                  bitwise; R:83; R-3 (5.1)
+D7  per-source scratch + ``cell_amount``                  bitwise; R:67-75 (5.1)
 D8  diffusion into the register in phase 3                bitwise gates of phases 1-2 (3.7)
 D9  ``exact`` with ``nu_iso > 0`` refused until phase 3   closure would remove a physical torque
 D10 rotation data in S's coord; physics in lane A         S-1 (3.8)
@@ -926,64 +1027,109 @@ D14 lane O schema before lane A phase 1                   20 % target (9.2; N18)
 D15 gates against main with #370                          carry consistency (5.3; appendix B)
 D16 one lane number, ``src/forcing`` only                 RULING V3-1 (9.2)
 D17 lane A owns the K-weighted x1-wall AAM reduction      R-4 answer (5.1)
+D18 AAM on derived row ``aam``; wall transfer             R:34, 72-75; R.rst:542-546 (5.1, 11.2 b)
+    ``aam.boundary.1`` at step end, weight 1.0
+D19 metric source stays in coord; −8 in coriolis.cpp      J1 (3.4, 9.2)
 === ====================================================  ==========================================
 
 
 11. Open questions to other lanes
 =================================
 
-Answered since part 1:
+11.1 Answered and closed
+------------------------
 
-* **R-2** by the header: ``post_split`` (R:85-87).
-* **R-1, mostly:** one summed row, ``keep``, totals under perturbation flux,
-  valid to the next ``begin_stage``, and parts as monitor amounts
-  (R:9-12, 56-60).
-* **Fixer base and registry:** ``class Fixer`` (R:106-116); the registry is
-  lane X's.
-* **S-1, S-2, S-3** (lane S thread).
-* **I-1** (lane I thread).
-* **R-3, R-4, R-5** (Tianhao, lane R thread 1794942493.726029):
+* **R-1** is closed by the frozen header and R.rst (re-cited from
+  ``543ff84f``):
 
-  * R-3: R's monitor tracks AAM by named source, and lane A posts through
-    ``cell_amount``;
-  * R-4: ``vic.momentum_t@1`` is kept per face, ``total(1)`` includes the
-    ``vic`` posts, and ``step_field(1)`` is the stage-weighted step face
-    transfer, whose K-weighted x1-wall reduction is lane A's;
-  * R-5: kept parts use FP32 storage on CUDA with FP64 accumulation. MPS is
-    pending.
+  * ``riemann.central`` is a kept part written in place by C's kernel
+    (R.rst:357-359), one summed mass row on x2/x3 (R.rst:165-168), in totals
+    (R.rst:958-961);
+  * it is never scaled (R.rst:455-457);
+  * parts are kFlux, and amounts are FP64 (R.rst:452-454).
 
-  These are cited to the ``543ff84f`` header lines until R's next revision is
-  posted.
+  The face states are answered in 11.2 (a).
+* **R-2** is closed: ``post_split`` (R:80-81), after ``begin_step()``
+  (R:6, 48).
+* **R-3** is closed and superseded by the derived row: AAM goes on ``aam``
+  through ``derived_amount``/``derived_total`` (R:34, 72-75; R.rst:538,
+  698-703), and the conserved rows through ``cell_amount`` (5.1).
+* **R-4** is closed: ``vic.momentum_t@1`` is kept per face (R.rst:165-167),
+  and ``total(1)`` includes the ``vic`` posts (R.rst:521-523). Lane A owns the
+  ``step_field(1)`` reduction at x1 walls (R:84; 5.1).
+* **R-5** is closed. Kept parts are kFlux: FP32 storage under FP32 on CUDA,
+  with FP64 accumulation. Amounts and step sums are FP64, or FP32 on MPS
+  (R.rst:452-454). Whether the closure's {R, I} survive FP32 on MPS stays
+  hypothesis H9 (no MPS gate).
+* **R-6** is closed: ``stage_weight`` is the w2 of the stage just combined
+  (R:111-112; R.rst:160-162). This matches pin ``meshblock.cpp:1027`` (3.3).
+* **The fixer base and registry:** ``class Fixer`` (R:104-116); registry and
+  collective are lane X's (R:104).
+* **The radial reset order (my X-1 note in part 1)** is closed by R. X calls
+  ``begin_step()`` at step start, before the radial ``post_split``, and
+  ``begin_stage(0)`` zeroes nothing (R:6, 48; R.rst:31-34, 70-73). So the
+  half step at ``meshblock.cpp:715`` is no longer erased by the stage-0 resets
+  at ``:722-738``.
+* **S-1..S-3** (lane S thread) and **I-1** (lane I thread).
+* **K-1** was routed by the PM: the kintera half to Xi (lane K), and
+  ``ConstGravity`` to Xinyue (lane I).
 
-Open:
+11.2 Lane R's questions to A (R.rst:1598-1601), answered
+--------------------------------------------------------
 
-* **R-1, Tianhao (placeholder).** The header builds ``riemann.central`` "from
-  the solver's own face states" (R:10-11); rev 1 asked for the post-terrain
-  states. A separate check compares them. At the pin, lane A's read finds one
-  tensor (``hydro_forward.cpp:1089-1090, 1108-1109``). The final result and
-  any conflict note go in the lane R thread.
-* **R-5 (MPS), Tianhao.** What is the kept-part dtype on MPS, which has no
-  FP64 (``meshblock.cpp:1057``)?
-* **R-6, Tianhao.** Which value does ``Fixer::apply``'s ``stage_weight``
-  (R:113-115) carry? Lane A needs the stage's own ``w2_s``
-  (``pintg->stages[stage].wght2()``, ``meshblock.cpp:1027``), not the step
-  weight ``c_s`` (R:13-15). ``StageWeights`` (R:54) holds both inputs.
-* **X-1, Xi.** Three questions on the radial flag:
+* **(a) K4: post-solid reading. Confirmed.** At the pin, the central part and
+  the solver take one tensor:
 
-  * Can the radial-conduction flag join X's stacked redo flags? That stack is
-    ``local_redo_flag_tensor``, ``meshblock.cpp:1506-1563``, stacked at
-    ``:1559-1560`` and read once at ``:1566``.
-  * Will X take cause bit 64 in ``reduce_redo_flags`` (``:1585-1597``) if
-    Cheng picks redo?
-  * **Reset order.** The first radial half step runs at ``meshblock.cpp:715``,
-    before the stage-0 resets at ``:722-738`` (X's reset list; R's
-    ``begin_stage(0)`` zeroes the step, R:23). So a radial ``post_split`` or
-    flag written at 715 would be erased. X's stage-0 order must put
-    ``begin_stage(0)`` and the resets before the first radial half step, or
-    exempt the radial post and flag. On a redo, ``restore_step``
-    (``:1479-1480``) re-runs the half step after the rollback.
-* **K-1, chen sihe.** Does lane K migrate ``ConstGravity`` (its work and the
-  gravity-work fixer)? Can kintera's four conversions (section 8) be captured?
+  * ``wlr2 = has_solid ? pmb->pib->forward(wtmp2, DIM2, solid) : wtmp2``
+    (``hydro_forward.cpp:1089-1090``; x3 at ``:1123-1124``);
+  * it is formed after the cubed-sphere L/R sync (``:1013-1048``);
+  * both ``central(wlr2[ILT], wlr2[IRT], ...)`` (``:1108``) and
+    ``solve(wlr2, ...)`` (``:1109``) read it.
+
+  ``central`` passes clones into ``priemann->forward`` (``:997-1003``), so it
+  sees the post-solid, unrotated states, and ``u_n`` is formed by the solver's
+  own projection (the comment at ``:1092-1093``). The mass rows are frame-free
+  (R.rst:450-451).
+* **(b) The "<row>.boundary.<dim>" convention for aam. Confirmed.** Lane A
+  posts the x1-wall AAM transfer as ``derived_amount("aam.boundary.1", "aam",
+  value, 1.0, AmountKind::cell_source)``, inflow positive (R.rst:542-546).
+  ``value`` is the K-weighted reduction ``Σ_wall A_f r_f K · step_field(1)``
+  over physical x1 wall faces. It is posted once at step end with weight 1.0,
+  because ``step_field`` already carries dt and the stage weights
+  (R.rst:557-558). The name replaces ``aam.x1_wall``. There is no
+  ``aam.boundary.2`` or ``.3``: the cubed sphere has no physical x2/x3
+  boundary.
+* **(c) Does ``vic.momentum_t.top`` enter the axial torque? No.** Lane A's x1
+  source reads the kept per-face field ``kept(1, "vic.momentum_t")``. Its top
+  face enters only as ``P_hi`` of the top cell, exactly as the pin's prefix
+  sum does (``gnomonic_equiangle.cpp:541-546``: ``T``, ``Phi =
+  -T.cumsum(-1)``, ``Plo``, ``target``). Lane A never reads the
+  ``diagnostic`` amount ``vic.momentum_t.top`` (R:30). If the solve conserves
+  column tangential momentum, the top value is round-off (hypothesis H12). If
+  EF ever prescribes tangential momentum (R.rst:516-520), lane A's source
+  changes and needs lane A's agreement.
+
+11.3 Lane EF's questions to A (EF.rst:1857-1863), answered
+----------------------------------------------------------
+
+* **Q-A1: yes.** Lane A reads ``total(d)`` in phase ``divergence``, after
+  ``limit`` (R:17-18), so the flux form includes P3's carry and P2's scale
+  (3.1; Z4 table in 5.2).
+* **Q-A2: no objection; one correction.** The forcings do not call
+  ``species_cv_ref()`` directly. They call ``specific_heat_cv``
+  (``body_heat.cpp:49``, ``relax_bot_temp.cpp:69``, ``diffusion.cpp:566``,
+  plus ``diffusion_cubed_sphere.cpp:200`` and ``diffusion_radial.cpp:36``).
+  That calls ``species_cv_ref`` (``ideal_gas.cpp:27``,
+  ``ideal_moist.cpp:61``), which reads the host with ``.item()``
+  (``moist_base.cpp:28``). A host cache removes that read from all five
+  (7.1).
+
+11.4 Open
+---------
+
+* **X-1, Xi.** Abort or redo for the radial failure (FOR CHENG, 10.3). If
+  redo, X adds the cause ``"diffusion.radial"`` to its retry decision (R:37,
+  78, 102).
 
 FOR CHENG: see 10.3.
 
@@ -991,21 +1137,22 @@ FOR CHENG: see 10.3.
 12. Skeleton index
 ==================
 
-``wc -l docs/v3/skeleton/A/*`` gives 297 lines, with declarations only, in
+``wc -l docs/v3/skeleton/A/*`` gives 299 lines, with declarations only, in
 namespace ``snap``. The headers include lane R's ``flux_register.hpp``. A
-syntax check against R's header at ``543ff84f`` passes.
+syntax check against R's frozen header at ``4c59162a`` passes.
 
 ==========================  ==============================================================  ===============
 file (lines)                declarations                                                    serves
 ==========================  ==============================================================  ===============
-``source_term.hpp`` (91)    ``SourceKind``, ``SourceRows``, ``SourceRegion``,               3.6, 5.1, 7.1
+``source_term.hpp`` (90)    ``SourceKind``, ``SourceRows``, ``SourceRegion``,               3.6, 5.1, 7.1
                             ``SourceDeclaration`` (``RegisterPhase phase``, ``split``,
                             ``capturable``), ``StageState``, ``SourceTerm``,
                             ``SourceRegistry`` (``Run``, ``runs``, ``run``,
                             ``scratch_``)
 ``axial_momentum.hpp``      ``AxialMode``, ``AxialFluxView`` (``total``, ``central``,       3.1-3.3, 5.1,
-(85)                        ``momentum_t``), ``FaceTorqueRule``, ``AxialMomentum``          5.2, 6.2, 7.3
-                            (``request``, ``wall_torque``), ``AxialClosureFixer : Fixer``
+(88)                        ``momentum_t``), ``FaceTorqueRule``, ``AxialMomentum``          5.2, 6.2, 7.3
+                            (``request``, ``wall_torque``, ``aam_total``),
+                            ``AxialClosureFixer : Fixer``
 ``coriolis_diffusion.hpp``  ``Coriolis`` (``omega_local_``, ``m1_lo_``, ``m1_hi_``),        3.4, 3.7, 3.6
 (89)                        ``DiffusionCoefficients``, ``DiffusionFlux``,
                             ``DiffusionSource``, ``RadialConduction`` (``post_split``,
@@ -1031,10 +1178,10 @@ N14 withdraws N2 and supersedes N5 where they overlap.
   placement stands. The 7-vector does not: with the gravity-work fixer removed
   (Cheng's ruling (b); ``meshblock.cpp:1036-1062`` deleted by X), the
   collective carries {R, I} only. It goes through the host and is never
-  captured. The registry is X's (R:106).
-* **N6 (accept, changed by R's header).** R owns the monitor (R:21-22).
-  Per-source amounts go to ``reg.cell_amount`` (R:83) instead of a lane-A
-  ``budget_``. R's monitor tracks AAM by named source (R-3, answered).
+  captured. The registry is X's (R:104).
+* **N6 (accept, changed by R's header).** R owns the monitor (R:87, 89-103).
+  Per-source amounts go to ``reg.cell_amount`` (R:67-70) instead of a lane-A
+  ``budget_``. AAM is the derived row ``aam`` (R:34, 72-75; R-3 closed).
 * **N7 (accept).** The skeleton's references are remapped, and the m1 comment
   is corrected (no ``/ dt``).
 * **N8 (accept).** The no-schema basis is stated in 9.2.
@@ -1056,27 +1203,31 @@ N14 withdraws N2 and supersedes N5 where they overlap.
   the no-schema numbers are worse (9.2).
 
 
-Appendix B: Zoey's round-2 review
-=================================
+Appendix B: Zoey's round-2 review (Z1-Z8)
+==========================================
 
-Her formal notes Z1-Z8 were not in my inputs. The points below come from her
-report as summarised in the lane A thread, and will be renumbered to Z1-Z8
-when the formal notes are posted.
+Rev 2 answered three points from Zoey's report by topic. This revision
+answers by number the notes the PM carried into this thread (Z4, Z5, Z6). Her
+formal text for Z1-Z3, Z7 and Z8 was not in my inputs, so those keep their
+rev 2 topical answers, and their status is "to be confirmed against her text".
 
-1. **Must: the AAM flux form reads the momentum rows after the limiter's
-   carry; F_d is the limited mass flux minus the pre-limiter central flux.**
-   Accepted and made explicit in 3.1 and 4.1.
+* **Z1-Z3 (status: answered by topic in rev 2; numbering to be confirmed).**
+  The three rev 2 points stand:
 
-   * The flux form runs on ``du`` in the divergence phase, after positivity's
-     scale and carry (R:16-19, 25-28).
-   * ``F_d = total(d) mass rows − kept riemann.central``. The total is limited,
-     and the kept part is never scaled (R:18-19).
-   * The posting order lane A needs from R is R:25-28, unchanged.
-2. **Must: use main with #370 as the gate reference, not the pin.** Accepted
-   (5.3, D15). Gates compare against main at or after ``730b3500``; at the pin,
-   the AAM row with sedimentation is RED. A new gate, G7s (``d_sed``, C n eps,
-   C = 4), covers sedimentation with ``transport`` and ``exact``.
-3. **Should: the transport bitwise gate vs EF-3 rounding on sedimentation
-   decks.** Accepted with a rule (5.3). G4 is bitwise against a reference that
-   contains EF-3 when EF-3 merged first. Otherwise G4 uses C n eps (C = 4) on
-   sedimentation decks and stays bitwise elsewhere.
+  * the flux form reads ``total(d)`` after the limiter's carry, and F_d is the
+    limited total minus the never-scaled kept central (3.1; R:17-18;
+    R.rst:455-457);
+  * gates compare against main with #370 (5.3, D15; new G7s);
+  * the EF-3 rule for G4 (5.3).
+* **Z4 (status: done).** §5.2 now lists EF's floors and repairs (F1:
+  ``eos.floor``, ``eos.borrow``, ``eos.fix_vapor``) and the positivity posts
+  P2 and P3, each with its AAM effect (EF.rst:556-597). §11.3 answers Q-A1
+  (yes) and Q-A2 (no objection, with the ``specific_heat_cv`` correction).
+* **Z5 (status: done).** The radial failure flag is
+  ``reg.flag_retry("diffusion.radial", any)`` (R:78). Until R's PR R-1 moves
+  the retry flags, it rides EF's ``EfStatus`` tensor in X's stacked read
+  (EF.rst:319-342, 606-607; ``meshblock.cpp:1559-1566``) (7.1).
+* **Z6 (status: done).** §6.1 gains the P2/P3 dtype row: flux dtype in
+  ``total(d)``, FP64 amounts, and the flux form and F_d formed in FP64.
+* **Z7, Z8 (status: text not available).** These will be answered by number
+  when the formal notes are posted.
