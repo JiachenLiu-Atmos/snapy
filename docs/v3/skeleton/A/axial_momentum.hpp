@@ -1,28 +1,28 @@
 // V3 lane A skeleton: AAM as a register consumer, its torque rule and the
-// closure fixer (design A.rst, sections 3-5). Declarations only.
+// closure fixer (A.rst 3.1-3.3, 5.2, 6.2). Declarations only.
 #pragma once
 
 #include "source_term.hpp"
 
 namespace snap::v3 {
 
-class Fixer;  // assumed, lane X / register owner (Q X-2)
+class Fixer;  // assumed †, fixer base class (lane R list; registry X-1)
 
-//! dynamics/conserve-axial-momentum (A.rst 4.2). "full" and the
+//! dynamics/conserve-axial-momentum (A.rst 3.2, settled). "full" and the
 //! conserve-axial-momentum-closure key are refused with a message naming exact
 enum class AxialMode : uint8_t { off, transport, exact };
 
-//! register views AAM reads (A.rst 3.2); undefined = direction inactive
+//! register views AAM reads (A.rst 3.1); undefined = direction inactive
 struct AxialFluxView {
   torch::Tensor flux[3];     //!< A-r1: total face flux, all rows
-  torch::Tensor central[3];  //!< A-r2: part riemann.central, x2/x3 only
-  torch::Tensor x1_transfer;           //!< A-r3 + A-r4: mass per time
-  torch::Tensor x1_tangential_corr;    //!< A-r5: implicit correction
+  torch::Tensor central[3];  //!< A-r2: riemann.central† (one summed row)
+  torch::Tensor x1_transfer;  //!< A-r3 + vic.mass_total (lane I), a rate
+  torch::Tensor x1_tangential_corr;  //!< vic.momentum_t[2] (lane I)
   int ny = 0;                          //!< species rows after IDN
 };
 
 //! flux-form torque of F_d per volume. Rule 1: #363's -(Omega/V) sum_f M_d,f
-//! (s_f^2 - s_c^2); rule 2: the side study's, if it passes (A.rst 4.3)
+//! (s_f^2 - s_c^2); rule 2: the side study's, if it passes (A.rst 3.2)
 class FaceTorqueRule {
  public:
   virtual ~FaceTorqueRule() = default;
@@ -38,7 +38,7 @@ class AxialMomentum {
                 std::unique_ptr<FaceTorqueRule> rule);
   AxialMode mode() const;
   //! reset checks: an axis exists; exact needs FP64, no perturbation-flux
-  //! (until G5, A.rst 7) and nu_iso == 0 (until phase 3, A.rst 9.4)
+  //! (until G10, A.rst 6.2) and nu_iso == 0 (until phase 3, A.rst 3.7)
   void check(StageState const& s, bool fp32, bool perturbation_flux,
              double nu_iso) const;
   //! step 2: rewrite the K component of the register's divergence from
@@ -61,10 +61,9 @@ class AxialMomentum {
   torch::Tensor rho_;   //!< interior density the increment scales with
 };
 
-//! the closure as a registered fixer (A.rst 5). Declares to the monitor:
-//! kind fixer, rows {IVY, IVZ}, moves_ke_to_ie, AAM change -w2 dt R,
-//! reduction {R, I} (FP64, global, every stage). Sits at the stage's last
-//! momentum change, before boundaries; no host sync
+//! the closure as a registered fixer (A.rst 5.2): kind fixer, rows {IVY, IVZ},
+//! moves_ke_to_ie, AAM change -w2 dt R; partial sums {R, I} FP64 on device.
+//! X's global phase reduces them via host (never captured; X.rst:98, 187)
 class AxialClosureFixer /* : public Fixer (assumed) */ {
  public:
   explicit AxialClosureFixer(AxialMomentum const* aam);  //!< non-owning

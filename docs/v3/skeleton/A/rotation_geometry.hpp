@@ -1,15 +1,14 @@
 // V3 lane A skeleton: the AAM geometry, proposed for lane S ownership
-// (design A.rst, section 10; Q S-1). Declarations only.
+// (A.rst 3.8; S-1). Declarations only.
 #pragma once
 
 #include <torch/torch.h>
 
 namespace snap::v3 {
 
-//! Geometry of rotation about the omega1 axis. Built once per block by the
-//! coordinate; returned by Coordinate::rotation_geometry(), null where
-//! there is no axis (Cartesian). Replaces the four AAM virtual hooks on
-//! Coordinate (coordinate.hpp:370-392 at 9e5de2d4).
+//! Geometry of rotation about the omega1 axis, built once per block; from
+//! Coordinate::rotation_geometry(), null without an axis (Cartesian). Replaces
+//! the four AAM hooks on Coordinate (coordinate.hpp:370-392 at 9e5de2d4).
 class RotationGeometry {
  public:
   virtual ~RotationGeometry() = default;
@@ -27,7 +26,7 @@ class RotationGeometry {
   //! Omega (about omega1, or the full vector) in the local orthonormal
   //! frame at cell centres [3, nk, nj, ni]; moved from coriolis.cpp:85-151
   virtual torch::Tensor omega_local(double o1, double o2, double o3) const = 0;
-  //! #355 split weights: m1 = (phi_lo * lo + phi_hi * hi) / dt per cell
+  //! #355: m1 = phi_lo * lo + phi_hi * hi; phi a mass rate; lo/hi hold 1/(2rV)
   virtual torch::Tensor x1_split_lo() const = 0;
   virtual torch::Tensor x1_split_hi() const = 0;
   virtual bool has_on_axis_cell() const = 0;  //!< at reset; no host read
