@@ -62,8 +62,8 @@ src/utils/pull_neighbors.cpp,225,0,0,225,"delete; compiled by src glob, unrefere
 src/utils/pull_neighbors.hpp,24,0,0,24,"delete; compiled by src glob, unreferenced",
 src/utils/refine.cpp,69,0,0,69,delete; LIVE feature removed (FOR CHENG),"only caller: output super-resolution (deleted, FOR CHENG)"
 src/utils/refine.hpp,11,0,0,11,delete; LIVE feature removed (FOR CHENG),
-src/utils/signal_handler.cpp,146,0,146,0,"move; live, moved; joint row agreed with Xi, booked once in O","to src/mesh (callers mesh.cpp, meshblock.cpp)"
-src/utils/signal_handler.hpp,67,0,67,0,"move; live, moved; joint row agreed with Xi, booked once in O",to src/mesh
+src/utils/signal_handler.cpp,146,0,146,0,"move; live, moved; joint row agreed with Xi: moved to src/mesh, counts in neither lane","to src/mesh (callers mesh.cpp, meshblock.cpp)"
+src/utils/signal_handler.hpp,67,0,67,0,"move; live, moved; joint row agreed with Xi: moved to src/mesh, counts in neither lane",to src/mesh
 src/utils/tensor_cast_cache.hpp,53,53,0,0,"keep; live, kept; joint row agreed with Xi, booked once in O",3 includers
 src/utils/utils_dispatch.cpp,26,0,0,26,"delete; compiled by src glob, unreferenced",bdot_out has no caller
 src/utils/utils_dispatch.cu,92,0,0,92,"delete; compiled by src glob, unreferenced",

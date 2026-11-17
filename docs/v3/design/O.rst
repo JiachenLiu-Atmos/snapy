@@ -935,9 +935,17 @@ Line counts are ``wc -l`` at the pin. Moved code keeps its content; only its
 directory or file changes. How the moved lines are counted between lanes X
 and O is settled in the lane X thread and is not decided here.
 
-To the mesh owner (lane X, Xi). **Every row below is agreed with Xi**
-(lane X thread, rows 1-5) **and booked once, in X**; O's replacement code is
-inside O's estimates.
+Rows touching the mesh owner (lane X, Xi). **Every row below is agreed with
+Xi** (lane X thread, rows 1-5) and is booked once. The last column says
+where each row is booked.
+
+* X deletes ``meshblock.cpp:203-230`` (item sv), ``meshblock_options.cpp:65-86``
+  (item j) and the FP32 sites.
+* The ``signal_handler`` move counts in neither lane.
+* The restart-check and printer rows go **to O**, and X counts none of
+  their lines.
+
+O's replacement code is inside O's estimates.
 
 .. list-table::
    :header-rows: 1
@@ -950,39 +958,48 @@ inside O's estimates.
      - 146
      - Move to ``src/mesh``. Its only includers are ``mesh.cpp:28`` and
        ``meshblock.cpp:24``, and it takes ``MeshBlockImpl``
-       (``signal_handler.hpp:45``).
+       (``signal_handler.hpp:45``). **Counts in neither lane**: a move, not
+       a cut.
    * - ``src/utils/signal_handler.hpp``
      - 67
      - Same as above.
    * - ``meshblock.cpp:203-230`` (``validate_slice``)
      - 28
-     - Delete. It repeats ``output_type.cpp:90-98``. The generated output
-       option checks (section 3.3) keep **both** checks, once each:
+     - **X deletes it (item sv).** It repeats the other two checks. The
+       generated output option checks (section 3.3) carry **both** checks,
+       once each:
 
-       * slice against sum (``meshblock.cpp:205-209``,
-         ``output_type.cpp:90-98``);
-       * bounds and strict order (``meshblock.cpp:210-220``,
-         ``meshblock_options.cpp:68-78``).
+       * the sum check: slice against sum (``output_type.cpp:90-98``; also
+         ``meshblock.cpp:205-209``);
+       * the bounds and order checks: slice inside the mesh, strictly
+         increasing (``meshblock_options.cpp:65-86``, X item j; also
+         ``meshblock.cpp:210-220``).
 
        They run on the host when the options are read, before any step,
        so they do not touch ``dt``.
    * - ``meshblock.cpp:1623-1653`` (#367 restart metadata checks)
      - 31
-     - Move into ``check_restart_metadata`` (``restart.hpp``), next to the
-       file contract; ``_init_from_restart`` calls it. The behaviour and
+     - **To O; X counts none of these lines.** They move into
+       ``check_restart_metadata`` (``restart.hpp``), next to the file
+       contract, and ``_init_from_restart`` calls it. The behaviour and
        messages are unchanged.
    * - ``meshblock.cpp:1226-1339`` (``print_cycle_diagnostics``; the line
        is produced at ``:1232-1338``) and ``mesh/cycle_diagnostics.hpp``
        (16)
-     - 114 + 16
-     - Becomes a printer over ``BudgetConsumer``'s totals (section 3.2). It
-       merges with O8, after lane R's monitor. The printed content is
-       unchanged. X books 1226-1346, including the ``print_cycle_info``
-       wrapper (``:1341-1346``), which stays. ``:1336-1337`` (``fixgrav``)
-       is counted once, in X's gravity row.
+     - 112 + 16
+     - **To O, except ``:1336-1337``; X counts none of these lines.** They
+       become the printer over ``BudgetConsumer``'s totals (section 3.2),
+       which merges with O8, after lane R's monitor. The printed content is
+       unchanged.
+
+       * ``:1336-1337`` (``fixgrav``) is X's, inside the gravity-work row
+         (83), so this row is 114 − 2 = 112 lines plus the header's 16.
+       * The ``print_cycle_info`` wrapper (``:1341-1346``) stays in
+         ``src/mesh``.
    * - ``meshblock_options.cpp:65-86`` (``check_slice``)
      - 22
-     - Delete. It is the third slice check; the generated checks replace it.
+     - **X deletes it (item j).** The generated checks carry its bounds and
+       order checks (row above).
    * - ``meshblock.cpp:1210`` (``AccumulateStats`` call)
      - 0
      - **No change requested. The earlier request for a device ``dt`` is
@@ -1096,17 +1113,25 @@ Each file is booked once (note 3 and note 4):
   * the gravity-work fixer (83, including ``meshblock.cpp:1336-1337``) and
     the axial closure (29, ``meshblock.cpp:1009-1035``,
     ``meshblock.hpp:223-228``);
-  * the ``signal_handler`` move into ``src/mesh`` (213 lines, counted in
-    O as moved, not cut), ``meshblock.cpp:203-230``, and the restart and
-    printer rows of section 8.1;
+  * ``meshblock.cpp:203-230`` (item sv) and ``meshblock_options.cpp:65-86``
+    (item j);
   * all 1,008 lines of ``src/interface``: ``athena_arrays.hpp`` 669,
-    ``init_from_tensor.hpp`` 199, ``stride_iterator.hpp`` 140;
-  * every ``meshblock.cpp``/``meshblock_options.cpp`` range of section
-    8.1, and ``mesh/cycle_diagnostics.hpp`` (16).
+    ``init_from_tensor.hpp`` 199, ``stride_iterator.hpp`` 140.
 
-  ``meshblock.cpp:1336-1337`` sits in X's gravity row and is not counted
-  again in the cycle range. O's replacement code (``check_restart_metadata``,
-  the budget printer, the generated slice checks) is inside O's estimates.
+* **To O, X counts none of these lines:**
+
+  * ``meshblock.cpp:1623-1653`` (31) go to the restart module;
+  * ``meshblock.cpp:1226-1339`` minus ``1336-1337`` (112) and
+    ``mesh/cycle_diagnostics.hpp`` (16) go to the printer.
+
+  These lines are outside O's 9,996 baseline (``src/mesh``). O absorbs them
+  into its estimated ``restart.cpp`` (260) and ``budget.cpp`` (200), so they
+  are a move into O, not an O cut, and O's numbers do not change.
+  ``1336-1337`` stays in X's gravity row.
+* **In neither lane:** the ``signal_handler.*`` move into ``src/mesh``
+  (146 + 67 = 213). It is in O's baseline as ``src/utils``, in the "moved"
+  column, so it is not cut.
+* **``src/utils`` counts in O**, all 1,717 lines of its baseline.
 
 X's 1,008 ``src/interface`` lines depend on O5: the writer without
 ``AthenaArray`` and the port of ``tests/test_eos_io_core.cpp``
@@ -1830,14 +1855,14 @@ carries its class, and ``O_lines.csv`` has the same column.
      - 0
      - 146
      - 0
-     - move; live, moved; joint row agreed with Xi, booked once in O
+     - move; live, moved; joint row agreed with Xi: moved to src/mesh, counts in neither lane
      - to src/mesh (callers mesh.cpp, meshblock.cpp)
    * - ``src/utils/signal_handler.hpp``
      - 67
      - 0
      - 67
      - 0
-     - move; live, moved; joint row agreed with Xi, booked once in O
+     - move; live, moved; joint row agreed with Xi: moved to src/mesh, counts in neither lane
      - to src/mesh
    * - ``src/utils/tensor_cast_cache.hpp``
      - 53
@@ -2250,20 +2275,20 @@ this revision**, so it has no disposition here.
        * X books all of ``src/interface``: ``athena_arrays.hpp`` 669,
          ``init_from_tensor.hpp`` 199, ``stride_iterator.hpp`` 140. This is
          conditional on O5.
-       * X books every ``meshblock.cpp`` range and
-         ``cycle_diagnostics.hpp`` (16).
-       * O's replacement code stays inside O's estimates.
-       * ``meshblock.cpp:1336-1337`` (``fixgrav``) sits in X's gravity row
-         and is not counted again inside the cycle range.
-       * O takes only the #367 checks (``:1623-1653``) out of
-         ``_init_from_restart``. The rest of ``1603-1833`` stays in
-         ``src/mesh``.
+       * X deletes ``meshblock.cpp:203-230`` (item sv) and
+         ``meshblock_options.cpp:65-86`` (item j).
+       * ``:1623-1653`` (to the restart module), ``:1226-1339`` minus
+         ``1336-1337`` and ``cycle_diagnostics.hpp`` (16, to the printer)
+         go to O. X counts none of these lines.
+       * ``meshblock.cpp:1336-1337`` (``fixgrav``) sits in X's gravity row.
+       * The rest of ``1603-1833`` stays in ``src/mesh``.
    * - 5
      - accept
      - A third slice check exists: ``meshblock_options.cpp:65-86`` (bounds
        and order, 22 lines). Sections 2.2 and 8.1 now list three sites. The
-       generated checks replace all of them. The ``meshblock_options.cpp``
-       and ``meshblock.cpp`` lines are X's to delete.
+       generated checks carry both the sum check (``output_type.cpp:90-98``)
+       and the bounds/order checks. X deletes ``meshblock_options.cpp:65-86``
+       (item j) and ``meshblock.cpp:203-230`` (item sv).
    * - 6
      - accept
      - ``src/options/*.yaml`` (300, *estimate*) is now counted as an
@@ -2342,8 +2367,9 @@ this revision**, so it has no disposition here.
      - accept
      - The line is produced at ``meshblock.cpp:1232-1338``, the function
        body after the signature at ``1226-1231``. Sections 2.3 and 8.1 cite
-       it. X's range, 1226-1346, also covers the ``print_cycle_info``
-       wrapper (``:1341-1346``), which stays in ``src/mesh``.
+       it. ``1226-1339`` minus ``1336-1337`` goes to O's printer, as agreed
+       with Xi. The ``print_cycle_info`` wrapper (``:1341-1346``) stays in
+       ``src/mesh``.
    * - 14
      - accept, in part
      - The read site is found: ``x1_centroid.cpp:68-79``, through
