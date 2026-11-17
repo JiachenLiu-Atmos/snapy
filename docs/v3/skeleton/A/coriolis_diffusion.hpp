@@ -39,6 +39,7 @@ struct DiffusionCoefficients {
 class DiffusionFlux /* : public FluxContributor (assumed) */ {
  public:
   explicit DiffusionFlux(DiffusionCoefficients c);
+  //! posts the named increment "diffusion" (after riemann, covariance)
   void contribute(FluxRegister& reg, int dir, StageState const& s) const;
   double max_time_step(StageState const& s) const;
  private:

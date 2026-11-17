@@ -30,6 +30,7 @@ class RotationGeometry {
   //! #355 split weights: m1 = (phi_lo * lo + phi_hi * hi) / dt per cell
   virtual torch::Tensor x1_split_lo() const = 0;
   virtual torch::Tensor x1_split_hi() const = 0;
+  virtual bool has_on_axis_cell() const = 0;  //!< at reset; no host read
 };
 
 }  // namespace snap::v3

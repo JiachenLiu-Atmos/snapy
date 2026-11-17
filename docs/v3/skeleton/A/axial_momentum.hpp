@@ -15,7 +15,7 @@ enum class AxialMode : uint8_t { off, transport, exact };
 //! register views AAM reads (A.rst 3.2); undefined = direction inactive
 struct AxialFluxView {
   torch::Tensor flux[3];     //!< A-r1: total face flux, all rows
-  torch::Tensor central[3];  //!< A-r2: central mass rows, x2/x3 only
+  torch::Tensor central[3];  //!< A-r2: part riemann.central, x2/x3 only
   torch::Tensor x1_transfer;           //!< A-r3 + A-r4: mass per time
   torch::Tensor x1_tangential_corr;    //!< A-r5: implicit correction
   int ny = 0;                          //!< species rows after IDN

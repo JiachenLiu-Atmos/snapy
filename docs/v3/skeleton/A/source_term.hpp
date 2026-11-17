@@ -61,7 +61,7 @@ class SourceTerm {
   virtual ~SourceTerm() = default;
   virtual SourceDeclaration const& declaration() const = 0;  //!< fixed
   //! add the increment over dt to du (conserved rows, covariant momentum);
-  //! the registry passes a scratch tensor instead when budgets are on
+  //! (req 9: no scratch copy; the monitor reduces du after each source)
   virtual void add(torch::Tensor du, StageState const& s) = 0;
   //! largest stable dt this source allows; +inf if none (diffusion)
   virtual double max_time_step(StageState const& s) const;
@@ -90,7 +90,6 @@ class SourceRegistry {
   std::vector<SourceDeclaration> declarations() const;
  private:
   std::vector<std::unique_ptr<SourceTerm>> sources_;
-  torch::Tensor scratch_;  //!< reused dS buffer when budgets are on
 };
 
 }  // namespace snap::v3

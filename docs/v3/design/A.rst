@@ -4,12 +4,13 @@ V3 design, lane A: rotation, axial angular momentum, sources, diffusion
 
 :Lane: A (rotation, axial angular momentum (AAM), source terms, diffusion)
 :Owner: Jiachen Liu (alternate: Xi Zhang)
-:Revision: 1 (due Wed 11-18 18:00 EST); revision 2 due Fri 11-20 18:00
+:Revision: 1 (due Wed 11-18 18:00 EST), checked against the ten flux-register
+           requirements of brief 2/3; revision 2 due Fri 11-20 18:00
 :Reviewers (round 2): Jiheng (lane S), Xi (lane X)
 :Pin: snapy ``9e5de2d4ce497d0b2d4da3295fc1fe969fe7e410`` (``9e5de2d FP32 step5
       validation (#368)``)
-:Skeleton: ``docs/v3/skeleton/A/``, four headers, declarations only, 298
-           lines (``wc -l docs/v3/skeleton/A/*``)
+:Skeleton: ``docs/v3/skeleton/A/``, four headers, declarations only, under
+           300 lines (``wc -l docs/v3/skeleton/A/*``)
 
 All ``path:line`` references below are at the pin
 ``9e5de2d4ce497d0b2d4da3295fc1fe969fe7e410`` unless another sha is given.
@@ -27,11 +28,37 @@ That covers gravity's interface, but not ``const_gravity.cpp`` itself, which is
 outside the baseline. It also covers the AAM machinery spread over hydro,
 coordinate and mesh.
 
-The doc answers the eight design questions of the lane brief (sections 3 to
-10) and the two decide-and-justify items. The conserve-axial-momentum default
-and kill list are in section 4.4. When diffusion enters the register is in
-section 9.4. Section 11 gives the line-count plan and decision log, and section
-12 lists the cross-lane questions.
+Where things are:
+
+* Section 3: the eight design questions.
+* Sections 4 to 7: the round's register contract, invariants and gates, FP32,
+  and CUDA graph topics. These are checked against the ten flux-register
+  requirements of brief 2/3, with a compliance table in section 4.2.
+* Section 8: the two decide-and-justify items.
+* Section 9: the line-count plan.
+* Section 10: the migration order and decision log.
+* Section 11: the open cross-lane questions.
+* Section 12: the hypotheses and how they will be measured.
+
+The ten requirements, as quoted from the kickoff (brief 2/3) in Cheng's
+Claude's reply in the lane A thread:
+
+1. One owner of every conservative face flux, one documented frame and area
+   weighting.
+2. Named increments in a declared order; total and parts reportable.
+3. Stage fluxes accumulated with the integrator's stage weights into the step
+   transfer.
+4. Flux divergence and every flux-derived term (gravity work, the ``rho w`` of
+   Coriolis and metric sources, the axial torque) read the register and never
+   rebuild a flux.
+5. A shared face has two entries and one reconciliation rule;
+   single-valuedness is a gate; rotation is one function owned by coord.
+6. One device-side monitor for mass, species, E+PE, AAM and scalars; no host
+   reads inside a segment.
+7. Every fixer and floor registers what it added.
+8. A stated dtype under FP32, and fixed storage a CUDA graph can capture.
+9. No added full-field copy per stage; memory and cost stated.
+10. The register is rebuilt, not written to restart.
 
 Read for this revision:
 
@@ -40,8 +67,9 @@ Read for this revision:
   ``src/hydro/hydro_forward.cpp:988-1009, 1088-1145, 1288-1411, 1624-1696``,
   ``src/hydro/hydro.hpp:89-133, 219-236``, ``src/hydro/hydro.cpp:27-76``,
   ``src/hydro/register_forcing_modules.cpp``,
-  ``src/mesh/meshblock.cpp:983-1034``, ``src/mesh/mesh.cpp:363-382``,
-  ``src/riemann/hllc_impl.h:100-163``, ``V3_ROADMAP.md:258-279`` (G5).
+  ``src/mesh/meshblock.cpp:850-905, 983-1034``, ``src/mesh/mesh.cpp:363-382``,
+  ``src/output/restart.cpp:26-67``, ``src/riemann/hllc_impl.h:100-163``,
+  ``V3_ROADMAP.md:258-279`` (G5).
 * PR bodies, via ``gh pr view``:
 
   * #355: merged, ``46710ac570668a699cb2fc5ad17a580cd4156caa``.
@@ -50,10 +78,8 @@ Read for this revision:
   * #365: merged, ``3fe398a917646851ed42db3f964a3fc2751de2fe``.
 
   ``gh`` returned zero comments and zero reviews for all four.
-
 * #314 is an issue, not a PR (``gh pr view 314`` answered "Could not resolve
-  to a PullRequest"). I read it with ``gh issue view 314``. It is open and
-  holds the AAM drift report, the budget split and the sponge ruling-out.
+  to a PullRequest"). I read it with ``gh issue view 314``.
 
 Not read, and therefore not used:
 
@@ -61,12 +87,16 @@ Not read, and therefore not used:
   1794565311.770069 and the side study 1794706777.579419. Workers cannot read
   Slack. Everything said here about the side study's local-torque scheme comes
   from the one-line description in the lane brief, and is marked as such.
-* The kickoff brief's flux-register requirements (part 2/3), including
-  "requirement 7", are known to me only from the lane brief's wording.
-  Section 3.1 states the register model this doc assumes. If the real
-  requirements differ, the register-facing parts of sections 3, 5 and 9 change.
-* No code was built or run for this revision. Every cost or behaviour claim
-  for V3 that does not carry a PR measurement is a **hypothesis**.
+* The rest of the kickoff brief beyond the ten requirements above.
+* No code was built or run for this revision. Every V3 cost or behaviour claim
+  without a PR measurement is a **hypothesis**, numbered H1 to H7 in section
+  12.
+
+Numbering change from the first local draft (``e82a1a13``): the eight
+design-question sections are now section 3. The register, invariants, FP32 and
+graph material moved into sections 4 to 7, the decide-and-justify items into
+section 8, and the cross-lane questions into section 11. The line-count numbers
+are unchanged.
 
 
 2. Baseline and inventory at the pin
@@ -103,8 +133,7 @@ This matches the brief's 2,870.
 
 Of ``forcing.hpp``, 326 lines are the twelve option structs and 270 are the
 module classes. Command: ``awk`` over ``struct .*OptionsImpl`` ... ``using``
-and ``class .*Impl`` ... ``TORCH_MODULE``. There are 48 ``ADD_ARG`` options in
-total.
+and ``class .*Impl`` ... ``TORCH_MODULE``.
 
 2.2 Lane-A code outside ``src/forcing`` (not in the baseline)
 -------------------------------------------------------------
@@ -112,7 +141,7 @@ total.
 Counted with ``sed -n 'a,bp' FILE | wc -l`` for each range:
 
 ================================================  =======  =======================================
-range                                               lines  what
+range                                             lines    what
 ================================================  =======  =======================================
 hydro_forward.cpp:988-1003, 1108, 1141                 18  full: second Riemann eval (central)
 hydro_forward.cpp:1288-1298                            11  transport: AAM flux form call
@@ -129,158 +158,105 @@ mesh.cpp:364, 367-382                                  17  closure over local bl
 **total**                                         **612**
 ================================================  =======  =======================================
 
-2.3 What the code does today (the facts the design rests on)
-------------------------------------------------------------
+2.3 What the code does today
+----------------------------
 
-* **Forcings are a flat list of ``AnyModule`` objects** built in
+* **Forcings are a flat list of** ``AnyModule`` **objects** built in
   ``register_forcing_modules.cpp:6-86``. They are called in order on a shared
   ``du`` (``hydro_forward.cpp:1378-1385``), with the signature
-  ``forward(du, w, temp, dt)``. Nothing records what each one added.
-  Issue #314 had to rebuild the sponge torque offline from output frames. Its
-  third comment says "A stage-integrated sponge torque would need an in-model
-  diagnostic".
+  ``forward(du, w, temp, dt)``. Nothing records what each one added. Issue #314
+  had to rebuild the sponge torque offline.
 * **Coriolis has two classes.** ``Coriolis123`` (``coriolis.cpp:40-67``)
   applies the same Ω in every coordinate system. ``CoriolisXYZ``
   (``coriolis.cpp:69-231``) rotates Ω into the local basis, for Cartesian,
   cylindrical, spherical-polar and gnomonic grids. On Cartesian grids the two
   agree (``coriolis.cpp:91-94`` against ``:53-63``), except for the 2D guard at
-  ``:61``. No deck or test in the repository sets ``type: 123``. Command:
-  ``grep -rn "'123'\|\"123\""``, which matched only ``coriolis.cpp``.
-* **#355 (x1 mass-flux w)** gets the Coriolis rows driven by ρw from the x1
-  face mass transfers. It does this by calling the Coriolis forward twice per
-  stage on hand-built "primitive" tensors:
+  ``:61``. No deck or test sets ``type: 123``.
+* **#355 (x1 mass-flux w)** builds m1 from the x1 face mass transfers. It does
+  this by calling the Coriolis forward twice per stage on hand-built
+  "primitive" tensors:
 
-  * ``(ρ, 0, v2, v3)`` before the implicit solve (``hydro_forward.cpp:1351-1352,
-    1384``);
+  * ``(ρ, 0, v2, v3)`` before the implicit solve
+    (``hydro_forward.cpp:1351-1352, 1384``);
   * ``(1, m1, 0, 0)`` after it (``:1650-1655``).
 
-  The metric term ``-m1 v/r`` moved into a coordinate hook,
-  ``x1_mass_source_`` (``gnomonic_equiangle.cpp:664-674``). #355 measured the
-  w-free rows going through the scheme-9 solve: without that, w was off by up
-  to 1.27 m/s after one step.
+  The x1 transfer is recomputed from ``_flux1`` times the face area there
+  (``:1637-1646``). The metric term ``-m1 v/r`` lives in
+  ``x1_mass_source_`` (``gnomonic_equiangle.cpp:664-674``).
 * **transport (#357)** rewrites the K component of the finished divergence
   from the same face fluxes (``hydro_forward.cpp:1290-1298``,
-  ``gnomonic_equiangle.cpp:551-604``). This costs no flux evaluation.
-* **full (#363)** recomputes a central flux. It makes two extra Riemann calls
-  per x2/x3 direction (``hydro_forward.cpp:997-1003, 1108, 1141``), stores
-  ``F - F_c`` (``:1354-1363``), and lets ``CoriolisXYZ`` add the flux-form
-  torque (``coriolis.cpp:176-213``). It refuses FP32 and perturbation-flux
-  (``hydro_forward.cpp:993-995``). #363 measured a cost of 1.14-1.30 times
-  ``off`` at C16 and 1.32-1.48 at C32.
+  ``gnomonic_equiangle.cpp:551-604``).
+* **full (#363)** rebuilds a central flux with two extra Riemann calls per
+  x2/x3 direction (``hydro_forward.cpp:997-1003, 1108, 1141``). It stores
+  ``F - F_c`` (``:1354-1363``), and ``CoriolisXYZ`` adds the torque
+  (``coriolis.cpp:176-213``). It refuses FP32 and perturbation-flux
+  (``hydro_forward.cpp:993-995``). Measured cost: 1.14-1.48 times ``off``.
 * **closure (#365)** has ``CoriolisXYZ`` compute R and I
-  (``coriolis.cpp:189-209``). ``MeshBlock``/``Mesh`` then make one allreduce
-  per stage and apply a solid-body increment (``meshblock.cpp:983-990,
-  1014-1034``, ``mesh.cpp:367-382``). The path calls ``.item<double>()``
-  twice (``meshblock.cpp:1018``), a host sync. #365 measured a cost of
-  1.04-1.09 times ``full``, and a drift of 1.0e-15 to 1.5e-15 against
-  4e-10 to 1e-7 for ``full`` alone.
-* **Diffusion keeps its own fluxes and divergence.**
+  (``coriolis.cpp:189-209``). There is one allreduce per stage and two
+  ``.item<double>()`` host reads (``meshblock.cpp:983-990, 1014-1034``;
+  ``mesh.cpp:367-382``).
+* **Diffusion keeps its own fluxes, seam rule and divergence.**
 
   * Cartesian: ``du -= dt * divergence(...)`` (``diffusion.cpp:671-673``).
-  * Cubed sphere: Cartesian-component traction fluxes, its own seam flux
-    exchange (``share_fluxes``, ``diffusion_cubed_sphere.cpp:103-176``, 74
-    lines), a divergence, then a Cartesian-to-covariant projection
-    (``:368-373``).
-  * A separate Strang-split implicit radial conduction
-    (``diffusion_radial.cpp``), driven by ``MeshBlock`` (``meshblock.cpp:715,
-    905, 1480``).
+  * Cubed sphere: Cartesian-component traction, its own seam flux exchange
+    (``share_fluxes``, ``diffusion_cubed_sphere.cpp:103-176``), a divergence,
+    then a Cartesian-to-covariant projection (``:368-373``).
+  * A Strang-split radial conduction (``diffusion_radial.cpp``).
 
-  Viscous heating is already in flux form, as the energy-row term ``v · τ``
-  (``diffusion.cpp:625-627``, ``diffusion_cubed_sphere.cpp:345``).
-* **Decks.** No deck in the repository sets ``conserve-axial-momentum`` or
-  ``conserve-axial-momentum-closure``. Only
-  ``tests/test_axial_momentum_flux_form.{py,yaml}`` does. Command:
-  ``grep -rln "conserve-axial-momentum\|conserve_axial_momentum"``. Decks
-  outside the repository, such as the K2-18b GCM runs, cannot be checked from
-  here.
+  Viscous heating is already in flux form (``diffusion.cpp:625-627``,
+  ``diffusion_cubed_sphere.cpp:345``).
+* **Floors.** User stage forcings have a species clip that withholds part of
+  the increment (``meshblock.cpp:860-884``). ``relax_bot_comp.cpp:104`` clamps
+  the *target* dry fraction. The increment it then applies conserves total
+  mass, since ``delta[IDN]`` is minus the species sum (``:113-117``).
+* **Restart writes every defined entry of the block's** ``Variables``
+  (``src/output/restart.cpp:31-37``).
+* **Decks.** No deck in the repository sets ``conserve-axial-momentum`` or its
+  closure key; only ``tests/test_axial_momentum_flux_form.{py,yaml}`` does.
 
 
-3. Q1: AAM as a consumer of the register
-========================================
+3. Design answers (Q1 to Q8)
+============================
 
-3.1 Register model assumed (to be checked against kickoff 2/3)
----------------------------------------------------------------
+3.1 Q1: AAM as a consumer of the register
+-----------------------------------------
 
-I assume one face-flux register per block and stage. Contributors (Riemann,
-#289 covariance, diffusion, ...) add face fluxes per direction under their own
-identity. The register forms the divergence once, keeps each contributor's part
-readable until the end of the stage, and makes shared faces single-valued
-across block and panel seams. Fixers are registered separately and declare what
-they change (requirement 7, as worded in the brief). If the kickoff
-requirements say otherwise, see the cross-lane questions R-1 and X-1.
-
-3.2 What AAM needs registered, and from whom
---------------------------------------------
-
-AAM reads fluxes and never evaluates them. Every item below is a read of
-something another lane already produces.
+AAM reads fluxes and never evaluates them (requirement 4). What it reads:
 
 =====  ===========================================  ============  =====================================
-id     quantity                                     from          used by
+id     quantity                                     posted by     used by
 =====  ===========================================  ============  =====================================
-A-r1   total face flux F, x1/x2/x3, all rows        R (+ any)     transport: K-component in flux form
-A-r2   central mass rows F_c on x2/x3 faces:        R             exact: torque of F_d = F - F_c;
-       1/2 (ρ_L u_L + ρ_R u_R), dry + species                     closure residual R
-A-r3   explicit x1 mass transfer A_1 F_1 (mass)     R             x1 mass-flux w (#355): m1
-A-r4   implicit x1 mass transfer per unit time      C / I         m1 (``implicit_mass_correction``)
-A-r5   implicit momentum correction (tangential)    C / I         ``axial_x1_source_`` (face radius)
+A-r1   total reconciled face flux, x1/x2/x3         register      transport: K-component in flux form
+A-r2   part ``riemann.central`` of the x2/x3        R             exact: torque of F_d = F - F_c;
+       increment: mass rows 1/2 (ρ_L u_L +                        closure residual R
+       ρ_R u_R), dry + species
+A-r3   explicit x1 mass transfer (area-weighted)    register      m1 (#355)
+A-r4   implicit x1 mass transfer per unit time      I             m1 (``implicit_mass_correction``)
+A-r5   implicit tangential momentum correction      I             ``axial_x1_source_`` (face radius)
 =====  ===========================================  ============  =====================================
 
-A-r2 is the only new item. It is what removes the **second flux
-evaluation**.
+A-r2 is a named part of the Riemann increment (requirement 2), not a second
+flux evaluation. The rest of the Riemann flux is the ``riemann.dissipative``
+part, and the two sum to the posted Riemann flux.
 
-* Today ``full`` gets ``F_c`` as ``1/2 (F(w_L, w_L) + F(w_R, w_R))`` from two
-  extra Riemann calls (``hydro_forward.cpp:997-1003``).
-* For a consistent solver ``F(w, w)`` is the physical flux, so the mass rows of
-  ``F_c`` are ``1/2 Σ_s (ρ_s u_n)_L + (ρ_s u_n)_R``. This is one tensor
-  expression on the face states the solver already holds.
-* AAM only uses mass rows (``axial_coriolis_rate``,
-  ``gnomonic_equiangle.cpp:690-695``). So lane R emits ``n_mass = 1 + ny`` rows
-  per x2/x3 face, in the same face frame as F. That is about ``(1+ny)/(5+ny)``
-  of a flux tensor, and no Riemann evaluation.
-* HLLC builds ``ρ u`` per side only in a moving frame (``vxl = u - b_m``,
-  ``hllc_impl.h:104-120``). The emission must therefore use the face states,
-  not ``fl``/``fr``.
+* For a consistent solver, ``F(w, w)`` is the physical flux. So the mass rows of
+  today's ``1/2 (F(w_L, w_L) + F(w_R, w_R))`` are
+  ``1/2 Σ_s (ρ_s u_n)_L + (ρ_s u_n)_R``. This is one tensor expression on the
+  face states the solver already holds.
+* HLLC builds ``ρ u`` per side only in a moving frame (``hllc_impl.h:104-120``),
+  so the part is formed from the face states.
+* **H1:** this equals today's construction to round-off in FP64. Gate: 1e-14
+  relative on the #363 deck.
 
-**Hypothesis H1:** in FP64 this F_c equals today's construction to round-off
-for HLLC and LMARS. It is untested. Gate: a one-stage comparison of ``F_d`` on
-the #363 test deck, with tolerance 1e-14 relative.
+F_d is the total registered mass flux minus the central part, whoever posted
+the rest. Today the #289 covariance term (``hydro_forward.cpp:1110``) already
+counts as dissipative. Phase 3 adds diffusion, but diffusion carries no mass
+flux, so F_d is unchanged by it.
 
-**Hypothesis H2:** ``exact`` then costs about what ``transport`` costs plus the
-rate evaluation. That would remove most of the 1.14-1.48 times overhead that
-#363 measured. It is unmeasured.
+3.2 Q2: which modes survive
+---------------------------
 
-The #289 covariance correction is added to F after the solve
-(``hydro_forward.cpp:1110``), so today it counts as "dissipative" in
-``F - F_c``. V3 keeps that meaning: F_d is the total registered mass flux minus
-the central part, whoever contributed it.
-
-3.3 Order in the stage
-----------------------
-
-1. Reconstruct and solve. Register ``F`` (A-r1) and ``F_c`` (A-r2), x2/x3.
-2. The register forms the divergence. **transport/exact:** the AAM consumer
-   rewrites the K component of the divergence from A-r1. This is today's
-   ``conserve_axial_momentum_``, unchanged in arithmetic.
-3. Sources, pre-implicit phase (section 8). **exact:** the AAM consumer adds
-   the flux-form torque of ``F_d`` along K. **exact:** it also records the
-   closure partial sums (section 5).
-4. Implicit solve (lane I). Register A-r4 and A-r5.
-5. Sources, post-implicit phase: Coriolis and metric rows driven by m1, from
-   A-r3 and A-r4 (section 6). **transport/exact:** the AAM consumer applies
-   ``axial_x1_source_``.
-6. End of stage: the closure fixer (section 5).
-
-The consumer holds no flux state between stages. Today's ``_aam_mass_flux``
-side channel and its "clear after the first Coriolis call" rule go away
-(``hydro_forward.cpp:1390-1391``, ``hydro.hpp:227-236``).
-
-
-4. Q2: which modes survive
-==========================
-
-4.1 Evidence
-------------
+Evidence (from the #357, #363 and #365 bodies and ``hydro.hpp:89-133``):
 
 =========  =========================  ==================================  =============================
 mode       AAM drift (measured)       cost (measured)                     restrictions
@@ -297,305 +273,103 @@ closure    1.0e-15 to 1.5e-15         1.04-1.09x full                     needs 
            (relative)                                                     stage; host sync
 =========  =========================  ==================================  =============================
 
-Sources: the #357, #363 and #365 bodies, and the ``hydro.hpp:89-133``
-comments. ``full`` was "not yet run in a GCM configuration" (#363).
+**Decision: three modes, off | transport | exact.**
 
-4.2 Decision: three modes, ``off | transport | exact``
-------------------------------------------------------
+* ``exact`` is today's ``full`` plus the closure, as one mode.
+* ``full`` alone and the separate ``conserve-axial-momentum-closure`` key are
+  removed. They are refused with a message naming ``exact``.
+* ``full`` alone is neither cheap (1.14-1.48x) nor exact (4e-10 to 1e-7). The
+  closure costs 4-9% more and makes it exact.
+* ``full`` without the closure survives only as a C++ test flag. That keeps
+  arm (l)'s "closure off must fail" check.
 
-* ``off``: unchanged.
-* ``transport``: unchanged arithmetic.
-* ``exact``: today's ``full`` plus ``closure``, as one mode. The torque of F_d
-  reduces the residual locally, and the closure fixer removes what is left, to
-  round-off.
+**The side study's local-torque scheme.** The brief describes it as "the torque
+of ``F_d = F - 0.5 (F_L + F_R)`` and the local zonal torque on x2/x3 faces". I
+have not read it. The first half is what ``axial_coriolis_rate`` already
+computes (``gnomonic_equiangle.cpp:676-719``).
 
-``full`` without the closure is removed, and so is the separate boolean key
-``conserve-axial-momentum-closure``.
-
-Why:
-
-* ``full`` alone is neither cheap (1.14-1.48x) nor exact (4e-10 to 1e-7).
-  #365 shows that the closure on top costs only 4-9% more and makes it exact.
-* The closure has no meaning without ``full`` (``hydro.cpp:67-69``).
-* Two keys that are only valid in one combination are one mode.
-
-What each removal changes:
-
-* **full without closure**: anyone who wants a run with no global reduction
-  and a flux-form torque loses that combination. It survives only as a test
-  configuration of the consumer (a C++ test flag), not as a deck value. The
-  test arms (f)-(h) and (k) of ``tests/test_axial_momentum_flux_form.py``
-  move to ``exact`` or to the test flag. Arm (l)'s "closure off must fail"
-  check keeps working through the test flag.
-* **the closure key**: absorbed. ``exact`` always runs the fixer.
-
-4.3 The side study's local-torque scheme
-----------------------------------------
-
-The brief describes it as "the torque of the dissipative mass flux
-``F_d = F - 0.5 (F_L + F_R)`` and the local zonal torque on x2/x3 faces". I
-have not read it (section 1).
-
-The first half is what ``axial_coriolis_rate`` already computes from
-``M - M_central`` (``gnomonic_equiangle.cpp:676-719``). So I read the scheme as
-a face-local rule that would make the residual R vanish without a global
-reduction. This reading is a **hypothesis**.
-
-Decision: the torque is a pluggable rule inside the AAM consumer
-(``FaceTorqueRule`` in the skeleton). The #363 rate is rule 1.
-
-* If the side-study rule passes the gates below **without** the closure,
-  ``exact`` switches to it and the fixer is dropped. That also removes the
-  graph boundary (section 5).
-* If it does not, it does not replace ``full``'s torque.
-
-Gates, all on the existing test file:
+So the torque is a pluggable rule (``FaceTorqueRule``), and the #363 rate is
+rule 1. If the side-study rule passes the gates below without the closure,
+``exact`` switches to it and drops the fixer and its collective. The gates:
 
 * arm (l) drift <= 1e-12 with no reduction;
-* arms (f)-(h), (k) at least as good as rule 1;
+* arms (f)-(h) and (k) at least as good as rule 1;
 * noisy-jet KE ratio no worse than ``full``'s 1.005-1.012 at C32;
-* cost <= rule 1.
+* cost no higher than rule 1.
 
-4.4 Decide: default and kill list
----------------------------------
+3.3 Q3: the closure as a registered fixer
+-----------------------------------------
 
-**Default: ``off``, unchanged.** Revisit after G5.
+``AxialClosureFixer`` is a registered fixer (requirement 7; section 5.2 gives
+what it declares). It sits at the stage's last momentum change, after the
+saturation adjustment and before the boundaries, as today
+(``meshblock.cpp:983-990``).
 
-Why:
+R is ``Σ V (K · F_cell - rate(riemann.central))``. It is computed once, from
+A-r2. Today it calls ``axial_coriolis_rate`` twice and subtracts
+(``coriolis.cpp:199-203``).
 
-* The first migration PRs are judged by bitwise equality against the pin, and
-  ``transport`` and ``exact`` are not bitwise ``off``.
-* ``transport`` is measured to be *worse* than ``off`` at
-  Ω/(u/a) = 14 (``hydro.hpp:101-102``, #357). That is about the Earth's regime
-  (a hypothesis from Ω = 7.3e-5 s^-1, u = 20 m/s, a = 6.4e6 m, which gives a
-  ratio of about 23). So it cannot be a safe universal default.
-* ``exact`` needs FP64, no perturbation-flux and ``interp_order: 4``. A
-  default cannot impose those on every deck.
+The reduction is device-side and shares one collective with the other fixers
+due that stage (section 7.3).
 
-What changes instead: the AAM budget line is **always reported** by the
-monitor on gnomonic grids (section 8), whatever the mode, so the drift is
-visible. Proposed follow-up after G5: make ``exact`` the default for gnomonic
-grids with rotation once its FP32 and perturbation-flux gates pass (section 7).
+3.4 Q4: one Coriolis and metric source (#355)
+---------------------------------------------
 
-**Kill list**
-
-==========================================  ===================================  ==========================
-removed                                     replacement                          decks affected
-==========================================  ===================================  ==========================
-``conserve-axial-momentum: full``           ``exact`` (refused with a message    in repo: test only.
-                                            naming ``exact``; no silent remap,   **FOR CHENG**: any
-                                            since ``exact`` adds the closure)    out-of-repo deck with full
-``conserve-axial-momentum-closure: true``   ``conserve-axial-momentum: exact``   in repo: test only.
-                                                                                 **FOR CHENG** (as above)
-``coriolis/type: 123`` (``Coriolis123``)    ``type: xyz`` (identical on          none found in repo.
-                                            Cartesian grids)                     **FOR CHENG** if a 2D
-                                                                                 deck relies on ``:61``
-``conserve-axial-momentum`` on a non-       refused instead of the silent        none in repo
-gnomonic grid (today a no-op plus a
-warning, ``hydro.cpp:70-76``)
-==========================================  ===================================  ==========================
-
-I cannot see the K2-18b and other GCM decks outside the repository. Every
-**FOR CHENG** above means: if such a deck uses the value, Cheng decides between
-migrating it and keeping an alias.
-
-
-5. Q3: the closure as a registered fixer and a graph boundary
-=============================================================
-
-5.1 What it declares to the monitor
------------------------------------
-
-``AxialClosureFixer`` registers with:
-
-* ``kind = numerical_fixer``. It is not a physical torque. The monitor books it
-  apart from the sponge and drag, so that "physical torques are kept"
-  (``hydro.hpp:131-132``) can be checked.
-* ``rows = {IVY, IVZ}``. Mass, species and the energy row are untouched
-  (``meshblock.cpp:1028-1033``). Since the energy row is not changed, the
-  kinetic energy the increment adds or removes is absorbed by internal energy.
-  The fixer declares ``moves_ke_to_ie = true``, and the monitor reports that
-  amount. #365: "the KE change equals the change of L²/2I to about 3 digits".
-* Its AAM change per stage is declared exactly as ``-w2 dt R``. The monitor
-  checks the booked value against the measured one. A mismatch above 1e-12
-  relative is an error.
-* ``reduction = {R, I}``, two FP64 scalars per block. ``scope = global``,
-  ``cadence = every stage``.
-
-5.2 Where the reduction sits
-----------------------------
-
-Today: after the stage's saturation adjustment and before the boundaries
-(``meshblock.cpp:983-990``). Mesh with several local blocks: sum, then one
-allreduce, then apply and apply boundaries again (``mesh.cpp:367-382``).
-
-V3 keeps that position, the **last momentum change of the stage**. R must see
-every numerical torque of the stage, and the boundaries must see the
-corrected momentum. Two changes:
-
-* **No host sync.** R and I stay device tensors. The increment
-  ``-w2 dt R / I · ρ s²`` along K is computed on the device, with
-  ``I > 0`` and finiteness handled by ``where``. This removes the two
-  ``.item<double>()`` calls (``meshblock.cpp:1018``).
-* **One collective per stage for all fixers.** The fixer registry stacks the
-  partial sums of every fixer due at that stage into one FP64 vector and makes
-  one allreduce. Today's gravity-work fixer (``meshblock.cpp:997-1004``, last
-  stage) and this closure (every stage) would share the last-stage collective.
-
-The collective is a **graph boundary**: the stage graph splits there unless
-lane X makes a device collective capturable (X-1, X-2). With rule 2 of
-section 4.3, ``exact`` would have no reduction and no boundary.
-
-R's definition is unchanged: ``Σ V (K · F_cell - rate(F_c))``. Since
-``F_c`` is registered (A-r2), R is computed once. Today it calls
-``axial_coriolis_rate`` twice and subtracts (``coriolis.cpp:199-203``).
-
-
-6. Q4: one Coriolis and metric source (#355)
-============================================
-
-6.1 One definition
-------------------
-
-``force = -2 Ω × m`` in the local orthonormal frame, lowered to covariant rows.
-Here:
+``force = -2 Ω × m``, in the local orthonormal frame, lowered to covariant
+rows. Here:
 
 * ``m = (m1, ρ v2, ρ v3)``;
-* ``m1`` is the momentum consistent with the x1 mass transfers (A-r3 + A-r4),
-  ``m1 = [Φ_lo (r² - r_lo²) + Φ_hi (r_hi² - r²)] / (2 r V)``
-  (``hydro_forward.cpp:1626-1653``);
-* the metric pair ``-m1 v_h / r`` (horizontal) is part of the same source.
-  It is moved back from ``x1_mass_source_`` (``gnomonic_equiangle.cpp:664-674``).
-  ``+ρ v_h² / r`` stays in the coordinate divergence, as #355 left it.
+* ``m1 = [Φ_lo (r² - r_lo²) + Φ_hi (r_hi² - r²)] / (2 r V)``;
+* Φ is read from the register: A-r3 plus A-r4. It is no longer recomputed from
+  ``_flux1`` times the area (``hydro_forward.cpp:1637-1646``).
 
-The source has two phases, declared to the stage graph:
+The metric pair ``-m1 v_h / r`` is part of the same source.
 
-* ``pre_implicit``: the w-free rows, using ``m1 = 0``. They must pass through
-  the scheme-9 solve (#355 commit 6: 1.27 m/s otherwise).
-* ``post_implicit``: the m1-driven rows only.
+There are two phases:
 
-This replaces the hand-built ``wc1``/``wc2`` primitive tensors and the
-``coriolis()`` type test (``hydro_forward.cpp:1323-1353, 1650-1655``) with
-named inputs.
+* ``pre_implicit``: the w-free rows (m1 = 0). They must pass through the
+  scheme-9 solve; #355 measured 1.27 m/s of w error otherwise.
+* ``post_implicit``: the m1 rows only.
 
-6.2 Per grid
-------------
+Ω in the local basis comes from the geometry (section 3.8). The grid gate is
+#355's, unchanged:
 
-==================  ==============================  ===========================================
-grid                Ω in local basis (lane S)       m1 source
-==================  ==============================  ===========================================
-Cartesian f-plane   constant (``coriolis.cpp:91``)  cell ρw (gate unchanged: not in
-                                                    ``mass_w``, ``hydro_forward.cpp:1319-1322``)
-spherical-polar     (θ, φ) rotation (``:101-109``)  x1 transfers when Coriolis is on (as today)
-cubed sphere        contra -> spherical transform   x1 transfers (nc1 > 1, not shallow water);
-                    (``:110-143``)                  cell ρw otherwise (#355 commit 2)
-cylindrical         (``:95-100``)                   cell ρw (as today)
-==================  ==============================  ===========================================
+* x1 transfers on cubed-sphere grids with nc1 > 1 (not shallow water), and on
+  spherical-polar grids with Coriolis;
+* cell ρw elsewhere, including Cartesian f-plane and cylindrical grids.
 
-The table keeps the #355 gate exactly, so migration is bitwise.
+``traditional`` zeros the horizontal Ω components.
 
-**Hypothesis H3:** m1 from x1 transfers would also help Cartesian f-plane
-energy consistency. Out of scope; only a measured follow-up would change the
-gate.
+3.5 Q5: the FP32 restriction on full
+------------------------------------
 
-The per-grid Ω rotation (``coriolis.cpp:85-151``, 67 lines) moves to the
-geometry (section 10) as ``omega_local()``. Coriolis keeps one formula.
-``traditional`` stays: it zeros the horizontal Ω components, and with it the
-m1 rows.
+See section 6.
 
-6.3 Lanes I and S
------------------
+3.6 Q6: one source-term interface for the twelve modules
+--------------------------------------------------------
 
-* Lane I must give the post-implicit phase a hook after its solve, and register
-  A-r4 and A-r5 before that hook (I-1).
-* Lane S provides ``omega_local`` and the m1 split weights ``lo``/``hi``.
-  These are geometry today, built in ``hydro_forward.cpp:1331-1349``
-  (S-1).
+Every module is a ``SourceTerm`` (skeleton ``source_term.hpp``). It declares:
 
+* ``phase``: ``pre_implicit``, ``post_implicit`` or ``split``;
+* ``rows``: a bit set over mass, species, momentum and energy;
+* ``kind``: ``physical``, ``numerical`` or ``fixer``;
+* ``region``: the interior, or a bottom or top slab.
 
-7. Q5: what lifts the FP32 and perturbation-flux restriction on ``full``
-========================================================================
+The base class does the physical-boundary test that six modules repeat today.
+A source adds its increment to ``du`` through ``add(du, StageState)``.
 
-Today, ``hydro_forward.cpp:993-995`` refuses ``full`` with FP32 or
-perturbation-flux. The PR says why: "its central flux does not see the
-perturbation states" (#363). G5 asks for a "validated formulation"
-(``V3_ROADMAP.md:268-270``). Three things together lift it. None of them alone
-is enough.
+The monitor attributes budgets per source without a scratch copy (requirement
+9; section 7.2). The sponge torque of the K2-18b runs becomes an in-model line,
+which issue #314 had to estimate offline.
 
-1. **A consistent F_c.** A-r2 is emitted by the Riemann stage from the
-   states it actually solved, whether perturbation or total. ``F - F_c`` is
-   then a difference of two fluxes of the same representation by
-   construction. The mass rows contain no pressure, so the reference-pressure
-   gauge (``hllc_impl.h:96, 155``) does not enter. Whether face densities are
-   totals under perturbation-flux is question R-1.
-2. **FP64 accumulation.** The torque rate and the closure sums R and I are
-   accumulated in FP64, in the same way as the forcing work buffer
-   (``hydro_forward.cpp:1365-1375``). They are then rounded once into
-   ``du``.
-
-   **Hypothesis H4:** in FP32, ``F_d`` is a difference of nearly equal numbers
-   at smooth faces, so its relative error is large where it is small. The
-   torque should not care, because it is multiplied by
-   ``s_f² - s_c² = O(h)``. This needs measuring.
-3. **A G5 eager budget gate.** Rerun ``tests/test_axial_momentum_flux_form.py``
-   arms (f)-(h), (k) and (l) under FP32 with perturbation-flux, compared with
-   FP64. ``exact`` must hold drift <= 1e-12 relative with the closure. The
-   closure works on totals, so FP32 storage of momentum bounds what it can
-   remove per stage (this is a hypothesis). The gate gives the number.
-   ``interp_order: 4`` ghosts under anomaly storage are G5 work in lane S.
-
-The refusal is lifted only by the PR that passes item 3. Until then it stays a
-reset-time check in the consumer, not in ``Hydro::forward``.
-
-
-8. Q6: one source-term interface for the twelve modules
-=======================================================
-
-8.1 Interface
--------------
-
-Every module is a ``SourceTerm`` (skeleton ``source_term.hpp``) and declares:
-
-* ``phase``: ``pre_implicit`` (default), ``post_implicit``, or ``split``
-  (operator-split around the stage, as the radial conduction is).
-* ``rows``: a bit set over {mass, species, momentum, energy}.
-* ``kind``: ``physical`` (sponge, drag, heating, relaxation), ``numerical``
-  (AAM torque) or ``fixer``.
-* ``where``: the interior, or a physical-boundary slab (``bottom``/``top``,
-  depth or thickness). The base class does the ``is_physical_boundary`` test
-  that six modules repeat today.
-* ``add(du, StageState const&)``: adds its increment. ``StageState`` carries
-  ``w``, ``temp``, ``dt``, the geometry and the registered fluxes. It replaces
-  the ``(du, w, temp, dt)`` signature and the ``phydro`` back pointers.
-
-The **monitor computes the budget itself**, from the increment.
-
-* When budgets are on, the registry gives each source its own scratch ``dS``
-  and then adds it to ``du``. When they are off, the source writes straight
-  into ``du``, with no extra cost.
-* The monitor forms ``Σ V dS[mass rows]``, ``Σ V dS[momentum]``,
-  ``Σ V dS[IPR]`` and the AAM ``Σ V r K · dS[IVY, IVZ]``. The last uses the
-  covariant rows with contravariant K, as in
-  ``gnomonic_equiangle.cpp:520``.
-* No module writes budget code.
-* A source must not touch rows it did not declare (checked in debug builds).
-
-Example: the K2-18b top-sponge torque. ``TopSpongeLyr`` declares
-``rows = momentum`` and ``kind = physical``, and the monitor prints its
-stage-integrated AAM. That is the number issue #314 had to estimate offline. In
-#357's table, the removed ``full`` changed AAM by +6.7e23 at day 10, which
-"equals the top sponge torque". With the interface, that comparison is one
-line of the monitor output.
-
-8.2 The twelve modules in V3
-----------------------------
+The twelve modules in V3:
 
 =======================  ===================================  =====================================
 today                    V3                                   change
 =======================  ===================================  =====================================
-ConstGravity             SourceTerm (interface only)          implementation outside this lane (Q K-1)
-Coriolis123/CoriolisXYZ  ``Coriolis`` (one class)             section 6; type 123 removed
-Diffusion                ``DiffusionFlux`` + split radial     section 9
+ConstGravity             SourceTerm (interface only)          migration owner asked in section 11
+Coriolis123/CoriolisXYZ  ``Coriolis`` (one class)             section 3.4; type 123 removed
+Diffusion                ``DiffusionFlux`` + split radial     section 3.7
 BodyHeat                 ``BodyHeat``                         base class does masks and options
 TopCool / BotHeat        ``LayerHeat{side}``                  two 88-line files -> one
 TopSpongeLyr /           ``Sponge{side}``                     two 78-line files -> one
@@ -605,139 +379,435 @@ Comp                     ``BottomSlab`` base                  covariant lowering
 PlumeForcing             ``PlumeForcing``                     unchanged arithmetic
 =======================  ===================================  =====================================
 
-The deck keys stay (``top-sponge-lyr``, ``bot-heat``, and so on). Only the
-classes merge, so no deck changes. Python bindings follow the classes; whether
-the two sponge option types stay distinct in Python is question O-2.
+Deck keys stay. User stage forcings (``meshblock.cpp:871-877``) are run as
+sources by the same registry, and their species clip is a registered floor
+(section 5.2).
 
+3.7 Q7: diffusion as a register contributor
+-------------------------------------------
 
-9. Q7: diffusion as a register contributor
-==========================================
-
-9.1 Target
-----------
-
-``DiffusionFlux`` is a register contributor. Per face direction it adds:
+From phase 3 (section 8.2), ``DiffusionFlux`` posts the increment
+``diffusion`` per face direction:
 
 * the viscous momentum flux ``-μ τ · n``;
-* the energy-row flux ``-k ∇T · n - v_f · τ · n``. The second term is the
-  viscous heating, already in flux form today
-  (``diffusion.cpp:625-627, 657-665``; ``diffusion_cubed_sphere.cpp:345``).
+* the energy flux ``-k ∇T · n - v_f · τ · n``. The second term is the viscous
+  heating, already in flux form today.
 
-It no longer calls ``divergence`` and no longer touches ``du``.
+It no longer calls ``divergence`` and no longer reconciles its own seams.
 
-Consequences:
+* The cubed-sphere traction, computed in Cartesian components
+  (``diffusion_cubed_sphere.cpp:297, 344``), is rotated into the register's
+  face frame by coord's one rotation function (requirement 5).
+* The interior-penalty term needs the neighbour's traces. It is symmetric in
+  the two sides (it uses the jump and averaged coefficients,
+  ``:164-173``), so both entries of a shared face carry the same value, and the
+  register's rule leaves it unchanged.
+* The radial conduction stays an operator-split source.
+* The time-step bound (``diffusion.cpp:677-743``) is evaluated by the driver,
+  outside any graph segment.
+* The per-cell profile tensors stay, because tests use them
+  (``tests/test_diffusion_cubed_sphere.cpp:463, 598-599``). Their 128-line
+  change check becomes the options schema's "frozen after build" (lane O,
+  ours).
 
-1. Diffusive fluxes enter the AAM consumer's flux form like any other flux, so
-   the **viscous torque telescopes** with ``transport``/``exact``.
-   **Hypothesis H5:** today the cubed-sphere viscous term conserves Cartesian
-   linear momentum per face, but its AAM is only as good as the post-divergence
-   projection (``diffusion_cubed_sphere.cpp:369-372``).
-2. The register's seam reconciliation replaces the flux-averaging half of
-   ``share_fluxes``. The interior-penalty half needs the neighbour's traces
-   (``trace``, ``normals``), so it stays a diffusion-owned trace exchange.
-3. The cubed-sphere traction is computed in Cartesian components
-   (``diffusion_cubed_sphere.cpp:297, 344``). To register it, it must be
-   projected onto the hydro flux's face basis (the basis of
-   ``flux2global2_``/``3_``). That needs a transform from lane S (S-3).
-4. The implicit radial conduction stays an operator-split ``SourceTerm``
-   (``phase = split``). Its wall heat flux is reported to the monitor as an
-   energy flux through the boundary.
-5. The time-step bound (``max_time_step``, ``diffusion.cpp:677-743``) is
-   unchanged and is declared to the driver as a constraint.
+Expected effect, as **H5**: the viscous torque then telescopes under
+``transport`` and ``exact``.
 
-9.2 Cubed-sphere variant
-------------------------
+3.8 Q8: where the AAM geometry lives
+------------------------------------
 
-It stays a separate face-flux evaluator (4-point stencils, reciprocal basis,
-wall traction), because its operator is genuinely different. What it loses is
-its own divergence, half of ``share_fluxes``, and the final projection. Both
-evaluators share the coefficient, profile and wall-temperature code.
+The geometry goes in the coordinate, as a ``RotationGeometry`` part owned by
+lane S. It holds:
 
-9.3 Profiles
-------------
+* ``k`` at centres and its exact face averages, ``k·k``, and ``cos² lat`` at
+  faces;
+* ``rate_to_rows``;
+* ``omega_local``;
+* the m1 split weights;
+* a reset-time ``has_on_axis_cell`` flag, which replaces the per-call host
+  read at ``gnomonic_equiangle.cpp:506``.
 
-The per-cell profile tensors (``nu_scale_x1``, ``kappa_scale_x1``) are used by
-C++ tests (``tests/test_diffusion_cubed_sphere.cpp:463, 598-599``) and the
-Python binding (``python/csrc/pyforcing.cpp:64-65``), so they stay. The
-128 lines that detect a later change (``diffusion.cpp:221-261, 429-516``)
-become one call to a generic "frozen after build" check from the options
-schema (O-1).
+It covers gnomonic and spherical-polar grids. A Cartesian grid has none. The
+four AAM hooks on ``Coordinate`` (``coordinate.hpp:370-392``) become one
+accessor.
 
-9.4 Decide: register in the first migration PRs, or later?
------------------------------------------------------------
+The AAM physics stays in lane A, in ``src/forcing/axial_momentum.cpp``: the
+consumer, the torque rules and the closure. ``axial_coriolis_rate`` moves out
+of the coordinate. Lane S owns metric exactness, and the face averages are
+metric identities: the lateral pressure fluxes sum to zero
+(``gnomonic_equiangle.cpp:181-182``). The torque rule is the part expected to
+change.
 
-**Later.** Diffusion enters the register in phase 3 of the migration (section
-11), after the register lands (phase 1) and after AAM consumes it (phase 2).
-In phases 1 and 2 diffusion is a ``SourceTerm`` (``rows = momentum, energy``,
-``kind = physical``) that keeps its own divergence, so its budget is declared
-from the start.
+
+4. Flux-register contract
+=========================
+
+4.1 Lane A against requirements 1-5 and 10
+-------------------------------------------
+
+**Requirement 1 (one owner, one frame, one area weighting).**
+
+* *Posts:* in phase 3, ``DiffusionFlux`` is the only owner of the diffusive
+  momentum and energy face fluxes. They are posted per unit face area, in the
+  register's documented face frame (the frame of today's ``flux2global2_``/
+  ``3_``, assumed in S-2 of section 11). The area weighting is the register's
+  divergence, not a lane-A one.
+* *Owns no other flux:* the AAM face flux ``A F · K_f`` is a derived quantity
+  computed from A-r1, never posted. The central mass rows are a part of R's
+  flux, owned by R.
+* Phases 1 and 2 have a declared exception: diffusion still forms its own
+  divergence (section 8.2).
+
+**Requirement 2 (named increments, declared order, parts reportable).**
+
+* Lane A's names: ``diffusion`` (phase 3), and the AAM consumer's derived,
+  unposted quantity ``aam.flux_form``.
+* Lane A reads ``riemann.central`` (A-r2).
+* *Order:* ``riemann`` (with parts ``central`` and ``dissipative``), then
+  ``covariance`` (#289), then ``diffusion``, then any face fixer. ``diffusion``
+  carries no mass rows, so the AAM torque is independent of where it sits.
+* *Needs from R:* ``riemann.central`` as a named part, kept until the
+  post-implicit phase of the same stage (Linfeng, R-1).
+
+**Requirement 3 (stage weights into the step transfer).**
+
+* *Reads:* the monitor's per-source budgets and the boundary AAM flux are
+  weighted like the register's step transfer. A stage weighs
+  ``w2_s Π_{t>s} w1_t``, the weight today's gravity-work fixer uses
+  (``hydro_forward.cpp:1683-1691``).
+* *Corrects:* the closure applies its increment inside the stage with
+  ``w2_s``, as #365 does (``meshblock.cpp:1027``). It declares its step AAM
+  change with the same step weight.
+* *Needs:* the radial conduction is operator-split, not a stage flux. Its two
+  half-step wall heat fluxes must enter the step transfer as an entry with an
+  explicit weight of 1/2 each (Linfeng, R-2).
+
+**Requirement 4 (every flux-derived term reads the register; no rebuild).**
+
+* *AAM torque:* ``transport`` reads A-r1. ``exact`` reads A-r1 and A-r2. Today's
+  two extra Riemann calls (``hydro_forward.cpp:997-1003, 1108, 1141``) and the
+  stored ``_flux - cen`` (``:1354-1363``) are removed.
+* *Coriolis and metric* ``rho w``: m1 reads Φ from A-r3 (explicit) and A-r4
+  (implicit, posted by lane I). Today's ``_flux1`` times area rebuild
+  (``:1637-1646``) is removed.
+* *Closure:* R reads A-r1 and A-r2. It does not call the rate twice.
+* *Source terms:* none of the twelve reads or builds a face flux. Sponge,
+  relaxation, heating and plume are cell-local. Coriolis takes only m1.
+  Gravity work belongs to the gravity migration owner (section 11, Isaac).
+* *Diffusion:* it computes its own flux; it does not rebuild anyone else's. It
+  is compliant from phase 3, when its divergence goes to the register.
+
+**Requirement 5 (two entries, one reconciliation rule, rotation in coord).**
+
+* *Reads:* ``transport`` telescopes only if each shared face carries one value.
+  AAM reads the reconciled flux and never averages it itself.
+* *Rotation:* at a panel seam, the face average ``K_f`` must be expressed in
+  the same frame as the reconciled flux. So ``K_f`` is built with coord's one
+  rotation function, not lane-A code.
+* *Gate:* ``A F · K_f`` is equal from both sides of every seam face to 1e-14
+  relative. Today's arm (a) exactness (1.3e-15) is the bound.
+* *Diffusion (phase 3):* the averaging half of ``share_fluxes``
+  (``diffusion_cubed_sphere.cpp:159-163``) is dropped for the register's rule.
+  The penalty term stays and is symmetric (section 3.7).
+* *Needs from S:* whether coord's rotation takes Cartesian-component vectors,
+  and whether the register's seam exchange can carry diffusion's penalty
+  traces (Jiheng, S-3).
+
+**Requirement 10 (rebuilt, not restart-written).**
+
+Restart writes every defined entry of the block's ``Variables``
+(``restart.cpp:31-37``). So lane A adds nothing to ``Variables``.
+
+* The AAM consumer holds no state across stages: ``{R, I}`` and the density
+  are stage-local.
+* Coriolis buffers (``omega_local``, the m1 weights) and the geometry are
+  rebuilt at reset.
+* Diffusion's split state (``split_initial_``) is step-local.
+* The monitor's running budgets restart from the state read at restart.
+
+Today's diffusion seam exchange uses a local ``Variables``
+(``diffusion_cubed_sphere.cpp:129``), not the block's. It is dropped in phase
+3 anyway.
+
+4.2 Compliance table (all ten requirements)
+-------------------------------------------
+
+====  ========  ==================================================================
+req   section   status for lane A
+====  ========  ==================================================================
+1     4.1       complies; diffusion owner from phase 3; frame per S-2
+2     4.1       complies; needs ``riemann.central`` as a named part (R-1)
+3     4.1       complies; split radial wall flux needs a weighted entry (R-2)
+4     4.1       complies from phase 2 (AAM, closure, m1); diffusion from phase 3
+5     4.1       complies from phase 3; seam gate on ``A F · K_f``; needs S-3
+6     5.1       complies after the host reads in 7.1 are removed; needs X-3
+7     5.2       complies: closure and the user-forcing species clip register
+8     6, 7.1    complies: dtypes in 6.1; fixed buffers in 7.1
+9     7.2       stated, with the measurement plan; numbers measured in phases 2-3
+10    4.1       complies: nothing in ``Variables``; everything rebuilt at reset
+====  ========  ==================================================================
+
+
+5. Invariants and gates
+=======================
+
+5.1 Monitor (requirement 6)
+---------------------------
+
+Lane A reports to the one device-side monitor. It runs no monitor of its own.
+
+* *AAM:* ``L = Σ V r K · m`` (covariant rows, contravariant K, as
+  ``gnomonic_equiangle.cpp:520``). It is always reported on grids that have a
+  ``RotationGeometry``, whatever the mode.
+* *Per-source attribution:* for each source, the monitor reduces ``du`` after
+  the source runs. The source's share is the difference from the previous
+  reduction. Mass, species, momentum, E and AAM are all linear in the
+  increment, so this needs no scratch copy (section 7.2).
+* *Fixers:* booked apart from physical sources (5.2).
+* *Host reads:* none inside a segment. Section 7.1 lists the ones lane A
+  removes.
+
+5.2 Fixers and floors (requirement 7)
+-------------------------------------
+
+=============================  =======  =============  ===================================================
+fixer / floor                  kind     rows           declares
+=============================  =======  =============  ===================================================
+AAM closure (``exact``)        fixer    IVY, IVZ       AAM change ``-w2 dt R`` (checked against the
+                                                       measured change, 1e-12); KE moved to IE; reduction
+                                                       {R, I}, FP64, every stage
+user-forcing species clip      floor    ICY.., IDN     species mass withheld per stage (``du`` before
+(``meshblock.cpp:879-884``)                            minus after the clip), and its dry-mass carry
+side-study torque (rule 2)     numer.   IVY, IVZ       its AAM rate; no reduction
+=============================  =======  =============  ===================================================
+
+Not fixers, with the reason:
+
+* ``relax_bot_comp.cpp:104`` clamps the target composition, and the increment
+  it applies conserves total mass.
+* The wall coefficient fallbacks (``diffusion.cpp:160``,
+  ``diffusion_cubed_sphere.cpp:290``) shape a flux coefficient. A flux cannot
+  break conservation.
+* Gravity's work fixer belongs to the gravity migration owner (section 11).
+
+5.3 Gates
+---------
+
+====  =============================================================  ===================  ===========
+id    gate                                                           bound                phase
+====  =============================================================  ===================  ===========
+G1    all existing tests bitwise against the pin                     0 ULP                1
+G2    ``riemann.central`` against today's central construction       1e-14 rel (H1)       2
+G3    arm (l): ``exact`` AAM drift                                   <= 1e-12 rel         2
+G4    off and transport bitwise against the pin                      0 ULP                2
+G5a   seam single-valuedness of ``A F · K_f``                        1e-14 rel            2
+G6    closure: declared vs measured AAM change                       1e-12 rel            2
+G7    sponge / drag torque booked = AAM change (as #365's drag arm)  1e-15 of L           2
+G8    ``test_diffusion_cubed_sphere`` and convection-onset notes     their tolerances     3
+G9    ``exact`` with viscosity: viscous torque booked as physical    1e-12 rel            3
+G10   FP32/perturbation-flux arms (section 6.2)                      drift <= 1e-12 rel   4
+====  =============================================================  ===================  ===========
+
+
+6. FP32
+=======
+
+6.1 Stated dtypes (requirement 8)
+---------------------------------
+
+==========================================  ================  =========================================
+quantity                                    FP64 run          FP32 run (``precision: float32``)
+==========================================  ================  =========================================
+source increments                           FP64, into du     FP64 accumulator, rounded once into du
+                                                              (today's ``_forcing_work``,
+                                                              ``hydro_forward.cpp:1365-1375``)
+``riemann.central`` (mass rows)             FP64              flux dtype (FP32); ``F - F_c`` and the
+                                                              rate formed in FP64 (H4)
+AAM flux form, torque rate, R and I         FP64              FP64
+monitor reductions                          FP64              FP64
+``diffusion`` part                          FP64              flux dtype (FP32), as the other parts
+RotationGeometry buffers, m1 weights        FP64              FP64 master, compute-dtype view (lane S)
+==========================================  ================  =========================================
+
+6.2 What lifts the restriction on full (now exact), Q5
+------------------------------------------------------
+
+Today's refusal (``hydro_forward.cpp:993-995``) exists because "its central
+flux does not see the perturbation states" (#363). G5 asks for a validated
+formulation (``V3_ROADMAP.md:268-270``). Three things lift it together:
+
+1. **A consistent F_c.** ``riemann.central`` is formed from the states the
+   solver actually used. The mass rows carry no pressure, so the
+   reference-pressure gauge (``hllc_impl.h:96, 155``) does not enter. Whether
+   face densities are totals under perturbation-flux is asked in R-1.
+2. **FP64 accumulation** of the rate and of R and I (6.1). **H4:** ``F_d`` is
+   small at smooth faces and loses relative precision in FP32. The torque
+   multiplies it by ``s_f² - s_c² = O(h)``, so the effect should be small.
+   This needs measuring.
+3. **Gate G10.** Rerun arms (f)-(h), (k) and (l) under FP32 with
+   perturbation-flux, against FP64. ``exact`` must hold drift <= 1e-12. The
+   panel ghosts with ``interp_order: 4`` under anomaly storage are lane S's G5
+   work.
+
+Until G10 passes, ``exact`` refuses FP32 and perturbation-flux at reset.
+
+
+7. CUDA graph
+=============
+
+7.1 Capturable storage and no host reads (requirements 6 and 8)
+---------------------------------------------------------------
+
+Fixed storage:
+
+* every lane-A buffer is allocated at reset with fixed shapes: ``omega_local``,
+  the m1 weights and Φ (today's ``_mass_w`` cache), and the 2-vector
+  ``{R, I}``;
+* ``riemann.central`` lives in the register's storage;
+* there is no shape- or data-dependent branch inside a stage.
+
+Host reads and host branches lane A removes or moves out of segments:
+
+==================================================  ===============================================
+today                                               V3
+==================================================  ===============================================
+``meshblock.cpp:1018`` closure ``.item()`` (x2)     device-side scale with ``where(I > 0)``
+``gnomonic_equiangle.cpp:506`` on-axis ``.item()``  ``has_on_axis_cell`` computed at reset
+``diffusion.cpp:507`` ``torch::equal`` per call     frozen options, checked at build only
+``diffusion_radial.cpp:97-100`` positivity check    device failure flag to the monitor (X-3)
+``diffusion.cpp:677-743`` ``max_time_step``         stays, in the driver's dt step, outside
+                                                    segments
+==================================================  ===============================================
+
+The radial conduction's column loop (``diffusion_radial.cpp:80-93``) has a
+fixed trip count n, so it captures as a fixed launch sequence.
+
+7.2 Memory and per-step cost (requirement 9)
+--------------------------------------------
+
+Counted in face-field rows of one direction (one row = one value per face).
+``ny`` is the number of species.
+
+============================================  =================================  ============================
+item                                          today (pin)                        V3
+============================================  =================================  ============================
+``exact`` central flux, per stage             ``cen2``, ``cen3`` (2 (5+ny)),     ``riemann.central``: 2 (1+ny)
+                                              two solver outputs per call        rows, inside the register
+                                              (transient 4 (5+ny)), stored
+                                              ``F - F_c`` (2 (5+ny))
+diffusion fluxes (phase 3)                    3 full flux tensors per call       posted into register storage;
+                                              (``diffusion.cpp:580``)            part reported as reductions
+per-source budgets                            none                               none: reductions of ``du``,
+                                                                                 6 FP64 per source
+closure                                       2 scalars + ρ clone (1 field)      2 scalars + ρ view
+============================================  =================================  ============================
+
+For ny = 0, ``exact`` drops from 20 face-field rows kept in a stage (8 of them
+transient) to 2. V3 adds no full-field copy per stage.
+
+The diffusion part stays reportable as integrals, not as a stored field. If
+the register must keep each part as a field, diffusion adds 3 (5+ny) rows.
+That is asked in R-1.
+
+Cost (expected, **H2**): ``exact`` drops from 1.14-1.48 times ``off`` (#363)
+to about ``transport`` plus one rate evaluation. The closure's +4-9% (#365)
+should fall once the host sync is gone. Per-source budgets add one fused
+reduction over ``du`` per source and stage, only on monitor steps.
+
+How it will be measured, in phases 2 and 3, the way #355, #363 and #365
+measured:
+
+* time per step, minimum of 3 runs, pin against V3, for ``off``,
+  ``transport`` and ``exact``, with budgets on and off. Decks: the
+  ``test_axial_momentum_flux_form`` W2 C16/C32 and 3D arms;
+  ``jupiter_gcm_dry`` C48 + Coriolis on GPU; and the
+  ``test_diffusion_cubed_sphere`` configuration;
+* peak memory per step, from ``torch.cuda.reset_peak_memory_stats()`` and
+  ``max_memory_allocated()`` around one step, on the same runs;
+* kernel launches per stage (#355 counted 4772 at C45).
+
+7.3 Graph boundaries
+--------------------
+
+* The fixers' collective at the end of the stage is the only lane-A boundary.
+  All fixers due at that stage (the AAM closure every stage, gravity work at
+  the last) share one FP64 vector and one allreduce.
+* Rule 2 of section 3.2, if it passes, removes the boundary.
+* The pre- and post-implicit phases are segments around lane I's solve, not
+  extra boundaries.
+* Whether a device collective is capturable is asked in X-1.
+
+
+8. Decide and justify
+=====================
+
+8.1 Default for conserve-axial-momentum, and the kill list
+----------------------------------------------------------
+
+**Default: off**, unchanged. Cheng's Claude replied that this needs no
+decision.
 
 Why:
 
-* Phases 1 and 2 are gated on bitwise equality with the pin. Registering
-  diffusion cannot be bitwise. On Cartesian grids, summing fluxes before one
-  divergence changes the order of additions. On the cubed sphere, the face-
-  basis projection and seam averaging change the arithmetic.
-* Diffusion has its own validation suite (``docs/notes/cubed_sphere_*``,
-  ``tests/test_diffusion_cubed_sphere.cpp``), which needs a tolerance-based
-  acceptance of its own.
-* Mixing the two would make a register defect and a diffusion defect
-  indistinguishable in one PR.
+* phases 1 and 2 are gated bitwise (G1, G4);
+* ``transport`` is measured worse than ``off`` at Ω/(u/a) = 14;
+* ``exact`` needs FP64 and ``interp_order: 4`` until G10.
 
-The cost of waiting: until phase 3, the viscous torque is outside AAM's flux
-form. ``exact``'s closure would remove it as a numerical residual, which is
-wrong, since viscosity is physical. So phase 3 must land before ``exact`` is
-used with nonzero viscosity. Until then, ``exact`` with ``nu_iso > 0`` is
-refused at reset.
+The AAM budget is always reported (5.1). The default is revisited after G10.
 
+==========================================  ===================================  ==========================
+removed                                     replacement                          decks affected
+==========================================  ===================================  ==========================
+``conserve-axial-momentum: full``           ``exact`` (refused with a message;   in repo: test only.
+                                            no silent remap)                     **FOR CHENG** (recorded)
+``conserve-axial-momentum-closure: true``   ``conserve-axial-momentum: exact``   in repo: test only.
+                                                                                 **FOR CHENG** (recorded)
+``coriolis/type: 123``                      ``type: xyz`` (identical on          none in repo.
+                                            Cartesian grids)                     **FOR CHENG** (recorded)
+AAM key on a grid with no rotation axis     refused (today a no-op + warning,    none in repo
+                                            ``hydro.cpp:70-76``)
+==========================================  ===================================  ==========================
 
-10. Q8: where the AAM geometry lives
-====================================
+8.2 Diffusion fluxes into the register: later (phase 3)
+-------------------------------------------------------
 
-**Decision: in the coordinate, as a ``RotationGeometry`` part owned by lane S.
-The AAM physics (consumer, torque rule, closure) lives in
-``src/forcing/axial_momentum.cpp``, owned by lane A.**
+Diffusion enters the register in phase 3, not in the first migration PRs.
 
-* Geometry: ``k`` at centres and exact face averages, ``k·k``, ``cos² lat`` at
-  faces, ``rate_to_rows`` (the projection along K, including the on-axis cell
-  rule), and the m1 split weights. Today these are
-  ``gnomonic_equiangle.{hpp,cpp}`` buffers and ``coordinate.hpp:370-392``
-  hooks. Add ``omega_local`` (section 6) and keep the 7 AAM buffers.
-  Implement it for spherical-polar too, where ``K = r sin θ φ̂``. Cartesian
-  returns "no axis".
-* Physics leaves the coordinate: ``axial_coriolis_rate``
-  (``gnomonic_equiangle.cpp:676-719``) and the closure arithmetic are AAM
-  physics, not geometry. The four virtual AAM hooks on ``Coordinate`` become
-  one accessor, ``rotation_geometry()``, which returns null where there is no
-  axis. That is −23+3 lines in ``coordinate.hpp``.
-* Why: lane S owns metric exactness, and the face averages of k are metric
-  identities: the lateral pressure fluxes sum to zero
-  (``gnomonic_equiangle.cpp:181-182``). The torque rule is the part that
-  changes (section 4.3), and it should change without touching geometry.
+Why:
+
+* Phases 1 and 2 are bitwise. Registering diffusion changes the order of
+  additions on Cartesian grids, and the projection and seam arithmetic on the
+  cubed sphere.
+* Diffusion has its own tolerance suite (G8).
+* One PR should not mix a register defect with a diffusion defect.
+
+Until phase 3, diffusion is a ``SourceTerm`` (momentum and energy rows,
+physical) with its own divergence. That is the declared exception to
+requirements 4 and 5 in 4.1. ``exact`` with ``nu_iso > 0`` is refused until
+then, because the closure would remove the viscous torque as if it were
+numerical.
 
 
-11. Line-count plan, migration order and decision log
-=====================================================
+9. Line-count plan
+==================
 
-11.1 ``src/forcing`` (the baseline, 2,870 lines)
-------------------------------------------------
+9.1 ``src/forcing`` (the baseline, 2,870 lines)
+-----------------------------------------------
 
-Every number in the V3 column is an **estimate**. The measured sub-counts it
-rests on come from ``sed -n 'a,bp' FILE | wc -l`` at the pin:
+The V3 numbers are estimates. The measured sub-counts behind them come from
+``sed -n 'a,bp' FILE | wc -l`` at the pin:
 
 * ``Coriolis123`` 28 lines (``coriolis.cpp:40-67``); full/closure glue 38
   (``:176-213``); Ω set-up 67 (``:85-151``);
-* diffusion ``from_yaml`` 91 (``diffusion.cpp:271-361``); profile checking 128
-  (``:221-261, 429-495, 497-516``);
-* ``share_fluxes`` 74 (``diffusion_cubed_sphere.cpp:103-176``);
-* ``forcing.hpp`` option structs 326, module classes 270.
+* diffusion ``from_yaml`` 91 (``diffusion.cpp:271-361``); profile checking 128;
+* ``share_fluxes`` 74;
+* ``forcing.hpp`` option structs 326 and classes 270.
 
 =================================  ======  ======  =======================================================
 file                               now     V3      basis
 =================================  ======  ======  =======================================================
-forcing.hpp                         674     260    options 326 -> 150 via schema report/clone/create (O-1);
-                                                   classes 270 -> 70 (one base, merged modules);
-                                                   includes, macros, comments 78 -> 40
+forcing.hpp                         674     260    options 326 -> 150 via schema (lane O); classes
+                                                   270 -> 70; includes, macros, comments 78 -> 40
 source_term.hpp (new)                 0     110    base, registry, budget declaration
 coriolis.cpp                        232     120    −28 (123), −38 (glue to AAM), −50 (Ω to geometry),
                                                    +4 (two phases)
@@ -757,131 +827,148 @@ body_heat + plume_forcing           100      70    base does ctor, reset, option
 Arithmetic:
 
 * 260 + 110 + 120 + 170 + 480 + 320 + 103 + 70 + 50 + 235 + 70 = **1988**.
-* The reduction is 2870 − 1988 = **882 lines, 30.7 %** (882 / 2870 = 0.307).
+* The reduction is 2870 − 1988 = **882 lines, 30.7 %**.
 
 Sensitivity:
 
-* **If lane O gives no schema-generated report/clone** (O-1 declined):
-  forcing.hpp is +110, which gives 2098 (−26.9 %).
-* **Before phase 3**: diffusion_cubed_sphere.cpp stays at 376 and diffusion.cpp
-  at 525, which gives 2089 (−27.2 %).
-* **Both**: 2199 (−23.4 %).
+* without the lane-O schema: 2098 (−26.9 %);
+* before phase 3: 2089 (−27.2 %);
+* both: 2199 (−23.4 %);
+* without the 170 lines moved into ``axial_momentum.cpp``: 1818 (−36.7 %).
 
-Every case stays above the 20 % target. The 170 lines moved *into*
-``axial_momentum.cpp`` are counted against the lane. Without them, the pure
-forcing reduction is 2870 − 1818 = 1052 (−36.7 %).
+9.2 Lane-A code outside ``src/forcing`` (612 lines, section 2.2)
+----------------------------------------------------------------
 
-11.2 Lane-A code outside ``src/forcing`` (612 lines, section 2.2)
------------------------------------------------------------------
+* hydro_forward 136 -> 25;
+* hydro.hpp/.cpp 101 -> 45;
+* coordinate.hpp 23 -> 3;
+* gnomonic AAM 301 -> 240, plus 40 for spherical-polar K;
+* mesh/meshblock 51 -> 10.
 
-This is an estimate, reported separately so that moving lines into
-``src/forcing`` does not hide them.
+That gives 612 -> 363. Lane total: 3482 -> 2351 (−32.5 %).
 
-* hydro_forward 136 -> 25: two phase hooks, the consumer call, and the
-  register reads.
-* hydro.hpp/.cpp 101 -> 45: the option doc keeps the measured rows.
-* coordinate.hpp 23 -> 3.
-* gnomonic AAM 301 -> 240: ``axial_coriolis_rate`` moves out; spherical-polar
-  K is added in a separate file of about 40 lines.
-* mesh/meshblock 51 -> 10: generic fixer registry, in lane X's or O's code.
 
-That gives 612 -> 323 + 40 = 363. Lane total: 2870 + 612 = 3482 -> 1988 + 363
-= 2351 (−32.5 %).
+10. Migration order and decision log
+====================================
 
-11.3 Migration order
+10.1 Migration order
 --------------------
 
-Each phase is one PR, or a small stack, with a RED/GREEN test.
+1. **Phase 1** (bitwise, G1): the ``SourceTerm`` base and registry, all twelve
+   modules ported, the merges, one Coriolis, and monitor attribution.
+2. **Phase 2** (G2-G7): the AAM consumer reads the register, R posts
+   ``riemann.central``, the closure becomes a fixer, ``exact`` replaces
+   full + closure, m1 reads Φ, and the host reads are removed. Cost and memory
+   are measured (7.2).
+3. **Phase 3** (G8, G9): diffusion posts to the register, and the averaging
+   half of ``share_fluxes`` goes.
+4. **Phase 4** (G10): FP32 and perturbation-flux for ``exact``; then the
+   default is reconsidered.
 
-1. **Phase 1** (bitwise): ``SourceTerm`` base and registry; all twelve modules
-   ported. The merges are sponge, layer heat, the ``BottomSlab`` base and one
-   Coriolis. The monitor gets the budget. Gate: bitwise against the pin on
-   every existing test.
-2. **Phase 2** (bitwise for off/transport; round-off for exact): the AAM
-   consumer reads the register, F_c is emitted by lane R, closure becomes a
-   fixer, ``exact`` replaces full+closure. Gates: H1 (1e-14), and arm (l) <=
-   1e-12. Cost is measured against today's ``full`` + closure.
-3. **Phase 3** (tolerance): diffusion fluxes into the register. Gates:
-   ``test_diffusion_cubed_sphere``, the convection-onset notes, and an AAM arm
-   with viscosity under ``exact``.
-4. **Phase 4** (G5): FP32 and perturbation-flux gate for ``exact`` (section
-   7); then decide on the default.
-
-11.4 Decision log (choices the brief left open)
+10.2 Decision log (choices the brief left open)
 -----------------------------------------------
 
 === ====================================================  ==========================================
 #   decision                                              reason (section)
 === ====================================================  ==========================================
-D1  F_c mass rows emitted from face states; no second     removes 2 Riemann calls per x2/x3
-    flux evaluation                                       direction (3.2)
-D2  modes ``off | transport | exact``; full and closure   full alone is neither cheap nor exact (4.2)
-    key removed; type 123 removed
-D3  default stays ``off``; AAM budget always reported     bitwise migration; transport worse than off
-                                                          at high Ω/(u/a) (4.4)
-D4  closure = fixer at the last momentum change; device   keeps #365 semantics, drops host sync,
-    R/I; one collective for all fixers                    shares the gravity fixer's collective (5)
-D5  one Coriolis ``-2Ω × m`` with pre/post-implicit       one formula; #355 phase split kept (6)
-    phases; Ω and m1 weights from geometry
-D6  FP32 lifted only by consistent F_c + FP64 accum +     a code change alone does not establish
-    G5 gate                                               the budget (7)
-D7  monitor derives budgets from each source's            no budget code in modules; sponge torque
-    increment; modules merge by class, keys stay          in-model (8)
-D8  diffusion into the register in phase 3, not phase 1   bitwise gates of phases 1 and 2 (9.4)
-D9  ``exact`` with ``nu_iso > 0`` refused until phase 3   closure would remove a physical torque (9.4)
-D10 AAM geometry in coordinate (lane S); AAM physics in   geometry is stable, the torque rule is not
-    ``src/forcing/axial_momentum.cpp``                    (10)
-D11 side-study torque is a pluggable rule with gates      not read; decided by measurement (4.3)
+D1  F_c is the named part ``riemann.central``; no         removes 2 Riemann calls per x2/x3
+    second flux evaluation                                direction (3.1, 4.1)
+D2  modes ``off | transport | exact``; full and closure   full alone is neither cheap nor exact
+    key removed; type 123 removed                         (3.2)
+D3  default stays ``off``; AAM budget always reported     bitwise migration (8.1)
+D4  closure = fixer at the last momentum change; device   requirements 6, 7 (3.3, 5.2, 7.3)
+    R/I; one collective for all fixers
+D5  one Coriolis ``-2Ω × m``, pre/post-implicit; m1       requirement 4; #355 phase split (3.4)
+    reads Φ from the register
+D6  FP32 lifted by consistent F_c + FP64 accum + G10      section 6
+D7  per-source budgets by reductions of ``du``, no        requirement 9 (5.1, 7.2)
+    scratch copy
+D8  diffusion into the register in phase 3                bitwise gates of phases 1-2 (8.2)
+D9  ``exact`` with ``nu_iso > 0`` refused until phase 3   closure would remove a physical torque
+D10 AAM geometry in coordinate (lane S); physics in       requirement 5: rotation owned by coord
+    ``axial_momentum.cpp``                                (3.8)
+D11 side-study torque is a pluggable rule with gates      not read; decided by measurement (3.2)
+D12 user-forcing species clip is a registered floor       requirement 7 (5.2)
+D13 lane A writes nothing to ``Variables``                requirement 10 (4.1)
 === ====================================================  ==========================================
 
 
-12. Cross-lane questions
-========================
+11. Open questions (cross-lane)
+===============================
 
-These go to the kickoff thread. They are not resolved here.
+These are for the kickoff thread, addressed to each lane owner. They are not
+resolved here.
 
-* **R-1** (lane R): Can the Riemann stage emit, per x2/x3 face, the central mass
-  rows ``1/2 Σ_s (ρ_s u_n)_L + (ρ_s u_n)_R`` (dry + species, ``1 + ny`` rows)
-  into the register, in the frame of the registered flux, for HLLC, LMARS and
-  Roe, in FP64 and FP32 and under perturbation-flux? Under perturbation-flux,
-  are the face densities totals or anomalies?
-* **R-2** (lane R / register owner): Does the register keep each contributor's
-  part (Riemann, #289 covariance, diffusion) readable until the end of the
-  stage? AAM needs "total minus central"; it does not need the parts
-  separately, but diffusion's budget does.
-* **C-1 / I-1** (lanes C, I): Who registers the implicit x1 mass transfer
-  (``implicit_mass_correction()[IVZ] / dt``, ``hydro_forward.cpp:1645-1646``)
-  and the tangential momentum correction used by ``axial_x1_source_``
-  (``picorr->correction()``, ``:1668-1669``)? Can the stage graph give a
-  post-implicit source phase after them? #355 requires the w-free Coriolis rows
-  *before* the solve.
-* **X-1** (lane X): Is a device-side allreduce of a small FP64 vector
-  capturable inside a stage graph (NCCL or commux/UCX), or is it always a
-  segment boundary? Where does lane X want the end-of-stage fixer point in the
-  graph?
-* **X-2** (lane X): May all fixers due at a stage (AAM closure every stage,
-  gravity-work fixer at the last stage) share one collective through a fixer
-  registry? Who owns that registry: X, or the register owner?
-* **S-1** (lane S): Will S own ``RotationGeometry`` (k fields, face averages,
-  ``cos² lat`` at faces, ``rate_to_rows``, ``omega_local``, the m1 split
-  weights) for gnomonic and spherical-polar grids?
-* **S-2** (lane S): Will the register store x2/x3 fluxes in each face's own
-  basis, as ``flux2global2_``/``3_`` do today? The AAM face averages
-  ``aam_k_f2``/``aam_k_f3`` are in that basis.
-* **S-3** (lanes S, R): Who provides the Cartesian-to-face-basis transform that
-  diffusion needs to register its cubed-sphere traction? Does the register
-  reconcile shared-face fluxes across panel seams, which would replace the
-  averaging half of ``share_fluxes``?
-* **O-1** (lane O): Can the options schema generate ``create``/``clone``/
-  ``report``/``from_yaml``, and freeze tensor options after the block is
-  built? The line plan assumes yes (−110 lines if not).
-* **O-2** (lane O): Should merged classes (``Sponge{side}``,
-  ``LayerHeat{side}``) keep the separate Python option types for API
-  stability?
-* **K-1** (kickoff): ``ConstGravity`` is one of the twelve modules in
-  ``forcing.hpp``, but ``const_gravity.cpp`` is outside this lane's baseline.
-  Which lane migrates gravity, its face/cell gravity work and the gravity-work
-  fixer? Lane A only provides the ``SourceTerm`` interface it would implement.
-* **K-2** (kickoff): Please confirm or correct the register model of section
-  3.1 against the flux-register requirements (kickoff 2/3, including
-  requirement 7), which I could not read.
+Changes from the first draft:
+
+* Old R-2 ("are contributor parts readable") is covered by requirement 2. It is
+  narrowed into R-1's last clause.
+* Old S-3 ("does the register reconcile seams") is covered by requirement 5. It
+  is narrowed to the two details below.
+* Old K-2 ("confirm the register model") is answered by the ten requirements,
+  and dropped.
+* Old O-1 and O-2 are lane O's, which is ours, and are kept out of the posted
+  list.
+
+The questions:
+
+* **R-1, Linfeng (R).** Can the Riemann increment carry a named part
+  ``riemann.central``? It would hold the mass rows
+  ``1/2 Σ_s (ρ_s u_n)_L + (ρ_s u_n)_R``, ``1 + ny`` rows on x2/x3 faces, in the
+  registered face frame, for HLLC, LMARS and Roe, and kept until the
+  post-implicit phase of the stage. Under perturbation-flux, are the face
+  densities totals or anomalies? Are parts kept as fields, or reported only as
+  integrals? Diffusion's part adds 3 (5+ny) face rows if it must be a field.
+* **R-2, Linfeng (R).** Can the step transfer take an operator-split entry with
+  an explicit weight (the radial conduction's two half-step wall heat fluxes,
+  1/2 each)? Or should split operators report to the monitor only?
+* **I-1, Xinyue (I), and C-1, Tianhao (C).** Which of you posts the implicit x1
+  mass transfer (``implicit_mass_correction()[IVZ] / dt``,
+  ``hydro_forward.cpp:1645-1646``)? And which posts the tangential momentum
+  correction (``picorr->correction()``, ``:1668-1669``) as named register
+  increments after the solve? Can the stage give lane A a post-implicit source
+  phase after them, while the w-free Coriolis rows still enter the solve
+  (#355, 1.27 m/s otherwise)?
+* **S-1, Jiheng (S).** Will S own ``RotationGeometry`` (k, its face averages,
+  ``cos² lat`` at faces, ``rate_to_rows``, ``omega_local``, the m1 weights,
+  ``has_on_axis_cell``) for gnomonic and spherical-polar grids?
+* **S-2, Jiheng (S).** Is the register's documented frame for x2/x3 fluxes each
+  face's own basis, as in ``flux2global2_``/``3_`` today? ``aam_k_f2`` and
+  ``aam_k_f3`` are in that basis.
+* **S-3, Jiheng (S), narrowed by requirement 5.** Does coord's one rotation
+  function accept Cartesian-component vectors (diffusion's traction), or only
+  panel-local ones? Can the register's seam exchange carry diffusion's
+  interior-penalty traces (7 channels per seam face), or should diffusion keep
+  its own trace exchange?
+* **X-1, Xi (X).** Is a device-side allreduce of a small FP64 vector
+  capturable inside a stage graph (NCCL or commux/UCX), or always a segment
+  boundary? Where do you want the end-of-stage fixer point?
+* **X-2, Xi (X).** May all fixers due at a stage (AAM closure every stage,
+  gravity-work fixer at the last) share one collective through one fixer
+  registry? Who owns that registry?
+* **X-3, Xi (X).** Can the radial conduction's positivity check
+  (``diffusion_radial.cpp:97-100``, a host read today) become a device failure
+  flag, with the same redo path (``meshblock.cpp:1480``)?
+* **K-1, Isaac (K).** ``ConstGravity`` is one of the twelve modules in
+  ``forcing.hpp`` but outside lane A's baseline. Does lane K migrate gravity,
+  its work (requirement 4: it reads the register) and the gravity-work fixer
+  (requirement 7), on lane A's ``SourceTerm`` interface? If not K, the kickoff
+  should assign it.
+
+
+12. Hypotheses and how they are measured
+========================================
+
+==  ==============================================================  =================================
+id  hypothesis                                                      measured by
+==  ==============================================================  =================================
+H1  ``riemann.central`` equals today's central mass rows (FP64)     G2, phase 2
+H2  ``exact`` costs about ``transport`` plus one rate; the          7.2 timing, phase 2
+    closure is cheaper without the host sync
+H3  m1 from x1 transfers would help Cartesian f-plane energy        out of scope; separate study
+H4  FP32 ``F_d`` error is harmless after the ``O(h)`` factor        G10, phase 4
+H5  diffusion in the register makes the viscous torque telescope    G9, phase 3
+H6  per-source budgets from ``du`` reductions are accurate in FP64  compare with a scratch-copy
+    despite the flux divergence already in ``du``                   budget in a test, phase 1
+H7  removing the per-stage host reads (7.1) changes no bits         G1/G4 bitwise runs, phases 1-2
+==  ==============================================================  =================================
