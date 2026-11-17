@@ -11,12 +11,16 @@ from snapy import MeshBlock, MeshBlockOptions, kIDN, kIPR, kIV1, balance_column
 
 test_covariance = False
 
-def make(split, order=2, scheme=0, nh=1., gravity=True, outputs=None, stretched=False, sediment=False, anomaly=True, solver="hllc", precision="float64", one_column=False, implicit_precision=None, outflow=False):
+def make(split, order=2, scheme=0, nh=1., gravity=True, outputs=None, stretched=False, sediment=False, anomaly=True, solver="hllc", precision="float64", one_column=False, implicit_precision=None, outflow=False, disabled_dims=(), flux_covariance=None):
     with open(os.path.join(os.path.dirname(__file__), "test_anomaly_storage.yaml")) as f:
         cfg = yaml.safe_load(f)
     cfg["dynamics"].update({"anomaly": anomaly, "perturbation-flux": split,
                             "x1-mass-covariance": test_covariance,
                             "conversion-order": order, "precision": precision, "riemann-solver": {"type": solver}})
+    if flux_covariance is not None:
+        cfg["dynamics"]["flux-covariance"] = flux_covariance
+    for dim in disabled_dims:
+        cfg["dynamics"][f"disable-flux-x{dim}"] = True
     if stretched:
         cfg["geometry"]["cells"]["x1rat"] = 1.02
     cfg["geometry"]["cells"]["nx3"] = 4
@@ -40,7 +44,9 @@ def make(split, order=2, scheme=0, nh=1., gravity=True, outputs=None, stretched=
         yaml.safe_dump(cfg, f)
         path = f.name
     try:
-        return MeshBlock(MeshBlockOptions.from_yaml(path))
+        block = MeshBlock(MeshBlockOptions.from_yaml(path))
+        block.to(torch.device(os.environ.get("SNAP_TEST_DEVICE", "cpu")))
+        return block
     finally:
         os.unlink(path)
 

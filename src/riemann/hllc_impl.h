@@ -1,5 +1,9 @@
 #pragma once
 
+// C/C++
+#include <cmath>
+#include <type_traits>
+
 // base
 #include <configure.h>
 
@@ -21,11 +25,11 @@ void DISPATCH_MACRO hllc_impl(T *flx, T *wl, T *wr, T el, T er, T gammal,
                               T reference_pressure = T(0)) {
   // With a shared face background, pressure rows and momentum pressure flux
   // are perturbations. Wave speeds and energy transport still use totals.
-  // Keep the original arithmetic when the background is absent.
+  // Typed constants keep float instantiations on FP32 arithmetic throughout.
   bool shifted = reference_pressure != T(0);
   auto pl = shifted ? reference_pressure + WL(IPR) : WL(IPR);
   auto pr = shifted ? reference_pressure + WR(IPR) : WR(IPR);
-  auto TINY_NUMBER = 1.0e-10;
+  constexpr T TINY_NUMBER = T(1.0e-10);
 
   auto ivx = IPR - dim;
   auto ivy = IVX + ((ivx - IVX) + 1) % 3;
@@ -35,37 +39,49 @@ void DISPATCH_MACRO hllc_impl(T *flx, T *wl, T *wr, T el, T er, T gammal,
 
   //--- Step 2.  Compute middle state estimates with PVRS (Toro 10.5.2)
 
-  el += 0.5 * WL(IDN) * (SQR(WL(IVX)) + SQR(WL(IVY)) + SQR(WL(IVZ)));
-  er += 0.5 * WR(IDN) * (SQR(WR(IVX)) + SQR(WR(IVY)) + SQR(WR(IVZ)));
+  el += T(0.5) * WL(IDN) * (SQR(WL(IVX)) + SQR(WL(IVY)) + SQR(WL(IVZ)));
+  er += T(0.5) * WR(IDN) * (SQR(WR(IVX)) + SQR(WR(IVY)) + SQR(WR(IVZ)));
 
-  auto rhoa = .5 * (WL(IDN) + WR(IDN));  // average density
-  auto ca = .5 * (cl + cr);              // average sound speed
-  auto pmid = .5 * (WL(IPR) + WR(IPR) + (WL(ivx) - WR(ivx)) * rhoa * ca);
-  auto umid = .5 * (WL(ivx) + WR(ivx) + (WL(IPR) - WR(IPR)) / (rhoa * ca));
+  auto rhoa = T(0.5) * (WL(IDN) + WR(IDN));  // average density
+  auto ca = T(0.5) * (cl + cr);              // average sound speed
+  auto pmid = T(0.5) * (WL(IPR) + WR(IPR) + (WL(ivx) - WR(ivx)) * rhoa * ca);
 
   //--- Step 3.  Compute sound speed in L,R
 
-  auto shock_l = shifted ? (pmid - WL(IPR)) / pl : pmid / WL(IPR) - 1.0;
-  auto shock_r = shifted ? (pmid - WR(IPR)) / pr : pmid / WR(IPR) - 1.0;
+  auto shock_l = shifted ? (pmid - WL(IPR)) / pl : pmid / WL(IPR) - T(1.0);
+  auto shock_r = shifted ? (pmid - WR(IPR)) / pr : pmid / WR(IPR) - T(1.0);
   auto ql = (pmid <= WL(IPR))
-                ? 1.0
-                : std::sqrt(1.0 + (gammal + 1) / (2 * gammal) * shock_l);
+                ? T(1.0)
+                : std::sqrt(T(1.0) + (gammal + 1) / (2 * gammal) * shock_l);
   auto qr = (pmid <= WR(IPR))
-                ? 1.0
-                : std::sqrt(1.0 + (gammar + 1) / (2 * gammar) * shock_r);
+                ? T(1.0)
+                : std::sqrt(T(1.0) + (gammar + 1) / (2 * gammar) * shock_r);
+
+  static_assert(std::is_same_v<decltype(rhoa), T> &&
+                    std::is_same_v<decltype(pmid), T> &&
+                    std::is_same_v<decltype(ql), T>,
+                "HLLC work must retain the dispatched scalar precision");
 
   //--- Step 4.  Compute the max/min wave speeds based on L/R
 
   auto al = WL(ivx) - cl * ql;
   auto ar = WR(ivx) + cr * qr;
 
-  auto bp = ar > 0.0 ? ar : (TINY_NUMBER);
-  auto bm = al < 0.0 ? al : -(TINY_NUMBER);
+  auto bp = ar > T(0.0) ? ar : (TINY_NUMBER);
+  auto bm = al < T(0.0) ? al : -(TINY_NUMBER);
 
   //--- Step 5. Compute the contact wave speed and pressure
 
-  auto vxl = WL(ivx) - al;
-  auto vxr = WR(ivx) - ar;
+  T vxl, vxr;
+  if constexpr (std::is_same_v<T, float>) {
+    // Do not recover a small acoustic speed by subtracting large velocities.
+    vxl = cl * ql;
+    vxr = -cr * qr;
+  } else {
+    // Preserve the established FP64 regression arithmetic.
+    vxl = WL(ivx) - al;
+    vxr = WR(ivx) - ar;
+  }
 
   auto tl = WL(IPR) + vxl * WL(IDN) * WL(ivx);
   auto tr = WR(IPR) + vxr * WR(IDN) * WR(ivx);
@@ -78,15 +94,21 @@ void DISPATCH_MACRO hllc_impl(T *flx, T *wl, T *wr, T el, T er, T gammal,
   // ...and the pressure at the contact surface
   auto cp = (ml * tr + mr * tl) / (ml + mr);
   cp = shifted ? (cp > -reference_pressure ? cp : -reference_pressure)
-               : (cp > 0.0 ? cp : 0.0);
+               : (cp > T(0.0) ? cp : T(0.0));
   if (face_pressure != nullptr) *face_pressure = cp;
 
   //--- Step 6. Compute L/R fluxes along the line bm, bp
 
-  vxl = WL(ivx) - bm;
-  vxr = WR(ivx) - bp;
+  if constexpr (std::is_same_v<T, float>) {
+    // bm/bp are clipped at zero: only their acoustic branches simplify.
+    vxl = al < T(0) ? cl * ql : WL(ivx) + TINY_NUMBER;
+    vxr = ar > T(0) ? -cr * qr : WR(ivx) - TINY_NUMBER;
+  } else {
+    vxl = WL(ivx) - bm;
+    vxr = WR(ivx) - bp;
+  }
 
-  T rdl = 1., rdr = 1.;
+  T rdl = T(1.), rdr = T(1.);
   for (int n = 0; n < ny; ++n) {
     rdl -= WL(ICY + n);
     rdr -= WR(ICY + n);
@@ -112,12 +134,12 @@ void DISPATCH_MACRO hllc_impl(T *flx, T *wl, T *wr, T el, T er, T gammal,
   //--- Step 8. Compute flux weights or scales
 
   T sl, sr, sm;
-  if (am >= 0.0) {
+  if (am >= T(0.0)) {
     sl = am / (am - bm);
-    sr = 0.0;
+    sr = T(0.0);
     sm = -bm / (am - bm);
   } else {
-    sl = 0.0;
+    sl = T(0.0);
     sr = -am / (bp - am);
     sm = bp / (bp - am);
   }

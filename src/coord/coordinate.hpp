@@ -14,6 +14,7 @@
 
 // snap
 #include <snap/mesh/mesh_functions.hpp>
+#include <snap/utils/tensor_cast_cache.hpp>
 
 #include "coordgen.hpp"
 
@@ -395,6 +396,8 @@ class CoordinateImpl {
                                 torch::Tensor face_pressure1 = torch::Tensor());
 
  protected:
+  mutable TensorCastCache area1_cast_, area2_cast_, area3_cast_, volume_cast_;
+
   //! one cached face_area1/2/3() or cell_volume() and its grid inputs
   struct GeomCache {
     torch::Tensor value, dx1, dx2, dx3;

@@ -16,6 +16,12 @@
 namespace snap {
 
 void IdealMoistImpl::reset() {
+  split_cv_ = split_offset_ = split_gas_ = heat_capacity_failure_ =
+      torch::Tensor();
+  split_mu_.clear();
+  split_cref_.clear();
+  split_uref_.clear();
+  split_ngas_ = split_ncloud_ = -1;
   TORCH_CHECK(options->thermo(), "[IdealMoist] thermo pointer is null");
   pthermo = kintera::ThermoYImpl::create(options->thermo(), this);
 
@@ -70,7 +76,7 @@ torch::Tensor IdealMoistImpl::internal_energy_offset(
 }
 
 IdealMoistPerturbations IdealMoistImpl::perturbations(
-    torch::Tensor const& stored) const {
+    torch::Tensor const& stored, bool defer_check) const {
   TORCH_CHECK(phydro->has_reference(),
               "ideal-moist perturbations require an anomaly background");
   auto species0 = phydro->species_ref();
@@ -89,16 +95,29 @@ IdealMoistPerturbations IdealMoistImpl::perturbations(
   auto rho0 = torch::cat({ref[0].unsqueeze(0), s0}, 0);
   auto drho = torch::cat({u[IDN].unsqueeze(0), u.narrow(0, ICY, ny) - s0}, 0);
 
-  // Recreate constants from the double-valued options, not buffers that
-  // Module::to(float32) may already have rounded. Energy offsets have already
-  // been referred to T=0 by ThermoY during reset.
-  auto inv_mu = 1. / torch::tensor(thermo->mu(), u.options());
-  auto cv = torch::tensor(thermo->cref_R(), u.options()) *
-            kintera::constants::Rgas * inv_mu;
-  auto offset = torch::tensor(thermo->uref_R(), u.options()) *
+  // Compare host options, preserving double-valued constants even after
+  // Module::to(float32). Warmup populates device tensors before graph capture.
+  int ngas = thermo->vapor_ids().size(), ncloud = thermo->cloud_ids().size();
+  if (!split_cv_.defined() || split_cv_.device() != u.device() ||
+      split_mu_ != thermo->mu() || split_cref_ != thermo->cref_R() ||
+      split_uref_ != thermo->uref_R() || split_ngas_ != ngas ||
+      split_ncloud_ != ncloud) {
+    auto inv_mu = 1. / torch::tensor(thermo->mu(), u.options());
+    split_cv_ = torch::tensor(thermo->cref_R(), u.options()) *
                 kintera::constants::Rgas * inv_mu;
-  auto gas = kintera::constants::Rgas * inv_mu;
-  gas.narrow(0, thermo->vapor_ids().size(), thermo->cloud_ids().size()).zero_();
+    split_offset_ = torch::tensor(thermo->uref_R(), u.options()) *
+                    kintera::constants::Rgas * inv_mu;
+    split_gas_ = kintera::constants::Rgas * inv_mu;
+    split_gas_.narrow(0, ngas, ncloud).zero_();
+    split_mu_ = thermo->mu();
+    split_cref_ = thermo->cref_R();
+    split_uref_ = thermo->uref_R();
+    split_ngas_ = ngas;
+    split_ncloud_ = ncloud;
+  }
+  auto const& cv = split_cv_;
+  auto const& offset = split_offset_;
+  auto const& gas = split_gas_;
   auto dot = [](torch::Tensor const& r, torch::Tensor const& c) {
     return (r * c.view({-1, 1, 1, 1})).sum(0);
   };
@@ -114,12 +133,23 @@ IdealMoistPerturbations IdealMoistImpl::perturbations(
   auto gas0 = dot(rho0, gas), cv0 = dot(rho0, cv);
   auto dcv = dot(drho, cv);
   auto total_cv = cv0 + dcv;
-  TORCH_CHECK((torch::isfinite(cv0) & (cv0 > 0.) & torch::isfinite(total_cv) &
-               (total_cv > 0.))
-                  .all()
-                  .item<bool>(),
-              "ideal-moist perturbations require finite positive background "
-              "and total volumetric heat capacities");
+  auto valid = torch::isfinite(cv0) & (cv0 > 0.) & torch::isfinite(total_cv) &
+               (total_cv > 0.);
+  if (defer_check) {
+    if (!heat_capacity_failure_.defined() ||
+        heat_capacity_failure_.device() != u.device())
+      heat_capacity_failure_ =
+          torch::zeros({}, u.options().dtype(torch::kBool));
+    heat_capacity_failure_.logical_or_(valid.all().logical_not());
+    // Guard capacity denominators while the host check is deferred.
+    // The latched failure rejects the step even if later stages repair them.
+    cv0 = torch::where(valid, cv0, 1.);
+    dcv = torch::where(valid, dcv, 0.);
+  } else {
+    TORCH_CHECK(valid.all().item<bool>(),
+                "ideal-moist perturbations require finite positive background "
+                "and total volumetric heat capacities");
+  }
   auto pressure0 = thermal0 * gas0 / cv0;
   auto pressure_delta = kintera::eval_const_cv_pressure_delta(
       thermal0, gas0, cv0, dthermal, dot(drho, gas), dcv);

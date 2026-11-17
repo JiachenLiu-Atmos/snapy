@@ -10,7 +10,8 @@ import kintera as kt
 from snapy import MeshBlock, MeshBlockOptions, kIDN, kIPR, kICY, kIV1
 
 
-def run(steps, precision="float32", restart_at=None):
+def run(steps, precision="float32", restart_at=None, device=None):
+    device = torch.device(device or os.environ.get("SNAP_TEST_DEVICE", "cpu"))
     here = os.path.dirname(__file__)
     with open(os.path.join(here, "../examples/jupiter_crm.yaml")) as f:
         cfg = yaml.safe_load(f)
@@ -67,6 +68,9 @@ def run(steps, precision="float32", restart_at=None):
         tx = kt.ThermoX(tx_options)
     finally:
         os.unlink(path)
+    block.to(device)
+    kin.to(device)
+    tx.to(device)
     eos = block.module("hydro.eos")
     ty = block.module("hydro.eos.thermo")
     w = block.module("hydro").buffer("D").clone().zero_()
@@ -96,12 +100,15 @@ def run(steps, precision="float32", restart_at=None):
             block.make_outputs(bv, step * dt, True)
             (restart_file,) = glob.glob("*.final.restart")
             block = MeshBlock(options)
+            block.to(device)
             bv, time = block.initialize_from_restart(restart_file)
             assert time == step * dt
             eos = block.module("hydro.eos")
             ty = block.module("hydro.eos.thermo")
             kin = kt.Kinetics(kin_options)
             tx = kt.ThermoX(tx_options)
+            kin.to(device)
+            tx.to(device)
             inv_mu = ty.buffer("inv_mu")[1:]
             stoich = kin.buffer("stoich")
         for stage in range(len(block.intg.stages)):

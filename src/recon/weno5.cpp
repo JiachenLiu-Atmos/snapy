@@ -34,7 +34,7 @@ void Weno5InterpImpl::set_x1_coeffs(torch::Tensor const& x1f) {
 void Weno5InterpImpl::forward_nu(torch::Tensor const& w, int dim,
                                  torch::Tensor const& out,
                                  torch::Tensor const& src,
-                                 torch::Tensor& cache) {
+                                 TensorCastCache& cache) {
   x1_forward_nu(w, dim, out, src, cache, "weno5",
                 [&](at::TensorIterator& iter, torch::Tensor const& c) {
                   at::native::call_weno5_nu(out.device().type(), iter, c, dim,
@@ -50,7 +50,7 @@ void Weno5InterpImpl::left(torch::Tensor w, int dim, torch::Tensor const& out) {
 
   auto iter = x1_uniform_iterator(w, dim, out);
 
-  at::native::call_weno5(out.device().type(), iter, cm.to(w.options()), dim,
+  at::native::call_weno5(out.device().type(), iter, cm_cast.get(cm, w), dim,
                          options->scale());
 }
 
@@ -63,7 +63,7 @@ void Weno5InterpImpl::right(torch::Tensor w, int dim,
 
   auto iter = x1_uniform_iterator(w, dim, out);
 
-  at::native::call_weno5(out.device().type(), iter, cp.to(w.options()), dim,
+  at::native::call_weno5(out.device().type(), iter, cp_cast.get(cp, w), dim,
                          options->scale());
 }
 

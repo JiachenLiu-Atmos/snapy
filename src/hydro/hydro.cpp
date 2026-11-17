@@ -37,6 +37,7 @@ bool HydroImpl::axial_coriolis_form() const {
 }
 
 void HydroImpl::reset() {
+  _forcing_work = _forcing_cast = torch::Tensor();
   TORCH_CHECK(pmb, "[Hydro] Parent MeshBlock is null");
   TORCH_CHECK(
       options->conversion_order() == 2 || options->conversion_order() == 4,

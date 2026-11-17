@@ -466,6 +466,9 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   mutable torch::Tensor _aam_cl, _aam_cl_rho;
 
   torch::Tensor _flux1, _flux2, _flux3, _face_pressure1, _div, _forcing_dry;
+  // Reusable stage scratch; not restart state. Recreated on shape/device
+  // change.
+  torch::Tensor _forcing_work, _forcing_cast;
   torch::Tensor _positivity_hits, _positivity_severe, _positivity_min;
   //! conversion-order 4 cells that kept the second-order w (buffer
   //! "conversion_trips", registered only with the key at 4)

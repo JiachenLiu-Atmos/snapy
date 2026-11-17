@@ -363,10 +363,34 @@ TEST_P(DeviceTest, ideal_moist_pressure_perturbations_without_condensables) {
                               1.e-10));
   EXPECT_TRUE(torch::equal(result.density_delta,
                            torch::zeros_like(result.density_delta)));
+  // Repeated cached calls retain exact results; changing host options refreshes
+  // the FP64 constants without depending on rounded module buffers.
+  EXPECT_TRUE(torch::equal(result.pressure_delta,
+                           eos->perturbations(stored).pressure_delta));
+  auto cv_saved = eos->pthermo->options->cref_R()[0];
+  eos->pthermo->options->cref_R()[0] = 2. * cv_saved;
+  auto changed = eos->perturbations(stored);
+  EXPECT_TRUE(torch::allclose(changed.pressure_delta,
+                              result.pressure_delta * .5, 2.e-7, 1.e-10));
+  eos->pthermo->options->cref_R()[0] = cv_saved;
+  EXPECT_TRUE(torch::equal(result.pressure_delta,
+                           eos->perturbations(stored).pressure_delta));
+
   // Reject singular and negative total heat capacity before pressure division.
   for (double drho : {-10., -20.}) {
     stored[IDN].fill_(drho);
     EXPECT_THROW(eos->perturbations(stored), c10::Error);
+    eos->clear_heat_capacity_failure();
+    eos->perturbations(stored, true);
+    EXPECT_TRUE(eos->heat_capacity_failure().item<bool>());
+    stored[IDN].zero_();
+    eos->perturbations(stored, true);
+    EXPECT_TRUE(eos->heat_capacity_failure().item<bool>());
+    Variables vars{{"hydro_u", stored}, {"hydro_w", w}};
+    EXPECT_TRUE(block->local_redo_flags(vars)[2]);
+    eos->clear_heat_capacity_failure();
+    eos->perturbations(stored, true);
+    EXPECT_FALSE(eos->heat_capacity_failure().item<bool>());
   }
   stored[IDN].zero_();
   auto bad_ref = block->phydro->u_ref().clone();

@@ -821,6 +821,43 @@ void expect_axis(torch::Tensor xf, double lo, double hi, int nx, int ng) {
 }  // namespace
 
 // (A) faces carry the caller's bounds on every axis
+TEST_P(DeviceTest, divergence_cast_cache_tracks_grid_edits) {
+  Cartesian coord(a3_opts());
+  auto other = dtype == torch::kFloat32 ? torch::kFloat64 : torch::kFloat32;
+  coord->to(device, other);
+  auto op = coord->options;
+  auto opts = torch::device(device).dtype(dtype);
+  auto shape = std::vector<int64_t>{2, op->nc3(), op->nc2(), op->nc1()};
+  auto f1 = torch::arange(op->nc1(), opts).view({1, 1, 1, -1}).expand(shape);
+  auto f2 =
+      2. * torch::arange(op->nc2(), opts).view({1, 1, -1, 1}).expand(shape);
+  auto f3 =
+      3. * torch::arange(op->nc3(), opts).view({1, -1, 1, 1}).expand(shape);
+  auto check = [&] {
+    auto div = coord->divergence(f1, f2, f3);
+    auto interior = div.slice(3, coord->il(), coord->iu() + 1)
+                        .slice(2, coord->jl(), coord->ju() + 1)
+                        .slice(1, coord->kl(), coord->ku() + 1);
+    double expected = 1. / coord->dx1f[0].item<double>() +
+                      2. / coord->dx2f[0].item<double>() +
+                      3. / coord->dx3f[0].item<double>();
+    EXPECT_TRUE(torch::allclose(interior, torch::full_like(interior, expected),
+                                2.e-5, 2.e-5));
+  };
+  check();
+  check();
+  coord->dx1f.mul_(1.25);
+  coord->dx2f.mul_(1.5);
+  coord->dx3f.mul_(2.);
+  check();
+  coord->dx2f = coord->dx2f.clone().mul_(2.);
+  check();
+  coord->to(device, dtype);
+  check();
+  coord->to(device, other);
+  check();
+}
+
 TEST(CoordinateProgrammatic, faces_span_the_callers_bounds_on_every_axis) {
   Cartesian coord(a3_opts());
   expect_axis(coord->x1f, -2., 4., 3, 3);

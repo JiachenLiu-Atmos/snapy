@@ -398,6 +398,56 @@ TEST(HLLCPerturbation, float_pressure_difference_survives_large_background) {
   EXPECT_EQ(flux[IDN], 0.f);
 }
 
+TEST(HLLCFloat, shocks_rarefactions_and_boosts_match_double) {
+  constexpr int n = ICY + 1;
+  // Sod, strong shock, expansion, and an equal-state Galilean boost.
+  const double cases[][6] = {{1., 1., 0., .125, .1, 0.},
+                             {1., 1000., 0., 1., .01, 0.},
+                             {1., .4, -2., 1., .4, 2.},
+                             {1., 1., 0., 1., 1., 0.}};
+  for (int dim : {1, 2, 3}) {
+    for (auto const& c : cases) {
+      for (float boost : {-1.e8f, -100.f, 0.f, 100.f, 1.e8f}) {
+        for (float p0 : {0.f, 1.e7f}) {
+          std::array<float, n> l{}, r{}, f{};
+          l[IDN] = c[0];
+          r[IDN] = c[3];
+          l[IPR] = c[1];
+          r[IPR] = c[4];
+          l[IPR - dim] = boost + c[2];
+          r[IPR - dim] = boost + c[5];
+          l[ICY] = r[ICY] = .01f;
+          const float gamma = 1.4f;
+          float el = (p0 + l[IPR]) / (gamma - 1),
+                er = (p0 + r[IPR]) / (gamma - 1);
+          float cl = std::sqrt(gamma * (p0 + l[IPR]) / l[IDN]);
+          float cr = std::sqrt(gamma * (p0 + r[IPR]) / r[IDN]);
+          float fp;
+          hllc_impl(f.data(), l.data(), r.data(), el, er, gamma, gamma, cl, cr,
+                    dim, 1, 1, 1, &fp, p0);
+          std::array<double, n> ld{}, rd{}, ref{};
+          for (int i = 0; i < n; ++i) {
+            ld[i] = l[i];
+            rd[i] = r[i];
+          }
+          double dp;
+          hllc_impl(ref.data(), ld.data(), rd.data(), double(el), double(er),
+                    double(gamma), double(gamma), double(cl), double(cr), dim,
+                    1, 1, 1, &dp, double(p0));
+          EXPECT_TRUE(std::isfinite(fp));
+          EXPECT_GE(double(fp) + p0, 0.);
+          for (int i = 0; i < n; ++i) {
+            EXPECT_TRUE(std::isfinite(f[i]));
+            EXPECT_NEAR(f[i], ref[i], 3.e-4 * std::max(1., std::abs(ref[i])))
+                << "dim=" << dim << " boost=" << boost << " p0=" << p0
+                << " row=" << i;
+          }
+        }
+      }
+    }
+  }
+}
+
 TEST_P(DeviceTest, hllc_pressure_split_dispatch_and_tensor_backend) {
   auto opts = MeshBlockOptionsImpl::from_yaml("test_eos_temp2inteng.yaml");
   opts->hydro()->riemann()->type() = "hllc";

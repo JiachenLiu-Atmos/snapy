@@ -11,6 +11,8 @@
 // snap
 #include <snap/snap.h>
 
+#include <snap/utils/tensor_cast_cache.hpp>
+
 // arg
 #include <snap/add_arg.h>
 
@@ -218,7 +220,7 @@ class Center5InterpImpl : public torch::nn::Cloneable<Center5InterpImpl>,
 
   torch::Tensor cm_x1, cp_x1;
 
-  torch::Tensor cm_x1_cast, cp_x1_cast;
+  TensorCastCache cm_cast, cp_cast, cm_x1_cast, cp_x1_cast;
 
   //! Constructor to initialize the layer
   Center5InterpImpl() {
@@ -239,7 +241,7 @@ class Center5InterpImpl : public torch::nn::Cloneable<Center5InterpImpl>,
   bool has_x1_coeffs() const override { return cm_x1.numel() > 0; }
 
   void forward_nu(torch::Tensor const& w, int dim, torch::Tensor const& out,
-                  torch::Tensor const& src, torch::Tensor& cache);
+                  torch::Tensor const& src, TensorCastCache& cache);
 
   void left(torch::Tensor w, int dim, torch::Tensor const& out) override;
   void right(torch::Tensor w, int dim, torch::Tensor const& out) override;
@@ -254,7 +256,7 @@ class Weno5InterpImpl : public torch::nn::Cloneable<Weno5InterpImpl>,
 
   torch::Tensor cm_x1, cp_x1;
 
-  torch::Tensor cm_x1_cast, cp_x1_cast;
+  TensorCastCache cm_cast, cp_cast, cm_x1_cast, cp_x1_cast;
 
   //! Constructor to initialize the layer
   Weno5InterpImpl() {
@@ -275,7 +277,7 @@ class Weno5InterpImpl : public torch::nn::Cloneable<Weno5InterpImpl>,
   bool has_x1_coeffs() const override { return cm_x1.numel() > 0; }
 
   void forward_nu(torch::Tensor const& w, int dim, torch::Tensor const& out,
-                  torch::Tensor const& src, torch::Tensor& cache);
+                  torch::Tensor const& src, TensorCastCache& cache);
 
   void left(torch::Tensor w, int dim, torch::Tensor const& out) override;
   void right(torch::Tensor w, int dim, torch::Tensor const& out) override;

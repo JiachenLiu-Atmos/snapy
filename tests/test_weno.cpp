@@ -17,6 +17,77 @@
 
 using namespace snap;
 
+TEST_P(DeviceTest, tensor_cast_cache_tracks_edits_and_storage_changes) {
+  auto target = torch::empty({1}, torch::device(device).dtype(dtype));
+  auto other = dtype == torch::kFloat32 ? torch::kFloat64 : torch::kFloat32;
+  auto src = torch::arange(12, target.options().dtype(other)).reshape({3, 4});
+  TensorCastCache cache;
+  auto first = cache.get(src, target);
+  EXPECT_TRUE(cache.get(src, target).is_same(first));
+  auto check = [&] {
+    EXPECT_TRUE(torch::equal(cache.get(src, target), src.to(target.options())));
+  };
+  src.add_(2.);
+  check();
+  cache.get(src, target).zero_();
+  check();
+  src = src.clone().add_(3.);
+  check();
+  // set_data can preserve the source TensorImpl and its version counter.
+  src.set_data(torch::full_like(src, 7.));
+  check();
+  src.set_data(src.transpose(0, 1));
+  check();
+  src.set_data(src.to(dtype));
+  EXPECT_TRUE(cache.get(src, target).is_same(src));
+  src.set_data(src.to(other));
+  check();
+  // A device round trip must not reuse the old conversion.
+  src.set_data(src.cpu());
+  check();
+  src.set_data(src.to(device));
+  check();
+  {
+    c10::InferenceMode guard;
+    auto inference_src = torch::ones({3}, target.options().dtype(other));
+    cache.get(inference_src, target);
+    inference_src.add_(1.);
+    EXPECT_TRUE(torch::equal(cache.get(inference_src, target),
+                             inference_src.to(target.options())));
+  }
+}
+
+TEST_P(DeviceTest, uniform_coeff_cache_tracks_module_buffer_changes) {
+  auto w = torch::randn({2, 12}, torch::device(device).dtype(dtype));
+  auto check_interp = [&](auto interp, auto reference) {
+    auto other = dtype == torch::kFloat32 ? torch::kFloat64 : torch::kFloat32;
+    interp->to(device, other);
+    reference->to(device, dtype);
+    auto check = [&] {
+      reference->cm.copy_(interp->cm);
+      reference->cp.copy_(interp->cp);
+      auto a = interp->forward(w, 1);
+      auto b = reference->forward(w, 1);
+      EXPECT_TRUE(torch::equal(a.first, b.first));
+      EXPECT_TRUE(torch::equal(a.second, b.second));
+    };
+    check();
+    check();
+    interp->cm.mul_(0.99);
+    interp->cp.mul_(1.01);
+    check();
+    interp->cm.set_data(interp->cm.clone().mul_(0.99));
+    interp->cp.set_data(interp->cp.clone().mul_(1.01));
+    check();
+    interp->to(device, dtype);
+    check();
+    interp->to(device, other);
+    check();
+  };
+  check_interp(Center5Interp(), Center5Interp());
+  check_interp(Weno5Interp(), Weno5Interp());
+}
+
 TEST_P(DeviceTest, interp_cp5m_torch1) {
   Center5Interp interp;
   interp->to(device, dtype);

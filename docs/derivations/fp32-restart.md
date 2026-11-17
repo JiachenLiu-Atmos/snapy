@@ -16,7 +16,8 @@ The loader checks the version, stored dtype/shape, required state/reference
 fields and exact coordinate faces before installing a background. A different
 grid requires explicit remapping of totals and initialization of a new
 background; loading a same-shaped checkpoint on a changed grid is rejected.
-This does not implement regridding. Existing geometry-cache invalidation still
+Regridding is outside the requested FP32 scope; rejection remains intentional.
+Existing geometry-cache invalidation still
 applies to normal initialization and coordinate changes.
 
 Files without this metadata remain readable using the previous format.
@@ -45,5 +46,5 @@ Validation: `ctest --test-dir build --output-on-failure -L fp32-restart` covers
 heated and balanced cases, characteristic outflow, both precision-switch
 directions, legacy/corrupt metadata, grid mismatch, four-block bundles, and
 exact moist/chemistry continuation in FP32 and FP64. Results are recorded in
-[FP32_PROGRESS.md](../../FP32_PROGRESS.md). Production paddle drivers, external
+[V3_PROGRESS.md](../../V3_PROGRESS.md). Production paddle drivers, external
 Jupiter decks, distributed ranks and GPU execution require separate validation.

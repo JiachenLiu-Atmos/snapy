@@ -3,6 +3,7 @@
 #include <ATen/TensorIterator.h>
 #include <torch/torch.h>
 
+#include <snap/utils/tensor_cast_cache.hpp>
 #include <utility>
 
 #include "x1_coeffs_device.h"
@@ -32,13 +33,9 @@ void x1_set_coeffs(Self& self, torch::Tensor const& x1f, Builder build) {
     self.cp_x1 = self.register_buffer("cp_x1", cp_rows);
   }
 
-  self.cm_x1_cast = torch::Tensor();
-  self.cp_x1_cast = torch::Tensor();
+  self.cm_x1_cast = {};
+  self.cp_x1_cast = {};
 }
-
-torch::Tensor const& x1_coeffs_for(torch::Tensor const& src,
-                                   torch::Tensor& cache,
-                                   torch::Tensor const& w);
 
 inline at::TensorIterator x1_uniform_iterator(torch::Tensor const& w, int dim,
                                               torch::Tensor const& out) {
@@ -66,7 +63,7 @@ void x1_coeffs_check_rows(at::TensorIterator const& iter,
 
 template <typename Call>
 void x1_forward_nu(torch::Tensor const& w, int dim, torch::Tensor const& out,
-                   torch::Tensor const& src, torch::Tensor& cache,
+                   torch::Tensor const& src, TensorCastCache& cache,
                    char const* what, Call call) {
   TORCH_CHECK(dim == out.dim() - 1, "[", what,
               "] route A covers the x1 dimension only, so a module holding "
@@ -81,7 +78,7 @@ void x1_forward_nu(torch::Tensor const& w, int dim, torch::Tensor const& out,
               " rows; route A covers the x1 dimension only, so `recon23` must "
               "not be given a face vector (note Sec. 4.7)");
 
-  auto const& c = x1_coeffs_for(src, cache, w);
+  auto c = cache.get(src, w);
   auto iter = x1_nu_iterator(w, dim, out, c);
   call(iter, c);
 }

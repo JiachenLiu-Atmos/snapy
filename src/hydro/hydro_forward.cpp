@@ -410,7 +410,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     TORCH_CHECK(
         w.scalar_type() == torch::kFloat64,
         "perturbation-flux currently requires FP64 compute (M4 enables FP32)");
-    perturb = dynamic_cast<IdealMoistImpl&>(*peos).perturbations(u);
+    perturb = dynamic_cast<IdealMoistImpl&>(*peos).perturbations(
+        u, /*defer_check=*/true);
     if (options->conversion_order() == 4) raw_primitive = w.clone();
   }
   // x1 point values u - L u, the primitives there, and back to cell averages:
@@ -578,14 +579,33 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   bool gw_cell = options->grav() && options->grav()->grav1() != 0. &&
                  options->grav()->gravity_work() == "cell";
 
-  auto reconstruct_sweep = [&](int dim) {
+  auto reconstruct_sweep = [&](int dim, torch::Tensor& background) {
     auto recon = dim == DIM1 ? precon1 : precon23;
     if (!fp32()) return recon->forward(w, dim);
     auto gauge = perturb.pressure0.mean(dim - 1, true);
-    auto input = w.clone();
-    input[IPR] = (perturb.pressure0 - gauge) + perturb.pressure_delta;
-    auto lr = recon->forward(input.to(torch::kFloat32), dim, false)
-                  .to(torch::kFloat64);
+    auto input = w.to(torch::kFloat32);
+    input[IPR].copy_((perturb.pressure0 - gauge) + perturb.pressure_delta);
+    auto lr = recon->forward(input, dim, false);
+    // Horizontal Cartesian sweeps need FP64 only for pressure cancellation.
+    // Covariance consumers still require total face states; retain their path.
+    bool active_horizontal = (dim == DIM2 && !options->disable_flux_x2()) ||
+                             (dim == DIM3 && !options->disable_flux_x3());
+    if (active_horizontal && !flux_covariance()) {
+      int axis = dim - 1;
+      auto p0 = perturb.pressure0;
+      int n = p0.size(axis);
+      auto below =
+          torch::cat({p0.narrow(axis, 0, 1), p0.narrow(axis, 0, n - 1)}, axis);
+      background = 0.5 * (p0 + below);
+      auto pressure = lr.select(1, IPR).to(torch::kFloat64);
+      pressure += gauge;
+      pressure.clamp_min_(peos->options->pressure_floor());
+      pressure -= background;
+      lr.select(1, IPR).copy_(pressure);
+      lr.select(1, IDN).clamp_min_(peos->options->density_floor());
+      return lr;
+    }
+    lr = lr.to(torch::kFloat64);
     for (int side : {ILT, IRT}) {
       lr[side][IPR] += gauge;
       lr[side][IPR].clamp_min_(peos->options->pressure_floor());
@@ -791,7 +811,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         wtmp[1 - o][IVX].select(-1, i).neg_();
       }
     } else {
-      wtmp = fp32() ? reconstruct_sweep(DIM1) : precon1->forward(wx1, DIM1);
+      wtmp = fp32() ? reconstruct_sweep(DIM1, pressure_base1)
+                    : precon1->forward(wx1, DIM1);
       if (grav1) {
         if (phys_x1inner) _revise_x1inner_lr(wtmp[ILT], wtmp[IRT]);
         if (phys_x1outer) _revise_x1outer_lr(wtmp[ILT], wtmp[IRT]);
@@ -987,7 +1008,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   Variables send_vars2, send_vars3;
 
   if (u.size(DIM2) > 1) {
-    wtmp2 = reconstruct_sweep(DIM2);
+    wtmp2 = reconstruct_sweep(DIM2, pressure_base2);
 
     // sync left/right states across faces for cubed sphere layout
     if (playout->options->type() == "cubed-sphere") {
@@ -999,7 +1020,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
 
   //// ------------ (3.B) Calculate dimension 3 LR states ------------ ////
   if (u.size(DIM3) > 1) {
-    wtmp3 = reconstruct_sweep(DIM3);
+    wtmp3 = reconstruct_sweep(DIM3, pressure_base3);
 
     // sync left/right states across faces for cubed sphere layout
     if (playout->options->type() == "cubed-sphere") {
@@ -1340,9 +1361,18 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
                                                       : _flux3 - cen3};
     _aam_mass_ny = ny;
   }
-  auto forcing_du =
-      fp32() ? torch::zeros(du.sizes(), du.options().dtype(torch::kFloat64))
-             : du;
+  auto forcing_du = du;
+  if (fp32()) {
+    // Stage-local contents in reusable storage. Keep accumulation in FP64 and
+    // the explicit rounding to FP32 before addition to du unchanged.
+    if (!_forcing_work.defined() || _forcing_work.sizes() != du.sizes() ||
+        _forcing_work.device() != du.device()) {
+      _forcing_work =
+          torch::empty(du.sizes(), du.options().dtype(torch::kFloat64));
+      _forcing_cast = torch::empty_like(du);
+    }
+    forcing_du = _forcing_work.zero_();
+  }
   bool split_gravity =
       background_force1.defined() && !options->disable_flux_x1();
   for (auto& f : forcings) {
@@ -1353,7 +1383,10 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     else
       f.forward(forcing_du, mass_w && coriolis(f) ? mw.wc1 : w, temp, dt);
   }
-  if (fp32()) du += forcing_du.to(du.options());
+  if (fp32()) {
+    _forcing_cast.copy_(forcing_du);
+    du += _forcing_cast;
+  }
   // once per stage: the step-8 Coriolis call must not apply the torque again
   _aam_mass_flux = {};
   if (split_flux) {

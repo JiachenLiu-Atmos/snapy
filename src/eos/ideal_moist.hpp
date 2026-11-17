@@ -35,7 +35,16 @@ class IdealMoistImpl final : public torch::nn::Cloneable<IdealMoistImpl>,
   //! Read a full-block stored state without limiting or rewriting it. Reference
   //! and nonlinear thermodynamic arithmetic are FP64; deltas return in the
   //! stored dtype. Requires the original species background (new restarts).
-  IdealMoistPerturbations perturbations(torch::Tensor const& stored) const;
+  //! defer_check is for hydro stages: latch invalid capacity on-device for
+  //! MeshBlock::check_redo; direct calls retain immediate exceptions.
+  IdealMoistPerturbations perturbations(torch::Tensor const& stored,
+                                        bool defer_check = false) const;
+  torch::Tensor const& heat_capacity_failure() const {
+    return heat_capacity_failure_;
+  }
+  void clear_heat_capacity_failure() {
+    if (heat_capacity_failure_.defined()) heat_capacity_failure_.zero_();
+  }
 
   /*torch::Tensor get_buffer(std::string var) const override {
     return named_buffers()[var];
@@ -62,6 +71,11 @@ class IdealMoistImpl final : public torch::nn::Cloneable<IdealMoistImpl>,
   torch::Tensor f_sig(torch::Tensor const& yfrac) const;
 
  private:
+  // Private work, not restart state or dtype-converted module buffers.
+  mutable torch::Tensor split_cv_, split_offset_, split_gas_;
+  mutable torch::Tensor heat_capacity_failure_;
+  mutable std::vector<double> split_mu_, split_cref_, split_uref_;
+  mutable int split_ngas_ = -1, split_ncloud_ = -1;
   //! \brief Convert conserved variables to primitive variables.
   /*
    * \param[in] cons  conserved variables

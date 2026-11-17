@@ -12,6 +12,7 @@
 // snap
 #include <snap/coord/coord_utils.hpp>
 #include <snap/coord/gnomonic_equiangle.hpp>
+#include <snap/eos/ideal_moist.hpp>
 #include <snap/hydro/flux_positivity.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/implicit/implicit_dispatch.hpp>
@@ -718,6 +719,8 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
     if (_hydro_u0.scalar_type() != hydro_u.scalar_type())
       _hydro_u0.set_data(torch::empty_like(hydro_u));
     _hydro_u0.copy_(hydro_u);
+    if (auto moist = dynamic_cast<IdealMoistImpl *>(phydro->peos.get()))
+      moist->clear_heat_capacity_failure();
     // the fixer buffers are only written under the
     // fixer; with it off they stay zero, so skip three launches
     if (phydro->gravity_work_fixer()) {
@@ -1549,8 +1552,12 @@ torch::Tensor MeshBlockImpl::local_redo_flag_tensor(Variables const &vars) {
   // 7th: the step's deferred vapor-repair failures, a limiter cause
   auto const &nfv = phydro->peos->vapor_failures();
   auto vapor = nfv.defined() ? (nfv > 0).to(opts) : zero;
+  auto moist = dynamic_cast<IdealMoistImpl *>(phydro->peos.get());
+  auto heat = moist && moist->heat_capacity_failure().defined()
+                  ? moist->heat_capacity_failure().to(opts)
+                  : zero;
   auto out = torch::stack(
-      {floor.to(opts), clamp, marks[0], marks[1], sat, solve, vapor});
+      {floor.to(opts), clamp, marks[0], marks[1], sat, solve, vapor, heat});
   if (nfv.defined()) nfv.zero_();  // read once: after the stack, in order
   return out;
 }
@@ -1567,6 +1574,7 @@ std::array<bool, 6> MeshBlockImpl::read_redo_flags(torch::Tensor const &flags) {
               << std::endl;
     out[2] = true;
   }
+  if (c.size(0) > 7 && a[7] > 0.) out[2] = true;
   return out;
 }
 

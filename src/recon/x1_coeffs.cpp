@@ -177,19 +177,6 @@ void x1_reset_tables(torch::nn::Module& m, torch::Tensor& cm_x1,
   }
 }
 
-torch::Tensor const& x1_coeffs_for(torch::Tensor const& src,
-                                   torch::Tensor& cache,
-                                   torch::Tensor const& w) {
-  if (src.scalar_type() == w.scalar_type() && src.device() == w.device()) {
-    return src;
-  }
-  if (!cache.defined() || cache.scalar_type() != w.scalar_type() ||
-      cache.device() != w.device() || cache.sizes() != src.sizes()) {
-    cache = src.to(w.device(), w.scalar_type()).contiguous();
-  }
-  return cache;
-}
-
 torch::Tensor x1_coeffs_row_view(torch::Tensor const& c,
                                  torch::Tensor const& out, int dim) {
   TORCH_CHECK(c.dim() == 2 && c.is_contiguous(),

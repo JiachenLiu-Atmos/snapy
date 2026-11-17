@@ -70,10 +70,10 @@ def precision_cases(outflow=False, rest=False):
             assert not any(k.startswith("hydro_ref_x") for k in rv)
             for name, field in (("u0", "hydro_ref"), ("species0", "hydro_ref_species")):
                 ref = dict(resume.named_buffers())["hydro.ref." + name]
-                assert ref.dtype == torch.float64 and torch.equal(ref, data[field])
+                assert ref.dtype == torch.float64 and torch.equal(ref.cpu(), data[field])
             if outflow:
                 assert rv["boundary_reference_w"].dtype == torch.float64
-                assert torch.equal(rv["boundary_reference_w"], data["boundary_reference_w"])
+                assert torch.equal(rv["boundary_reference_w"].cpu(), data["boundary_reference_w"])
             run_steps(resume, rv, 4, dt=0.05)
             if source == target:
                 assert torch.equal(rv["hydro_u"], bv["hydro_u"])
@@ -131,8 +131,10 @@ def main():
             seam.config = split.config
             split.precision = "float32"
             try:
-                full = seam.run(4, "seam-step", "cpu")
-                resumed = seam.run(4, "seam-step", "cpu", restart_at=5)
+                full = seam.run(4, "seam-step", os.environ.get("SNAP_TEST_DEVICE", "cpu"))
+                resumed = seam.run(
+                    4, "seam-step", os.environ.get("SNAP_TEST_DEVICE", "cpu"), restart_at=5
+                )
                 for key in ("stored", "s", "vapor", "rho", "p"):
                     assert torch.equal(full[key], resumed[key]), key
                 print("four-block FP32 restart: bit-identical", flush=True)

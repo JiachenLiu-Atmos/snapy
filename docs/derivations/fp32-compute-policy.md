@@ -68,6 +68,6 @@ kinetics, sedimentation, heat/cooling, diffusion and scalar transport.
 
 The Jupiter fixture derives from the repository example; it is not the
 external production deck. CPU results and exact commands are recorded in
-[FP32_PROGRESS.md](../../FP32_PROGRESS.md). CUDA compilation/execution and
+[V3_PROGRESS.md](../../V3_PROGRESS.md). CUDA compilation/execution and
 production GPU performance remain unverified on the development host. MPS,
 immersed solids and other EOS/geometries are outside the FP32 dynamics scope.

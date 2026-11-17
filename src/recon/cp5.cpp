@@ -27,7 +27,7 @@ void Center5InterpImpl::set_x1_coeffs(torch::Tensor const& x1f) {
 void Center5InterpImpl::forward_nu(torch::Tensor const& w, int dim,
                                    torch::Tensor const& out,
                                    torch::Tensor const& src,
-                                   torch::Tensor& cache) {
+                                   TensorCastCache& cache) {
   x1_forward_nu(w, dim, out, src, cache, "cp5",
                 [&](at::TensorIterator& iter, torch::Tensor const& c) {
                   at::native::call_poly5_nu(out.device().type(), iter, c, dim);
@@ -43,7 +43,7 @@ void Center5InterpImpl::left(torch::Tensor w, int dim,
 
   auto iter = x1_uniform_iterator(w, dim, out);
 
-  at::native::call_poly5(out.device().type(), iter, cm.to(w.options()), dim);
+  at::native::call_poly5(out.device().type(), iter, cm_cast.get(cm, w), dim);
 }
 
 void Center5InterpImpl::right(torch::Tensor w, int dim,
@@ -55,6 +55,6 @@ void Center5InterpImpl::right(torch::Tensor w, int dim,
 
   auto iter = x1_uniform_iterator(w, dim, out);
 
-  at::native::call_poly5(out.device().type(), iter, cp.to(w.options()), dim);
+  at::native::call_poly5(out.device().type(), iter, cp_cast.get(cp, w), dim);
 }
 }  // namespace snap
