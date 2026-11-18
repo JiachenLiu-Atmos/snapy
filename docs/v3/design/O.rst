@@ -78,6 +78,34 @@ Each claim used here was rechecked at the pin.
 1.1 Change list
 ~~~~~~~~~~~~~~~
 
+**Rev 5.3** (on ``f5c8e9e1``; text only).
+
+* **Settled-cut text** made consistent:
+
+  * the 9.2 table gets a "current" column: 5,357, 9,830 → 4,473 (54.5 %);
+    target 5,787; strict 3,813; ``src`` only 6,097;
+  * the note 6 reply in 11.5 now marks 5,377/5,807/3,833 as earlier
+    figures.
+
+  Earlier figures remain only where marked as history.
+* **The 159 ``src/mesh`` lines: N = 159** (section 9):
+
+  * ``meshblock.cpp:1623-1653`` (31);
+  * ``meshblock.cpp:1226-1339`` minus ``1336-1337`` (112);
+  * ``cycle_diagnostics.hpp`` (16).
+
+  These were counted at the pin, and all are absorbed by O's
+  ``restart.cpp`` (260) and ``budget.cpp`` (200).
+
+  **Choice:** by RULING V3-1, X counts the deletion. O's 260 + 200 are
+  stated as new lines only and are not lowered. **Reason:** they were set
+  in rev 1 (``7dac5f4a``), before the absorption (``b66b6745``). Lowering
+  them while X also counts the deletion would count it twice.
+
+  Section 9 totals are unchanged, and sections 8.1 (two rows) and 10 (O7,
+  O8) match. Request to Xi: move the 159 from X's "joint, not counted"
+  (``X.rst:763-767`` at ``7bed6980``) to X's deletion.
+
 **Rev 5.2** (on ``5d1c50b6``; text only).
 
 * **L-3 closed** (section 11.1). Every "pending R" is replaced by the agreed
@@ -1328,7 +1356,8 @@ O's replacement code is inside O's estimates.
        so they do not touch ``dt``.
    * - ``meshblock.cpp:1623-1653`` (#367 restart metadata checks)
      - 31
-     - **To O; X counts none of these lines.** They move into
+     - **To O's code; under V3-1, X counts the deletion and O counts only
+       its new lines** (N = 159, section 9). They move into
        ``check_restart_metadata`` (``restart.hpp``), next to the file
        contract, and ``_init_from_restart`` calls it. The behaviour and
        messages are unchanged.
@@ -1336,7 +1365,8 @@ O's replacement code is inside O's estimates.
        is produced at ``:1232-1338``) and ``mesh/cycle_diagnostics.hpp``
        (16)
      - 112 + 16
-     - **To O, except ``:1336-1337``; X counts none of these lines.** They
+     - **To O's code, except ``:1336-1337``; under V3-1, X counts the deletion
+       and O counts only its new lines** (N = 159, section 9). They
        become the printer over ``BudgetConsumer``'s totals (section 3.2),
        which merges with O8, after lane R's monitor. The printed content is
        unchanged.
@@ -1478,10 +1508,10 @@ Each file is booked once (note 3 and note 4):
   * ``meshblock.cpp:1226-1339`` minus ``1336-1337`` (112) and
     ``mesh/cycle_diagnostics.hpp`` (16) go to the printer.
 
-  These lines are outside O's 9,996 baseline (``src/mesh``). O absorbs them
-  into its estimated ``restart.cpp`` (260) and ``budget.cpp`` (200), so they
-  are a move into O, not an O cut, and O's numbers do not change.
-  ``1336-1337`` stays in X's gravity row.
+  These lines are outside O's baseline (``src/mesh``). Their replacement
+  code is inside O's ``restart.cpp`` (260) and ``budget.cpp`` (200) new-line
+  estimates. ``1336-1337`` stays in X's gravity row. See the N = 159 line
+  below for who counts what.
 * **In neither lane:** the ``signal_handler.*`` move into ``src/mesh``
   (146 + 67 = 213). It is in O's baseline as ``src/utils``, in the "moved"
   column, so it is not cut.
@@ -1494,6 +1524,28 @@ without it, 827 (19.3 %) (Xi's figures).
 
 None of these rows changes an O number, so O's cut is unchanged by the
 agreement.
+
+**The 159 src/mesh lines and O's 260 + 200 (rev 5.3): N = 159.** All 159 pin
+lines are absorbed by O's new-file estimates:
+
+* ``meshblock.cpp:1623-1653`` (31) into ``restart.cpp`` (260);
+* ``meshblock.cpp:1226-1339`` minus ``1336-1337`` (114 − 2 = 112) and
+  ``cycle_diagnostics.hpp`` (16) into ``budget.cpp`` (200).
+
+The counts come from ``git show 9e5de2d4:<path> | sed -n <a>,<b>p | wc -l``.
+X lists the same 159 as "joint, not counted" in its after (``X.rst:604,
+763-767`` at UCzhangxi/snapy ``7bed6980dbf572233c09d64e2d40bbf29eed0b7d``),
+so they were counted twice.
+
+**Choice under RULING V3-1:** X, the files' owner, counts the deletion of
+the 159, and O counts only its new lines. **The 260 + 200 are new lines
+only**: the merged writer, bundle and reader with ``check_restart_metadata``,
+and the ``BudgetConsumer`` with the cycle-line printer. O does not lower
+them. The estimates were set in rev 1 (``7dac5f4a``) and never included the
+pin's ``src/mesh`` lines; rev 2 (``b66b6745``) only placed the replacements
+inside them. Lowering them as well would count the 159-line deletion twice.
+O's section 9 totals do not change. X's row moves from "joint, not counted"
+to X's deletion (request to Xi).
 
 **Baseline recheck (revision 2).** The per-directory sums at the pin,
 counting ``.cpp``/``.hpp``/``.h``/``.cu``/``.cuh`` and leaving out
@@ -1677,40 +1729,47 @@ stub is removed (settled by Cheng).
 9.2 Cut, by what supports it
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Baseline 9,996 throughout. Xi's final joint-row agreement changes no O number,
-so every figure below is unchanged by it.
+The three earlier columns are history, with % of the brief's 9,996. The
+**current** column is this head: % of the roll-up baseline 9,830 (``src/math``
+counted in lane I), with the after figure in brackets. Xi's joint-row
+agreement and N = 159 change no O number.
 
 .. list-table::
    :header-rows: 1
-   :widths: 40 15 15 15 15
+   :widths: 30 13 13 13 16 15
 
    * - cut
      - rev 2 part 1 (``a5325be7``)
      - Cheng's removals (``22cd9512``)
-     - combiner plan (this head)
+     - combiner plan (``473aab10``)
+     - **current** (rev 4 on: S options +20)
      - depends on
-   * - **settled** (unchanged by the note fixes)
+   * - **settled**
      - 4,413 (44.1 %)
      - 5,347 (53.5 %)
-     - **5,377 (53.8 %)**
+     - 5,377 (53.8 %)
+     - **5,357 (54.5 %; 9,830 → 4,473)**
      - 9.1, Cheng's decisions; G-2 before O6b
    * - design target (all rows)
      - 5,627 (56.3 %)
      - 5,777 (57.8 %)
-     - **5,807 (58.1 %)**
+     - 5,807 (58.1 %)
+     - **5,787 (58.9 %; → 4,043)**
      - plus G-6 (``flip_zero``, 350) and Cheng on super-resolution
        (``refine``, 80)
    * - strict reading (group (b), compiled by the ``src`` glob but
        unreferenced, 1,544, kept)
      - 2,869 (28.7 %)
      - 3,803 (38.0 %)
-     - **3,833 (38.3 %)**
+     - 3,833 (38.3 %)
+     - **3,813 (38.8 %; → 6,017)**
      - above the 30 % target
    * - ``src`` only (no lines outside ``src``)
      - 6,257 (62.6 %)
      - 6,407 (64.1 %)
-     - **6,107 (61.1 %)**
-     - note 6: ``src/options/*.yaml`` (300) is now counted in ``src``
+     - 6,107 (61.1 %)
+     - **6,097 (62.0 %; → 3,733)**
+     - note 6: ``src/options/*.yaml`` (300) is counted in ``src``
 
 What the settled cut contains:
 
@@ -2631,14 +2690,18 @@ file.
      - bitwise data, exact metadata
      - G-2
    * - O7
-     - Restart merge; the reader throws
+     - Restart merge; the reader throws. ``check_restart_metadata`` takes
+       ``meshblock.cpp:1623-1653``: X deletes those 31 lines, and O's
+       ``restart.cpp`` (260) holds only new lines (N = 159, section 9)
      - bitwise
      - same files (G-4)
    * - O8
      - Consumers, ``BudgetSeries``, the cycle line from the budget totals.
        ``BudgetCarry`` is written only when a budget output is requested; a
        file without a carry starts a new interval at the first ``observe``
-       (G-4)
+       (G-4). The printer replaces ``meshblock.cpp:1226-1339`` minus
+       ``1336-1337`` and ``cycle_diagnostics.hpp``: X deletes those 128
+       lines, and O's ``budget.cpp`` (200) holds only new lines (N = 159)
      - new file; cycle line bitwise if the summation order is kept
      - if the reduction order changes, only the last digits of the
        *printed* totals change, never the state
@@ -2913,9 +2976,10 @@ reached this revision as one-line summaries.
        addition in ``src``.
 
        * ``src``-only cut: 6,407 → **6,107 (61.1 %)**.
-       * Settled cut: 5,377 (53.8 %), unchanged.
-       * Design target: 5,807 (58.1 %), unchanged.
-       * Strict cut: 3,833 (38.3 %), unchanged.
+       * Settled cut: 5,377 (53.8 %) at that time, unchanged by note 6.
+         It is now 5,357, 9,830 → 4,473 (section 9, rev 4).
+       * Design target: 5,807 (58.1 %) at that time; now 5,787.
+       * Strict cut: 3,833 (38.3 %) at that time; now 3,813.
 
        The last three are unchanged because they already subtracted every
        addition.
