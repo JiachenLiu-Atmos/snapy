@@ -1,0 +1,39 @@
+# Lane S's geometry options parsing, accepted into lane O's schema (O.rst
+# section 9.3): the keys of coordinate.cpp:62-114, 125-149 and 213-214 at
+# 9e5de2d4. A rows-only table: tools/gen_options.py generates GeometryRows
+# with read(config); lane S maps it onto CoordinateOptionsImpl and keeps its
+# grid rules (one cell per axis without cells, the stretched faces from
+# x1rat, the repartition). Columns: see tools/gen_options.py.
+module: coord
+rows_name: GeometryRows
+yaml_node: geometry
+doc: >
+  The deck keys of `geometry:`. The bounds keys x2min, x2max, x3min and
+  x3max also take a `_pi` form, scaled by pi; given both, the `_pi` key wins.
+extra_keys:
+  "": [type, bounds, cells, x1f]
+options:
+  - {name: type, key: type, type: string, default: cartesian, doc: "Coordinate type."}
+  - {name: x1min, key: bounds/x1min, type: double, default: 0., doc: "Lower x1 bound."}
+  - {name: x1max, key: bounds/x1max, type: double, default: 1., doc: "Upper x1 bound."}
+  - {name: x2min, key: bounds/x2min, alias: {x2min_pi: pi}, type: double, default: 0., doc: "Lower x2 bound."}
+  - {name: x2max, key: bounds/x2max, alias: {x2max_pi: pi}, type: double, default: 1., doc: "Upper x2 bound."}
+  - {name: x3min, key: bounds/x3min, alias: {x3min_pi: pi}, type: double, default: 0., doc: "Lower x3 bound."}
+  - {name: x3max, key: bounds/x3max, alias: {x3max_pi: pi}, type: double, default: 1., doc: "Upper x3 bound."}
+  - {name: nx1, key: cells/nx1, type: int, default: 1, doc: "Global x1 cells."}
+  - {name: nx2, key: cells/nx2, type: int, default: 1, doc: "Global x2 cells."}
+  - {name: nx3, key: cells/nx3, type: int, default: 1, doc: "Global x3 cells."}
+  - {name: nghost, key: cells/nghost, type: int, default: 1, doc: "Ghost cells."}
+  - {name: interp_order, key: cells/interp_order, type: int, default: 2, doc: "Order of the panel-edge ghost interpolation."}
+  - {name: x1rat, key: cells/x1rat, type: double, read: optional, doc: "x1 stretch ratio (#280); not with x1f."}
+  - {name: x1f, key: x1f, type: "list[double]", read: optional, doc: "Explicit x1 faces (#280), nx1 + 1 of them; not with x1rat."}
+checks:
+  - {cond: "!(op.x1rat() && op.x1f())", message: "geometry: give cells/x1rat or x1f, not both (#280)"}
+  - {cond: "!op.x1f() || node[\"cells\"]", message: "geometry/x1f needs geometry/cells/nx1"}
+  - {cond: "!op.x1rat() || *op.x1rat() > 0.", message: ['"geometry/cells/x1rat must be > 0, got "', "*op.x1rat()"]}
+  - cond: "!op.x1f() || !node[\"cells\"] || static_cast<int>(op.x1f()->size()) == op.nx1() + 1"
+    message: ['"geometry/x1f has "', "op.x1f()->size()", '" faces; cells/nx1 = "', "op.nx1()", '" needs "', "op.nx1() + 1"]
+  - cond: "!op.x1f() || !(node[\"bounds\"] && node[\"bounds\"][\"x1min\"]) || op.x1f()->front() == op.x1min()"
+    message: ['"geometry/x1f starts at "', "op.x1f()->front()", '" but bounds/x1min = "', "op.x1min()"]
+  - cond: "!op.x1f() || !(node[\"bounds\"] && node[\"bounds\"][\"x1max\"]) || op.x1f()->back() == op.x1max()"
+    message: ['"geometry/x1f ends at "', "op.x1f()->back()", '" but bounds/x1max = "', "op.x1max()"]

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import os
+import subprocess
 import sys
 import glob
 import torch
@@ -42,6 +43,13 @@ else:
     commux_dir = Path(commux.__file__).resolve().parent
 
 current_dir = os.getenv("WORKSPACE", Path().absolute())
+
+# the option tables' generated code (also written at CMake configure time)
+subprocess.run(
+    [sys.executable, f"{current_dir}/tools/gen_options.py", "--out",
+     f"{current_dir}/build/snap_options"]
+    + sorted(glob.glob(f"{current_dir}/src/options/*.yaml")),
+    check=True)
 include_dirs = [
     f"{current_dir}",
     f"{current_dir}/build",

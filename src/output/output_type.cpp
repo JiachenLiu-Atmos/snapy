@@ -61,65 +61,13 @@ int data_dimension_for_axis(std::string const &grid, int physical_dim) {
 }
 }  // namespace
 
+#include <snap_options/output_read.inc>
+
 OutputOptions OutputOptionsImpl::from_yaml(YAML::Node const &node, int fid) {
   auto options = OutputOptionsImpl::create();
-  check_keys(node, "outputs/" + std::to_string(fid),
-             {"dt", "output_sumx1", "output_sumx2", "output_sumx3",
-              "include_ghost_zones", "cartesian_vector", "double_precision",
-              "x1_slice", "x2_slice", "x3_slice", "type", "data_format",
-              "variables", "combine", "verbose", "super-resolution"});
-
   options->fid() = fid;
-  options->dt() = node["dt"].as<double>(0.);
-
-  options->output_sumx1() = node["output_sumx1"].as<bool>(false);
-  options->output_sumx2() = node["output_sumx2"].as<bool>(false);
-  options->output_sumx3() = node["output_sumx3"].as<bool>(false);
-
-  options->include_ghost_zones() = node["include_ghost_zones"].as<bool>(false);
-  options->cartesian_vector() = node["cartesian_vector"].as<bool>(false);
-  options->double_precision() = node["double_precision"].as<bool>(false);
-
-  if (node["x1_slice"])
-    options->x1_slice() = node["x1_slice"].as<std::vector<double>>();
-  if (node["x2_slice"])
-    options->x2_slice() = node["x2_slice"].as<std::vector<double>>();
-  if (node["x3_slice"])
-    options->x3_slice() = node["x3_slice"].as<std::vector<double>>();
-
-  if (!options->x1_slice().empty() && options->output_sumx1()) {
-    throw std::invalid_argument("Cannot request both slice and sum along x1");
-  }
-  if (!options->x2_slice().empty() && options->output_sumx2()) {
-    throw std::invalid_argument("Cannot request both slice and sum along x2");
-  }
-  if (!options->x3_slice().empty() && options->output_sumx3()) {
-    throw std::invalid_argument("Cannot request both slice and sum along x3");
-  }
-
-  if (node["type"]) {
-    options->file_type() = node["type"].as<std::string>();
-  } else {
-    throw std::invalid_argument(
-        "OutputOptions::from_yaml: output file type "
-        "must be specified");
-  }
-
-  if (node["data_format"]) {
-    options->data_format() = node["data_format"].as<std::string>();
-  }
-
-  if (node["variables"]) {
-    options->variables() = node["variables"].as<std::vector<std::string>>();
-  }
-
-  if (node["combine"]) {
-    options->combine() = node["combine"].as<bool>(true);
-  }
-
-  options->verbose() = node["verbose"].as<bool>(false);
-  options->super_resolution() = node["super-resolution"].as<bool>(false);
-
+  // the rows of src/options/output.yaml
+  read_output_rows(*options, node, "outputs/" + std::to_string(fid));
   return options;
 }
 
