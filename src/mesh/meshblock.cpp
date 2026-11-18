@@ -679,6 +679,7 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   // Publish the stage: the vertical implicit correction is nonlinear in dt and
   // must weight dt INSIDE the solve, so it needs to know which stage it is in.
   phydro->rk_stage = stage;
+  auto &freg = phydro->flux_register();
 
   auto hydro_u = vars.at("hydro_u");
   auto scalar_s =
@@ -687,6 +688,8 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   auto start = std::chrono::high_resolution_clock::now();
   // -------- (1) save initial state --------
   if (stage == 0) {
+    // the register's step sums and monitor start the step (R.rst 3.4)
+    freg.begin_step();
     if (phydro->pdiffusion && phydro->pdiffusion->options->implicit_radial()) {
       phydro->pdiffusion->begin_step(hydro_u, dt);
       apply_boundaries(vars, hydro_u, scalar_s);
@@ -719,6 +722,8 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
       _scalar_s0.copy_(scalar_s);
     }
   }
+
+  freg.begin_stage(stage, pintg->stages[stage]);
 
   // -------- (2) set containers for future results --------
   torch::Tensor fut_hydro_du, fut_scalar_ds;
@@ -872,6 +877,9 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
       start = std::chrono::high_resolution_clock::now();
     }
   }
+
+  // the stage total is final: S_d <- w1 S_d + w2 dt T_d
+  freg.end_stage(dt);
 
   // -------- (4) multi-stage averaging --------
   hydro_u.set_(pintg->forward(stage, _hydro_u0, hydro_u, fut_hydro_du)
@@ -1451,6 +1459,7 @@ int MeshBlockImpl::apply_redo(Variables &vars, int causes) {
 
     // reset variables (the fixer's -D goes with them: drop its count)
     phydro->drop_gravity_work_fix();
+    phydro->flux_register().rollback();  // the census keeps accepted steps
     vars["hydro_u"].copy_(_hydro_u0);
     if (phydro->pdiffusion && phydro->pdiffusion->options->implicit_radial())
       phydro->pdiffusion->restore_step(vars["hydro_u"]);

@@ -11,6 +11,7 @@
 // snap
 #include <snap/eos/equation_of_state.hpp>
 #include <snap/forcing/forcing.hpp>
+#include <snap/hydro/flux_register.hpp>
 #include <snap/hydro/fp64_store.hpp>
 #include <snap/implicit/implicit_hydro.hpp>
 #include <snap/layout/layout.hpp>
@@ -128,6 +129,10 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   torch::Tensor flux1() const { return _flux1; }
   torch::Tensor flux2() const { return _flux2; }
   torch::Tensor flux3() const { return _flux3; }
+
+  //! the flux register (V3 lane R): _flux1/2/3 are its stage totals T_d
+  FluxRegister& flux_register() { return freg; }
+  FluxRegister const& flux_register() const { return freg; }
 
   //! whether dynamics/conserve-axial-momentum acts in this block: the option
   //! is set, the grid is gnomonic-equiangle and the Coriolis force, if any,
@@ -372,6 +377,7 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! see axial_closure_sums()
   mutable torch::Tensor _aam_cl, _aam_cl_rho;
 
+  FluxRegister freg;
   torch::Tensor _flux1, _flux2, _flux3, _face_pressure1, _div, _forcing_dry;
   // Reusable stage scratch; not restart state. Recreated on shape/device
   // change.

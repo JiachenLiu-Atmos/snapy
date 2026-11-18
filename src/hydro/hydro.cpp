@@ -237,30 +237,29 @@ void HydroImpl::reset() {
   int nc3 = pmb->options->coord()->nc3();
   int nvar = peos->nvar();
 
+  // the flux register (R-1): F1/F2/F3 are its stage totals T_d, so every
+  // producer still writes them in place; the monitor's tensors are buffers
+  // too, so module moves and clones reach them
   auto flux_dtype = fp32() ? torch::kFloat32 : torch::kFloat64;
-  if (nc1 > 1) {
-    _flux1 =
-        register_buffer("F1", torch::zeros({nvar, nc3, nc2, nc1}, flux_dtype));
-    _face_pressure1 =
-        register_buffer("P1", torch::zeros({nc3, nc2, nc1}, torch::kFloat64));
-  } else {
-    _flux1 = register_buffer("F1", torch::Tensor());
-    _face_pressure1 = register_buffer("P1", torch::Tensor());
-  }
-
-  if (nc2 > 1) {
-    _flux2 =
-        register_buffer("F2", torch::zeros({nvar, nc3, nc2, nc1}, flux_dtype));
-  } else {
-    _flux2 = register_buffer("F2", torch::Tensor());
-  }
-
-  if (nc3 > 1) {
-    _flux3 =
-        register_buffer("F3", torch::zeros({nvar, nc3, nc2, nc1}, flux_dtype));
-  } else {
-    _flux3 = register_buffer("F3", torch::Tensor());
-  }
+  RegisterRequest req;
+  // EF's names (EF.rst section 4, R.rst 4.5): EfStatus's slots (EF-2) move
+  // to the monitor in R-1's second part; nothing writes these yet
+  req.counters = {"ef.floor_patch",    "ef.nan",      "ef.vapor_fail",
+                  "ef.heat_capacity",  "ef.pos_hits", "ef.pos_severe",
+                  "ef.scalar_pos_hits"};
+  req.minima = {"ef.pos_min"};
+  req.retry = {"ef.floor_patch", "ef.nan", "ef.vapor_fail", "ef.heat_capacity"};
+  freg.reset(nvar, {nc3, nc2, nc1}, {nc1 > 1, nc2 > 1, nc3 > 1}, flux_dtype,
+             req);
+  _flux1 = register_buffer("F1", freg.totals()[0]);
+  _flux2 = register_buffer("F2", freg.totals()[1]);
+  _flux3 = register_buffer("F3", freg.totals()[2]);
+  register_buffer("monitor_counters", freg.monitor().counters);
+  register_buffer("monitor_minima", freg.monitor().minima);
+  register_buffer("monitor_retry", freg.monitor().retry_flags);
+  _face_pressure1 = register_buffer(
+      "P1", nc1 > 1 ? torch::zeros({nc3, nc2, nc1}, torch::kFloat64)
+                    : torch::Tensor());
 
   _div = register_buffer("D",
                          torch::zeros({nvar, nc3, nc2, nc1}, torch::kFloat64));
