@@ -13,7 +13,7 @@
 
 namespace snap {
 
-class RotationGeometry;  // lane S (S-1), see rotation_geometry.hpp
+struct AxialRotationData;  // lane S (S-1), see rotation_geometry.hpp
 
 //! physical (sponge, drag, heating, relaxation, viscosity), numerical, fixer
 enum class SourceKind : uint8_t { physical, numerical, fixer };
@@ -47,7 +47,7 @@ struct StageState {
   double dt = 0.0;     //!< host double, read at step start (N14; R:111-115)
   int stage = 0;
   CoordinateImpl const* coord = nullptr;    //!< non-owning
-  RotationGeometry const* rot = nullptr;    //!< non-owning; null: no axis
+  AxialRotationData const* rot = nullptr;    //!< non-owning; null: no axis
   FluxRegister const* reg = nullptr;        //!< non-owning; reads total, kept
   torch::Tensor m1;  //!< post_implicit only: x1-transfer momentum (A.rst 3.4)
 };

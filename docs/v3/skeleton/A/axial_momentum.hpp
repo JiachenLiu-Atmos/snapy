@@ -23,7 +23,7 @@ struct AxialFluxView {
 class FaceTorqueRule {
  public:
   virtual ~FaceTorqueRule() = default;
-  virtual torch::Tensor rate(AxialFluxView const& f, RotationGeometry const& g,
+  virtual torch::Tensor rate(AxialFluxView const& f, AxialRotationData const& g,
                              double omega) const = 0;
   virtual bool closes_globally() const = 0;  //!< true: no closure fixer
 };
@@ -43,21 +43,21 @@ class AxialMomentum {
              double nu_iso, std::string const& riemann_type) const;
   //! divergence phase: K component of du from total(d) (conserve_axial_momentum_)
   void flux_form(torch::Tensor div, AxialFluxView const& f,
-                 RotationGeometry const& g) const;
+                 AxialRotationData const& g) const;
   //! exact, pre_implicit: torque of F_d = total - central along K; {R, I}
   void add_torque(torch::Tensor du, torch::Tensor force_cell,
                   AxialFluxView const& f, StageState const& s);
   //! post_implicit: today's axial_x1_source_, from vic.momentum_t
   void x1_source(torch::Tensor du, AxialFluxView const& f,
-                 RotationGeometry const& g) const;
+                 AxialRotationData const& g) const;
   //! step end: derived_amount("aam.boundary.1", "aam", v, 1.0, cell_source)
   //! of step_field(1) (R:84), and derived_total("aam", L) (R:72-75)
-  void wall_torque(FluxRegister& reg, RotationGeometry const& g) const;
+  void wall_torque(FluxRegister& reg, AxialRotationData const& g) const;
   void aam_total(torch::Tensor u, FluxRegister& reg,
-                 RotationGeometry const& g) const;
+                 AxialRotationData const& g) const;
   //! H4 (pending S-4): rows' K component, on-axis rule gnomonic_equiangle:499
   void rate_to_rows(torch::Tensor row2, torch::Tensor row3,
-                    torch::Tensor target, RotationGeometry const& g) const;
+                    torch::Tensor target, AxialRotationData const& g) const;
   torch::Tensor closure_sums() const;  //!< {R, I}, FP64 device; exact only
  private:
   AxialMode mode_;

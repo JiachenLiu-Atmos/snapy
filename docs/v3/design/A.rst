@@ -4,10 +4,10 @@ V3 design, lane A: rotation, axial angular momentum, sources, diffusion
 
 :Lane: A (rotation, axial angular momentum (AAM), source terms, diffusion)
 :Owner: Jiachen Liu (alternate: Xi Zhang)
-:Revision: 4.1 (design and contract only, CHANGE 5): C9 proposal (3.2, 10.3);
-           part 1b: m1 cite fix and ``X1Momentum`` owner (3.4), R-7/R-8
-           answered (11.4), G5 at the end of ``limit`` (D22). Rev 4 final
-           is 4e0827b8. src/forcing 2,870 -> 2,088 (1.6).
+:Revision: 4.1 (design and contract only, CHANGE 5): C9; part 1b (m1 cite,
+           R-7/R-8, G5 at the end of ``limit``); part 2 (S-4..S-8 from lane
+           S's fallback text, ``AxialRotationData``, hooks 16/4/3, C-1
+           closed). src/forcing 2,870 -> 2,088 (1.6).
 :Reviewers (round 2): Xi (lane X), Zoey
 :Pins: snapy ``9e5de2d4ce497d0b2d4da3295fc1fe969fe7e410``; kintera ``3f5ff938``
        (section 8); lane R frozen header ``happysky19/snapy@4c59162ae37080d0ab307b2823742b44f46da7c3``
@@ -18,7 +18,7 @@ V3 design, lane A: rotation, axial angular momentum, sources, diffusion
 :Previous: rev 1 ``2c9589c6``; rev 2 ``afd08eaa``, ``b6a40897``; rev 3
            part 1 ``9ee83756``
 :Skeleton: ``docs/v3/skeleton/A/``, four headers in namespace ``snap``,
-           declarations only, 299 lines (``wc -l docs/v3/skeleton/A/*``);
+           declarations only, 281 lines (``wc -l docs/v3/skeleton/A/*``);
            index in section 12
 
 All snapy ``path:line`` references are at the pin ``9e5de2d4`` unless another
@@ -231,6 +231,17 @@ Lane I's names: ``vic.mass_total`` (kept, R.rst:165-167), and the posts
     G-S-K7, because the carry rewrites the momentum rows that ``A F · K_f``
     is built from (4.1, 5.3, 7.3; D22). The phase stays 2;
   * no count change (2,870 -> 2,088).
+* **Rev 4.1, part 2 (written from the lane S rev 2 fallback text (local commit ``cf5a22a9``, not pushed; data_in ``laneS-rev2-commit3-L3-fallback.md``); to be re-checked against
+  S.rst when it is pushed):**
+
+  * S-5 and S-6 are answered and folded into 3.8. S-4 is answered in skeleton
+    only. S-7 and S-8 are pending S text (11.4);
+  * the view is renamed to S's ``AxialRotationData`` everywhere, and the
+    skeleton drops its own view type (3.8, 12, D24);
+  * the ``coordinate.hpp`` hooks are restated as 16 / 4 / 3 against the pin
+    (2.2);
+  * C-1 is closed; K-1's kintera half stays open for Xi (11.1, 11.4);
+  * no count change (2,870 -> 2,088).
 
 
 2. Concepts and current sites
@@ -291,7 +302,7 @@ gnomonic_equiangle.cpp:664-719                         56  S        ``x1_mass_so
 gnomonic_equiangle.hpp:22-35, 109-116                  22  S        AAM buffers, rate_to_rows decl
 gnomonic_equiangle.cpp:18-36, 169-221, 485-525        113  S        rotation field k, face averages,
                                                                     rate_to_rows
-coordinate.hpp:370-392                                 23  S        four virtual AAM / x1-source hooks
+coordinate.hpp:370-392                                 23  S        AAM / x1-source hooks: 16 + 4 + 3
 hydro.hpp:89-133, 219-236, 462-466                     68  R        AAM options (docs), accessors, state
 meshblock.cpp:983-990, 1009-1034                       34  X        closure reduction and increment
 mesh.cpp:364, 367-382                                  17  X        closure over local blocks
@@ -306,7 +317,14 @@ What each owner counts:
   estimated 25 + 15 (two phase hooks, the mode predicate and the ``full``
   refusal).
 * **S** counts all 301 ``gnomonic_equiangle.*`` AAM lines and
-  ``coordinate.hpp``'s 23. Of the 301:
+  ``coordinate.hpp``'s 23 lines. Of those 23, at the pin:
+
+  * 16 are the deletable AAM hooks, ``:375-380, 382-385, 387-392``
+    (6 + 4 + 6);
+  * 4 stay: ``:370-373``, the ``x1_mass_source_`` hook (J1);
+  * 3 are blank: ``:374, 381, 386``.
+
+  S books the 16 in its section 9 (S's fallback text). Of the 301:
 
   * 135 are the rotation data;
   * 153 are AAM physics, which moves into ``src/forcing`` as new lane-A lines
@@ -657,8 +675,10 @@ not mix a register defect with a diffusion defect. Until then, ``exact`` with
 * ``AxialRotationData``: ``k_cell``, ``k_face2``/``k_face3``, ``cos2_lat`` and
   ``rate_to_rows_``.
 
-Lane A reads them through one accessor (``RotationGeometry`` in the skeleton
-mirrors ``AxialRotationData``). Lane A owns the AAM physics: the flux form,
+Lane A reads S's ``AxialRotationData`` directly, through S's accessor
+``CoordinateImpl::rotation_geometry() const``, which returns
+``AxialRotationData const*`` (null without an axis; lane S rev 2 fallback text (local commit ``cf5a22a9``, not pushed; data_in ``laneS-rev2-commit3-L3-fallback.md``)). Lane A's
+skeleton defines no view type of its own (rev 4.1 part 2 rename, D24). Lane A owns the AAM physics: the flux form,
 the x1 sources, the Coriolis rate, ``omega_local``, the m1 weights, the
 torque rules and the closure. These move into
 ``src/forcing/axial_momentum.cpp`` and ``coriolis.cpp``.
@@ -674,20 +694,24 @@ torque rules and the closure. These move into
 * Geometry is read through that one accessor, never by ``dynamic_cast``
   (``coriolis.cpp:182-183``) (H11).
 
-**Lane A proposals, pending lane S** (11.4, S-4 to S-6):
+**Lane A proposals and lane S's answers** (11.4, S-4 to S-6; S's answers are
+from the lane S rev 2 fallback text (local commit ``cf5a22a9``, not pushed; data_in ``laneS-rev2-commit3-L3-fallback.md``), to be re-checked against S.rst when it is pushed):
 
 * **H4.** Lane A owns ``rate_to_rows``, including its on-axis conservation
   rule (``gnomonic_equiangle.cpp:499-514``), and S exposes only data plus an
   on-axis mask (``has_on_axis_cell`` today in the skeleton). S also checks
   ``nx2 >= 3`` at reset when an on-axis cell exists: with one cell per side
-  the shares at ``:509-512`` fall off the slices. S rev 1.1 lists
-  ``rate_to_rows_`` as coord's, so this needs S's agreement.
-* **H5.** Coord also provides ``K = s·k̂`` with the exact face averages ``K_f``,
-  radial factor included, and ``s²``. Today lane A forms the radial factor
-  itself (``gnomonic_equiangle.cpp:563-567``).
-* **H7.** ``omega_local`` needs a never-null centre-frame call on every grid,
-  not only ``PanelRotation`` on the cubed sphere. Today the per-grid set-up is
-  ``coriolis.cpp:85-151``.
+  the shares at ``:509-512`` fall off the slices. S's fallback skeleton lists
+  ``on_axis`` in ``AxialRotationData`` and no longer lists ``rate_to_rows_``,
+  which is consistent with this. S's sentence on ownership and on the
+  ``nx2 >= 3`` check is pending S text.
+* **H5 (answered by S's fallback skeleton).** ``AxialRotationData`` has
+  ``K_f2``, ``K_f3`` and ``s2``. So lane A reads ``K_f``, with the radial
+  factor, and ``s²`` from coord, instead of forming the radial factor itself
+  (``gnomonic_equiangle.cpp:563-567``).
+* **H7 (answered by S's fallback skeleton).** S declares
+  ``centre_frame(CoordinateImpl const&)``. Lane A builds ``omega_local`` from
+  it on every grid, replacing the per-grid set-up at ``coriolis.cpp:85-151``.
 
 **A non-z axis is out of V3 scope.** The axis is a declared parameter; only z
 is supported, and others are refused (FOR CHENG, 10.3).
@@ -1213,7 +1237,7 @@ Cross-references, not in lane A's number:
 
 * R: hydro AAM ranges 136 + 33, with 25 + 15 remaining in R's "after"; and
   ``hydro.hpp:89-133, 219-236, 462-466`` (68; H17);
-* S: gnomonic 301 and ``coordinate.hpp`` 23;
+* S: gnomonic 301 and ``coordinate.hpp`` 23 (16 deleted, 4 kept, 3 blank);
 * X: mesh 51.
 
 Rev 2's lane total (3,205 → 2,134) is withdrawn.
@@ -1339,6 +1363,7 @@ D20 radial abort kept; ``diffusion.radial`` reserved      Cheng's decision (1.5,
 D21 ``exact`` refuses upwind and plume-roe (proposal)     no ``riemann.central``; C9 (3.2, 10.3)
 D22 G5 at the end of ``limit``, waits on G-S-K7 (J9 b)    ``A F · K_f`` uses post-carry rows (4.1)
 D23 ``X1Momentum``: class lane A, instance held by Hydro  exists without Coriolis; R's booking (3.4)
+D24 view renamed: lane A reads S's ``AxialRotationData``  one type, S's; no duplicate view (3.8)
 === ====================================================  ==========================================
 
 
@@ -1380,8 +1405,11 @@ D23 ``X1Momentum``: class lane A, instance held by Hydro  exists without Corioli
   half step at ``meshblock.cpp:715`` is no longer erased by the stage-0 resets
   at ``:722-738``.
 * **S-1..S-3** (lane S thread) and **I-1** (lane I thread).
+* **C-1** is closed. It was closed with I-1 in rev 2, and no C-1 item has been
+  in this document since.
 * **K-1** was routed by the PM: the kintera half to Xi (lane K), and
-  ``ConstGravity`` to Xinyue (lane I).
+  ``ConstGravity`` to Xinyue (lane I). The ``ConstGravity`` half is not a
+  lane C or K question. The kintera half is still open (11.4).
 
 11.2 Lane R's questions to A (R.rst:1598-1601), answered
 --------------------------------------------------------
@@ -1451,6 +1479,16 @@ D23 ``X1Momentum``: class lane A, instance held by Hydro  exists without Corioli
 **New in rev 4 (from Jiheng's H notes).** These are lane A proposals for lane
 S or R to confirm. The proposed owner is in brackets.
 
+**Status of S-4..S-8 (rev 4.1 part 2, from the lane S rev 2 fallback text (local commit ``cf5a22a9``, not pushed; data_in ``laneS-rev2-commit3-L3-fallback.md``)):**
+S-5 and S-6 are answered; S-4 is answered in skeleton only (text pending); S-7
+and S-8 are pending S text. The questions below keep their text. Owner is now
+Jiheng (lane S).
+
+* **K-1 (kintera half), Xi (lane K), open.** Are kintera's "Y->X", "DY->V",
+  "VT->U" (``thermo_y.cpp:198, 214, 242`` at ``3f5ff938``) and "X->Y"
+  (``thermo_x.cpp:141``) conversions, called by ``RelaxBotComp``
+  (``relax_bot_comp.cpp:98-111``), capturable in a CUDA graph? Until lane K
+  confirms, ``RelaxBotComp`` is ``capturable = false`` (section 8).
 * **S-4, Xinyue (lane S): ``rate_to_rows`` and the on-axis rule (H4).**
   Lane A proposes to own ``rate_to_rows``, including the on-axis conservation
   rule (``gnomonic_equiangle.cpp:499-514``) [owner: A], while coord exposes the
@@ -1458,16 +1496,16 @@ S or R to confirm. The proposed owner is in brackets.
   on-axis cell exists (``:509-512``) [owner: S]. S rev 1.1 lists
   ``rate_to_rows_`` as coord's (``coord_rotation.hpp:52-54``). Do you agree to
   move it?
-* **S-5, Xinyue (lane S): ``K`` and ``s²`` from coord (H5).** Can coord provide
+* **S-5 (answered: ``K_f2``, ``K_f3``, ``s2`` in S's ``AxialRotationData``).** Can coord provide
   ``K = s·k̂``, its exact face averages ``K_f`` with the radial factor, and
   ``s²``, next to ``k_cell``/``k_face2``/``k_face3``? Today lane A forms the
   radial factor (``gnomonic_equiangle.cpp:563-567``). [owner: S]
-* **S-6, Xinyue (lane S): a centre-frame call on every grid (H7).**
+* **S-6 (answered: S's ``centre_frame(CoordinateImpl const&)``).**
   ``omega_local`` (lane A's, S-1) needs a never-null centre-frame call on every
   grid: Cartesian, cylindrical, spherical-polar and gnomonic. Today that is
   ``coriolis.cpp:85-151``, and ``PanelRotation`` covers the cubed sphere only.
   [owner: S]
-* **S-7, Xinyue (lane S): exchange-table rows lane A depends on (H11,
+* **S-7 (pending S text; the fallback omits S's 3.3 exchange schedule), Xinyue (lane S): exchange-table rows lane A depends on (H11,
   H13).** Three entries:
 
   * #370's cross-panel syncs of theta, the species enthalpy and the donor
@@ -1478,7 +1516,7 @@ S or R to confirm. The proposed owner is in brackets.
     start (``meshblock.cpp:716-717``).
 
   Can these go in S's exchange table? [owner: S]
-* **S-8, Xinyue (lane S): the metric source reads A's m1 (H3).** Coord's
+* **S-8 (pending S text), Xinyue (lane S): the metric source reads A's m1 (H3).** Coord's
   ``x1_mass_source_`` reads lane A's ``X1Momentum`` m1, not a Coriolis
   private. [owners: A provides, S consumes]
 * **R-7 (answered by Tianhao, lane R thread; no R sha change).** Yes:
@@ -1497,7 +1535,7 @@ FOR CHENG: see 10.3.
 12. Skeleton index
 ==================
 
-``wc -l docs/v3/skeleton/A/*`` gives 299 lines, with declarations only, in
+``wc -l docs/v3/skeleton/A/*`` gives 281 lines, with declarations only, in
 namespace ``snap``. The headers include lane R's ``flux_register.hpp``. A
 syntax check against R's frozen header at ``4c59162a`` passes.
 
@@ -1517,9 +1555,8 @@ file (lines)                declarations                                        
 (92)                        ``DiffusionCoefficients``, ``DiffusionFlux``,
                             ``DiffusionSource``, ``RadialConduction`` (``post_split``),
                             ``Sponge``, ``LayerHeat``, ``BottomSlab``
-``rotation_geometry.hpp``   ``RotationGeometry``, a read view of S's                        3.8
-(30)                        ``AxialRotationData``: ``axis_unit``, k fields,
-                            ``on_axis_mask``, ``has_on_axis_cell``
+``rotation_geometry.hpp``   forward declaration of S's ``AxialRotationData`` and the        3.8
+(12)                        members lane A reads; no lane-A view type (D24)
 ==========================  ==============================================================  ===============
 
 
@@ -1617,7 +1654,7 @@ reasons:**
   term, so this is correct whichever way H13 resolves. The −15 in 9.2 assumes
   G9b passes, and the cost if it fails is stated (2,093).
 * **H4: the skeleton already moves ``rate_to_rows`` into ``AxialMomentum``,
-  marked pending S-4.** ``RotationGeometry`` keeps only the mask. If S
+  marked pending S-4.** S's ``AxialRotationData`` keeps only the mask. If S
   declines, this reverts with no other change.
 * **H14/H15: the new gates are G3b and G9b, plus G10's metric, all marked as
   plans only.** Nothing is run under CHANGE 5.
