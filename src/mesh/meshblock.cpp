@@ -17,10 +17,10 @@
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/implicit/implicit_dispatch.hpp>
 #include <snap/input/read_restart_file.hpp>
+#include <snap/mesh/signal_handler.hpp>
 #include <snap/output/output_formats.hpp>
 #include <snap/output/restart_metadata.hpp>
 #include <snap/utils/log.hpp>
-#include <snap/utils/signal_handler.hpp>
 
 #include "cycle_diagnostics.hpp"
 #include "meshblock.hpp"
