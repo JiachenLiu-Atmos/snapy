@@ -78,6 +78,28 @@ Each claim used here was rechecked at the pin.
 1.1 Change list
 ~~~~~~~~~~~~~~~
 
+**Rev 5.2** (on ``5d1c50b6``; text only).
+
+* **L-3 closed** (section 11.1). Every "pending R" is replaced by the agreed
+  face set:
+
+  * S's ``wall``, ``outflow`` and ``custom`` block faces with a fluid
+    interior cell;
+  * immersed-solid faces with exactly one solid neighbour, outward from
+    the fluid;
+  * all rows;
+  * never ``interior``, ``seam_x1``, ``panel`` or ``periodic``.
+
+  Cited: R rev 2.4 ``a15af816`` (R.rst:36-42, 636-657; the commit changes
+  only R.rst, and the header code equals ``4c59162a``) and ``S.rst:243-265``
+  at ``4b96f4ea``.
+* **L-2**: no "Cheng's call" wording was attached to it. Cheng accepted
+  L-2 at 21:05 EST.
+* **The two ``integration.execution`` deck names** are our proposal. The
+  text goes ahead on them, pending Cheng's naming (sections 3.3 and 11.6).
+* The skeleton is unchanged: no comment in it said "pending R". Section 9
+  is unchanged.
+
 **Rev 5.1** (on ``4afdbf37``; text only).
 
 * **L-2 answered yes** (section 11.1; Tianhao). The callback type is
@@ -89,12 +111,9 @@ Each claim used here was rechecked at the pin.
   file; today one argument), and the caller at
   ``load_user_output_data.cpp:14, 19`` (O's file). The skeleton does not
   declare the callback, so it is unchanged.
-* **L-3 pending R** (section 11.1).
-
-  * Panel seams are not physical boundaries.
-  * ``boundary(dim)`` sums the wall, outflow and custom faces.
-  * The immersed-solid faces are O's proposal, accepted by Jiheng and
-    pending Tianhao.
+* **L-3** (section 11.1). Panel seams are not physical boundaries;
+  ``boundary(dim)`` sums the wall, outflow and custom faces. Rev 5.1 had the
+  immersed-solid faces as O's proposal; rev 5.2 records R's agreement.
 
   Section 4 (``boundary`` row), section 3.2 (budget ``boundary``) and the
   requirement 4 and 5 rows are aligned.
@@ -457,10 +476,17 @@ Two consumers replace ``src/diagnostics``:
 
 * ``BudgetConsumer``. For each row it accumulates in FP64:
 
-  * ``boundary``, the outward register transfer through the physical domain
-    boundary: wall, outflow and custom faces. Cubed-sphere panel seams are
-    not physical boundaries. Immersed-solid faces are O's proposal, pending
-    R (L-3);
+  * ``boundary``, the outward register transfer through the fluid domain's
+    boundary (agreed face set, L-3):
+
+    * S's ``wall``, ``outflow`` and ``custom`` block faces whose interior
+      cell is fluid;
+    * every immersed-solid face with exactly one solid neighbour, outward
+      from the fluid;
+    * all rows;
+    * never ``interior``, ``seam_x1``, ``panel`` or ``periodic`` faces.
+
+    Cited: R rev 2.4 ``a15af816``, R.rst:36-42, 636-657; ``S.rst:243-265`` at jihenghu/snapy ``4b96f4ea``;
   * ``fixer[f]``, the monitor's amount for each fixer.
 
   At each record it writes ``residual = (total - total_prev) + boundary -
@@ -542,8 +568,9 @@ generated members and defaults equal the pin's.
   stubs (``hydro.cpp:46-54``) are deleted.
 * Execution and precision rows (Xi note 2): ``dynamics/precision`` exists at
   the pin (``hydro_options.cpp:55, 67``). ``integration/execution`` and
-  ``integration/execution-strict`` are sample rows with **provisional**
-  names, which are Cheng's call (``V3_ROADMAP.md:300-301``).
+  ``integration/execution-strict`` are sample rows. The names are **our
+  proposal**. The text goes ahead on them, pending Cheng's naming
+  (``V3_ROADMAP.md:300-301``).
 * Lane S's options parsing is **accepted** into the schema (rev 4, section
   9.3). The ``geometry``, ``distribute`` and ``boundary-condition/internal``
   options become generated rows. S keeps its grid and repartition logic.
@@ -802,12 +829,18 @@ that sha.
    * - ``torch::Tensor RegisterMonitor::boundary(int dim) const;`` (R:97,
        "area-integrated, outward, FP64")
      - ``boundary``, summed over ``dim``. It is **area-integrated**
-       (R.rst:555-559), so O applies no area to it. It sums the block's
-       physical-boundary faces: wall, outflow and custom (Jiheng, lane S).
-       Panel seams are not physical boundaries, and their two entries are
-       reconciled by ``replace`` (R:63-64). O's proposal to add the
-       immersed-solid faces, all rows, is accepted by Jiheng and **pending
-       R** (L-3). Derived rows have no
+       (R.rst:555-559), so O applies no area to it. **Agreed face set
+       (L-3):**
+
+       * S's ``wall``, ``outflow`` and ``custom`` block faces whose interior
+         cell is fluid;
+       * every immersed-solid face with exactly one solid neighbour,
+         outward from the fluid;
+       * all rows;
+       * never ``interior``, ``seam_x1``, ``panel`` or ``periodic`` faces,
+         whose two entries ``replace`` reconciles (R:63-64).
+
+       Cited: R rev 2.4 ``a15af816``, R.rst:36-42, 636-657; ``S.rst:243-265`` at jihenghu/snapy ``4b96f4ea``. Derived rows have no
        ``boundary`` entry; their owners post the transfer as a
        ``derived_amount("<row>.boundary.<dim>", ..., cell_source)``
        (R:72-74; R.rst:542-545), and the formula below needs no special
@@ -951,8 +984,9 @@ Check against the ten requirements:
      - shared face: two entries, one reconciliation rule; rotation owned by
        coord
      - The domain-boundary transfer has one entry per face. Lane O applies
-       no rotation and reads scalar sums only. L-3: panel seams are not in
-       ``boundary(dim)``; immersed-solid faces pending R (section 11.1).
+       no rotation and reads scalar sums only. L-3 is closed: panel seams are
+       not in ``boundary(dim)``; immersed-solid faces with one solid
+       neighbour are (section 11.1).
    * - 6
      - one device-side monitor (mass, species, E+PE, AAM, scalars); no host
        reads in a segment
@@ -2710,7 +2744,7 @@ in snapy changes for them.
 ``4c59162a``). Requirements 3, 7 and 10 answered the earlier questions on
 step integration, per-fixer amounts (the axial closure is a fixer) and
 restart. The frozen header closes the rest. L-2 is answered (Tianhao), and
-L-3 is pending R:
+L-3 is agreed in R rev 2.4:
 
 L-1. **Closed**: rows by ``row_names()`` (R:93; R.rst:528-542); per unit
 area in coord's frame (R:4-5).
@@ -2742,17 +2776,29 @@ At the pin:
 member, or the loader. So it does not differ from the signature and is
 unchanged.
 
-L-3. **Pending R.**
+L-3. **Closed (agreed).** ``RegisterMonitor::boundary(dim)``, area-integrated
+(R:97), sums:
 
-* A cubed-sphere panel seam is not a physical boundary (Jiheng, lane S
-  thread). Its two entries are reconciled by ``replace`` (R:63-64) and are
-  not in ``boundary(dim)``.
-* ``boundary(dim)``, area-integrated (R:97; R.rst:555-559), sums the wall,
-  outflow and custom faces.
-* O proposes adding the **immersed-solid faces, all rows**. Jiheng accepts
-  this as a proposal, and it is with Tianhao for R's agreement.
+* S's ``wall``, ``outflow`` and ``custom`` block faces whose interior cell is
+  fluid;
+* every immersed-solid face with exactly one solid neighbour, outward from
+  the fluid cell. A face between two solid cells is not counted.
 
-Section 4 and section 3.2 say the same.
+It covers all rows. It never includes ``interior``, ``seam_x1``, ``panel`` or
+``periodic`` faces, which are shared faces reconciled by ``replace``
+(R:63-64).
+
+Sources:
+
+* R rev 2.4 ``a15af81660f75b53f3e905b7ee15aa935ada855c``, R.rst:36-42 and
+  636-657. That commit changes only R.rst, and the header code is unchanged
+  from ``4c59162a``.
+* ``S.rst:243-265`` at jihenghu/snapy
+  ``4b96f4ea9a63fd6152e319a70930559cdfda0871``.
+
+The immersed-solid set was O's proposal; Jiheng accepted it and Tianhao
+agreed. Section 4, section 3.2 and the requirement 4 and 5 rows say the
+same.
 
 L-4. **Closed**: FP64, and FP32 on MPS (R.rst:453, 644).
 
@@ -3025,9 +3071,9 @@ named.
        * ``integration.execution`` (``eager|graph``);
        * ``integration.execution-strict``.
 
-       The two ``integration`` names are **provisional**. Choosing them is
-       Cheng's call (``V3_ROADMAP.md:300-301``, "choose final YAML/Python
-       names at G0/G1").
+       The two ``integration`` names are **our proposal**. The text goes
+       ahead on them, pending Cheng's naming (``V3_ROADMAP.md:300-301``,
+       "choose final YAML/Python names at G0/G1").
    * - 3
      - accept
      - Three changes:
