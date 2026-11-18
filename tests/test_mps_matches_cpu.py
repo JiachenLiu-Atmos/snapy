@@ -5,7 +5,9 @@ Each arm runs the same float32 problem on CPU and MPS. err = max|mps - cpu| /
 max|cpu| per variable, worst variable; an arm passes when both are finite and
 err <= max(TOL, 3 f64), f64 = the same for CPU float32 against CPU float64: MPS
 float32 is held to the CPU's own float32 error where that is larger. The ripple
-arms compare the tendency u(n) - u(0). Exits 125 when MPS is not available.
+arms compare the tendency u(n) - u(0). The reconstruction arms run the CPU
+kernel on MPS (through OnHost), so they must match exactly: err = 0. Exits 125
+when MPS is not available.
 
 The moist column stops before its last stage: the saturation adjustment there
 calls the thermodynamics library, which has no MPS kernel.
@@ -131,14 +133,15 @@ def evolve(cfg, ic, device, dtype, nstep, skip_last_stage=False, tendency=False)
     return {**out, "hydro_u": out["hydro_u"] - u0}
 
 
-def compare(name, run):
-    """err and f32 of the worst variable of run(device, dtype)."""
+def compare(name, run, tol=None):
+    """err and f32 of the worst variable of run(device, dtype); tol overrides
+    the default bound."""
     try:
         cpu, mps, ref = (run(d, t) for d, t in (("cpu", torch.float32),
                                                  ("mps", torch.float32),
                                                  ("cpu", torch.float64)))
     except Exception as e:  # a missing kernel or a float64 on MPS
-        return name, math.inf, math.nan, str(e).splitlines()[0][:160]
+        return name, math.inf, math.nan, str(e).splitlines()[0][:160], tol
     err, f64 = [], []
     for k in cpu:
         for i, (a, b, c) in enumerate(zip(cpu[k], mps[k], ref[k])):
@@ -149,7 +152,7 @@ def compare(name, run):
             s = float(s) or 1.0
             err.append(float((b - a).abs().max()) / s)
             f64.append(float((c - a).abs().max()) / s)
-    return name, max(err, key=lambda e: (math.isnan(e), e)), max(f64), ""
+    return name, max(err, key=lambda e: (math.isnan(e), e)), max(f64), "", tol
 
 
 def recon_arms():
@@ -170,7 +173,7 @@ def recon_arms():
                 out = recon.forward(x, 3, False)
                 assert torch.equal(x, x0), "the input was modified"
                 return {"out": out.cpu().double().flatten(0, 1)}
-            yield compare(f"recon {kind} scale={scale}", run)
+            yield compare(f"recon {kind} scale={scale}", run, tol=0.0)
 
 
 def solid_arm():
@@ -224,7 +227,7 @@ def deck_arms():
 
 
 def refused(cfg, says):
-    """A stretched x1 (no MPS reconstruction) and anomaly storage (a float64
+    """A stretched x1 (refused by hydro) and anomaly storage (a float64
     reference) must say so on MPS."""
     try:
         evolve(cfg, lambda b: bubble_ic(b, 0.0), "mps", torch.float32, nstep=1)
@@ -240,8 +243,8 @@ def main():
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
     failures = []
-    for name, err, f64, msg in [*recon_arms(), *solid_arm(), *deck_arms()]:
-        ok = err <= max(TOL, 3 * f64)
+    for name, err, f64, msg, tol in [*recon_arms(), *solid_arm(), *deck_arms()]:
+        ok = err <= (max(TOL, 3 * f64) if tol is None else tol)
         print(f"{'ok  ' if ok else 'FAIL'} {name:28s} err={err:.2e} f64={f64:.2e} {msg}")
         if not ok:
             failures.append(name)

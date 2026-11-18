@@ -4,6 +4,7 @@
 
 #include <limits>
 #include <snap/hydro/hydro_reference.hpp>
+#include <snap/utils/on_host.hpp>
 
 #include "device_testing.hpp"
 
@@ -39,7 +40,7 @@ void close(torch::Tensor a, torch::Tensor b, torch::Dtype dtype) {
 
 }  // namespace
 
-TEST_P(DeviceTest, signed_pressure_scan_matches_oracle_and_tensor_backend) {
+TEST_P(DeviceTest, signed_pressure_scan_matches_oracle_and_on_host) {
   auto opts = torch::TensorOptions().device(device).dtype(dtype);
   // Noncontiguous input with distinct columns, signed density and anchor.
   auto rho =
@@ -59,11 +60,17 @@ TEST_P(DeviceTest, signed_pressure_scan_matches_oracle_and_tensor_backend) {
       EXPECT_EQ(lo.device(), rho.device());
       EXPECT_TRUE(torch::equal(hi.select(-1, iu), anchor.squeeze(-1)));
       EXPECT_TRUE(torch::equal(hi.slice(-1, 0, -1), lo.slice(-1, 1)));
+      // MPS runs the CPU kernel through OnHost; on CPU that is bitwise
       auto tl = torch::empty_like(lo), th = torch::empty_like(hi);
-      snap::hydro_pressure_scan_x1_tensor(rho, dx.to(opts), anchor, tl, th, iu,
-                                          g);
-      close(lo, tl, dtype);
-      close(hi, th, dtype);
+      snap::OnHost<&snap::hydro_pressure_scan_x1_cpu>::run(
+          rho.contiguous(), dx.to(opts), anchor, tl, th, iu, g);
+      if (device.is_cpu()) {
+        EXPECT_TRUE(torch::equal(lo, tl));
+        EXPECT_TRUE(torch::equal(hi, th));
+      } else {
+        close(lo, tl, dtype);
+        close(hi, th, dtype);
+      }
     }
   }
   EXPECT_TRUE(torch::equal(rho, before));
