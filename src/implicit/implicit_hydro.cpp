@@ -424,14 +424,20 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     du[IPR].index(in3).sub_(rx_tri(rx_mass0));
   };
 
-  bool full = options->matrix() == VicMatrix::full;
-  if (full) {
-    at::native::vic_assemble_full(du.device().type(), iter, dt, grav1, adir);
-  } else {
-    // Match the full-VIC pipeline: assemble coefficients, run the column
-    // solve + reductions, then apply the per-cell redistribution map.
-    at::native::vic_assemble_partial(du.device().type(), iter, dt, grav1, adir);
-  }
+  // assemble the coefficients, run the column solve, then apply the
+  // per-cell redistribution map: one vic_stage call each
+  auto stage = [&](VicStage s, int dir, bool woodbury = false) {
+    VicParams prm;
+    prm.stage = s;
+    prm.n = options->size();
+    prm.woodbury = woodbury;
+    prm.dt = dt;
+    prm.grav = grav1;
+    prm.dir = dir;
+    return prm;
+  };
+  at::native::vic_stage(du.device().type(), iter,
+                        stage(VicStage::assemble, adir));
   couple_radial_exact();
   // Woodbury: the wall third points (E row of cells 0 and n-1, mass column of
   // cells 2 and n-3) are a rank-2 update U V^T of the block-tridiagonal T:
@@ -439,20 +445,14 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   // T per column solves y and both columns of Z (they depend on T only)
   bool woodbury = radial_exact && nx1 >= 3;
   if (!woodbury) {
-    if (full)
-      at::native::vic_solve_full(du.device().type(), iter, dt, grav1, 0);
-    else
-      at::native::vic_solve_partial(du.device().type(), iter, dt, grav1, 0);
+    at::native::vic_stage(du.device().type(), iter, stage(VicStage::solve, 0));
   } else {
     int m = options->size(), nx2 = pcoord->options->nx2(),
         nx3 = pcoord->options->nx3();
     auto z0 = torch::empty_like(_delta), z1 = torch::empty_like(_delta);
     auto it = vic_config().add_input(z0).add_input(z1).build();
-    if (full)
-      at::native::vic_solve_woodbury_full(du.device().type(), it, dt, grav1, 0);
-    else
-      at::native::vic_solve_woodbury_partial(du.device().type(), it, dt, grav1,
-                                             0);
+    at::native::vic_stage(du.device().type(), it,
+                          stage(VicStage::solve, 0, /*woodbury=*/true));
     auto y = _delta.view({nx3, nx2, nx1, m});
     z0 = z0.view({nx3, nx2, nx1, m}), z1 = z1.view({nx3, nx2, nx1, m});
     auto k0 = -rx_t0 / dt, k1 = -rx_t1 / dt;
@@ -486,11 +486,8 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     auto bad_columns = torch::logical_not(torch::isfinite(_delta).all(-1));
     if (bad_columns.any().item<bool>()) return reject(bad_columns);
   }
-  if (options->matrix() == VicMatrix::full)
-    at::native::vic_redistribute_full(du.device().type(), iter, dt, grav1, 0);
-  else
-    at::native::vic_redistribute_partial(du.device().type(), iter, dt, grav1,
-                                         0);
+  at::native::vic_stage(du.device().type(), iter,
+                        stage(VicStage::redistribute, 0));
 
   // only the availability clamp breaks sum_ch MASS*VOL == M(i) - M(i+1);
   // the meters are committed below, unless the stage fails
