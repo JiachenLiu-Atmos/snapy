@@ -2,6 +2,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
+#include <vector>
 
 // torch
 #include <torch/torch.h>
@@ -9,83 +11,72 @@
 #include "cuda_test_gate.hpp"
 
 // snap
-#include <snap/utils/flip_zero.h>
-
 #include <snap/bc/internal_boundary.hpp>
+
+// int-only DP of the rectifier; the library instantiates the same template
+// (bc/bc_dispatch.cpp) on the solid mask's integral dtype
+#include <snap/bc/flip_zero_impl.h>
 
 using namespace snap;
 
-int test1(int argc, char *argv[]) {
-  // Check if the user provided a command-line argument
-  if (argc < 2) {
-    fprintf(stderr, "Usage: %s <01-string>\n", argv[0]);
-    return 1;
-  }
+// Ported from the int-only copy src/utils/flip_zero.{cpp,h} (deleted in O2)
+// to bc/flip_zero_impl.h<int> (gate G-6). Each row: input, minRun0,
+// minRun1, allowBothFlips, minimum flips (-1: impossible) and the fixed
+// sequence, as the deleted copy produced them at 730b3500. Exhaustive
+// equality of the two implementations (n <= 14, every run length and flip
+// mode, stride 1 and 2) was checked before the deletion.
+int test1() {
+  struct Case {
+    char const *in;
+    int min_run0, min_run1, allow_both;
+    int flips;
+    char const *out;
+  } const cases[] = {
+      {"0100110", 3, 2, 0, 4, "1111111"},
+      {"0100110", 3, 2, 1, 2, "0000111"},
+      {"1011101", 2, 2, 0, 2, "1111111"},
+      {"000100010000", 3, 2, 0, 3, "000111110000"},
+      {"110010011", 2, 3, 1, 3, "111000111"},
+      {"0101010101", 2, 2, 0, 5, "1111111111"},
+      {"0101010101", 3, 3, 1, 4, "0001110000"},
+      {"1", 1, 2, 0, -1, ""},
+      {"10", 2, 2, 0, 1, "11"},
+      {"0000", 3, 2, 0, 0, "0000"},
+      {"1101100111010", 3, 2, 0, 5, "1111111111111"},
+      {"0010111010011", 2, 3, 1, 3, "0000111000111"},
+  };
 
-  char *input = argv[1];
-  int length = strlen(input);
+  constexpr int MAXRUN = InternalBoundaryOptionsImpl::MAXRUN;
+  int nfail = 0;
+  for (auto const &c : cases) {
+    int n = strlen(c.in);
+    std::vector<int> seq(n), dp((n + 1) * MAXRUN * 2),
+        fromLen((n + 1) * MAXRUN * 2), fromBit((n + 1) * MAXRUN * 2),
+        usedFlip((n + 1) * MAXRUN * 2);
+    for (int i = 0; i < n; i++) seq[i] = c.in[i] - '0';
 
-  // Validate that the string contains only '0' and '1'
-  for (int i = 0; i < length; i++) {
-    if (input[i] != '0' && input[i] != '1') {
-      fprintf(stderr, "Error: Input string must contain only '0' and '1'.\n");
-      return 1;
+    int dir = 1, stride = 1;
+    int flips = compute_min_flips<int>(
+        seq.data(), n, c.min_run0, c.min_run1, c.allow_both, dir, stride,
+        dp.data(), fromLen.data(), fromBit.data(), usedFlip.data());
+
+    std::string out;
+    if (flips >= 0) {
+      // the bc copy writes the fixed sequence in place
+      reconstruct_solution<int>(seq.data(), n, c.min_run0, c.min_run1,
+                                c.allow_both, dir, stride, fromLen.data(),
+                                fromBit.data(), usedFlip.data());
+      for (int i = 0; i < n; i++) out += static_cast<char>('0' + seq[i]);
+    }
+
+    if (flips != c.flips || out != c.out) {
+      fprintf(stderr, "rectify %s (%d, %d, %d): flips %d, expected %d; %s, "
+              "expected %s\n", c.in, c.min_run0, c.min_run1, c.allow_both,
+              flips, c.flips, out.c_str(), c.out);
+      ++nfail;
     }
   }
-
-  int minRun0 = 3;
-  int minRun1 = 2;
-  int allowBothFlips = 0;
-  int stride = 1;
-
-  int n = strlen(input);
-  int *arr = (int *)malloc(n * sizeof(int));
-  for (int i = 0; i < n; i++) {
-    arr[i] = input[i] - '0';
-  }
-
-  // initialize dp arrays
-  constexpr int MAXRUN = InternalBoundaryOptionsImpl::MAXRUN;
-  int *dp = (int *)malloc((n + 1) * MAXRUN * 2 * sizeof(int));
-  int *fromLen = (int *)malloc((n + 1) * MAXRUN * 2 * sizeof(int));
-  int *fromBit = (int *)malloc((n + 1) * MAXRUN * 2 * sizeof(int));
-  int *usedFlip = (int *)malloc((n + 1) * MAXRUN * 2 * sizeof(int));
-
-  // We'll run the DP
-  int minFlips = compute_min_flips(arr, n, minRun0, minRun1, allowBothFlips,
-                                   stride, dp, fromLen, fromBit, usedFlip);
-
-  if (minFlips < 0) {
-    // impossible
-    printf("Impossible to fix.\n");
-    free(arr);
-    free(dp);
-    free(fromLen);
-    free(fromBit);
-    free(usedFlip);
-    return 0;
-  }
-
-  // Reconstruct final solution
-  int *fixedSeq = (int *)malloc(n * sizeof(int));
-  reconstruct_solution(fixedSeq, arr, n, minRun0, minRun1, allowBothFlips,
-                       stride, fromLen, fromBit, usedFlip);
-
-  // Print results
-  printf("Minimum flips = %d\n", minFlips);
-  printf("Fixed sequence: ");
-  for (int i = 0; i < n; i++) {
-    printf("%d", fixedSeq[i]);
-  }
-  printf("\n");
-
-  free(arr);
-  free(fixedSeq);
-  free(dp);
-  free(fromLen);
-  free(fromBit);
-  free(usedFlip);
-  return 0;
+  return nfail;
 }
 
 int test2() {
@@ -121,4 +112,7 @@ int test2() {
   return 0;
 }
 
-int main(int argc, char *argv[]) { return test2(); }
+int main(int argc, char *argv[]) {
+  int nfail = test1();
+  return test2() + nfail;
+}
