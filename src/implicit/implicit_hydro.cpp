@@ -424,7 +424,7 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     du[IPR].index(in3).sub_(rx_tri(rx_mass0));
   };
 
-  bool full = (options->scheme() >> 3) & 1;
+  bool full = options->matrix() == VicMatrix::full;
   if (full) {
     at::native::vic_assemble_full(du.device().type(), iter, dt, grav1, adir);
   } else {
@@ -486,7 +486,7 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     auto bad_columns = torch::logical_not(torch::isfinite(_delta).all(-1));
     if (bad_columns.any().item<bool>()) return reject(bad_columns);
   }
-  if ((options->scheme() >> 3) & 1)
+  if (options->matrix() == VicMatrix::full)
     at::native::vic_redistribute_full(du.device().type(), iter, dt, grav1, 0);
   else
     at::native::vic_redistribute_partial(du.device().type(), iter, dt, grav1,

@@ -15,8 +15,7 @@
 
 #include "forward_sweep_impl.h"
 #include "implicit_dispatch.hpp"
-#include "vic_assemble_full_impl.h"
-#include "vic_assemble_partial_impl.h"
+#include "vic_assemble_impl.h"
 #include "vic_redistribute_impl.h"
 
 namespace snap {

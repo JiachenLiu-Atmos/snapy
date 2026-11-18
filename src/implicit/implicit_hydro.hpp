@@ -14,6 +14,10 @@
 
 namespace snap {
 
+//! The VIC matrices: the full 5x5 blocks, or the partial 3x3 blocks of rows
+//! and columns {rho, m1, E} (implicit-scheme 9 and 1); the value is the size.
+enum class VicMatrix : int { partial = 3, full = 5 };
+
 struct ImplicitOptionsImpl {
   static std::shared_ptr<ImplicitOptionsImpl> create() {
     return std::make_shared<ImplicitOptionsImpl>();
@@ -33,13 +37,11 @@ struct ImplicitOptionsImpl {
        << "* shear_cfl = " << shear_cfl() << "\n";
   }
 
-  int size() const {
-    if ((scheme() >> 3) & 1) {  // full
-      return 5;
-    } else {
-      return 3;
-    }
+  //! the VIC matrix: scheme 9 (bit 3 set) is the full one
+  VicMatrix matrix() const {
+    return (scheme() >> 3) & 1 ? VicMatrix::full : VicMatrix::partial;
   }
+  int size() const { return static_cast<int>(matrix()); }
 
   std::string type() const;
   ADD_ARG(int, scheme) = 0;
