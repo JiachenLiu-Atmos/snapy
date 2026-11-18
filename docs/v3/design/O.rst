@@ -78,6 +78,28 @@ Each claim used here was rechecked at the pin.
 1.1 Change list
 ~~~~~~~~~~~~~~~
 
+**Rev 5.1** (on ``4afdbf37``; text only).
+
+* **L-2 answered yes** (section 11.1; Tianhao). The callback type is
+  ``std::function<Variables(Variables const&, FluxRegister const&)>``. The
+  const accessors ``total``/``kept``/``step_field`` (R:82-84 at
+  ``4c59162a``) give step transfer per unit area.
+
+  Pin citations hold: the declaration is at ``meshblock.hpp:125`` (X's
+  file; today one argument), and the caller at
+  ``load_user_output_data.cpp:14, 19`` (O's file). The skeleton does not
+  declare the callback, so it is unchanged.
+* **L-3 pending R** (section 11.1).
+
+  * Panel seams are not physical boundaries.
+  * ``boundary(dim)`` sums the wall, outflow and custom faces.
+  * The immersed-solid faces are O's proposal, accepted by Jiheng and
+    pending Tianhao.
+
+  Section 4 (``boundary`` row), section 3.2 (budget ``boundary``) and the
+  requirement 4 and 5 rows are aligned.
+* Section 9 is unchanged.
+
 **Rev 5 final** (on ``5a7b46fa``; pin ``9e5de2d4``; register header R rev 2.2
 ``4c59162a``).
 
@@ -436,7 +458,9 @@ Two consumers replace ``src/diagnostics``:
 * ``BudgetConsumer``. For each row it accumulates in FP64:
 
   * ``boundary``, the outward register transfer through the physical domain
-    boundary;
+    boundary: wall, outflow and custom faces. Cubed-sphere panel seams are
+    not physical boundaries. Immersed-solid faces are O's proposal, pending
+    R (L-3);
   * ``fixer[f]``, the monitor's amount for each fixer.
 
   At each record it writes ``residual = (total - total_prev) + boundary -
@@ -778,7 +802,12 @@ that sha.
    * - ``torch::Tensor RegisterMonitor::boundary(int dim) const;`` (R:97,
        "area-integrated, outward, FP64")
      - ``boundary``, summed over ``dim``. It is **area-integrated**
-       (R.rst:555-559), so O applies no area to it. Derived rows have no
+       (R.rst:555-559), so O applies no area to it. It sums the block's
+       physical-boundary faces: wall, outflow and custom (Jiheng, lane S).
+       Panel seams are not physical boundaries, and their two entries are
+       reconciled by ``replace`` (R:63-64). O's proposal to add the
+       immersed-solid faces, all rows, is accepted by Jiheng and **pending
+       R** (L-3). Derived rows have no
        ``boundary`` entry; their owners post the transfer as a
        ``derived_amount("<row>.boundary.<dim>", ..., cell_source)``
        (R:72-74; R.rst:542-545), and the formula below needs no special
@@ -916,12 +945,14 @@ Check against the ten requirements:
      - ``HydroFluxProfile`` reads the register. The legacy recomputation
        from cell centres (``hydro_flux.cpp:56-63``) goes. User callbacks
        (``load_user_output_data.cpp:19``) get a read-only register view, so
-       ``*_flux`` outputs need not rebuild fluxes. Open question L-2.
+       ``*_flux`` outputs need not rebuild fluxes. L-2 answered yes
+       (section 11.1).
    * - 5
      - shared face: two entries, one reconciliation rule; rotation owned by
        coord
      - The domain-boundary transfer has one entry per face. Lane O applies
-       no rotation and reads scalar sums only. Open question L-3.
+       no rotation and reads scalar sums only. L-3: panel seams are not in
+       ``boundary(dim)``; immersed-solid faces pending R (section 11.1).
    * - 6
      - one device-side monitor (mass, species, E+PE, AAM, scalars); no host
        reads in a segment
@@ -2678,17 +2709,50 @@ in snapy changes for them.
 **11.1 Lane R** (frozen header rev 4.2, R.rst rev 2.2, happysky19/snapy
 ``4c59162a``). Requirements 3, 7 and 10 answered the earlier questions on
 step integration, per-fixer amounts (the axial closure is a fixer) and
-restart. The frozen header closes the rest except L-2 and L-3:
+restart. The frozen header closes the rest. L-2 is answered (Tianhao), and
+L-3 is pending R:
 
 L-1. **Closed**: rows by ``row_names()`` (R:93; R.rst:528-542); per unit
 area in coord's frame (R:4-5).
 
-L-2. **Open.** May the user output callback receive a read-only register
-view (requirement 4), so user ``*_flux`` outputs stop rebuilding fluxes?
+L-2. **Answered: yes** (Tianhao, lane R thread). The user output callback
+becomes
+``std::function<Variables(Variables const&, FluxRegister const&)>
+user_output_callback``. Through the const accessors it reads the recorded
+fluxes as **step transfer per unit area, not a rate**:
 
-L-3. **Partly closed**: ``boundary(dim)`` is the block's physical-boundary
-sum, area-integrated (R:97; R.rst:555-559). Whether a cubed-sphere panel
-seam counts as physical is S's reconciliation rule (``replace``, R:63-64).
+* ``total(dim)`` (R:82);
+* ``kept(dim, part)`` (R:83);
+* ``step_field(dim)`` (R:84).
+
+The lines are the same at ``4c59162a`` and ``2b4c5775``; this document
+cites ``4c59162a``. R:82-83 call ``total`` and ``kept`` "kFlux" views, and
+only ``step_field`` says "per unit area" in the header. The step-transfer
+reading of all three is Tianhao's answer.
+
+At the pin:
+
+* the member is declared at ``src/mesh/meshblock.hpp:125`` as
+  ``std::function<Variables(Variables const&)>``. That is lane X's file;
+  Xi is asked to carry the two-argument declaration in X rev 3.13.
+* O's caller checks it at ``src/output/load_user_output_data.cpp:14`` and
+  calls it at ``:19``. In V3 it passes the block's ``FluxRegister``.
+
+*Choice:* the O skeleton does not declare the callback, which is X's
+member, or the loader. So it does not differ from the signature and is
+unchanged.
+
+L-3. **Pending R.**
+
+* A cubed-sphere panel seam is not a physical boundary (Jiheng, lane S
+  thread). Its two entries are reconciled by ``replace`` (R:63-64) and are
+  not in ``boundary(dim)``.
+* ``boundary(dim)``, area-integrated (R:97; R.rst:555-559), sums the wall,
+  outflow and custom faces.
+* O proposes adding the **immersed-solid faces, all rows**. Jiheng accepts
+  this as a proposal, and it is with Tianhao for R's agreement.
+
+Section 4 and section 3.2 say the same.
 
 L-4. **Closed**: FP64, and FP32 on MPS (R.rst:453, 644).
 
