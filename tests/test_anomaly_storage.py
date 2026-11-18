@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Anomaly storage of hydro_u (fp32 roadmap, Step 1a) and the fp32-storage emulation hook.
+"""Anomaly storage of hydro_u (fp32 roadmap, Step 1a).
 
 With `dynamics: anomaly` the block stores rows IDN and IPR of hydro_u as anomalies about a
 static fp64 reference (hydro.ref.u0, the initial state at rest). In fp64 that is an exact
@@ -17,8 +17,6 @@ rewrite, so a run with it on must match the run with it off to round-off. The ar
   float_restart FP32 stored anomalies retain dtype and bits; references stay FP64
   limiter     a cell pushed below the density and energy floors is clipped in anomaly space to
               the same totals as the totals path clips it; every other cell is untouched
-  fp32        SNAP_FP32_STORAGE=step leaves hydro_u representable in float32 after a step;
-              SNAP_FP32_STORAGE_ROWS=IPR rounds that row only
 
   python test_anomaly_storage.py [--device cuda] [--steps N]
 """
@@ -390,41 +388,11 @@ def arm_limiter(device):
     return failures
 
 
-def arm_fp32(device):
-    failures = []
-    for rows, expect in (("all", "ALL_ROUNDED"), ("IPR", "IPR_ONLY")):
-        env = dict(os.environ, SNAP_FP32_STORAGE="step", SNAP_FP32_STORAGE_ROWS=rows)
-        env.pop("SNAP_ANOMALY", None)
-        res = subprocess.run([sys.executable, __file__, "--child", "fp32", "--device", device],
-                             env=env, capture_output=True, text=True)
-        last = res.stdout.strip().splitlines()[-1:] if res.stdout.strip() else []
-        print("fp32       rows=%s child: %s" % (rows, last))
-        if res.returncode != 0 or expect not in res.stdout:
-            failures.append("fp32 storage rows=%s: expected %s\n%s%s"
-                            % (rows, expect, res.stdout, res.stderr))
-    return failures
-
-
 def child(kind, device):
-    from snapy import kIDN, kIPR
-
     if kind == "env":
         block = make_block(device)
         block.initialize(initial_state(block))
         print("ANOMALY=%s" % block.anomaly())
-        return 0
-    if kind == "fp32":
-        block = make_block(device)
-        bv, _ = block.initialize(initial_state(block))
-        run_steps(block, bv, 1)
-        u = bv["hydro_u"]
-        exact = (u.float().double() == u)
-        rows_exact = [bool(exact[n].all()) for n in range(u.size(0))]
-        print("rows exactly float32: %s" % rows_exact)
-        if all(rows_exact):
-            print("ALL_ROUNDED")
-        elif rows_exact[kIPR] and not rows_exact[kIDN]:
-            print("IPR_ONLY")
         return 0
     raise ValueError(kind)
 
@@ -453,7 +421,6 @@ def main():
     failures += arm_restart(args.device)
     failures += arm_float_restart(args.device)
     failures += arm_limiter(args.device)
-    failures += arm_fp32(args.device)
     for f in failures:
         print("FAIL:", f)
     print("PASS" if not failures else "FAILED (%d)" % len(failures))

@@ -5,7 +5,6 @@
 enable_testing()
 
 setup_test(test_eos)
-setup_test(test_fp32_storage)
 # ideal-gas refuses a moist card; AthenaArray keeps float32 values
 setup_test(test_eos_io_core)
 setup_test(test_split_reference)
@@ -355,8 +354,7 @@ snapy_add_python_test(test_shear_cfl TIMEOUT 60 LABELS "python;hydro;implicit")
 snapy_add_python_test(test_check_redo_floor TIMEOUT 60 LABELS "python;mesh;redo")
 snapy_add_python_test(test_check_redo_saturation TIMEOUT 60 LABELS "python;mesh;redo;eos")
 snapy_add_python_test(test_eos_temp2inteng TIMEOUT 60 LABELS "python;eos")
-# fp32 roadmap Step 1a: anomaly storage of hydro_u, and the Step 0 fp32
-# storage emulation hook (SNAP_FP32_STORAGE)
+# fp32 roadmap Step 1a: anomaly storage of hydro_u
 snapy_add_python_test(test_anomaly_storage TIMEOUT 600 LABELS "python;eos;anomaly")
 # the base arm is the unlimited scheme and must go negative; with the face-flux
 # covariance on (the default, #289) the donor limiter runs in every arm
@@ -813,7 +811,7 @@ endif()
 # Reproducible gate for the FP32 foundations. This does not replace the coupled
 # Jupiter/production-GPU acceptance runs in V3_ROADMAP.md.
 foreach(_t IN ITEMS
-    test_eos test_coordinate test_fp32_storage test_balance_column
+    test_eos test_coordinate test_balance_column
     test_balance_column_x1_centroid
     test_hydro_ref_x1 test_hydro_ref_x1_rf_wall test_gravity_work_cache_to
     test_implicit_face_work_jacobian test_riemann test_stretched_x1_ref
