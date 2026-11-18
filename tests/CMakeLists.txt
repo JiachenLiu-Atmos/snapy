@@ -57,6 +57,16 @@ setup_test(test_flux_positivity_carry)
 # dynamics/flux-covariance false
 setup_test(test_yaml_keys)
 
+# gate G-3 (lane O): the option tables against the pin's members, defaults and
+# parsers, on every in-tree deck; and the checked-in stub blocks against them
+setup_test(test_options_table)
+target_compile_definitions(test_options_table.${buildl}
+                           PRIVATE SNAPY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+add_test(
+  NAME test_options_pyi
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/gen_options.py
+          --check-pyi --root ${CMAKE_SOURCE_DIR} ${SNAP_OPTION_TABLES})
+
 # Reads the example decks from the source tree; it needs no build and no snapy import.
 add_test(
   NAME test_example_species_composition
