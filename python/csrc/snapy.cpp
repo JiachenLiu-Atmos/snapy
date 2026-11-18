@@ -7,7 +7,6 @@
 // snap
 #include <snap/snap.h>
 
-#include <snap/input/parameter_input.hpp>
 #include <snap/input/read_restart_file.hpp>
 
 // python

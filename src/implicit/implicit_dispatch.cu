@@ -12,8 +12,6 @@
 #include <c10/cuda/CUDAGuard.h>
 
 // snap
-#include <snap/utils/cuda_utils.h>
-
 #include <snap/utils/loops.cuh>
 
 #include "forward_sweep_impl.h"
