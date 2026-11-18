@@ -10,8 +10,9 @@
 #include <kintera/thermo/relative_humidity.hpp>
 
 // snap
-#include <snap/input/command_line.hpp>
 #include <snap/mesh/meshblock.hpp>
+
+#include "command_line.hpp"
 
 using namespace snap;
 

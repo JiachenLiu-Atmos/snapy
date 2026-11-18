@@ -24,8 +24,8 @@
 
 // snap
 #include <snap/mesh/mesh.hpp>
+#include <snap/mesh/signal_handler.hpp>
 #include <snap/utils/log.hpp>
-#include <snap/utils/signal_handler.hpp>
 
 #include "cycle_diagnostics.hpp"
 
