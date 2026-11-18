@@ -1190,7 +1190,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // census of interior (cell, species) entries, before the ghost fill
     auto cells = pmb->part({0, 0, 0}, PartOptions().exterior(false));
     auto ti = theta.index(cells).to(wide);
-    _positivity_hits += (ti < 1.).sum();
+    auto& status = *pmb->pefs;
+    status.slot(EfStatus::kPosHits) += (ti < 1.).sum();
     // severe: theta < 0.9 AND the withheld mass is above round-off of the
     // cell's gas mass. An empty cell drained by a round-off face flux has
     // theta = 0 at any dt; its withheld mass is ~1e-20 of the cell's (#256).
@@ -1214,8 +1215,9 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     auto withheld = ((1. - theta) * drain).index(cells).to(wide);
     auto above = withheld > positivity_roundoff(u.scalar_type()) *
                                 cell_mass.unsqueeze(0).index(cells).to(wide);
-    _positivity_severe += ((ti < 0.9) & above).sum();
-    torch::minimum_out(_positivity_min, _positivity_min, ti.min());
+    status.slot(EfStatus::kPosSevere) += ((ti < 0.9) & above).sum();
+    auto& tmin = status.slot(EfStatus::kPosMin);
+    torch::minimum_out(tmin, tmin, ti.min());
 
     // the energy each species carries, from w; its ghost layer is synced like
     // theta's (a raw copy at seams, never interpolated): the carry below
@@ -1284,8 +1286,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     if (f1_pre.defined()) {
       // non-negative while every bfunc keeps the ghost theta in [0,1]
       auto cut = f1_pre - f1.abs();
-      _lim_flux += f1_pre.index(cells).to(wide).sum();
-      _lim_cut += cut.index(cells).to(wide).sum();
+      status.slot(EfStatus::kLimFlux) += f1_pre.index(cells).to(wide).sum();
+      status.slot(EfStatus::kLimCut) += cut.index(cells).to(wide).sum();
     }
 
     if (options->verbose()) {

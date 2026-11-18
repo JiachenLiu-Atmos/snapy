@@ -16,8 +16,8 @@
 namespace snap {
 
 void IdealMoistImpl::reset() {
-  split_cv_ = split_offset_ = split_gas_ = heat_capacity_failure_ =
-      torch::Tensor();
+  split_cv_ = split_offset_ = split_gas_ = torch::Tensor();
+  ef_status().slot(EfStatus::kHeatCapacity) = torch::Tensor();
   split_mu_.clear();
   split_cref_.clear();
   split_uref_.clear();
@@ -136,11 +136,9 @@ IdealMoistPerturbations IdealMoistImpl::perturbations(
   auto valid = torch::isfinite(cv0) & (cv0 > 0.) & torch::isfinite(total_cv) &
                (total_cv > 0.);
   if (defer_check) {
-    if (!heat_capacity_failure_.defined() ||
-        heat_capacity_failure_.device() != u.device())
-      heat_capacity_failure_ =
-          torch::zeros({}, u.options().dtype(torch::kBool));
-    heat_capacity_failure_.logical_or_(valid.all().logical_not());
+    ef_status()
+        .flag(EfStatus::kHeatCapacity, u, torch::kBool)
+        .logical_or_(valid.all().logical_not());
     // Guard capacity denominators while the host check is deferred.
     // The latched failure rejects the step even if later stages repair them.
     cv0 = torch::where(valid, cv0, 1.);

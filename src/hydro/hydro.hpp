@@ -262,13 +262,14 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
 
   //! cumulative count of (cell, species) entries with positivity theta < 1
   //! (diagnostic; accumulated when the EOS limiter is enabled)
-  torch::Tensor positivity_hits() const { return _positivity_hits; }
+  //! These meters are slots of the block's EfStatus, registered as buffers.
+  torch::Tensor positivity_hits() const;
   //! how HARD the limiter bites, not just how often
-  torch::Tensor positivity_severe() const { return _positivity_severe; }
-  torch::Tensor positivity_min() const { return _positivity_min; }
+  torch::Tensor positivity_severe() const;
+  torch::Tensor positivity_min() const;
   //! x1 face flux the limiter removes, and the total offered (lifetime sums)
-  torch::Tensor lim_cut() const { return _lim_cut; }
-  torch::Tensor lim_flux() const { return _lim_flux; }
+  torch::Tensor lim_cut() const;
+  torch::Tensor lim_flux() const;
 
   //! gravity-work: cell with gravity-work-fixer on (and grav1 != 0)
   bool gravity_work_fixer() const;
@@ -466,11 +467,9 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   // Reusable stage scratch; not restart state. Recreated on shape/device
   // change.
   torch::Tensor _forcing_work, _forcing_cast;
-  torch::Tensor _positivity_hits, _positivity_severe, _positivity_min;
   //! conversion-order 4 cells that kept the second-order w (buffer
   //! "conversion_trips", registered only with the key at 4)
   torch::Tensor _conv4_trips;
-  torch::Tensor _lim_cut, _lim_flux;
   //! this stage's x2 [0] / x3 [1] face states the covariance was built from
   //! and the dry-mass row it added (undefined when the switch is off)
   torch::Tensor _cov_wl[2], _cov_wr[2], _cov_dry[2];

@@ -273,17 +273,25 @@ void HydroImpl::reset() {
   _div = register_buffer("D",
                          torch::zeros({nvar, nc3, nc2, nc1}, torch::kFloat64));
 
-  _positivity_hits =
-      register_buffer("positivity_hits", torch::zeros({1}, torch::kInt64));
-  _positivity_severe =
-      register_buffer("positivity_severe", torch::zeros({1}, torch::kInt64));
-  _positivity_min =
-      register_buffer("positivity_min", torch::ones({1}, torch::kFloat64));
+  // the positivity meters live in the block's EfStatus; the buffers are the
+  // same tensors, so they keep their names and move with Module::to
+  auto& status = *pmb->pefs;
+  register_buffer(
+      "positivity_hits",
+      status.bind(EfStatus::kPosHits, torch::zeros({1}, torch::kInt64)));
+  register_buffer(
+      "positivity_severe",
+      status.bind(EfStatus::kPosSevere, torch::zeros({1}, torch::kInt64)));
+  register_buffer(
+      "positivity_min",
+      status.bind(EfStatus::kPosMin, torch::ones({1}, torch::kFloat64)));
   if (options->conversion_order() == 4)
     _conv4_trips =
         register_buffer("conversion_trips", torch::zeros({1}, torch::kInt64));
-  _lim_cut = register_buffer("lim_cut", torch::zeros({1}, torch::kFloat64));
-  _lim_flux = register_buffer("lim_flux", torch::zeros({1}, torch::kFloat64));
+  register_buffer("lim_cut", status.bind(EfStatus::kLimCut,
+                                         torch::zeros({1}, torch::kFloat64)));
+  register_buffer("lim_flux", status.bind(EfStatus::kLimFlux,
+                                          torch::zeros({1}, torch::kFloat64)));
   _gwfix_d = register_buffer("gwfix_d", torch::zeros({1}, torch::kFloat64));
   _gwfix_total =
       register_buffer("gwfix_total", torch::zeros({1}, torch::kFloat64));
@@ -291,6 +299,22 @@ void HydroImpl::reset() {
       register_buffer("gwfix_pending", torch::zeros({1}, torch::kFloat64));
   _gwfix_wall =
       register_buffer("gwfix_wall", torch::zeros({1}, torch::kFloat64));
+}
+
+torch::Tensor HydroImpl::positivity_hits() const {
+  return pmb->pefs->slot(EfStatus::kPosHits);
+}
+torch::Tensor HydroImpl::positivity_severe() const {
+  return pmb->pefs->slot(EfStatus::kPosSevere);
+}
+torch::Tensor HydroImpl::positivity_min() const {
+  return pmb->pefs->slot(EfStatus::kPosMin);
+}
+torch::Tensor HydroImpl::lim_cut() const {
+  return pmb->pefs->slot(EfStatus::kLimCut);
+}
+torch::Tensor HydroImpl::lim_flux() const {
+  return pmb->pefs->slot(EfStatus::kLimFlux);
 }
 
 bool HydroImpl::is_x1_wall(int f) const {

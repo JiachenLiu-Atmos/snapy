@@ -267,6 +267,7 @@ void MeshBlockImpl::reset() {
   }
 
   //// -------- (6) set up hydro model -------- ////
+  pefs = std::make_shared<EfStatus>();
   phydro = HydroImpl::create(options->hydro(), this);
   if (options->verbose()) {
     SINFO(MeshBlock) << "using hydro type: " << phydro->peos->options->type()
