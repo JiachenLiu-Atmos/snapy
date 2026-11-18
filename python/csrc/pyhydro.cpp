@@ -27,18 +27,8 @@ void bind_hydro(py::module& m) {
              a->report(ss);
              return fmt::format("HydroOptions(\n{})", ss.str());
            })
-      .ADD_OPTION(bool, snap::HydroOptionsImpl, verbose)
-      .ADD_OPTION(bool, snap::HydroOptionsImpl, disable_flux_x1)
-      .ADD_OPTION(bool, snap::HydroOptionsImpl, disable_flux_x2)
-      .ADD_OPTION(bool, snap::HydroOptionsImpl, disable_flux_x3)
-      .ADD_OPTION(bool, snap::HydroOptionsImpl, wb_wall_clamp)
-      .ADD_OPTION(int, snap::HydroOptionsImpl, conversion_order)
-      .ADD_OPTION(bool, snap::HydroOptionsImpl, flux_covariance)
-      .ADD_OPTION(bool, snap::HydroOptionsImpl, x1_mass_covariance)
-      .ADD_OPTION(std::string, snap::HydroOptionsImpl, conserve_axial_momentum)
-      .ADD_OPTION(bool, snap::HydroOptionsImpl, conserve_axial_momentum_closure)
-      .ADD_OPTION(bool, snap::HydroOptionsImpl, perturbation_flux)
-      .ADD_OPTION(std::string, snap::HydroOptionsImpl, precision)
+  // the dynamics/* rows of src/options/hydro.yaml
+#include <snap_options/hydro_pybind.inc>
       .ADD_OPTION(snap::ConstGravityOptions, snap::HydroOptionsImpl, grav)
       .ADD_OPTION(snap::CoriolisOptions, snap::HydroOptionsImpl, coriolis)
       .ADD_OPTION(snap::DiffusionOptions, snap::HydroOptionsImpl, diffusion)

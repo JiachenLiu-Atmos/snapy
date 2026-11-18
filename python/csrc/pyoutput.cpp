@@ -24,23 +24,9 @@ void bind_output(py::module &m) {
              a->report(ss);
              return fmt::format("OutputOptions{}", ss.str());
            })
-      .ADD_OPTION(int, snap::OutputOptionsImpl, fid)
-      .ADD_OPTION(double, snap::OutputOptionsImpl, dt)
-      .ADD_OPTION(bool, snap::OutputOptionsImpl, output_sumx1)
-      .ADD_OPTION(bool, snap::OutputOptionsImpl, output_sumx2)
-      .ADD_OPTION(bool, snap::OutputOptionsImpl, output_sumx3)
-      .ADD_OPTION(bool, snap::OutputOptionsImpl, include_ghost_zones)
-      .ADD_OPTION(bool, snap::OutputOptionsImpl, cartesian_vector)
-      .ADD_OPTION(bool, snap::OutputOptionsImpl, double_precision)
-      .ADD_OPTION(std::vector<double>, snap::OutputOptionsImpl, x1_slice)
-      .ADD_OPTION(std::vector<double>, snap::OutputOptionsImpl, x2_slice)
-      .ADD_OPTION(std::vector<double>, snap::OutputOptionsImpl, x3_slice)
-      .ADD_OPTION(std::vector<std::string>, snap::OutputOptionsImpl, variables)
-      .ADD_OPTION(std::string, snap::OutputOptionsImpl, file_type)
-      .ADD_OPTION(std::string, snap::OutputOptionsImpl, data_format)
-      .ADD_OPTION(bool, snap::OutputOptionsImpl, combine)
-      .ADD_OPTION(bool, snap::OutputOptionsImpl, verbose)
-      .ADD_OPTION(bool, snap::OutputOptionsImpl, super_resolution);
+  // the rows of src/options/output.yaml
+#include <snap_options/output_pybind.inc>
+      ;  // NOLINT(whitespace/semicolon)
 
   auto pyOutputType =
       py::class_<snap::OutputType, std::shared_ptr<snap::OutputType>>(
