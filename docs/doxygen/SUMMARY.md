@@ -30,9 +30,6 @@ The following header files have been documented with comprehensive Doxygen-style
 #### Interface Module (`src/interface/`)
 - ✅ `stride_iterator.hpp` - Random-access iterator with custom stride
 
-#### Turbulence Module (`src/turbulence/`)
-- ✅ `turbulence_model.hpp` - Base turbulence model and K-Epsilon implementation
-
 #### Core Headers
 - ✅ `src/snap.h` - Index definitions and enumerations for variable access
 
