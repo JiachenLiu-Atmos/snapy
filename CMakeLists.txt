@@ -46,6 +46,19 @@ endif()
 # Set the _GLIBCXX_USE_CXX11_ABI flag to 0 (use old ABI)
 add_compile_definitions(_GLIBCXX_USE_CXX11_ABI=${_ABI_OUTPUT})
 
+# src/options/*.yaml -> ${CMAKE_BINARY_DIR}/snap_options (<snap_options/...>)
+file(GLOB SNAP_OPTION_TABLES CONFIGURE_DEPENDS
+     ${CMAKE_CURRENT_SOURCE_DIR}/src/options/*.yaml)
+execute_process(
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_options.py
+          --out ${CMAKE_BINARY_DIR}/snap_options ${SNAP_OPTION_TABLES}
+  RESULT_VARIABLE _GEN_OPTIONS_RESULT)
+if(NOT _GEN_OPTIONS_RESULT EQUAL 0)
+  message(FATAL_ERROR "tools/gen_options.py failed (it needs PyYAML)")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             ${SNAP_OPTION_TABLES} ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_options.py)
+
 # Set MacOS deployment target
 set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0")
 

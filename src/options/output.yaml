@@ -1,0 +1,48 @@
+# Options of one entry of the deck's `outputs:` list (OutputOptionsImpl,
+# src/output/output_type.hpp). tools/gen_options.py generates the members,
+# report(), the deck reader, the Python bindings and the stub block of
+# python/snapy/output.pyi from this table. Columns: see
+# tools/gen_options.py.
+module: output
+struct: OutputOptionsImpl
+yaml_node: outputs[]
+report_title: "-- output options --"
+pyi: {file: python/snapy/output.pyi, cls: OutputOptions}
+doc: >
+  One output stream. The deck lists them under `outputs:`; each entry is
+  read with the path `outputs/<fid>` in error messages.
+options:
+  - {name: fid, type: int, default: 0, doc: "File id; set from the entry's position in the list, not from the deck."}
+  - {name: dt, key: dt, type: double, default: 0., doc: "Output interval [s]."}
+  - {name: output_sumx1, key: output_sumx1, type: bool, default: false, doc: "Sum over x1."}
+  - {name: output_sumx2, key: output_sumx2, type: bool, default: false, doc: "Sum over x2."}
+  - {name: output_sumx3, key: output_sumx3, type: bool, default: false, doc: "Sum over x3."}
+  - {name: include_ghost_zones, key: include_ghost_zones, type: bool, default: false, doc: "Write the ghost zones too."}
+  - {name: cartesian_vector, key: cartesian_vector, type: bool, default: false, doc: "Write vectors in Cartesian components."}
+  - name: double_precision
+    key: double_precision
+    type: bool
+    default: false
+    doc: >
+      Write netcdf variables as NC_DOUBLE instead of NC_FLOAT. Off by default:
+      float halves the file size and is fine for plots. Turn it on to resolve
+      relative differences below ~1e-7 (e.g. conservation checks) from the
+      output files. Only the netcdf writer implements it.
+  - {name: x1_slice, key: x1_slice, type: "list[double]", read: if_present, doc: "x1 positions to keep."}
+  - {name: x2_slice, key: x2_slice, type: "list[double]", read: if_present, doc: "x2 positions to keep."}
+  - {name: x3_slice, key: x3_slice, type: "list[double]", read: if_present, doc: "x3 positions to keep."}
+  - name: file_type
+    key: type
+    type: string
+    read: required
+    error: "OutputOptions::from_yaml: output file type must be specified"
+    doc: "Writer: netcdf, pnetcdf or restart."
+  - {name: data_format, key: data_format, type: string, read: if_present, doc: "Data format string."}
+  - {name: variables, key: variables, type: "list[string]", read: if_present, doc: "Variables to write."}
+  - {name: combine, key: combine, type: bool, default: true, doc: "Combine the per-block files after writing."}
+  - {name: verbose, key: verbose, type: bool, default: false, doc: "Verbose writer."}
+  - {name: super_resolution, key: super-resolution, type: bool, default: false, report: false, doc: "Write a refined copy of the fields."}
+checks:
+  - {after: x3_slice, throw: invalid_argument, cond: "op.x1_slice().empty() || !op.output_sumx1()", message: "Cannot request both slice and sum along x1"}
+  - {after: x3_slice, throw: invalid_argument, cond: "op.x2_slice().empty() || !op.output_sumx2()", message: "Cannot request both slice and sum along x2"}
+  - {after: x3_slice, throw: invalid_argument, cond: "op.x3_slice().empty() || !op.output_sumx3()", message: "Cannot request both slice and sum along x3"}
