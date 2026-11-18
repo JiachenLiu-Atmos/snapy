@@ -41,96 +41,9 @@ struct HydroOptionsImpl {
 
   HydroOptionsImpl() = default;
   std::shared_ptr<HydroOptionsImpl> clone() const;
-  void report(std::ostream& os) const {
-    os << "-- hydro options --\n";
-    os << "* verbose = " << verbose() << "\n"
-       << "* precision = " << precision() << "\n"
-       << "* disable_flux_x1 = " << disable_flux_x1() << "\n"
-       << "* disable_flux_x2 = " << disable_flux_x2() << "\n"
-       << "* disable_flux_x3 = " << disable_flux_x3() << "\n"
-       << "* flux_covariance = " << flux_covariance() << "\n"
-       << "* x1_mass_covariance = " << x1_mass_covariance() << "\n"
-       << "* conserve_axial_momentum = " << conserve_axial_momentum() << "\n"
-       << "* conserve_axial_momentum_closure = "
-       << conserve_axial_momentum_closure() << "\n";
-  }
-
-  //! verbose
-  ADD_ARG(bool, verbose) = false;
-
-  ADD_ARG(bool, disable_flux_x1) = false;
-  ADD_ARG(bool, disable_flux_x2) = false;
-  ADD_ARG(bool, disable_flux_x3) = false;
-
-  //! Keep the well-balanced x1 reference's stencils off the wall ghosts
-  ADD_ARG(bool, wb_wall_clamp) = true;
-
-  //! order of the x1 cell-average <-> point conversion of the primitives: 2
-  //! (W of the averages) or 4 (hydro_forward.cpp); x2/x3 stay second order
-  ADD_ARG(int, conversion_order) = 2;
-  //! store hydro_u rows IDN and IPR as anomalies about a static fp64
-  //! reference (fp32 roadmap, Step 1). YAML `dynamics: {anomaly: true}`,
-  //! overridden by SNAP_ANOMALY=0|1. Off: every path is unchanged.
-  ADD_ARG(bool, anomaly) = false;
-  ADD_ARG(bool, perturbation_flux) = false;
-  ADD_ARG(std::string, precision) = "float64";
-
-  //! dynamics/flux-covariance: the O(dx1^2) x1 covariance term of the x2/x3
-  //! face fluxes (#289). A scheme choice: every block of a run must make the
-  //! same one, or the shared faces stop being single-valued; blocks built from
-  //! one deck do. Off restores the plain face product.
-  ADD_ARG(bool, flux_covariance) = true;
-
-  //! dynamics/x1-mass-covariance: subtract the x1 rho-w covariance
-  //! dz^2/12 rho_1 w_1 / rho from the reconstructed cell velocity; needs at
-  //! least 3 x1 cells per block. Same every-block rule as flux_covariance.
-  ADD_ARG(bool, x1_mass_covariance) = false;
-
-  //! dynamics/conserve-axial-momentum: off (default), transport or full.
-  //! Axial angular momentum (AAM) in flux form on the gnomonic-equiangle grid:
-  //! the component of each cell's flux divergence and x1 metric source along
-  //! the rotation about the omega1 axis is the divergence of face AAM fluxes,
-  //! so transport changes the global AAM only through physical boundary faces
-  //! (see GnomonicEquiangle). It needs no Coriolis force or one of type xyz
-  //! about omega1, and does nothing on other grids (Hydro::axial_flux_form).
-  //! The Coriolis force stays in cell form, which does no work. The relative
-  //! AAM is exact without rotation. With rotation the Coriolis exchange with
-  //! the planetary AAM is left open. Measured in 3D with one jet, for
-  //! Omega / (u / a) of 0.5 to 1: the drift is 110 to 290 times smaller than
-  //! off at C8 and 50 to 130 times at C16 (the gain shrinks with resolution).
-  //! At a ratio of 14 it was larger than off, where the two errors of off
-  //! cancel in part. In 2D shallow water (Williamson 2, C16) the gain with
-  //! rotation is small: 1.7 times at a ratio of 1, 1.1 at 12. Shallow-water
-  //! noise decays as with off (what is left after 4000 steps is within x1.4 of
-  //! off up to 4 Omega).
-  //! full (#357): transport plus a Coriolis torque in flux form on the
-  //! solver's dissipative x2/x3 mass flux M - M_central (M_central = 1/2
-  //! (F(wL, wL) + F(wR, wR)) from the same face states), added along the
-  //! rotation to the cell-form force. It reduces the open Coriolis exchange
-  //! but is NOT exact: the residual V (K . F_cell - rate(M_central)) remains.
-  //! The x1 faces are not part of this torque: in 3D the x1 exchange is
-  //! already closed by the Coriolis rows that take rho w from the stage's x1
-  //! mass transfers (Hydro::forward step 8); with coriolis/traditional: true
-  //! those rows are absent and the x1 exchange stays open, as the equations
-  //! leave it. It needs geometry/cells/interp_order: 4 (cubic panel-edge
-  //! ghosts). Measured: shallow-water Williamson 2 at the Earth's rate, C16,
-  //! 200 steps, drift 29.8 times below off (transport 1.1); the 3D arms of
-  //! the test at Omega = 5e-6, 2000 steps, 217-589 times below off
-  //! (transport 119-143); on the test's rest deck (C16 4 Omega, 4000 steps)
-  //! it keeps 12.3 times the kinetic energy of transport (both decay); noisy
-  //! jet, u0 = 38.6 / k, 8000 steps, KE_full / KE_off: C16 k = 1..4 1.065 /
-  //! 1.100 / 1.090 / 1.066 (full's own KE growing for k >= 2), C32 k = 2 / 3 /
-  //! 4 1.005 / 1.005 / 1.012 (k = 4 run to 16000 steps, no trend). Cost:
-  //! 1.14-1.30 times the wall time of off at C16, 1.32-1.48 at C32 (2 extra
-  //! Riemann calls per x2/x3 direction). Not yet run in a GCM configuration.
-  ADD_ARG(std::string, conserve_axial_momentum) = "off";
-  //! dynamics/conserve-axial-momentum-closure (needs full; default false): per
-  //! RK stage, the residual full leaves, R = sum V (K . F_cell -
-  //! rate(M_central)), is removed as one solid-body increment d(rho u_east) =
-  //! -rho s R dt / I, I = sum V rho s^2, s = r cos(lat), with R and I summed
-  //! over all blocks (one allreduce). Physical torques (drag, sponges,
-  //! forcings) are not part of R and are kept.
-  ADD_ARG(bool, conserve_axial_momentum_closure) = false;
+  // the dynamics/* option rows and report(), generated from
+  // src/options/hydro.yaml by tools/gen_options.py
+#include <snap_options/hydro_members.inc>
 
   //! forcing options
   ADD_ARG(ConstGravityOptions, grav) = nullptr;

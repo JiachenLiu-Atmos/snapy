@@ -1,0 +1,23 @@
+# Lane S's distribute options parsing (layout.cpp:249-272 at 9e5de2d4),
+# accepted into lane O's schema (O.rst section 9.3). A rows-only table:
+# tools/gen_options.py generates DistributeRows with read(config, verbose);
+# lane S maps it onto LayoutOptionsImpl. Columns: see tools/gen_options.py.
+module: layout
+rows_name: DistributeRows
+yaml_node: distribute
+args: bool verbose = false
+includes: [snap/layout/layout.hpp]  # default_backend()
+doc: >
+  The deck keys of `distribute:` and the process-group environment.
+  blocks_per_process is read by MeshOptions; backend is accepted but dead
+  since #181 (the BACKEND environment variable selects it).
+extra_keys:
+  "": [layout, nb1, nb2, nb3, verbose, blocks_per_process, backend]
+options:
+  - {name: type, key: layout, type: string, default: slab, doc: "Layout: slab or cubed-sphere."}
+  - {name: py, key: nb3, type: int, default: 1, doc: "Blocks along x3."}
+  - {name: px, key: nb2, type: int, default: 1, doc: "Blocks along x2."}
+  - {name: pz, key: nb1, type: int, default: 1, doc: "Blocks along x1."}
+  - {name: verbose, key: verbose, type: bool, default: false, read_default: {cpp: verbose}, doc: "Verbose; the deck value defaults to the reader's verbose argument."}
+  - {name: backend, type: string, default: {cpp: default_backend()}, env: BACKEND, doc: "Process-group backend: BACKEND, else default_backend() (ucx on Linux with UCX, else gloo)."}
+  - {name: device, type: string, default: cpu, env: DEVICE, env_default: cpu, doc: "Device; DEVICE sets it, cpu when unset."}
