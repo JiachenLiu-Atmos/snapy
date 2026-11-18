@@ -19,7 +19,6 @@
 #include <snap/input/read_restart_file.hpp>
 #include <snap/output/output_formats.hpp>
 #include <snap/output/restart_metadata.hpp>
-#include <snap/utils/fp32_storage.hpp>
 #include <snap/utils/log.hpp>
 #include <snap/utils/signal_handler.hpp>
 
@@ -615,30 +614,6 @@ void MeshBlockImpl::forward(Variables &vars, double dt, int stage) {
   // one-signed seam bias on the cubed sphere.
   exchange_ghost_zones(vars);
   advance_local(vars, dt, stage);
-  round_storage_after_stage(vars, stage);
-}
-
-bool MeshBlockImpl::round_storage(Variables &vars) const {
-  auto const &cfg = fp32_storage_config();
-  if (cfg.mode == Fp32StorageConfig::kOff) return false;
-  auto hydro_u = vars.at("hydro_u");
-  round_through_fp32_(hydro_u,
-                      resolve_fp32_storage_rows(cfg.rows, hydro_u.size(0)));
-  if (vars.count("scalar_s") && vars.at("scalar_s").defined() &&
-      vars.at("scalar_s").numel() > 0) {
-    auto scalar_s = vars.at("scalar_s");
-    round_through_fp32_(scalar_s, {});
-    set_scalar_primitive(vars, scalar_s, hydro_u, *phydro);
-  }
-  return true;
-}
-
-bool MeshBlockImpl::round_storage_after_stage(Variables &vars,
-                                              int stage) const {
-  auto const &cfg = fp32_storage_config();
-  if (!fp32_storage_due(cfg, stage, static_cast<int>(pintg->stages.size())))
-    return false;
-  return round_storage(vars);
 }
 
 void MeshBlockImpl::exchange(Variables &vars, SyncOptions const &opts) const {
