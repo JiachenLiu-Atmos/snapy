@@ -64,7 +64,7 @@ $$
 - The window $s_i = \max(\mathrm{lo}, \min(\mathrm{hi}-4, i-2))$ is centred, and kept inside the owned cells at
   a physical x1 wall ($\mathrm{lo} = i_s$, $\mathrm{hi} = i_u$), inside the whole array at a seam. The
   outermost ghosts' windows are off-centre there, so after the conversion the seam ghost rows are replaced
-  by the x1 neighbour's own plain means (`HydroImpl::_x1_ghost_rows`), which is what one block holds.
+  by the x1 neighbour's own plain means (`Exchange::x1_rows`), which is what one block holds.
 - The $5\times5$ moment matrix $\langle x^n\rangle_{s+k}$ is integrated by four-point Gauss-Legendre, exact
   because $x^n r^2$ has degree $\le 6$, and solved once per block (dense, partial pivoting).
 - Exactness to degree 4 makes the conversion error $O(h^5 q^{(5)})$ times an $O(h/r)$ measure factor, i.e.

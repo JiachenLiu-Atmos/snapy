@@ -4,10 +4,10 @@
 // SNAP_X1_CENTROID_EXACT reads past the seam twice: the r^2 -> plain-mean
 // conversion of the ghost cells (five-cell window) and the pressure source
 // (six-face window, two faces past the seam). Both take the neighbour's
-// values (hydro.cpp _x1_ghost_rows), so after 20 steps of a seeded column
-// the two states agree to round-off, with the full pressure force and in
-// hydrostatic-split mode. RED before that exchange (one-sided windows at
-// every block edge).
+// values (Exchange::x1_rows, layout/exchange.cpp), so after 20 steps of a
+// seeded column the two states agree to round-off, with the full pressure
+// force and in hydrostatic-split mode. RED before that exchange (one-sided
+// windows at every block edge).
 //
 // The corrected-PE work of gravity-work: face exchanges the stage's density
 // change across the seam and takes the centred slope there, one-sided only at

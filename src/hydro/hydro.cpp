@@ -8,6 +8,7 @@
 #include <snap/snap.h>
 
 #include <snap/coord/x1_centroid.hpp>
+#include <snap/layout/exchange.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/utils/log.hpp>
 
@@ -348,47 +349,7 @@ bool HydroImpl::radial_exact_work() const {
 }
 
 std::pair<int, int> HydroImpl::x1_neighbors() const {
-  auto layout = pmb->get_layout();
-  if (!layout || layout->options->periodic_z() || layout->options->pz() <= 1)
-    return {-1, -1};
-  auto iloc = layout->loc_of(layout->options->rank());
-  return {layout->neighbor_rank(iloc, {0, 0, -1}),
-          layout->neighbor_rank(iloc, {0, 0, 1})};
-}
-
-void HydroImpl::_x1_ghost_rows(torch::Tensor f, int m, bool faces,
-                               int tag) const {
-  auto [below, above] = x1_neighbors();
-  if (below < 0 && above < 0) return;
-  auto layout = pmb->get_layout();
-  int is = pmb->pcoord->il(), iu = pmb->pcoord->iu(), o = faces ? 1 : 0;
-  std::vector<std::vector<torch::Tensor>> sbufs;
-  std::vector<CommWorkPtr> sends;
-  sbufs.reserve(2);
-  // same board / process-group pairing as the W ghost-row exchange
-  auto post = [&](torch::Tensor rows, int to, int t) {
-    if (layout->is_local_block(to)) {
-      layout->post_to_local_block(to, rows, t);
-    } else {
-      sbufs.push_back({rows.contiguous()});
-      sends.push_back(layout->send_to_block(sbufs.back(), to, t));
-    }
-  };
-  auto take = [&](int from, int t) {
-    if (layout->is_local_block(from))
-      return layout->take_from_local_block(from, t);
-    std::vector<torch::Tensor> rbuf = {
-        torch::empty_like(f.narrow(-1, 0, m).contiguous())};
-    layout->recv_from_block(rbuf, from, t)->wait();
-    return rbuf[0];
-  };
-  // up: my top rows are the above block's lower ghosts; down: my bottom rows
-  // (past the seam face, for faces) are the below block's upper ghosts
-  if (above >= 0) post(f.narrow(-1, iu + 1 - m, m), above, tag);
-  if (below >= 0) post(f.narrow(-1, is + o, m), below, tag + 1);
-  if (below >= 0) f.narrow(-1, is - m, m).copy_(take(below, tag));
-  if (above >= 0) f.narrow(-1, iu + 1 + o, m).copy_(take(above, tag + 1));
-  for (auto& sw : sends) sw->wait();
+  return Exchange(pmb).x1_neighbors();
 }
 
 bool HydroImpl::face_work_in_operator() const {
@@ -597,19 +558,13 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w, torch::Tensor const& dw,
   // local top anchor.
   constexpr int kWbRefTag = 0x7715;
   torch::Tensor anchor;
-  int below = -1;
-  int above = -1;
-  auto layout = pmb->get_layout();
   // pz==nb1: relay only across a SPLIT x1 column (else unmatched send/recv at
-  // nb1=1)
-  bool x1_split =
-      layout && !layout->options->periodic_z() && layout->options->pz() > 1;
+  // nb1=1); below is toward x1-inner, above toward x1-outer
+  Exchange ex(pmb);
+  auto [below, above] = ex.x1_neighbors();
+  bool x1_split = below >= 0 || above >= 0;
   if (x1_split) {
-    auto iloc = layout->loc_of(layout->options->rank());
-    above = layout->neighbor_rank(iloc, {0, 0, 1});   // toward x1-outer
-    below = layout->neighbor_rank(iloc, {0, 0, -1});  // toward x1-inner
-    anchor = layout->take_x1_anchor(
-        above,
+    anchor = ex.unpack_anchor(
         torch::empty({w.size(1), w.size(2), paired ? (fp32() ? 3 : 2) : 1},
                      w.options()),
         kWbRefTag);
@@ -684,7 +639,7 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w, torch::Tensor const& dw,
       if (fp32()) fields.push_back(split->gauge);
       outgoing = torch::cat(fields, -1);
     }
-    layout->pass_x1_anchor(below, outgoing, kWbRefTag);
+    ex.pack_anchor(outgoing, kWbRefTag);
   }
 
   // Ghost-row reference exchange across x1 seams: overwrite this block's
@@ -699,55 +654,15 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w, torch::Tensor const& dw,
   // seam-face states agree and the single-valued seam flux average becomes a
   // no-op. nb1=1: no seams, bit-unchanged. A same-process neighbor goes
   // through a board, a remote one through the process group (#254).
-  if (x1_split && (below >= 0 || above >= 0)) {
-    constexpr int kWbGhostUpTag = 0x7717;
-    constexpr int kWbGhostDnTag = 0x7718;
-    int ng = is;  // il() == nghost
-    std::vector<std::vector<torch::Tensor>> sbufs;
-    std::vector<CommWorkPtr> sends;
-    auto post = [&](torch::Tensor rows, int to, int tag) {
-      if (layout->is_local_block(to)) {
-        layout->post_to_local_block(to, rows, tag);
-      } else {
-        sbufs.push_back({rows.contiguous()});
-        sends.push_back(layout->send_to_block(sbufs.back(), to, tag));
-      }
-    };
-    auto take = [&](int from, int tag) {
-      if (layout->is_local_block(from))
-        return layout->take_from_local_block(from, tag);
-      std::vector<torch::Tensor> rbuf = {torch::empty(
-          {w.size(1), w.size(2), (paired ? 4 : 2) * ng}, w.options())};
-      layout->recv_from_block(rbuf, from, tag)->wait();
-      return rbuf[0];
-    };
-    auto pack = [&](int start) {
-      std::vector<torch::Tensor> fields = {pref.narrow(-1, start, ng),
-                                           dref.narrow(-1, start, ng)};
-      if (paired) {
-        fields.push_back(split->cell0.narrow(-1, start, ng));
-        fields.push_back(split->cell_delta.narrow(-1, start, ng));
-      }
-      return torch::cat(fields, -1);
-    };
-    auto unpack = [&](torch::Tensor const& rows, int start) {
-      pref.narrow(-1, start, ng).copy_(rows.narrow(-1, 0, ng));
-      dref.narrow(-1, start, ng).copy_(rows.narrow(-1, ng, ng));
-      if (paired) {
-        split->cell0.narrow(-1, start, ng).copy_(rows.narrow(-1, 2 * ng, ng));
-        split->cell_delta.narrow(-1, start, ng)
-            .copy_(rows.narrow(-1, 3 * ng, ng));
-      }
-    };
-    sbufs.reserve(2);
-    if (above >= 0) {  // my top interior rows are the above block's lower
-                       // ghosts
-      post(pack(iu - ng + 1), above, kWbGhostUpTag);
+  if (x1_split) {
+    constexpr int kWbGhostTag = 0x7717;  // up; down is kWbGhostTag + 1
+    int ng = is;                         // il() == nghost
+    std::vector<torch::Tensor> fields = {pref, dref};
+    if (paired) {
+      fields.push_back(split->cell0);
+      fields.push_back(split->cell_delta);
     }
-    if (below >= 0) post(pack(is), below, kWbGhostDnTag);
-    if (below >= 0) unpack(take(below, kWbGhostUpTag), 0);
-    if (above >= 0) unpack(take(above, kWbGhostDnTag), iu + 1);
-    for (auto& sw : sends) sw->wait();
+    ex.x1_rows(fields, ng, false, kWbGhostTag);
   }
 
   // conversion-order 4: the face density is the fourth-order face value of

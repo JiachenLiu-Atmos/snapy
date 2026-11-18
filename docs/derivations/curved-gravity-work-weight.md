@@ -194,7 +194,7 @@ minus (2).
 3. Closed walls need nothing beyond the one-sided slope stencil: conservation does not use the wall fluxes' value
    (they are zero), and the wall cells converge at $h^{4.4-4.6}$. At an internal x1 block seam the
    slope is the centred one a single block takes (#303): the explicit work exchanges one row of the stage's
-   $\Delta\rho$ with the x1 neighbour (`_x1_ghost_rows`; a ghost $\Delta\rho$ cannot be computed locally, because it
+   $\Delta\rho$ with the x1 neighbour (`Exchange::x1_rows`; a ghost $\Delta\rho$ cannot be computed locally, because it
    needs the mass flux on the ghost cell's far face, which no block computes), and the logged `pe=` reads the
    ghost $\rho$, which the mesh exchanges after every stage. The work and $P$ are then those of one block, and
    a split column gives the one-block state: measured (`tests/test_x1_seam_split.cpp`, isothermal spherical

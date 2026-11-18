@@ -8,6 +8,7 @@
 
 #include <snap/coord/x1_centroid.hpp>
 #include <snap/eos/ideal_moist.hpp>
+#include <snap/layout/exchange.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/utils/log.hpp>
 
@@ -242,15 +243,16 @@ torch::Tensor HydroImpl::scalar_flux_covariance(torch::Tensor const& rl,
   };
   // past an x1 seam wl/wr hold the neighbour's rows (x1_seam_rows in
   // forward()); the scalar's own face states take the same rows
-  auto seam = [&](torch::Tensor const& f, int tag) {
-    auto [below, above] = x1_neighbors();
-    if (below < 0 && above < 0) return f;
-    auto g = f.clone();
-    _x1_ghost_rows(g, 1, false, tag);
-    return g;
-  };
-  auto q = 0.5 * (seam(rl, 0x7740 + 4 * k) * dry_fraction(wl) +
-                  seam(rr, 0x7742 + 4 * k) * dry_fraction(wr));
+  // both sides travel in one x1 message (S's merge M5)
+  auto sl = rl, sr = rr;
+  Exchange ex(pmb);
+  auto [below, above] = ex.x1_neighbors();
+  if (below >= 0 || above >= 0) {
+    sl = rl.clone();
+    sr = rr.clone();
+    ex.x1_rows({sl, sr}, 1, false, 0x7740 + 4 * k);
+  }
+  auto q = 0.5 * (sl * dry_fraction(wl) + sr * dry_fraction(wr));
 
   // the face-normal velocity and the geometry, as in _flux_covariance
   auto wbar = 0.5 * (wl + wr);
@@ -488,7 +490,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // background, as the block's own outflow)
     Variables gv{{"hydro_w", w}};
     pmb->exchange(gv, SyncOptions().interpolate(true).type(kPrimitive));
-    _x1_ghost_rows(w, ng, false, 0x772a);
+    Exchange(pmb).x1_rows({w}, ng, false, 0x772a);
     BoundaryFuncOptions bop;
     bop.nghost(ng);
     bop.type(kPrimitive);
@@ -659,7 +661,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
                          !is_outflow(pmb->options->bfuncs()[1]));
       // seam ghosts: the neighbour's centred plain means, not this block's
       // off-centre ones
-      _x1_ghost_rows(wx1, pmb->pcoord->il(), false, 0x7724);
+      Exchange(pmb).x1_rows({wx1}, pmb->pcoord->il(), false, 0x7724);
     }
     torch::Tensor wtmp;
     if (wb_x1) {
@@ -877,14 +879,10 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // as with one block per process; a same-process seam is not averaged.
     if (!options->disable_flux_x1() && playout &&
         playout->has_process_group() && playout->options->pz() > 1) {
-      auto iloc = playout->loc_of(playout->options->rank());
-      int above = playout->neighbor_rank(iloc, {0, 0, 1});
-      int below = playout->neighbor_rank(iloc, {0, 0, -1});
-      if (above >= 0 && playout->is_local_block(above)) above = -1;
-      if (below >= 0 && playout->is_local_block(below)) below = -1;
+      Exchange ex(pmb);
+      auto [below, above] = ex.x1_seam_peers(/*process_only=*/true);
       if (above >= 0 || below >= 0) {
-        constexpr int kSeamFluxUpTag = 0x7720;  // payload travels upward
-        constexpr int kSeamFluxDnTag = 0x7721;  // payload travels downward
+        constexpr int kSeamFluxTag = 0x7720;  // up; down is kSeamFluxTag + 1
         int il = pmb->pcoord->il();
         int iu = pmb->pcoord->iu();
         int nv = _flux1.size(0);
@@ -915,29 +913,14 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
             pressure_base1.select(-1, face).copy_(avg[row]);
         };
 
-        std::vector<CommWorkPtr> seam_sends;
-        std::vector<torch::Tensor> up_mine, dn_mine;
-        if (above >= 0) {
-          up_mine = {pack(iu + 1)};
-          seam_sends.push_back(
-              playout->send_to_block(up_mine, above, kSeamFluxUpTag));
-        }
-        if (below >= 0) {
-          dn_mine = {pack(il)};
-          seam_sends.push_back(
-              playout->send_to_block(dn_mine, below, kSeamFluxDnTag));
-        }
-        if (above >= 0) {
-          std::vector<torch::Tensor> theirs = {torch::empty_like(up_mine[0])};
-          playout->recv_from_block(theirs, above, kSeamFluxDnTag)->wait();
-          unpack(iu + 1, 0.5 * (up_mine[0] + theirs[0]));
-        }
-        if (below >= 0) {
-          std::vector<torch::Tensor> theirs = {torch::empty_like(dn_mine[0])};
-          playout->recv_from_block(theirs, below, kSeamFluxUpTag)->wait();
-          unpack(il, 0.5 * (dn_mine[0] + theirs[0]));
-        }
-        for (auto& sw : seam_sends) sw->wait();
+        // S moves the slabs; the rule (the mean of both sides) stays here
+        torch::Tensor up_mine, dn_mine;
+        if (above >= 0) up_mine = pack(iu + 1);
+        if (below >= 0) dn_mine = pack(il);
+        auto [from_below, from_above] =
+            ex.x1_seam_slab(dn_mine, up_mine, kSeamFluxTag, true);
+        if (above >= 0) unpack(iu + 1, 0.5 * (up_mine + from_above));
+        if (below >= 0) unpack(il, 0.5 * (dn_mine + from_below));
       }
     }
 
@@ -946,8 +929,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     if (wx1.data_ptr() != w.data_ptr() && _face_pressure1.defined() &&
         _face_pressure1.numel() > 0 &&
         options->eos()->type() != "shallow-water") {
-      _x1_ghost_rows(_face_pressure1, std::min(2, pmb->pcoord->il()), true,
-                     0x7722);
+      Exchange(pmb).x1_rows({_face_pressure1}, std::min(2, pmb->pcoord->il()),
+                            true, 0x7722);
     }
 
     // SNAP_X1_CENTROID_EXACT: the pressure force is the r^2-weighted
@@ -1052,12 +1035,16 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   // there a split column's face states must be the neighbour's own (its
   // interior row), so a seam cell takes the stencil of one block. Physical x1
   // walls and an unsplit column keep their rows and the same tensor.
-  auto x1_seam_rows = [&](torch::Tensor const& f, int tag) {
-    auto [below, above] = x1_neighbors();
-    if (below < 0 && above < 0) return f;
-    auto g = f.clone();
-    _x1_ghost_rows(g, 1, false, tag);
-    return g;
+  // the left and right face states travel in one x1 message (S's merge M4,
+  // per direction)
+  auto x1_seam_rows = [&](torch::Tensor const& fl, torch::Tensor const& fr,
+                          int tag) {
+    Exchange ex(pmb);
+    auto [below, above] = ex.x1_neighbors();
+    if (below < 0 && above < 0) return std::make_pair(fl, fr);
+    auto gl = fl.clone(), gr = fr.clone();
+    ex.x1_rows({gl, gr}, 1, false, tag);
+    return std::make_pair(gl, gr);
   };
   // the covariance increment of _flux_covariance into a face flux: the whole
   // flux on a curved grid, only the nonzero rows' x1 interior in Cartesian
@@ -1089,8 +1076,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       // into the face-local frame, added to the flux after
       torch::Tensor cwl, cwr;
       if (flux_covariance()) {
-        cwl = x1_seam_rows(wlr2[ILT], 0x7730);
-        cwr = x1_seam_rows(wlr2[IRT], 0x7732);
+        std::tie(cwl, cwr) = x1_seam_rows(wlr2[ILT], wlr2[IRT], 0x7730);
       }
       auto dcov = flux_covariance() ? _flux_covariance(cwl, cwr, DIM2)
                                     : torch::Tensor();
@@ -1124,8 +1110,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       // horizontal face it crosses
       torch::Tensor cwl, cwr;
       if (flux_covariance()) {
-        cwl = x1_seam_rows(wlr3[ILT], 0x7734);
-        cwr = x1_seam_rows(wlr3[IRT], 0x7736);
+        std::tie(cwl, cwr) = x1_seam_rows(wlr3[ILT], wlr3[IRT], 0x7734);
       }
       auto dcov = flux_covariance() ? _flux_covariance(cwl, cwr, DIM3)
                                     : torch::Tensor();
@@ -1534,7 +1519,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         shape.back() = pmb->pcoord->x1v.size(0);
         auto full = torch::zeros(shape, drho.options());
         full.slice(-1, is, ie).copy_(drho);
-        _x1_ghost_rows(full, 1, false, 0x7726);
+        Exchange(pmb).x1_rows({full}, 1, false, 0x7726);
         face_gravity_work += corrected_pe_work_seam(
             full, pmb->pcoord->x1f, pmb->pcoord->x1v, is, ie, grav1, measure,
             below >= 0, above >= 0, &_pe_work);
