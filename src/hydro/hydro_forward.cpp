@@ -615,8 +615,9 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   };
   //// ------------ (2) Calculate dimension 1 flux ------------ ////
   if (u.size(DIM1) > 1) {
-    // Hydrostatic wall revision is a PHYSICAL-boundary operation: it rebuilds
-    // the x1 boundary in isentropic balance. On a domain decomposed in x1
+    // Hydrostatic wall revision is a PHYSICAL-boundary operation: it copies
+    // the interior side's pressure and density to the ghost side of the x1
+    // wall face (_revise_x1*_lr below). On a domain decomposed in x1
     // (cubed nb1>1), a block's local il/iu at an internal seam is NOT a
     // physical boundary — the neighbor's data has already been exchanged
     // there — so applying the wall extrapolation would clobber the true
@@ -626,11 +627,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     bool grav1 = options->grav() && (options->grav()->grav1() != 0);
     bool phys_x1inner = pmb->options->is_physical_boundary(0, 0, -1);
     bool phys_x1outer = pmb->options->is_physical_boundary(0, 0, 1);
-
-    /*if (grav1) {
-      if (phys_x1inner) _revise_x1inner_ghost(w);
-      if (phys_x1outer) _revise_x1outer_ghost(w);
-    }*/
 
     // Well-balanced x1 reconstruction: decompose pressure and density into a
     // discretely hydrostatic reference + perturbation, reconstruct only the

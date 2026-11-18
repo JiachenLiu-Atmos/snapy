@@ -369,9 +369,6 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   torch::Tensor total_u(torch::Tensor const& u) const;
 
  protected:
-  void _revise_x1inner_ghost(torch::Tensor const& w);
-  void _revise_x1outer_ghost(torch::Tensor const& w);
-
   void _revise_x1inner_lr(torch::Tensor const& wl, torch::Tensor const& wr);
   void _revise_x1outer_lr(torch::Tensor const& wl, torch::Tensor const& wt);
 

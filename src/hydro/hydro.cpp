@@ -562,46 +562,6 @@ void HydroImpl::_revise_x1outer_lr(torch::Tensor const& wl,
   wr[IDN].narrow(-1, ie + 1, 1) = wl[IDN].narrow(-1, ie + 1, 1);
 }
 
-void HydroImpl::_revise_x1inner_ghost(torch::Tensor const& w) {
-  auto pcoord = pmb->pcoord;
-  int is = pcoord->il();
-  auto grav = -options->grav()->grav1();
-
-  auto gamma = peos->compute("W->A", {w.narrow(-1, is, 1)});
-  auto gm = gamma - 1.;
-  auto a = gm / gamma;
-  auto K = w[IPR].narrow(-1, is, 1) / w[IDN].narrow(-1, is, 1).pow(gamma);
-
-  for (int n = 0; n < pcoord->options->nghost(); ++n) {
-    auto dz = pmb->pcoord->dx1v[is - n - 1];
-    auto h =
-        w[IPR].narrow(-1, is - n, 1).pow(a) + a * grav * dz / K.pow(1. / gamma);
-    w[IPR].narrow(-1, is - n - 1, 1) = h.pow(1. / a);
-    w[IDN].narrow(-1, is - n - 1, 1) =
-        (w[IPR].narrow(-1, is - n - 1, 1) / K).pow(1. / gamma);
-  }
-}
-
-void HydroImpl::_revise_x1outer_ghost(torch::Tensor const& w) {
-  auto pcoord = pmb->pcoord;
-  int ie = pcoord->iu();
-  auto grav = -options->grav()->grav1();
-
-  auto gamma = peos->compute("W->A", {w.narrow(-1, ie, 1)});
-  auto gm = gamma - 1.;
-  auto a = gm / gamma;
-  auto K = w[IPR].narrow(-1, ie, 1) / w[IDN].narrow(-1, ie, 1).pow(gamma);
-
-  for (int n = 0; n < pcoord->options->nghost(); ++n) {
-    auto dz = pmb->pcoord->dx1v[ie + n];
-    auto h =
-        w[IPR].narrow(-1, ie + n, 1).pow(a) - a * grav * dz / K.pow(1. / gamma);
-    w[IPR].narrow(-1, ie + n + 1, 1) = h.pow(1. / a);
-    w[IDN].narrow(-1, ie + n + 1, 1) =
-        (w[IPR].narrow(-1, ie + n + 1, 1) / K).pow(1. / gamma);
-  }
-}
-
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
 HydroImpl::_hydro_ref_x1(torch::Tensor const& w, torch::Tensor const& dw,
                          HydroPressureSplit* split) const {

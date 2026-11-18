@@ -115,31 +115,6 @@ torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
     return result;
   }
 
-  /* modify velocity/pressure variables
-  if (dim_size > 2 * nghost) {
-    if (options->is_boundary_lower()) {
-      il += nghost;
-    } else if (options->is_boundary_upper()) {
-      iu -= nghost;
-    }
-  } else {
-    if (options->is_boundary_lower() && !options->is_boundary_upper()) {
-      il += nghost;
-    } else if (!options->is_boundary_lower() && options->is_boundary_upper()) {
-      iu -= nghost;
-    } else if (options->is_boundary_lower() && options->is_boundary_upper()) {
-      int len1 = dim_size / 2;
-      int len2 = dim_size - len1;
-      il += len1;
-      iu -= len2;
-    }
-  }
-
-  // interior
-  auto w_ = w.narrow(0, index::IVX, 4);
-  auto wlr_ = result.narrow(1, index::IVX, 4);
-  _apply_inplace(dim, il, iu, w_, pinterp2, wlr_);*/
-
   auto eos =
       phydro ? phydro->options->eos() : EquationOfStateOptionsImpl::create();
 

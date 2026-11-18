@@ -35,19 +35,11 @@ struct ReconstructOptionsImpl {
   void report(std::ostream& os) const {
     os << "-- reconstruction options --\n";
     interp()->report(os);
-    os << "* is_boundary_lower = " << (is_boundary_lower() ? "true" : "false")
-       << "\n"
-       << "* is_boundary_upper = " << (is_boundary_upper() ? "true" : "false")
-       << "\n"
-       << "* shock = " << (shock() ? "true" : "false") << "\n"
-       << "* limiter = " << (limiter() ? "true" : "false") << "\n";
+    os << "* shock = " << (shock() ? "true" : "false") << "\n";
   }
 
   //! configure options
-  ADD_ARG(bool, is_boundary_lower) = false;
-  ADD_ARG(bool, is_boundary_upper) = false;
   ADD_ARG(bool, shock) = true;
-  ADD_ARG(bool, limiter) = false;
 
   //! abstract submodules
   ADD_ARG(InterpOptions, interp) = nullptr;
