@@ -9,7 +9,7 @@ namespace snap {
 class AxialMomentum;  // axial_momentum.hpp
 
 //! H3: m1 = phi_lo lo + phi_hi hi, phi = A x mass rows of total(1) (R:20-21);
-//! built under #355's gate, read by Coriolis and x1_mass_source_ (S-8, R-7)
+//! built under #355's gate; held by Hydro (R-7), read by Coriolis and S (S-8)
 class X1Momentum {
  public:
   torch::Tensor m1(FluxRegister const& reg) const;  //!< [nk, nj, ni]

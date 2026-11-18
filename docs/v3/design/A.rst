@@ -4,10 +4,10 @@ V3 design, lane A: rotation, axial angular momentum, sources, diffusion
 
 :Lane: A (rotation, axial angular momentum (AAM), source terms, diffusion)
 :Owner: Jiachen Liu (alternate: Xi Zhang)
-:Revision: 4.1 (design and contract only, CHANGE 5): C9, the proposal that
-           ``exact`` refuses the upwind and plume-roe Riemann solvers at
-           ``reset()`` (3.2, 10.3; FOR CHENG). Rev 4 final is 4e0827b8.
-           src/forcing 2,870 -> 2,088 (1.6).
+:Revision: 4.1 (design and contract only, CHANGE 5): C9 proposal (3.2, 10.3);
+           part 1b: m1 cite fix and ``X1Momentum`` owner (3.4), R-7/R-8
+           answered (11.4), G5 at the end of ``limit`` (D22). Rev 4 final
+           is 4e0827b8. src/forcing 2,870 -> 2,088 (1.6).
 :Reviewers (round 2): Xi (lane X), Zoey
 :Pins: snapy ``9e5de2d4ce497d0b2d4da3295fc1fe969fe7e410``; kintera ``3f5ff938``
        (section 8); lane R frozen header ``happysky19/snapy@4c59162ae37080d0ab307b2823742b44f46da7c3``
@@ -196,10 +196,12 @@ Lane I's names: ``vic.mass_total`` (kept, R.rst:165-167), and the posts
 
   * Jiheng's H1-H17 are answered by number in appendix C;
   * S-1..S-3 are restated as S rev 1.1 wrote them (1.5, 3.8);
-  * new lane A proposals pending S or R: S-4 to S-8, R-7, R-8 (11.4);
+  * new lane A proposals pending S: S-4 to S-8; R-7, R-8 (since answered,
+    11.4);
   * m1 moves into ``X1Momentum`` (3.4);
   * viscous momentum stays in the Cartesian channel until G9b (3.7);
-  * G5 moves to phase 2 (4.1); new gates G3b and G9b, G10's metric, and
+  * G5 moves to phase 2 (4.1; placed at the end of ``limit`` in rev 4.1,
+    D22); new gates G3b and G9b, G10's metric, and
     hypotheses H13-H15 (5.3, 5.4);
   * §7.3 gains the Z6 sentence and the radial split exchange;
   * the 10.3 rows gain H6's three cases and H12's ``interp_order`` refusal;
@@ -218,6 +220,17 @@ Lane I's names: ``vic.mass_total`` (kept, R.rst:165-167), and the posts
     comment;
   * no count changes: the check is one ``TORCH_CHECK`` inside the
     ``axial_momentum.cpp`` estimate of 9.2.
+* **Rev 4.1, part 1b:**
+
+  * cite fix: ``hydro_forward.cpp:1672-1680`` is the ungated gnomonic branch,
+    which does not read m1; ``:1650-1657`` stays as m1's metric-source site.
+    ``X1Momentum``'s instance is held by Hydro (R) and the class is lane
+    A's (3.4, D23);
+  * R-7 and R-8 are marked answered by Tianhao (3.4, 7.3, 11.4);
+  * J9/G5: choice (b). G5 sits at the end of ``limit`` and waits on lane S's
+    G-S-K7, because the carry rewrites the momentum rows that ``A F · K_f``
+    is built from (4.1, 5.3, 7.3; D22). The phase stays 2;
+  * no count change (2,870 -> 2,088).
 
 
 2. Concepts and current sites
@@ -368,7 +381,8 @@ at ``:1165-1190``).
 **The flux form reads the momentum rows after the limiter's carry.** Lane A's
 K-rewrite runs on ``du`` in the divergence phase, which comes after
 positivity (R:17-18). This is correct only with #370's seam-consistent
-carry; hence the gate reference in 5.3.
+carry; hence the gate reference in 5.3, and G5's position at the end of
+``limit`` (D22).
 
 Lane A therefore needs from lane R exactly the R:14-22 order:
 
@@ -505,11 +519,25 @@ are built at reset from coord's rotation data and the x1 geometry.
 * It does so whenever #355's gate holds (``hydro_forward.cpp:1319-1322``: a
   gnomonic grid, or spherical-polar with Coriolis; ``nc1 > 1``; not shallow
   water), with or without Coriolis.
-* Coord's metric source ``x1_mass_source_`` (S) needs m1 without Coriolis
-  (``:1650-1657, 1676``), so it reads ``X1Momentum`` too, as does
-  ``Coriolis``.
-* Who calls it: hydro's ``post_implicit`` (R) calls ``X1Momentum``, then
-  Coriolis, then S's metric source. That order is question R-7 (11.4).
+* Coord's metric source ``x1_mass_source_`` (S) takes m1 from the mass
+  transfers inside #355's gate (``:1650-1657``) and needs it whether or not
+  Coriolis is on, so it reads ``X1Momentum`` too, as does ``Coriolis``.
+* **The ungated gnomonic branch does not read m1** (Tianhao's correction). At
+  the pin it is ``hydro_forward.cpp:1672-1680``, the
+  ``else if (ptype == "gnomonic-equiangle")`` branch outside #355's gate
+  (``nc1 == 1`` or shallow water). It calls
+  ``x1_mass_source_(src, w, w[IDN] * w[IVX], dt)`` at ``:1676`` with the cell
+  ``ρw``, not ``X1Momentum``, and stays so. The PM's message gave these lines
+  as ``:1674-1681``/``:1677``; the pin read gives ``:1672-1680``/``:1676``.
+* **Who owns ``X1Momentum``.** Lane A owns the class (``src/forcing``).
+  Hydro (R) constructs and holds the instance at ``reset()``, because it must
+  exist without Coriolis, and R's ``post_implicit`` already books "A's m1
+  from ``A_f total(1)``" (R ``hydro_stage.hpp:61-62``). Hydro passes it by
+  reference to ``Coriolis`` and to S's metric source call.
+* **Order (R-7, answered by Tianhao).** Hydro's ``post_implicit`` calls
+  ``X1Momentum`` whenever the gate at ``hydro_forward.cpp:1319-1322`` holds,
+  with or without Coriolis, then Coriolis, then S's metric source. That is the
+  pin's order at ``:1631-1657``.
 
 3.5 FP32 restriction on exact (Q5)
 ----------------------------------
@@ -705,12 +733,21 @@ fluxes stay in coord's ``flux2global<d>_`` frame, and S rotates at seams (S-2).
 
 * AAM reads the reconciled total.
 * ``K_f`` comes from coord's rotation data in coord's ``flux2global<d>_`` frame (S-2).
-* **G5 runs in phase 2 (H10).** On x2/x3 faces, single-valuedness comes from
-  S's face-state sync before the solve (``hydro_forward.cpp:1004-1048``),
-  which is already in place. R's panel-seam ``replace`` with
-  ``SeamRule::owner_copy`` (R ``hydro_stage.hpp:49-51``, phase ``reconcile``,
-  R:16) is the register's slot for it. G5 checks the scalar ``A F · K_f``
-  after that slot.
+* **G5 runs in phase 2, at the end of ``limit``, before ``divergence``
+  (H10, J9; D22).**
+
+  * Before the carry, x2/x3 single-valuedness comes from S's face-state sync
+    before the solve (``hydro_forward.cpp:1004-1048``) and R's panel-seam
+    ``replace`` with ``SeamRule::owner_copy`` (R ``hydro_stage.hpp:49-51``,
+    ``reconcile``, R:16).
+  * But lane A's ``A F · K_f`` is built from the post-carry momentum rows (3.1),
+    and the carry rewrites the x2/x3 momentum rows on every face with each
+    side's own donor-cell velocity (``flux_positivity.cpp:150-152``, called at
+    ``hydro_forward.cpp:1234-1235`` before the scale at ``:1237``). At the pin
+    those donor-velocity ghosts are interpolated, not synced (#370 adds the
+    sync), so the carry does not keep seam single-valuedness exactly.
+  * So G5 checks ``A F · K_f`` after ``limit`` (R:17), the state lane A
+    reads, and waits on lane S's G-S-K7 there.
 * Diffusion keeps its own exchange until phase 3 (S-3).
 
 **Requirement 10.** Nothing lane A adds is restart-written:
@@ -731,7 +768,7 @@ req   section   status for lane A
 3     4.1       complies: R:85, post_split (R:80-81); stage_weight = w2 of
                 the stage (R:111, R-6 closed)
 4     4.1       complies from phase 2; diffusion from phase 3
-5     4.1       complies from phase 3; G5 after R's replace and S's seam rotation
+5     4.1       complies from phase 3; G5 at the end of limit, after G-S-K7 (D22)
 6     5.1, 7.1  complies after the 7.1 host reads go; AAM is the derived row
                 (R:34, 72-75); radial host check stays at a segment end (3.7)
 7     5.2       complies: ``AxialClosureFixer : Fixer`` posts ``cell_amount``;
@@ -874,8 +911,8 @@ G3b   block-count invariance (H14): AAM drift and     W2 C16, ``exact``, 200 ste
       {R, I} with nb = 1 vs nb = 4
 G4    ``off`` and ``transport`` against the           arms (a)-(c), (f)-(h); on sedimentation decks    bitwise    2
       reference                                       see the EF-3 rule below                          (rule)
-G5    seam single-valuedness of ``A F · K_f``         W2 C16, one stage, every panel-seam face, after  1e-14 rel  2
-                                                      the face-state sync and R's ``owner_copy`` slot
+G5    seam single-valuedness of ``A F · K_f``         W2 C16, one stage, every panel-seam face, at     1e-14 rel  2
+      (post-carry rows)                               the end of ``limit``, after lane S's G-S-K7
 G6    closure: declared vs measured AAM change        arm (l) decks                                    1e-12 rel  2
 G7    sponge / drag torque booked = AAM change        ``relax-bot-velo`` drag arm and a top-sponge     1e-15 of   2
                                                       arm, FP64, budgets on                            L
@@ -1057,13 +1094,13 @@ included.
   (R:17-18; EF.rst:648). That includes #370's cross-panel syncs of theta, the
   species enthalpy and the donor velocity (``730b3500``
   ``hydro_forward.cpp:1230, 1254-1271``). Nothing lane A reads in a stage
-  precedes that exchange.
-* **Radial split exchange (H13).** The first radial half step at
-  ``meshblock.cpp:715`` is followed by ``apply_boundaries`` and
-  ``exchange_ghost_zones`` (``:716-717``). That is an exchange segment at
-  step start, outside the stages and after R's ``post_split`` (R:6). It
-  belongs in S's exchange table (S-7), with its order relative to
-  ``post_split`` stated by R (R-8).
+  precedes that exchange. Gate G5 checks the seam scalar at the same point,
+  the end of ``limit``, after lane S's G-S-K7 (D22).
+* **Radial split exchange (H13; R-8 answered by Tianhao).** The first radial
+  half step and its ``post_split`` (``meshblock.cpp:715``; R:6) come before
+  ``apply_boundaries`` and ``exchange_ghost_zones`` (``:716-717``), which come
+  before the ``u0`` save (``:721``). That is an exchange segment at step
+  start, outside the stages. It belongs in S's exchange table (S-7).
 
 
 8. Cross-repository interface changes and merge order
@@ -1300,6 +1337,8 @@ D18 AAM on derived row ``aam``; wall transfer             R:34, 72-75; R.rst:542
 D19 metric source stays in coord; −8 in coriolis.cpp      J1 (3.4, 9.2)
 D20 radial abort kept; ``diffusion.radial`` reserved      Cheng's decision (1.5, 3.7, 4.3)
 D21 ``exact`` refuses upwind and plume-roe (proposal)     no ``riemann.central``; C9 (3.2, 10.3)
+D22 G5 at the end of ``limit``, waits on G-S-K7 (J9 b)    ``A F · K_f`` uses post-carry rows (4.1)
+D23 ``X1Momentum``: class lane A, instance held by Hydro  exists without Coriolis; R's booking (3.4)
 === ====================================================  ==========================================
 
 
@@ -1442,14 +1481,15 @@ S or R to confirm. The proposed owner is in brackets.
 * **S-8, Xinyue (lane S): the metric source reads A's m1 (H3).** Coord's
   ``x1_mass_source_`` reads lane A's ``X1Momentum`` m1, not a Coriolis
   private. [owners: A provides, S consumes]
-* **R-7, Tianhao (lane R): post_implicit order (H3).** Does hydro's
-  ``post_implicit`` (R ``hydro_stage.hpp:61-64``) call lane A's
-  ``X1Momentum`` whenever #355's gate holds (``hydro_forward.cpp:1319-1322``),
-  even without Coriolis, then Coriolis, then S's metric source? [owner: R]
-* **R-8, Tianhao (lane R): order of the radial exchange (H13).** R:6 orders
-  ``post_split`` at ``meshblock.cpp:715``, but not the exchange at
-  ``:716-717``. Please state whether that exchange comes after
-  ``post_split``. [owners: R, with X]
+* **R-7 (answered by Tianhao, lane R thread; no R sha change).** Yes:
+  hydro's ``post_implicit`` calls ``X1Momentum`` whenever the gate at
+  ``hydro_forward.cpp:1319-1322`` holds, with or without Coriolis, then
+  Coriolis, then S's metric source (pin ``:1631-1657``). Hydro holds the
+  instance (3.4).
+* **R-8 (answered by Tianhao; no R sha change).** Yes: the radial
+  ``post_split`` (``meshblock.cpp:715``) comes before the boundaries and
+  exchange (``:716-717``), which come before the ``u0`` save (``:721``)
+  (7.3).
 
 FOR CHENG: see 10.3.
 
@@ -1614,15 +1654,18 @@ reasons:**
 * **H9 (accept as a hypothesis, H13).** Phase 3 posts only diffusion's energy
   flux, and the viscous momentum keeps its Cartesian-channel divergence until
   gate G9b (plan only) shows the register route matches (3.7, 5.3).
-* **H10 (accept).** G5 runs in phase 2, after S's face-state sync and R's
-  ``owner_copy`` slot (R ``hydro_stage.hpp:49-51``, R:16) (4.1, 5.3).
+* **H10 (accept).** G5 runs in phase 2 and cites R's ``owner_copy`` slot
+  (R ``hydro_stage.hpp:49-51``, R:16). Rev 4.1 places it at the end of
+  ``limit``, after lane S's G-S-K7, because ``A F · K_f`` is built from the
+  post-carry rows (4.1, 5.3; D22).
 * **H11 (accept).** Geometry is read through one accessor, not by
   ``dynamic_cast`` (3.8). The #370 syncs and ``phyid 12`` are question S-7.
 * **H12 (accept).** ``exact`` keeps ``full``'s ``interp_order != 4`` refusal
   (``hydro.cpp:63-66``; skeleton ``AxialMomentum::check``). Refusing ``full``
   itself stays a FOR CHENG proposal (10.3).
 * **H13 (accept).** The radial split exchange at ``meshblock.cpp:716-717`` is
-  in 7.3. Cross-lane parts: S-7 (S's table) and R-8 (its order).
+  in 7.3. Cross-lane parts: S-7 (S's table) and R-8 (its order, answered:
+  ``post_split`` at 715, then 716-717, then the ``u0`` save at 721).
 * **H14 (accept as a hypothesis, H14).** New gate G3b, nb = 1 vs nb = 4 on W2
   C16, as a plan only (5.3).
 * **H15 (accept as a hypothesis, H15).** G10's metric is defined in FP64, and
