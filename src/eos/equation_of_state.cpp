@@ -1,6 +1,7 @@
 // C/C++
 #include <algorithm>
 #include <limits>
+#include <type_traits>
 
 // yaml
 #include <yaml-cpp/yaml.h>
@@ -43,6 +44,26 @@ torch::Tensor float_anomaly_floor(torch::Tensor const& floor,
   auto up = torch::nextafter(
       bound, torch::full_like(bound, std::numeric_limits<float>::infinity()));
   return torch::where(bound.to(torch::kFloat64) + ref < floor, up, bound);
+}
+
+// The one floor encoder for a conserved row (V3 EF D5). Totals: the row is
+// clamped at floor (a number or a tensor). Anomalies (ref defined): at
+// floor - ref, in FP32 storage the upward-rounded float_anomaly_floor, so the
+// total the row reconstructs is not below floor. Inactive cells keep their
+// bits as they are.
+template <typename Floor>
+void floor_row_(torch::Tensor row, Floor const& floor, torch::Tensor const& ref,
+                bool float_anomaly) {
+  if (!ref.defined()) {
+    row.clamp_min_(floor);
+    return;
+  }
+  torch::Tensor f;
+  if constexpr (std::is_arithmetic_v<Floor>)
+    f = floor * torch::ones_like(ref);
+  else
+    f = floor;
+  row.clamp_min_(float_anomaly ? float_anomaly_floor(f, ref) : f - ref);
 }
 
 }  // namespace
@@ -242,14 +263,8 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
     return nvar() > IPR ? torch::stack({u[IDN], u[IPR]}) : u[IDN].clone();
   };
   auto before = mark ? dens_energy() : torch::Tensor();
-  if (anom) {
-    auto floor = options->density_floor() * torch::ones_like(ref[0]);
-    auto bound =
-        float_anomaly ? float_anomaly_floor(floor, ref[0]) : floor - ref[0];
-    cons[IDN].copy_(torch::maximum(cons[IDN], bound));
-  } else {
-    cons[IDN].clamp_min_(options->density_floor());
-  }
+  floor_row_(cons[IDN], options->density_floor(),
+             anom ? ref[0] : torch::Tensor(), float_anomaly);
 
   // for (int i = ICY; i < ICY + nvapor; ++i)
   //   cons.index(interior)[i] = pull_neighbors3(cons.index(interior)[i]);
@@ -279,14 +294,8 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
       cons_t[IDN].add_(ref[0]);
     }
     auto min_ie = compute("UT->I", {cons_t, min_temp});
-    if (anom) {
-      auto floor = ke + min_ie;
-      auto bound =
-          float_anomaly ? float_anomaly_floor(floor, ref[1]) : floor - ref[1];
-      cons[IPR].clamp_min_(bound);
-    } else {
-      cons[IPR].clamp_min_(ke + min_ie);
-    }
+    floor_row_(cons[IPR], ke + min_ie, anom ? ref[1] : torch::Tensor(),
+               float_anomaly);
   }
   if (mark) status.mark(0, dens_energy().ne(before).any());
 
