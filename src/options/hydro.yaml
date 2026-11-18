@@ -1,0 +1,118 @@
+# The `dynamics:` scalar options of HydroOptionsImpl (src/hydro/hydro.hpp).
+# The sub-modules it holds (equation of state, reconstruction, Riemann
+# solver, implicit, sedimentation, forcings) keep their own options and
+# readers. Columns: see tools/gen_options.py.
+module: hydro
+struct: HydroOptionsImpl
+yaml_node: dynamics
+node_error: "HydroOptions: dynamics must be a map."
+args: bool verbose
+report_title: "-- hydro options --"
+report_order: [verbose, precision, disable_flux_x1, disable_flux_x2, disable_flux_x3,
+               flux_covariance, x1_mass_covariance, conserve_axial_momentum,
+               conserve_axial_momentum_closure]
+pyi: {file: python/snapy/hydro.pyi, cls: HydroOptions}
+extra_keys:
+  "": [equation-of-state, reconstruct, riemann-solver]
+doc: >
+  Scalar options of the hydrodynamics module under `dynamics:`. The keys
+  equation-of-state, reconstruct and riemann-solver are read by their own
+  modules.
+options:
+  - {name: verbose, key: verbose, type: bool, default: false, read_default: {cpp: verbose}, doc: "Verbose; the deck value defaults to from_yaml's verbose argument."}
+  - {name: disable_flux_x1, key: disable-flux-x1, type: bool, default: false, doc: "Turn off the x1 fluxes (and x1 gravity)."}
+  - {name: disable_flux_x2, key: disable-flux-x2, type: bool, default: false, doc: "Turn off the x2 fluxes (and x2 gravity)."}
+  - {name: disable_flux_x3, key: disable-flux-x3, type: bool, default: false, doc: "Turn off the x3 fluxes (and x3 gravity)."}
+  - {name: wb_wall_clamp, key: wb-wall-clamp, type: bool, default: true, doc: "Keep the well-balanced x1 reference's stencils off the wall ghosts."}
+  - name: conversion_order
+    key: conversion-order
+    type: int
+    default: 2
+    doc: >
+      Order of the x1 cell-average <-> point conversion of the primitives: 2
+      (W of the averages) or 4 (hydro_forward.cpp); x2/x3 stay second order.
+  - name: anomaly
+    key: anomaly
+    type: bool
+    default: false
+    env: SNAP_ANOMALY
+    python: false
+    doc: >
+      Store hydro_u rows IDN and IPR as anomalies about a static fp64
+      reference (fp32 roadmap, Step 1). SNAP_ANOMALY=0|1 overrides the deck.
+      Off: every path is unchanged.
+  - name: flux_covariance
+    key: flux-covariance
+    type: bool
+    default: true
+    doc: >
+      The O(dx1^2) x1 covariance term of the x2/x3 face fluxes (#289). A
+      scheme choice: every block of a run must make the same one, or the
+      shared faces stop being single-valued; blocks built from one deck do.
+      Off restores the plain face product.
+  - name: x1_mass_covariance
+    key: x1-mass-covariance
+    type: bool
+    default: false
+    doc: >
+      Subtract the x1 rho-w covariance dz^2/12 rho_1 w_1 / rho from the
+      reconstructed cell velocity; needs at least 3 x1 cells per block. Same
+      every-block rule as flux_covariance.
+  - {name: perturbation_flux, key: perturbation-flux, type: bool, default: false, doc: "Perturbation-form flux."}
+  - {name: precision, key: precision, type: string, default: float64, doc: "Dynamics precision: float64 or float32."}
+  - name: conserve_axial_momentum
+    key: conserve-axial-momentum
+    type: string
+    default: "off"
+    values: ["off", transport, full]
+    value_alias: {"false": "off", "no": "off", "true": transport, "on": transport, "yes": transport}
+    error: ['"dynamics/conserve-axial-momentum must be off, transport "', '"or full, got ''"', "$value", '"''"']
+    doc: >
+      dynamics/conserve-axial-momentum: off (default), transport or full.
+      Axial angular momentum (AAM) in flux form on the gnomonic-equiangle
+      grid: the component of each cell's flux divergence and x1 metric source
+      along the rotation about the omega1 axis is the divergence of face AAM
+      fluxes, so transport changes the global AAM only through physical
+      boundary faces (see GnomonicEquiangle). It needs no Coriolis force or
+      one of type xyz about omega1, and does nothing on other grids
+      (Hydro::axial_flux_form). The Coriolis force stays in cell form, which
+      does no work. The relative AAM is exact without rotation. With rotation
+      the Coriolis exchange with the planetary AAM is left open. Measured in
+      3D with one jet, for Omega / (u / a) of 0.5 to 1: the drift is 110 to
+      290 times smaller than off at C8 and 50 to 130 times at C16 (the gain
+      shrinks with resolution). At a ratio of 14 it was larger than off, where
+      the two errors of off cancel in part. In 2D shallow water (Williamson 2,
+      C16) the gain with rotation is small: 1.7 times at a ratio of 1, 1.1 at
+      12. Shallow-water noise decays as with off (what is left after 4000
+      steps is within x1.4 of off up to 4 Omega). full (#357): transport plus
+      a Coriolis torque in flux form on the solver's dissipative x2/x3 mass
+      flux M - M_central (M_central = 1/2 (F(wL, wL) + F(wR, wR)) from the
+      same face states), added along the rotation to the cell-form force. It
+      reduces the open Coriolis exchange but is NOT exact: the residual V (K .
+      F_cell - rate(M_central)) remains. The x1 faces are not part of this
+      torque: in 3D the x1 exchange is already closed by the Coriolis rows
+      that take rho w from the stage's x1 mass transfers (Hydro::forward step
+      8); with coriolis/traditional: true those rows are absent and the x1
+      exchange stays open, as the equations leave it. It needs
+      geometry/cells/interp_order: 4 (cubic panel-edge ghosts). Measured:
+      shallow-water Williamson 2 at the Earth's rate, C16, 200 steps, drift
+      29.8 times below off (transport 1.1); the 3D arms of the test at Omega =
+      5e-6, 2000 steps, 217-589 times below off (transport 119-143); on the
+      test's rest deck (C16 4 Omega, 4000 steps) it keeps 12.3 times the
+      kinetic energy of transport (both decay); noisy jet, u0 = 38.6 / k, 8000
+      steps, KE_full / KE_off: C16 k = 1..4 1.065 / 1.100 / 1.090 / 1.066
+      (full's own KE growing for k >= 2), C32 k = 2 / 3 / 4 1.005 / 1.005 /
+      1.012 (k = 4 run to 16000 steps, no trend). Cost: 1.14-1.30 times the
+      wall time of off at C16, 1.32-1.48 at C32 (2 extra Riemann calls per
+      x2/x3 direction). Not yet run in a GCM configuration.
+  - name: conserve_axial_momentum_closure
+    key: conserve-axial-momentum-closure
+    type: bool
+    default: false
+    doc: >
+      dynamics/conserve-axial-momentum-closure (needs full; default false):
+      per RK stage, the residual full leaves, R = sum V (K . F_cell -
+      rate(M_central)), is removed as one solid-body increment d(rho u_east) =
+      -rho s R dt / I, I = sum V rho s^2, s = r cos(lat), with R and I summed
+      over all blocks (one allreduce). Physical torques (drag, sponges,
+      forcings) are not part of R and are kept.

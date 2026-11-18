@@ -13,6 +13,9 @@
 #include "hydro.hpp"
 
 namespace snap {
+
+#include <snap_options/hydro_read.inc>
+
 HydroOptions HydroOptionsImpl::from_yaml(std::string const& filename,
                                          bool verbose) {
   auto op = HydroOptionsImpl::create();
@@ -42,56 +45,8 @@ HydroOptions HydroOptionsImpl::from_yaml(std::string const& filename,
 
   // -------------- others ------------------ //
   auto config = YAML::LoadFile(filename);
-  auto dyn = config["dynamics"];
-  if (dyn) {
-    TORCH_CHECK(dyn.IsMap() || dyn.IsNull(),
-                "HydroOptions: dynamics must be a map.");
-    if (!dyn.IsNull()) {
-      check_keys(
-          dyn, "dynamics",
-          {"equation-of-state", "reconstruct", "riemann-solver", "verbose",
-           "disable-flux-x1", "disable-flux-x2", "disable-flux-x3",
-           "wb-wall-clamp", "conversion-order", "anomaly", "flux-covariance",
-           "x1-mass-covariance", "perturbation-flux", "precision",
-           "conserve-axial-momentum", "conserve-axial-momentum-closure"});
-      op->verbose() = dyn["verbose"].as<bool>(verbose);
-      op->disable_flux_x1() = dyn["disable-flux-x1"].as<bool>(false);
-      op->disable_flux_x2() = dyn["disable-flux-x2"].as<bool>(false);
-      op->disable_flux_x3() = dyn["disable-flux-x3"].as<bool>(false);
-      op->wb_wall_clamp() = dyn["wb-wall-clamp"].as<bool>(true);
-      op->conversion_order() = dyn["conversion-order"].as<int>(2);
-      op->anomaly() = dyn["anomaly"].as<bool>(false);
-      op->flux_covariance() = dyn["flux-covariance"].as<bool>(true);
-      op->x1_mass_covariance() = dyn["x1-mass-covariance"].as<bool>(false);
-      op->perturbation_flux() = dyn["perturbation-flux"].as<bool>(false);
-      op->precision() = dyn["precision"].as<std::string>("float64");
-      // off | transport | full; false and true, which YAML tools write for
-      // off and on, read as off and transport
-      auto aam = dyn["conserve-axial-momentum"].as<std::string>("off");
-      if (aam == "false" || aam == "no") aam = "off";
-      if (aam == "true" || aam == "on" || aam == "yes") aam = "transport";
-      TORCH_CHECK(aam == "off" || aam == "transport" || aam == "full",
-                  "dynamics/conserve-axial-momentum must be off, transport "
-                  "or full, got '",
-                  aam, "'");
-      op->conserve_axial_momentum() = aam;
-      op->conserve_axial_momentum_closure() =
-          dyn["conserve-axial-momentum-closure"].as<bool>(false);
-    }
-  }
-
-  // SNAP_ANOMALY=0|1 overrides the YAML (as the other SNAP_* arms do)
-  if (char const* env = std::getenv("SNAP_ANOMALY")) {
-    std::string v(env);
-    if (v == "1" || v == "on" || v == "true" || v == "yes") {
-      op->anomaly() = true;
-    } else if (v.empty() || v == "0" || v == "off" || v == "false" ||
-               v == "no") {
-      op->anomaly() = false;
-    } else {
-      TORCH_CHECK(false, "SNAP_ANOMALY must be 0 or 1, got '", v, "'");
-    }
-  }
+  // dynamics/* rows and the SNAP_ANOMALY override (src/options/hydro.yaml)
+  read_hydro_rows(*op, config["dynamics"], "dynamics", verbose);
   if (verbose && op->anomaly()) {
     SINFO(HydroOptions) << "anomaly storage of hydro_u {IDN, IPR} is on\n";
   }

@@ -38,53 +38,9 @@ struct OutputOptionsImpl {
                                                       int fid = 0);
   std::string file_id() const { return "out" + std::to_string(fid()); }
 
-  void report(std::ostream &os) const {
-    os << "-- output options --\n";
-    os << "* fid = " << fid() << "\n"
-       << "* dt = " << dt() << "\n"
-       << "* output_sumx1 = " << output_sumx1() << "\n"
-       << "* output_sumx2 = " << output_sumx2() << "\n"
-       << "* output_sumx3 = " << output_sumx3() << "\n"
-       << "* include_ghost_zones = " << include_ghost_zones() << "\n"
-       << "* cartesian_vector = " << cartesian_vector() << "\n"
-       << "* double_precision = " << double_precision() << "\n"
-       << "* x1_slice = " << fmt::format("{}", x1_slice()) << "\n"
-       << "* x2_slice = " << fmt::format("{}", x2_slice()) << "\n"
-       << "* x3_slice = " << fmt::format("{}", x3_slice()) << "\n"
-       << "* file_type = " << file_type() << "\n"
-       << "* data_format = " << data_format() << "\n"
-       << "* variables = " << fmt::format("{}", variables()) << "\n"
-       << "* combine = " << combine() << "\n"
-       << "* verbose = " << verbose() << "\n";
-  }
-
-  ADD_ARG(int, fid) = 0;
-  ADD_ARG(double, dt) = 0.;
-
-  ADD_ARG(bool, output_sumx1) = false;
-  ADD_ARG(bool, output_sumx2) = false;
-  ADD_ARG(bool, output_sumx3) = false;
-
-  ADD_ARG(bool, include_ghost_zones) = false;
-  ADD_ARG(bool, cartesian_vector) = false;
-
-  ADD_ARG(std::vector<double>, x1_slice);
-  ADD_ARG(std::vector<double>, x2_slice);
-  ADD_ARG(std::vector<double>, x3_slice);
-
-  ADD_ARG(std::string, file_type);
-  ADD_ARG(std::string, data_format);
-  ADD_ARG(std::vector<std::string>, variables);
-
-  //! write netcdf variables as NC_DOUBLE instead of NC_FLOAT. Off by default:
-  //! float halves the file size and is fine for plots. Turn it on to resolve
-  //! relative differences below ~1e-7 (e.g. conservation checks) from the
-  //! output files. Only the netcdf writer implements it.
-  ADD_ARG(bool, double_precision) = false;
-
-  ADD_ARG(bool, combine) = true;
-  ADD_ARG(bool, verbose) = false;
-  ADD_ARG(bool, super_resolution) = false;
+  // the option rows and report(), generated from src/options/output.yaml by
+  // tools/gen_options.py
+#include <snap_options/output_members.inc>
 };
 using OutputOptions = std::shared_ptr<OutputOptionsImpl>;
 

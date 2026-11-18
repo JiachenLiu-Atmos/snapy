@@ -4,7 +4,10 @@
 #include <unistd.h>
 #include <yaml-cpp/yaml.h>
 
+#include <filesystem>
 #include <fstream>
+#include <string>
+#include <vector>
 #include <snap/hydro/hydro.hpp>
 #include <snap/mesh/meshblock.hpp>
 
@@ -13,7 +16,12 @@ using namespace snap;
 // an ideal-gas column, donor cell, nghost 2; `dyn` is added under dynamics:
 static std::shared_ptr<MeshBlockImpl> block(std::string const& dyn,
                                             int nx1 = 8) {
-  char f[] = "/tmp/test-options-defaults-XXXXXX";
+  auto tmpl = (std::filesystem::temp_directory_path() /
+               "test-options-defaults-XXXXXX")
+                  .string();
+  std::vector<char> path(tmpl.begin(), tmpl.end());
+  path.push_back('\0');
+  char* f = path.data();
   close(mkstemp(f));
   std::ofstream(f) << "geometry: {type: cartesian, bounds: {x1min: 0., x1max: "
                       "1000., x2min: 0., x2max: 1000., x3min: 0., x3max: 1.}, "
@@ -60,20 +68,24 @@ TEST(OptionsDefaults, x1_mass_covariance_key) {  // needs 3 x1 cells when on
   EXPECT_NO_THROW(block(", x1-mass-covariance: false", 2));
 }
 
-TEST(OptionsDefaults, replaced_variables_warn_once) {
+// SNAP_FLUX_COVARIANCE and SNAP_X1_MASS_COVARIANCE were replaced by the deck
+// keys (#352) and only warned about since; lane O's O4 deletes the warnings
+// (O.rst 3.3): the variables are not read, so they neither warn nor act.
+TEST(OptionsDefaults, replaced_variables_are_silent) {
   struct : c10::WarningHandler {
     std::string all;
     void process(c10::Warning const& w) override { all += w.msg(); }
   } cap;
   setenv("SNAP_FLUX_COVARIANCE", "0", 1),
       setenv("SNAP_X1_MASS_COVARIANCE", "1", 1);
+  std::shared_ptr<MeshBlockImpl> b;
   {
     c10::WarningUtils::WarningHandlerGuard g(&cap);
-    block(""), block("");
+    b = block("");
   }
   unsetenv("SNAP_FLUX_COVARIANCE"), unsetenv("SNAP_X1_MASS_COVARIANCE");
-  for (auto key : {"dynamics/flux-covariance", "dynamics/x1-mass-covariance"})
-    EXPECT_TRUE(cap.all.find(key) != std::string::npos &&  // exactly once
-                cap.all.find(key) == cap.all.rfind(key))
-        << cap.all;
+  for (auto var : {"SNAP_FLUX_COVARIANCE", "SNAP_X1_MASS_COVARIANCE"})
+    EXPECT_EQ(cap.all.find(var), std::string::npos) << cap.all;
+  EXPECT_TRUE(b->phydro->options->flux_covariance());
+  EXPECT_FALSE(b->phydro->options->x1_mass_covariance());
 }
