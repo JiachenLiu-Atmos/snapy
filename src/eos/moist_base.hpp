@@ -50,7 +50,7 @@ class MoistEOSImpl : public EquationOfStateImpl {
                        torch::Tensor* out);
 
   //! \brief Convert primitive variables to conserved variables.
-  void _prim2cons(torch::Tensor prim, torch::Tensor& cons);
+  void _prim2cons(torch::Tensor prim, torch::Tensor& cons) override;
 
   //! \brief First half of the conserved-to-primitive conversion: density,
   //! mass fractions and velocities into prim; returns the internal energy
@@ -65,7 +65,7 @@ class MoistEOSImpl : public EquationOfStateImpl {
     apply_conserved_limiter_(cons);
   }
 
-  virtual void _cons2prim(torch::Tensor cons, torch::Tensor& prim) = 0;
+  void _cons2prim(torch::Tensor cons, torch::Tensor& prim) override = 0;
   virtual torch::Tensor _prim2intEng(torch::Tensor prim) = 0;
   virtual torch::Tensor _prim2temp(torch::Tensor prim) = 0;
   virtual torch::Tensor _prim2speciesEng(torch::Tensor prim) = 0;

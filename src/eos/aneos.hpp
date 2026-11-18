@@ -50,14 +50,14 @@ class ANEOSImpl : public EquationOfStateImpl,
    * \param[in] prim  primitive variables
    * \param[out] out  conserved variables
    */
-  void _prim2cons(torch::Tensor prim, torch::Tensor& out);
+  void _prim2cons(torch::Tensor prim, torch::Tensor& out) override;
 
   //! \brief Convert conserved variables to primitive variables.
   /*
    * \param[in] cons  conserved variables
    * \param[ou] out   primitive variables
    */
-  void _cons2prim(torch::Tensor cons, torch::Tensor& out);
+  void _cons2prim(torch::Tensor cons, torch::Tensor& out) override;
 
   //! \brief calculate internal energy
   /*

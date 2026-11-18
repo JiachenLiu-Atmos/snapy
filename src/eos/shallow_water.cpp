@@ -13,16 +13,9 @@ void ShallowWaterImpl::reset() {}
 
 torch::Tensor ShallowWaterImpl::compute(
     std::string ab, std::vector<torch::Tensor> const &args) {
-  if (ab == "W->U") {
-    auto w = args[0];
-    auto u = args.size() > 1 ? args[1] : torch::empty_like(w);
-    _prim2cons(w, u);
-    return u;
-  } else if (ab == "U->W") {
-    auto u = args[0];
-    auto w = args.size() > 1 ? args[1] : torch::empty_like(u);
-    _cons2prim(u, w);
-    return w;
+  torch::Tensor out;
+  if (convert_(ab, args, &out)) {
+    return out;
   } else if (ab == "W->A") {
     return torch::Tensor();
   } else if (ab == "W->T") {
@@ -51,16 +44,11 @@ void ShallowWaterImpl::_cons2prim(torch::Tensor cons, torch::Tensor &prim) {
 }
 
 void ShallowWaterImpl::_prim2cons(torch::Tensor prim, torch::Tensor &cons) {
-  auto pcoord = phydro->pmb->pcoord;
   apply_primitive_limiter_(prim);
 
   cons[IDN] = prim[IDN];
 
-  // lvalue view
-  auto out = cons.narrow(0, IVX, 3);
-  torch::mul_out(out, prim.narrow(0, IVX, 3), prim[IDN]);
-
-  coord_vec_lower_(out, pcoord->cosine_cell_kj);
+  _mom_from_vel_(prim, cons);
 
   apply_conserved_limiter_(cons);
 }

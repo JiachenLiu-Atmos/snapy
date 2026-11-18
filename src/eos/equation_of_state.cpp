@@ -223,6 +223,40 @@ torch::Tensor EquationOfStateImpl::compute(
               "Please use this method in a derived class.");
 }*/
 
+bool EquationOfStateImpl::convert_(std::string const& ab,
+                                   std::vector<torch::Tensor> const& args,
+                                   torch::Tensor* out) {
+  if (ab == "W->U") {
+    auto w = args[0];
+    auto u = args.size() > 1 ? args[1] : torch::empty_like(w);
+    _prim2cons(w, u);
+    *out = u;
+  } else if (ab == "U->W") {
+    auto u = args[0];
+    auto w = args.size() > 1 ? args[1] : torch::empty_like(u);
+    _cons2prim(u, w);
+    *out = w;
+  } else {
+    return false;
+  }
+  return true;
+}
+
+void EquationOfStateImpl::_prim2cons(torch::Tensor, torch::Tensor&) {
+  TORCH_CHECK(false, "[EquationOfState] _prim2cons() is not implemented.");
+}
+
+void EquationOfStateImpl::_cons2prim(torch::Tensor, torch::Tensor&) {
+  TORCH_CHECK(false, "[EquationOfState] _cons2prim() is not implemented.");
+}
+
+void EquationOfStateImpl::_mom_from_vel_(torch::Tensor const& prim,
+                                         torch::Tensor& cons) const {
+  auto out = cons.narrow(0, IVX, 3);
+  torch::mul_out(out, prim.narrow(0, IVX, 3), prim[IDN]);
+  coord_vec_lower_(out, phydro->pmb->pcoord->cosine_cell_kj);
+}
+
 torch::Tensor EquationOfStateImpl::forward(torch::Tensor cons,
                                            torch::optional<torch::Tensor> out) {
   auto prim = out.value_or(torch::empty_like(cons));

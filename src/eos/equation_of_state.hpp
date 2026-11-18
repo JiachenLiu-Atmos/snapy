@@ -202,6 +202,22 @@ class EquationOfStateImpl {
     return ef_status().slot(EfStatus::kVaporFail);
   }
 
+ protected:
+  //! "W->U" and "U->W", the same for every type: args {w[, u]} / {u[, w]},
+  //! the output allocated like the input when not given. True, with *out
+  //! set, if ab is one of the two.
+  bool convert_(std::string const& ab, std::vector<torch::Tensor> const& args,
+                torch::Tensor* out);
+
+  //! \brief Convert primitive variables to conserved variables.
+  virtual void _prim2cons(torch::Tensor prim, torch::Tensor& cons);
+  //! \brief Convert conserved variables to primitive variables.
+  virtual void _cons2prim(torch::Tensor cons, torch::Tensor& prim);
+
+  //! the momentum rows of cons from prim: density times velocity, lowered by
+  //! the coordinate metric
+  void _mom_from_vel_(torch::Tensor const& prim, torch::Tensor& cons) const;
+
  private:
   bool defer_vapor_check_ = false;
   // not a buffer: stage forcings get named_buffers()
