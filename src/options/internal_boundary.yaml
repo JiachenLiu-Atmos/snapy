@@ -1,0 +1,15 @@
+# Lane S's internal-boundary options parsing (bc/internal_boundary.cpp:14-36
+# at 9e5de2d4), accepted into lane O's schema (O.rst section 9.3). A
+# rows-only table: tools/gen_options.py generates InternalBoundaryRows with
+# read(config); lane S maps it onto InternalBoundaryOptionsImpl. Columns: see
+# tools/gen_options.py.
+module: internal_boundary
+rows_name: InternalBoundaryRows
+yaml_node: boundary-condition/internal
+doc: >
+  The deck keys of `boundary-condition/internal:`, the solid cells' state
+  and the rectifier's iteration limit.
+options:
+  - {name: max_iter, key: max-iter, type: int, default: 5, doc: "Rectifier iteration limit."}
+  - {name: solid_density, key: solid-density, type: double, default: 1.e3, doc: "Density in solid cells."}
+  - {name: solid_pressure, key: solid-pressure, type: double, default: 1.e9, doc: "Pressure in solid cells."}
