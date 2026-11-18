@@ -1,6 +1,6 @@
 // V3 lane A skeleton: lane A reads lane S's AxialRotationData and defines no
-// view of its own (A.rst 3.8, D24). S's fields (fallback cf5a22a9): axis,
-// k_cell, k_face2, k_face3, cos2_lat, K_f2, K_f3, s2, on_axis. Declarations only.
+// view of its own (A.rst 3.8, D24). S rev 2.1 fields (4b96f4ea): axis, k_cell,
+// k_cell_lower, cos2_lat, cos2_face2/3, K_f2/3, s2, on_axis, has_on_axis_cell.
 #pragma once
 
 namespace snap {

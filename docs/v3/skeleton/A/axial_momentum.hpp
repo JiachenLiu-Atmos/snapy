@@ -38,7 +38,7 @@ class AxialMomentum {
   RegisterRequest request() const;
   //! reset: geometry non-null, Omega || axis (H5, H7); exact: FP64, no pert.
   //! flux (G10), nu_iso == 0 (phase 3), interp_order == 4 (hydro.cpp:63-66),
-  //! riemann_type in {hllc, lmars, roe, shallow-roe} (C9 proposal, A.rst 3.2)
+  //! riemann_type in {hllc, lmars, roe, shallow-roe} (C9, accepted; A.rst 3.2)
   void check(StageState const& s, bool fp32, bool perturbation_flux,
              double nu_iso, std::string const& riemann_type) const;
   //! divergence phase: K component of du from total(d) (conserve_axial_momentum_)
@@ -55,7 +55,7 @@ class AxialMomentum {
   void wall_torque(FluxRegister& reg, AxialRotationData const& g) const;
   void aam_total(torch::Tensor u, FluxRegister& reg,
                  AxialRotationData const& g) const;
-  //! H4 (pending S-4): rows' K component, on-axis rule gnomonic_equiangle:499
+  //! H4 (S-4, agreed): rows' K component, on-axis rule gnomonic_equiangle:499
   void rate_to_rows(torch::Tensor row2, torch::Tensor row3,
                     torch::Tensor target, AxialRotationData const& g) const;
   torch::Tensor closure_sums() const;  //!< {R, I}, FP64 device; exact only
@@ -68,7 +68,7 @@ class AxialMomentum {
 };
 
 //! the closure as a registered fixer (A.rst 3.3, 5.2; R:104-116); registry is
-//! X's; {R, I} FP64 on device, reduced via host (X.rst:98, 187)
+//! X's; {R, I} FP64 on device; X's allreduce (X.rst:112, 119-120)
 class AxialClosureFixer : public Fixer {
  public:
   explicit AxialClosureFixer(AxialMomentum const* aam);  //!< non-owning
