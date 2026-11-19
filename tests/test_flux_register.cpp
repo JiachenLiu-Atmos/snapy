@@ -754,3 +754,45 @@ TEST(FluxRegister, the_vertical_solve_posts_its_face_transfers) {
       EXPECT_EQ(kind_of("vic.momentum_t.top"), AmountKind::diagnostic);
   }
 }
+
+// V3 I-5: the hydro register declares lane I's retry cause implicit.column
+// (R.rst 4.5) and hydro flags it with the column status OR; slot 5 of the
+// redo read, solve_failed_tensor(), is the same OR until lane X reads
+// retry_flags
+TEST(FluxRegister, a_failed_column_flags_implicit_column) {
+  std::string deck = kDeck;
+  auto at = deck.find("implicit-scheme: 0");
+  ASSERT_NE(at, std::string::npos);
+  deck.replace(at, 18, "implicit-scheme: 1");
+  {
+    std::ofstream f("test_flux_register_i5.yaml");
+    f << deck;
+  }
+  Variables plain;
+  auto bub = bubble(plain);
+  auto block =
+      MeshBlock(MeshBlockOptionsImpl::from_yaml("test_flux_register_i5.yaml"));
+  block->to(torch::kCPU, torch::kFloat64);
+  auto& mon = block->phydro->flux_register().monitor();
+  int slot = mon.retry_index("implicit.column");
+  auto& ic = block->phydro->picorr;
+  for (bool bad : {false, true}) {
+    Variables vars;
+    vars["hydro_w"] = plain.at("hydro_w").clone();
+    block->initialize(vars);
+    double dt = block->max_time_step(vars);
+    int j = block->pcoord->jl() + 5;
+    if (bad)  // one column's state: its x1 sweep and solve see a NaN
+      vars.at("hydro_u")[IPR].select(-2, j).fill_(
+          std::numeric_limits<double>::quiet_NaN());
+    block->forward(vars, dt, 0);
+    EXPECT_EQ(mon.retry_flags[slot].item<int>(), bad ? 1 : 0) << bad;
+    EXPECT_EQ(ic->status().item<bool>(), bad);
+    EXPECT_EQ(ic->solve_failed_tensor(torch::kFloat64).item<double>(),
+              bad ? 1. : 0.);
+    if (bad) {
+      auto st = ic->col_status();
+      EXPECT_NE(st[0][j].item<int>(), 0);
+    }
+  }
+}

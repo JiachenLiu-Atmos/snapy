@@ -36,6 +36,9 @@ int64_t MeshBlockImpl::saturation_failures() {
 }
 
 int MeshBlockImpl::apply_redo(Variables &vars, int causes) {
+  // V3 I-5: the VIC's failed columns (cause bit 5), logged on a redo only
+  if ((causes & 32) && phydro->picorr)
+    phydro->picorr->report_failure(std::cerr);
   if (causes) {
     SINFO(MeshBlock)
         << "Density/pressure at or within 0.1% of the floor, the VIC dry-gas "

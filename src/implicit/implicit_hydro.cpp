@@ -166,6 +166,48 @@ void ImplicitHydroImpl::ensure_workspace(torch::Tensor const& w) {
   maybe_resize(_du0, w.sizes().vec());
   maybe_resize(_corr, w.sizes().vec());
   maybe_resize(_mass_corr, w.sizes().vec());
+  // V3 I-5: each column's VicStatusBit, in the solve's dtype (a kernel
+  // operand); the bits survive a change of dtype or device
+  auto st_shape = std::vector<int64_t>{w.size(1), w.size(2)};
+  if (!_status.defined() || _status.sizes().vec() != st_shape)
+    _status = torch::zeros(st_shape, w.options());
+  else if (_status.scalar_type() != w.scalar_type() ||
+           _status.device() != w.device())
+    _status = _status.to(w.options());
+}
+
+torch::Tensor ImplicitHydroImpl::col_status() const {
+  return _status.defined() ? _status.to(torch::kInt32) : torch::Tensor();
+}
+
+torch::Tensor ImplicitHydroImpl::status() const {
+  return _status.defined() ? (_status != 0).any()
+                           : torch::zeros({}, torch::kBool);
+}
+
+void ImplicitHydroImpl::reset_status() {
+  if (_status.defined()) _status.zero_();
+}
+
+void ImplicitHydroImpl::report_failure(std::ostream& os) const {
+  if (!_status.defined()) return;
+  auto pcoord = phydro->pmb->pcoord;
+  auto st = _status.to(torch::kCPU, torch::kInt32);
+  auto columns = st.nonzero();
+  auto a = st.accessor<int32_t, 2>();
+  auto index = columns.accessor<int64_t, 2>();
+  for (int64_t n = 0; n < columns.size(0); ++n) {
+    int64_t k = index[n][0], j = index[n][1];
+    int32_t bits = a[k][j];
+    os << "[ImplicitHydro] rank=" << get_rank() << " VIC column=(" << k << ","
+       << j
+       << ") failed:" << (bits & kVicInputNonfinite ? " nonfinite input" : "")
+       << (bits & kVicSingular ? " singular/near-singular" : "")
+       << (bits & kVicResultNonfinite ? " nonfinite result" : "")
+       << " step=" << phydro->pmb->cycle + 1
+       << " retry=" << phydro->pmb->pintg->current_redo
+       << "; check_redo will restore step input." << std::endl;
+  }
 }
 
 torch::Tensor ImplicitHydroImpl::forward(torch::Tensor du, torch::Tensor w,
@@ -187,13 +229,6 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
     return _corr;
   }
 
-  // Once a stage fails, later stages cannot turn the step into a success.
-  if (_solve_failed) {
-    _corr.zero_();
-    _mass_corr.zero_();
-    return _corr;
-  }
-
   TORCH_CHECK(phydro->options->grav(),
               "[ImplicitHydro] forcing does not have const-gravity");
 
@@ -207,8 +242,6 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
   }*/
 
   ensure_workspace(w);
-  if (!_failed_dev.defined() || _failed_dev.device() != du.device())
-    _failed_dev = torch::zeros({}, du.options().dtype(torch::kBool));
   _du0.copy_(du);
   _mass_corr.zero_();
 
@@ -216,40 +249,16 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
   // two rows of w in place (the frame projection)
   auto w0 = w.narrow(0, IVY, 2).clone();
 
-  auto reject = [&](torch::Tensor const& bad_columns) {
-    _solve_failed = true;
-    // no columns: the previous stage failed after its solve
-    auto columns = bad_columns.defined() ? bad_columns.nonzero().cpu()
-                                         : torch::zeros({0, 3}, torch::kInt64);
-    auto index = columns.accessor<int64_t, 2>();
-    for (int64_t n = 0; n < columns.size(0); ++n)
-      std::cerr << "[ImplicitHydro] rank=" << get_rank()
-                << " VIC singular/near-singular or nonfinite value: column=("
-                << index[n][1] + pcoord->kl() << ","
-                << index[n][2] + pcoord->jl()
-                << ") step=" << phydro->pmb->cycle + 1
-                << " stage=" << phydro->rk_stage
-                << " retry=" << phydro->pmb->pintg->current_redo
-                << "; check_redo will restore step input." << std::endl;
-    du.copy_(_du0);
-    w.narrow(0, IVY, 2).copy_(w0);
-    _corr.zero_();
-    _mass_corr.zero_();
-    return _corr;
+  // V3 I-5: no host read in the solve. Each column's thread sets its
+  // VicStatusBit (input screen, forward sweep, solution); a failed stage, or
+  // one after a failed stage, is undone below with device masks, and
+  // check_redo reads the status OR (solve_failed_tensor); the failed columns
+  // are logged on a redo only (report_failure)
+  auto status_in = _status.slice(0, pcoord->kl(), pcoord->ku() + 1)
+                       .slice(1, pcoord->jl(), pcoord->ju() + 1);
+  auto per_column = [&](torch::Tensor const& t) {  // one value per column
+    return t.unsqueeze(0).unsqueeze(-1).expand(du.index(interior).sizes());
   };
-  auto finite_columns = [&](torch::Tensor const& values) {
-    return torch::isfinite(values.index(interior)).all(0).all(-1).unsqueeze(0);
-  };
-  // one device-to-host read per stage (#291): the sum of each checked tensor
-  // is nonfinite if any of its values is; only then are the columns found,
-  // in the order the checks would have met them. The read also carries the
-  // previous stage's post-solve failure, latched on the device.
-  std::vector<torch::Tensor> screen = {
-      du.index(interior).to(acc_type(du)).sum(),
-      w.index(interior).to(acc_type(du)).sum(),
-      gamma.unsqueeze(0).index(interior).to(acc_type(du)).sum(),
-      torch::zeros({}, du.options())
-          .masked_fill(_failed_dev, std::numeric_limits<double>::quiet_NaN())};
 
   /// (1) Project to local orthonormal frame
   w[IVY] += w[IVZ] * cos_theta;
@@ -288,7 +297,8 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
         .add_input(_delta)
         .add_owned_input(mask.unsqueeze(0).index(interior))
         .add_owned_input(_gw.face_lo().index(interior))
-        .add_owned_input(_gw.face_hi().index(interior));
+        .add_owned_input(_gw.face_hi().index(interior))
+        .add_owned_input(per_column(status_in));  // written per column
     return cfg;
   };
   auto iter = vic_config().build();
@@ -386,45 +396,27 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
   if (!woodbury) {
     at::native::vic_stage(du.device().type(), iter, stage(VicStage::solve, 0));
   } else {
-    int m = options->size(), nx2 = pcoord->options->nx2(),
-        nx3 = pcoord->options->nx3();
+    // the 2x2 correction runs in the kernel, after the back substitution of
+    // each column (V3 I-5), with its wall coefficients one value per column
+    int nx2 = pcoord->options->nx2(), nx3 = pcoord->options->nx3();
     auto z0 = torch::empty_like(_delta), z1 = torch::empty_like(_delta);
-    auto it = vic_config().add_input(z0).add_input(z1).build();
+    auto one = torch::ones({}, w.options());
+    auto it =
+        vic_config()
+            .add_input(z0)
+            .add_input(z1)
+            .add_owned_input(per_column(rx_t0.expand({nx3, nx2})))
+            .add_owned_input(per_column(rx_t1.expand({nx3, nx2})))
+            .add_owned_input(per_column(no_solid ? one.expand({nx3, nx2})
+                                                 : rx_fluid.select(-1, 0)))
+            .add_owned_input(per_column(no_solid
+                                            ? one.expand({nx3, nx2})
+                                            : rx_fluid.select(-1, nx1 - 1)))
+            .build();
     at::native::vic_stage(du.device().type(), it,
                           stage(VicStage::solve, 0, /*woodbury=*/true));
-    auto y = _delta.view({nx3, nx2, nx1, m});
-    z0 = z0.view({nx3, nx2, nx1, m}), z1 = z1.view({nx3, nx2, nx1, m});
-    auto k0 = -rx_t0 / dt, k1 = -rx_t1 / dt;
-    if (!no_solid) {
-      k0 = k0 * rx_fluid.select(-1, 0), k1 = k1 * rx_fluid.select(-1, nx1 - 1);
-    }
-    auto pick = [&](torch::Tensor const& v, int cell) {
-      return v.select(-2, cell).select(-1, 0);
-    };
-    auto m00 = 1. + k0 * pick(z0, 2), m01 = k0 * pick(z1, 2);
-    auto m10 = k1 * pick(z0, nx1 - 3), m11 = 1. + k1 * pick(z1, nx1 - 3);
-    auto r0 = k0 * pick(y, 2), r1 = k1 * pick(y, nx1 - 3);
-    auto det = m00 * m11 - m01 * m10;
-    auto al0 = (m11 * r0 - m01 * r1) / det, al1 = (m00 * r1 - m10 * r0) / det;
-    y.sub_(z0 * al0.unsqueeze(-1).unsqueeze(-1))
-        .sub_(z1 * al1.unsqueeze(-1).unsqueeze(-1));
   }
 
-  // Both dispatches share the same rejection sentinel. This also catches
-  // nonfinite backward-substitution results, before redistribution sees them.
-  screen.push_back(_delta.to(acc_type(_delta)).sum());
-  if (!std::isfinite(torch::stack(screen).sum().item<double>())) {
-    // a stage after a failed one stops here
-    if (_failed_dev.item<bool>()) return reject(torch::Tensor());
-    auto w_in = w.clone();  // the inputs, then the solve
-    w_in.narrow(0, IVY, 2).copy_(w0);
-    auto bad_inputs =
-        torch::logical_not(finite_columns(_du0) & finite_columns(w_in) &
-                           finite_columns(gamma.unsqueeze(0)));
-    if (bad_inputs.any().item<bool>()) return reject(bad_inputs);
-    auto bad_columns = torch::logical_not(torch::isfinite(_delta).all(-1));
-    if (bad_columns.any().item<bool>()) return reject(bad_columns);
-  }
   at::native::vic_stage(du.device().type(), iter,
                         stage(VicStage::redistribute, 0));
 
@@ -493,15 +485,19 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
   _corr.copy_(du);
   _corr.sub_(_du0);
 
-  auto results =
-      torch::stack({du.index(interior).to(acc_type(du)).sum(),
-                    _mass_corr.index(interior).to(acc_type(du)).sum(),
-                    _corr.index(interior).to(acc_type(du)).sum()});
-  // no host read: a nonfinite result is latched on the device, undone here
-  // with masks (on success they select the values as they are) and stops
-  // the next stage at its screen; check_redo reads the latch
-  auto fail = torch::isfinite(results.sum()).logical_not();
-  _failed_dev.logical_or_(fail);
+  // a nonfinite result after the solve (redistribution, remainder) sets the
+  // column's bit too; the stage fails if any column has a bit, this stage's
+  // or an earlier one's: undone with masks (on success they select the
+  // values as they are)
+  auto bad = [&](torch::Tensor const& t) {
+    return torch::isfinite(t.index(interior)).logical_not().any(0).any(-1);
+  };
+  auto result_bad = bad(du) | bad(_mass_corr) | bad(_corr);
+  status_in.copy_(torch::where(
+      result_bad,
+      (status_in.to(torch::kInt32) | kVicResultNonfinite).to(w.options()),
+      status_in));
+  auto fail = (_status != 0).any();
   du.copy_(torch::where(fail, _du0, du));
   w.narrow(0, IVY, 2).copy_(torch::where(fail, w0, w.narrow(0, IVY, 2)));
   _corr.masked_fill_(fail, 0.);

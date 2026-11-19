@@ -6,6 +6,7 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <snap/implicit/implicit_dispatch.hpp>
 #include <snap/mesh/mesh.hpp>
 #include <snap/mesh/meshblock.hpp>
 
@@ -219,6 +220,10 @@ TEST(lu_failure, mesh_terminal_failure_restores_all_blocks) {
   using namespace snap;
   auto opts = MeshBlockOptionsImpl::from_yaml("test_mesh_multi_block.yaml");
   opts->coord()->nx1(8);
+  // the 8-cell column this test means: without it the deck's global nx1 = 1
+  // gives a 1-cell column, which only the host screen (gone in I-5) kept
+  // from reaching the post-solve code
+  opts->coord()->global_nx1(8);
   opts->coord()->nghost(3);
   opts->layout()->px(2);
   opts->layout()->py(1);
@@ -331,4 +336,78 @@ TEST(lu_failure, float_rest_column_finite_vicclamp) {
 }
 TEST(lu_failure, double_rest_column_finite_vicclamp) {
   rest_column_clamp(torch::kFloat64);
+}
+
+// V3 I-5: each column's status is set on the device by its own kernel
+// thread. A nonfinite gamma in one column flags that column only (input
+// screen; the sweep then rejects it), the whole block is undone with device
+// masks as before, solve_failed_tensor() is the status OR, and
+// reset_status() clears it.
+namespace {
+void column_status_case(torch::Device device) {
+  using namespace snap;
+  auto opts = MeshBlockOptionsImpl::from_yaml("test_mesh_multi_block.yaml");
+  opts->coord()->nx1(8);
+  opts->coord()->nx2(4);
+  opts->coord()->nx3(1);
+  opts->coord()->nghost(3);
+  opts->coord()->global_nx1(8);
+  opts->coord()->global_nx2(4);
+  opts->coord()->global_nx3(1);
+  opts->coord()->x2max(1.);
+  opts->coord()->x3max(1.);
+  opts->layout()->px(1);
+  opts->layout()->py(1);
+  auto gravity = ConstGravityOptionsImpl::create();
+  gravity->grav1(-9.8);
+  gravity->gravity_work("face");
+  gravity->gravity_work_fixer(false);
+  opts->hydro()->grav() = gravity;
+  auto implicit = ImplicitOptionsImpl::create();
+  implicit->scheme(9);
+  opts->hydro()->icorr() = implicit;
+  auto block = MeshBlock(opts);
+  block->to(device, torch::kFloat64);
+  auto coord = block->pcoord;
+  auto w = torch::zeros(
+      {5, coord->options->nc3(), coord->options->nc2(), coord->options->nc1()},
+      torch::TensorOptions().dtype(torch::kFloat64).device(device));
+  w[IDN].fill_(1.);
+  w[IPR].fill_(1.e5);
+  Variables vars{{"hydro_w", w}};
+  block->initialize(vars);
+  auto &ic = block->phydro->picorr;
+  auto prim = vars.at("hydro_w").clone(), prim0 = prim.clone();
+  auto du = 1.e-3 * torch::ones_like(prim), du0 = du.clone();
+  auto gamma = torch::full_like(prim[IDN], 1.4);
+  int j = coord->jl() + 2;  // the bad column
+  gamma.select(-2, j).fill_(std::numeric_limits<double>::quiet_NaN());
+  ic->forward_masked(du, prim, gamma, 1., torch::Tensor());
+  auto st = ic->col_status().cpu();
+  ASSERT_EQ(st.scalar_type(), torch::kInt32);
+  EXPECT_EQ(st.sizes(), (std::vector<int64_t>{coord->options->nc3(),
+                                              coord->options->nc2()}));
+  EXPECT_TRUE(st[0][j].item<int>() & kVicInputNonfinite);
+  EXPECT_EQ((st != 0).sum().item<int64_t>(), 1);  // that column only
+  EXPECT_TRUE(ic->status().item<bool>());
+  EXPECT_EQ(ic->solve_failed_tensor(torch::kFloat64).item<double>(), 1.);
+  EXPECT_TRUE(torch::equal(du, du0));  // the whole block is undone
+  EXPECT_TRUE(torch::equal(prim, prim0));
+  EXPECT_EQ(ic->correction().abs().sum().item<double>(), 0.);
+  ic->reset_status();
+  EXPECT_FALSE(ic->status().item<bool>());
+  gamma.fill_(1.4);  // a clean solve leaves every column clear
+  ic->forward_masked(du, prim, gamma, 1., torch::Tensor());
+  EXPECT_FALSE(ic->status().item<bool>());
+  EXPECT_GT(ic->correction().abs().max().item<double>(), 0.);
+}
+}  // namespace
+
+TEST(lu_failure, column_status_flags_the_bad_column_only) {
+  column_status_case(torch::kCPU);
+}
+
+TEST(lu_failure, cuda_column_status_flags_the_bad_column_only) {
+  if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CPU build or no CUDA device";
+  column_status_case(torch::kCUDA);
 }

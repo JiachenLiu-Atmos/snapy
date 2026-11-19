@@ -20,7 +20,9 @@
 namespace snap {
 
 //! The operands of the VIC TensorIterator (ImplicitHydroImpl::vic_config);
-//! the Woodbury solve adds z0 and z1.
+//! the Woodbury solve adds z0, z1 and the wall coefficients. kVicStatus is
+//! the column's VicStatusBit (V3 I-5), one value per column (the operand is
+//! broadcast along the rows and layers), in the solve's dtype.
 enum VicOperand : int {
   kVicDu = 0,
   kVicMassFix,
@@ -35,8 +37,13 @@ enum VicOperand : int {
   kVicSolid,
   kVicWorkLo,
   kVicWorkHi,
+  kVicStatus,
   kVicZ0,
-  kVicZ1
+  kVicZ1,
+  kVicKt0,  //!< the wall slopes' third points, one value per column
+  kVicKt1,
+  kVicFluid0,  //!< 1 if the column's first (last) cell is fluid, else 0
+  kVicFluid1
 };
 
 //! a column's layout, the same for every column of the iterator
@@ -91,6 +98,71 @@ DISPATCH_MACRO void vic_assemble_cell(char* const* p, VicLayout const& L, int i,
   }
 }
 
+//! the input screen of one column: du, w (every row) and gamma finite
+template <typename T>
+DISPATCH_MACRO bool vic_column_finite(char* const* p, VicLayout const& L) {
+  auto du = vic_op<T>(p, kVicDu);
+  auto w = vic_op<T>(p, kVicW);
+  auto gamma = vic_op<T>(p, kVicGamma);
+  int nvar = ICY + L.ny;
+  for (int i = 0; i < L.nlayer; ++i) {
+    if (!std::isfinite(gamma[i * L.stride2])) return false;
+    for (int n = 0; n < nvar; ++n) {
+      int k = n * L.stride1 + i * L.stride2;
+      if (!std::isfinite(du[k]) || !std::isfinite(w[k])) return false;
+    }
+  }
+  return true;
+}
+
+//! the Woodbury correction of one column (#369's wall third points): the
+//! rank-2 update y -= Z (I + V^T Z)^{-1} V^T y with y = delta and Z = (z0,
+//! z1) after the back substitution, in the operation order of the host
+//! tensor code it replaces (V3 I-5)
+//! CPU: that code rounds every product and sum on its own, so the host
+//! build must not contract them into FMAs (ruling I-5.B1_fma: clang's
+//! default -ffp-contract=on does on arm64, GCC's default =fast wherever FMA
+//! exists). The clang pragma is function-scoped and GCC ignores it, so GCC
+//! gets the same as a function-level optimize option. Both are host-only:
+//! the CUDA translation unit (implicit_dispatch.cu) sees neither.
+#if !defined(__CUDACC__) && defined(__GNUC__) && !defined(__clang__)
+#pragma GCC push_options
+#pragma GCC optimize("fp-contract=off")
+#endif
+template <typename T, int N>
+DISPATCH_MACRO void vic_woodbury_column(char* const* p, int nlayer, double dt) {
+#if !defined(__CUDACC__) && defined(__clang__)
+#pragma clang fp contract(off)
+#endif
+  using Vector = Eigen::Matrix<T, N, 1>;
+  auto y = vic_op<Vector>(p, kVicDelta);
+  auto z0 = vic_op<Vector>(p, kVicZ0);
+  auto z1 = vic_op<Vector>(p, kVicZ1);
+  T k0 = -vic_op<T>(p, kVicKt0)[0] / T(dt);  // a tensor / a scalar, in T
+  T k1 = -vic_op<T>(p, kVicKt1)[0] / T(dt);
+  k0 = k0 * vic_op<T>(p, kVicFluid0)[0];
+  k1 = k1 * vic_op<T>(p, kVicFluid1)[0];
+  int i0 = 2, i1 = nlayer - 3;
+  T m00 = T(1.) + k0 * z0[i0](0), m01 = k0 * z1[i0](0);
+  T m10 = k1 * z0[i1](0), m11 = T(1.) + k1 * z1[i1](0);
+  T r0 = k0 * y[i0](0), r1 = k1 * y[i1](0);
+  T det = m00 * m11 - m01 * m10;
+  T al0 = (m11 * r0 - m01 * r1) / det, al1 = (m00 * r1 - m10 * r0) / det;
+  for (int i = 0; i < nlayer; ++i)
+    for (int row = 0; row < N; ++row) {
+      T t0 = z0[i](row) * al0;
+      y[i](row) = y[i](row) - t0;
+    }
+  for (int i = 0; i < nlayer; ++i)
+    for (int row = 0; row < N; ++row) {
+      T t1 = z1[i](row) * al1;
+      y[i](row) = y[i](row) - t1;
+    }
+}
+#if !defined(__CUDACC__) && defined(__GNUC__) && !defined(__clang__)
+#pragma GCC pop_options
+#endif
+
 //! the column solve: forward sweep and back substitution. K = 2 (Woodbury):
 //! the same factorisation also solves the unit E rows at the two wall cells
 template <typename T, int N, int K>
@@ -109,12 +181,22 @@ DISPATCH_MACRO void vic_solve_column(char* const* p, VicLayout const& L,
     z1 = vic_op<Vector>(p, kVicZ1);
   }
   int nlayer = L.nlayer;
+  auto status = vic_op<T>(p, kVicStatus);
+  int32_t bits = static_cast<int32_t>(status[0]);
+  if (!vic_column_finite<T>(p, L)) bits |= kVicInputNonfinite;
   // partial: delta holds the assembly's m_t right-hand-side term
   if (!ForwardSweep<K>(a, b, c, delta, du, dt, 0, nlayer - 1, dir, L.ny,
                        L.stride1, L.stride2, /*first_block=*/true,
-                       /*last_block=*/true, N == 3, z0, z1, 0, nlayer - 1))
+                       /*last_block=*/true, N == 3, z0, z1, 0, nlayer - 1)) {
+    status[0] = static_cast<T>(bits | kVicSingular);
     return;
+  }
   vic_backward_substitute(a, delta, 0, nlayer - 1, z0, z1);
+  if constexpr (K == 2) vic_woodbury_column<T, N>(p, nlayer, dt);
+  for (int i = 0; i < nlayer; ++i)
+    for (int row = 0; row < N; ++row)
+      if (!std::isfinite(delta[i](row))) bits |= kVicResultNonfinite;
+  status[0] = static_cast<T>(bits);
 }
 
 //! the redistribution's serial column pass, per fluid segment: constituents
@@ -173,25 +255,25 @@ void vic_stage_run(at::TensorIterator& iter, VicLayout L,
   int dir = prm.dir;
   switch (prm.stage) {
     case VicStage::assemble:
-      Launch::template cells<13>(
+      Launch::template cells<14>(
           iter, L.nlayer, [=] DISPATCH_MACRO(char* const* p, int i) {
             vic_assemble_cell<T, N>(p, L, i, dt, grav, dir);
           });
       break;
     case VicStage::solve:
       if (prm.woodbury)  // 64 threads per block: more registers per thread
-        Launch::template columns<15, 64>(
+        Launch::template columns<20, 64>(
             iter, [=] DISPATCH_MACRO(char* const* p) {
               vic_solve_column<T, N, 2>(p, L, dt, dir);
             });
       else
-        Launch::template columns<13, 128>(
+        Launch::template columns<14, 128>(
             iter, [=] DISPATCH_MACRO(char* const* p) {
               vic_solve_column<T, N, 0>(p, L, dt, dir);
             });
       break;
     case VicStage::redistribute:
-      Launch::template redistribute<13>(
+      Launch::template redistribute<14>(
           iter, L.nlayer,
           [=] DISPATCH_MACRO(char* const* p) {
             vic_redistribute_column<T, N>(p, L, dir);

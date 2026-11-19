@@ -108,28 +108,30 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
   torch::Tensor dry_clamp_step() const { return _dry_clamp_step; }
   void reset_dry_clamp_step() { _dry_clamp_step.zero_(); }
 
-  //! Latched until the next step, including later RK stages. A failure
-  //! found after the solve is latched on the device; this reads it back.
-  bool solve_failed() const {
-    return _solve_failed || (_failed_dev.defined() && _failed_dev.item<bool>());
-  }
-  void reset_solve_failure() {
-    _solve_failed = false;
-    if (_failed_dev.defined()) _failed_dev.zero_();
-  }
+  //! V3 I-5: each column's VicStatusBit [nc3, nc2] (int32), set by the
+  //! column's kernel thread and by the result check, kept over the step's
+  //! stages until reset_status() (step start)
+  torch::Tensor col_status() const;
+  //! the OR of col_status(), 0-d bool, on the device
+  torch::Tensor status() const;
+  void reset_status();
+  //! on a redo only (the host already synchronised): the failed columns
+  void report_failure(std::ostream& os) const;
 
-  //! solve_failed() as a 0-d tensor (1 or 0) with `opts`, without a host read
+  //! status() read back: the FP32 fallback's host read (hydro.cpp, until I-6)
+  bool solve_failed() const { return status().item<bool>(); }
+  void reset_solve_failure() { reset_status(); }
+
+  //! status() as a 0-d tensor (1 or 0) with `opts`, without a host read: the
+  //! redo's slot 5 (meshblock.cpp) until lane X reads retry_flags
   torch::Tensor solve_failed_tensor(torch::TensorOptions const& opts) const {
-    auto flag = torch::full({}, _solve_failed ? 1. : 0., opts);
-    return _failed_dev.defined() ? torch::maximum(flag, _failed_dev.to(opts))
-                                 : flag;
+    return status().to(opts);
   }
 
  private:
   void ensure_workspace(torch::Tensor const& w);
-  bool _solve_failed = false;
   torch::Tensor _fp64_fallbacks;
-  torch::Tensor _failed_dev;  // 0-d bool: a failure found after the solve
+  torch::Tensor _status;  // [nc3, nc2] VicStatusBit, the solve's dtype
 
   torch::Tensor _a, _b, _c, _delta, _du0, _corr, _mass_corr, _clamp_residual,
       _dry_clamp_step;
