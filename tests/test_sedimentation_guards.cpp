@@ -130,6 +130,31 @@ TEST(sedimentation, particle_buffers_are_sedhydros_own) {
     EXPECT_EQ(buffers["const_vsed"][0].item<double>(), -2.);
 }
 
+// EF-7 (D6): "W->E" is the base species_energy, rho y (species_enthalpy -
+// pressure share); a cloud has no pressure share, so its row is exactly
+// rho y species_enthalpy (the old inline form rounded differently)
+TEST(sedimentation, cloud_energy_is_its_enthalpy_times_its_mass) {
+  auto options = MeshBlockOptionsImpl::from_yaml(kCard);
+  auto gravity = ConstGravityOptionsImpl::create();
+  gravity->grav1(-1.);
+  options->hydro()->grav() = gravity;
+  auto block = std::make_shared<MeshBlockImpl>(options);
+  int il = block->pcoord->il(), iu = block->pcoord->iu();
+  auto w = make_primitive(block);
+  for (int i = il; i <= iu; ++i) {
+    w[IVX].select(-1, i).fill_(0.3 * (i - il) - 0.7);
+    w[IVY].select(-1, i).fill_(1.9 + 0.13 * i);
+    w[ICY + 1].select(-1, i).fill_(0.0071 * (i - il + 2));
+    w[IPR].select(-1, i).fill_(1.e5 * (1. - 0.03 * (i - il)));
+  }
+  auto peos = block->phydro->peos;
+  auto en = peos->compute("W->E", {w})[1];
+  auto h = w[IDN] * w[ICY + 1] * peos->species_enthalpy(w)[1];
+  for (int i = il; i <= iu; ++i)
+    EXPECT_EQ(en[0][0][i].item<double>(), h[0][0][i].item<double>())
+        << "cell " << i;
+}
+
 // sedimentation reads grav1 in forward(); without const-gravity that was a null
 // dereference on the first step, so the card is refused at setup instead
 TEST(sedimentation, refuses_a_card_without_const_gravity) {
