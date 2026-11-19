@@ -10,7 +10,7 @@
 // snap
 #include <snap/mesh/meshblock.hpp>
 
-#include "output_formats.hpp"
+#include "output_type.hpp"
 #include "output_utils.hpp"
 #include "restart_metadata.hpp"
 #include "writer_core.hpp"

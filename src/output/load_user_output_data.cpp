@@ -20,7 +20,7 @@ void OutputType::loadUserOutputData(MeshBlockImpl* pmb, Variables const& vars) {
 
   for (const auto& pair : user_out_var) {
     if (pair.first.length() != 0) {
-      appendTensorOutput("SCALARS", pair.first, pair.second);
+      appendTensorOutput(pair.first, pair.second);
     }
   }
 }

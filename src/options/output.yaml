@@ -41,7 +41,6 @@ options:
   - {name: variables, key: variables, type: "list[string]", read: if_present, doc: "Variables to write."}
   - {name: combine, key: combine, type: bool, default: true, doc: "Combine the per-block files after writing."}
   - {name: verbose, key: verbose, type: bool, default: false, doc: "Verbose writer."}
-  - {name: super_resolution, key: super-resolution, type: bool, default: false, report: false, doc: "Write a refined copy of the fields."}
 checks:
   - {after: x3_slice, throw: invalid_argument, cond: "op.x1_slice().empty() || !op.output_sumx1()", message: "Cannot request both slice and sum along x1"}
   - {after: x3_slice, throw: invalid_argument, cond: "op.x2_slice().empty() || !op.output_sumx2()", message: "Cannot request both slice and sum along x2"}
