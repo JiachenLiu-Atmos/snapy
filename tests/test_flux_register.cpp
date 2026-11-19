@@ -152,6 +152,54 @@ TEST(FluxRegister, kept_parts_are_requested_at_reset) {
       c10::Error);
 }
 
+// R-3: add() in call order rounds as the pin's in-place updates, E = (E -
+// c_adv) - c_sed (flux_positivity.cpp), not E - (c_adv + c_sed)
+TEST(FluxRegister, add_in_call_order_keeps_the_pin_rounding) {
+  torch::manual_seed(5);
+  FluxRegister reg;
+  RegisterRequest req;
+  req.keep = {"sedimentation@1"};
+  reg.reset(5, {1, 2, 64}, {true, false, false}, torch::kFloat64, req);
+  auto f0 = torch::randn({5, 1, 2, 64}, torch::kFloat64);
+  auto adv = 1.e-3 * torch::randn({1, 1, 2, 64}, torch::kFloat64);
+  auto sed = 1.e5 * torch::randn({1, 1, 2, 64}, torch::kFloat64);
+  reg.total(1).copy_(f0);
+  reg.add(1, "positivity.carry", {IPR}, -adv);
+  reg.add(1, "sedimentation", {IPR}, -sed);
+  auto pin = f0.clone();
+  pin[IPR] -= adv[0];
+  pin[IPR] -= sed[0];
+  auto fused = f0.clone();
+  fused[IPR] -= adv[0] + sed[0];
+  EXPECT_TRUE(torch::equal(reg.total(1), pin));
+  EXPECT_FALSE(torch::equal(reg.total(1), fused));  // the operands make it so
+  // the requested part of the same name holds the increment, other rows 0
+  EXPECT_TRUE(torch::equal(reg.kept(1, "sedimentation")[IPR], -sed[0]));
+  EXPECT_EQ(reg.kept(1, "sedimentation")[IDN].abs().sum().item<double>(), 0.);
+  EXPECT_THROW(reg.add(1, "bad", {IDN, IPR}, adv), c10::Error);
+  EXPECT_THROW(reg.add(2, "bad", {IDN}, adv), c10::Error);  // inactive
+}
+
+// R-3: scale() multiplies the rows in place, by one factor or one per row
+TEST(FluxRegister, scale_multiplies_the_rows_in_place) {
+  torch::manual_seed(6);
+  FluxRegister reg;
+  reg.reset(5, {1, 2, 8}, {true, false, false}, torch::kFloat64, {});
+  auto f0 = torch::randn({5, 1, 2, 8}, torch::kFloat64);
+  auto th = torch::rand({1, 2, 8}, torch::kFloat64);
+  auto th2 = torch::rand({2, 1, 2, 8}, torch::kFloat64);
+  reg.total(1).copy_(f0);
+  reg.scale(1, "positivity.withhold", {IDN}, th);
+  reg.scale(1, "positivity.withhold", {IVY, IPR}, th2);
+  auto pin = f0.clone();
+  pin[IDN].mul_(th);
+  pin[IVY].mul_(th2[0]);
+  pin[IPR].mul_(th2[1]);
+  EXPECT_TRUE(torch::equal(reg.total(1), pin));
+  EXPECT_TRUE(torch::equal(reg.total(1)[IVX], f0[IVX]));  // untouched
+  EXPECT_THROW(reg.scale(1, "bad", {IDN}, th2), c10::Error);
+}
+
 // G-R3: rk3, 10 steps, the recursion against the host FP64 product form
 TEST(FluxRegister, step_field_recursion_equals_the_weighted_stage_sum) {
   Variables vars;
