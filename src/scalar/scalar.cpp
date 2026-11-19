@@ -91,11 +91,18 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
     return torch::where(rf > 0., recon->forward(u, dim) / rf,
                         torch::stack({r.roll(1, dim), r}));
   };
-  // the fluxes, by direction, and the hydro dry-mass rows they ride on
+  // the fluxes, by direction, and the hydro dry-mass rows they ride on: the
+  // hydro register's mass.dry.limited@d, row IDN of its total as limit ends
+  // (R-5; R.rst 4.2 EF c), not the total after the hydro forward
   torch::Tensor* flux[3] = {&_flux1, &_flux2, &_flux3};
-  auto row = [](torch::Tensor const& t) { return t.defined() ? t[IDN] : t; };
-  torch::Tensor rlr[3],
-      mass[3] = {row(ph->flux1()), row(ph->flux2()), row(ph->flux3())};
+  auto const& hreg = ph->flux_register();
+  auto row = [&](int d) {
+    if (!hreg.total(d).defined()) return torch::Tensor();
+    TORCH_CHECK(hreg.keeps(d, "mass.dry.limited"), "[Scalar] the hydro ",
+                "register keeps no mass.dry.limited@", d);
+    return hreg.kept(d, "mass.dry.limited")[IDN];
+  };
+  torch::Tensor rlr[3], mass[3] = {row(1), row(2), row(3)};
   if (_flux1.defined()) {
     rlr[0] = face_r(DIM1);
     _flux1.set_data(priemann->forward(rlr[0][ILT], rlr[0][IRT], DIM1, mass[0]));

@@ -26,7 +26,8 @@ class PrecisionPolicy;
 //! are these tensors), the requested step fields S_d and the monitor; R-2
 //! the slots (slot, post_slot, part_slot, kept); R-3 add and scale; R-4
 //! replace, set_prescribed/apply_prescribed and the monitor's amounts for
-//! them; the other posts (keep, cell_amount) arrive with R-5 to R-7.
+//! them; R-5 keep and cell_amount (lane I's posts arrive with I-4); the
+//! rest (derived rows, phases, Fixer) with R-6 and R-7.
 
 //! S rows 9 and 16r: both sides of an x1 seam call mean; on a panel seam
 //! only the non-owner calls owner_copy
@@ -68,7 +69,8 @@ class RegisterMonitor {
 
   //! R-4: the amounts, FP64 (FP32 on MPS), one (nrows,) per name, in
   //! amount_names() order: "reconcile.x1", "reconcile.panel" and
-  //! "boundary.prescribed", all AmountKind::flux_correction
+  //! "boundary.prescribed", all AmountKind::flux_correction, then R-5's
+  //! cell_amount names in the order of their first post
   void reset_amounts(int nrows);
   std::vector<std::string> const& amount_names() const { return _amount; }
   AmountKind kind(std::string const& name) const;
@@ -77,7 +79,13 @@ class RegisterMonitor {
   torch::Tensor amounts(std::string const& name) const;
   //! a_s += rate, (nrows,): an area-integrated face change of this stage
   void book(std::string const& name, torch::Tensor const& rate);
-  //! A <- w1 A + w2 dt a_s, then a_s <- 0 (FluxRegister::end_stage)
+  //! R-5: amount (nrows,) times weight, into this stage's posts when
+  //! in_stage (folded at end_stage, R.rst 3.4), else straight into the step
+  //! amount (after_combine: only later stages' w1 scale it). The name is
+  //! created at its first post with that kind; another kind is an error.
+  void post(std::string const& name, AmountKind kind,
+            torch::Tensor const& amount, double weight, bool in_stage);
+  //! A <- w1 A + w2 dt a_s + p_s, then a_s, p_s <- 0 (FluxRegister::end_stage)
   void end_stage(double w1, double w2dt);
 
   std::vector<std::string> const& row_names() const { return _rows; }
@@ -95,9 +103,10 @@ class RegisterMonitor {
  private:
   std::vector<std::string> _rows, _counter, _minimum, _retry, _amount;
   std::vector<AmountKind> _kind;
-  //! [namounts, nrows]: the step amounts and this stage's a_s, placed on
-  //! the register's device by FluxRegister::begin_step or the first book()
-  torch::Tensor _step_amount, _stage_amount;
+  //! [namounts, nrows]: the step amounts, this stage's booked rates a_s and
+  //! weighted posts p_s, placed on the register's device by
+  //! FluxRegister::begin_step or the first book()/post()
+  torch::Tensor _step_amount, _stage_amount, _stage_post;
   void place_amounts(torch::Device device);
   friend class FluxRegister;
 };
@@ -170,6 +179,15 @@ class FluxRegister {
   //! books sum A_f mask (value - total before) per row of the total as
   //! "boundary.prescribed". No-op when S set no mask for dim.
   void apply_prescribed(int dim);
+  //! R-5: a computed one-quantity part ("vic.mass_total", "mass.dry.limited"):
+  //! value [faces...] goes to row IDN of the requested nvar-row part; the
+  //! other rows stay zero
+  void keep(int dim, std::string const& part, torch::Tensor const& value);
+  //! R-5: vol_du [nrows, cells...] (summed) or (nrows,), already times the
+  //! cell volume; stage_weight is w2_s for this stage's du, 1.0 for a change
+  //! already in u (R.rst 4.2 I)
+  void cell_amount(std::string const& name, torch::Tensor const& vol_du,
+                   double stage_weight, AmountKind kind);
   //! the parts, by "part@dim", for HydroImpl to register as buffers
   std::map<std::string, torch::Tensor>& parts() { return _parts; }
   //! S_d = sum over stages of w2_s prod_{t>s} w1_t dt T_s, per unit area
@@ -201,6 +219,7 @@ class FluxRegister {
   RegisterMonitor _monitor;
   int _stage = -1;
   double _w1 = 0., _w2 = 0.;
+  bool _in_stage = false;  //! between begin_stage and end_stage
 };
 
 }  // namespace snap

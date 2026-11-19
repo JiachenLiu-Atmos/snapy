@@ -255,6 +255,20 @@ void HydroImpl::reset() {
     if (nc2 > 1) req.keep.push_back("riemann.central@2");
     if (nc3 > 1) req.keep.push_back("riemann.central@3");
   }
+  // R-5: lane I's kept x1 parts, posted by the implicit solve (I-4)
+  if (picorr && nc1 > 1)
+    for (auto const* key :
+         {"vic.mass_total@1", "vic.mass_dry@1", "vic.momentum_t@1"})
+      req.keep.push_back(key);
+  // R-5: the scalars' dry-mass flux, row IDN of each total as limit ends
+  // (R.rst 4.2 EF c); hydro requests it, the Scalar module does not exist yet
+  auto sopts = pmb->options->scalar();
+  if (sopts && sopts->nvar() > 0) {
+    std::array<int, 3> nc = {nc1, nc2, nc3};
+    for (int d = 1; d <= 3; ++d)
+      if (nc[d - 1] > 1)
+        req.keep.push_back("mass.dry.limited@" + std::to_string(d));
+  }
   freg.reset(nvar, {nc3, nc2, nc1}, {nc1 > 1, nc2 > 1, nc3 > 1}, flux_dtype,
              req);
   _flux1 = register_buffer("F1", freg.totals()[0]);

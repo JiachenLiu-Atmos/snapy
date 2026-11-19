@@ -3,7 +3,7 @@ def ds(n, recon, rho, r):  # one Scalar.forward with mass flux 1 and exact cell 
     c = yaml.safe_load(open(os.path.join(os.path.dirname(__file__), "test_tracer_dry_convention.yaml")))
     c["geometry"]["cells"].update(nx1=n, nx2=1); c["scalar"]["reconstruct"] = {"type": recon}
     f = tempfile.NamedTemporaryFile("w", suffix=".yaml"); yaml.safe_dump(c, f); f.flush()
-    b = snapy.MeshBlock(snapy.MeshBlockOptions.from_yaml(f.name)); b.buffer("hydro.F1")[0].fill_(1.)
+    b = snapy.MeshBlock(snapy.MeshBlockOptions.from_yaml(f.name)); b.buffer("hydro.K_mass_dry_limited_1")[0].fill_(1.)
     xf, (g, w) = b.buffer("coord.x1f").numpy(), np.polynomial.legendre.leggauss(8)
     avg = lambda f: torch.tensor((w * f((xf[:-1, None] + xf[1:, None] + np.diff(xf)[:, None] * g) / 2)).sum(1) / 2).view(1, 1, 1, -1)
     u = b.buffer("hydro.D").clone().zero_(); u[0] = avg(rho)

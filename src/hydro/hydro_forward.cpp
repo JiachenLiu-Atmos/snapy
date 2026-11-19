@@ -1228,6 +1228,12 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     }
   }
 
+  // R-5: limit ends; the Scalar module's dry-mass flux is row IDN of each
+  // total now, before the implicit posts enter total(1)
+  for (int d = 1; d <= 3; ++d)
+    if (freg.keeps(d, "mass.dry.limited"))
+      freg.keep(d, "mass.dry.limited", freg.total(d)[IDN]);
+
   //// ------------ (5) Calculate flux divergence ------------ ////
   // #289: the normal-momentum face flux carries p* = p - delta d_1 p (its
   // centroid part), so the geometric pressure source must see the same p*, or
@@ -1599,6 +1605,10 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     int ie = pmb->pcoord->iu() + 1;
     du[IPR].slice(-1, is, ie) += gravity_energy_correction;
   }
+
+  // R-5, post_implicit starts: S's prescribed x1 faces on the total and the
+  // kept x1 parts, before any reader (a no-op until S sets a mask)
+  if (freg.total(1).defined()) freg.apply_prescribed(1);
 
   //// ------------ (8) x1 mass-flux w in Coriolis and metric sources -------
   // -2 Omega w cos(lat) and -u w / r take rho w from the stage's final x1

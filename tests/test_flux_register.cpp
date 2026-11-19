@@ -486,3 +486,170 @@ TEST(FluxRegister, amounts_fold_like_the_step_field) {
   EXPECT_EQ(reg.monitor().amounts("reconcile.x1").abs().sum().item<double>(),
             0.);
 }
+
+// R-5: keep writes a computed one-quantity part on row IDN of its nvar-row
+// part; the other rows stay zero
+TEST(FluxRegister, keep_writes_row_idn_of_the_part) {
+  FluxRegister reg;
+  RegisterRequest req;
+  req.keep = {"vic.mass_total@1"};
+  reg.reset(5, {1, 2, 8}, {true, false, false}, torch::kFloat64, req);
+  torch::manual_seed(8);
+  auto f = torch::randn({1, 2, 8}, torch::kFloat64);
+  reg.keep(1, "vic.mass_total", f);
+  auto part = reg.kept(1, "vic.mass_total");
+  EXPECT_TRUE(torch::equal(part[IDN], f));
+  EXPECT_EQ(part.narrow(0, 1, 4).abs().sum().item<double>(), 0.);
+  reg.keep(1, "vic.mass_total", 2. * f.unsqueeze(0));  // [1, faces...] too
+  EXPECT_TRUE(torch::equal(part[IDN], 2. * f));
+  EXPECT_THROW(reg.keep(1, "vic.mass_total", f.narrow(-1, 0, 4)), c10::Error);
+  EXPECT_THROW(reg.keep(1, "vic.mass_dry", f), c10::Error);  // not requested
+}
+
+// R-5: a cell_amount name is created at its first post, with its kind; a
+// later post with another kind is an error
+TEST(FluxRegister, cell_amount_names_are_made_at_their_first_post) {
+  FluxRegister reg;
+  reg.reset(5, {1, 2, 8}, {true, false, false}, torch::kFloat64, {});
+  auto& m = reg.monitor();
+  ASSERT_EQ(m.amount_names().size(), 3u);
+  reg.begin_step();
+  auto v = torch::arange(5 * 16, torch::kFloat64).view({5, 1, 2, 8});
+  reg.cell_amount("vic.cell", v, 1., AmountKind::cell_source);
+  ASSERT_EQ(m.amount_names().size(), 4u);
+  EXPECT_EQ(m.amount_names()[3], "vic.cell");
+  EXPECT_EQ(m.kind("vic.cell"), AmountKind::cell_source);
+  // outside a stage it goes straight into the step amount, summed per row
+  EXPECT_TRUE(torch::equal(m.amounts("vic.cell"), v.sum({1, 2, 3})));
+  reg.cell_amount("vic.cell", v.sum({1, 2, 3}), 1., AmountKind::cell_source);
+  EXPECT_TRUE(torch::equal(m.amounts("vic.cell"), 2. * v.sum({1, 2, 3})));
+  EXPECT_THROW(reg.cell_amount("vic.cell", v, 1., AmountKind::floor),
+               c10::Error);
+  EXPECT_THROW(reg.cell_amount("reconcile.x1", v, 1., AmountKind::cell_source),
+               c10::Error);  // R-4's names are flux corrections
+  EXPECT_THROW(reg.cell_amount("bad", v.narrow(0, 0, 3), 1., AmountKind::floor),
+               c10::Error);
+  EXPECT_EQ(m.amount_names().size(), 5u);  // "bad" was made, then refused
+  reg.rollback();
+  EXPECT_EQ(m.amounts("vic.cell").abs().sum().item<double>(), 0.);
+}
+
+// G-R14 for cell amounts (R.rst 3.4): a stage's posts with stage_weight
+// w2_s and after_combine posts with 1.0 fold as A <- w1 A + sum w_k a_k, so
+// the step amount is sum_s prod_{t>s} w1_t (w2_s a_s + b_s)
+TEST(FluxRegister, cell_amounts_fold_with_their_stage_weight) {
+  Seam s;
+  FluxRegister reg;
+  reg.reset(s.nvar, {1, 2, 8}, {true, false, false}, torch::kFloat64, {});
+  auto const& stages = s.block->pintg->stages;
+  torch::manual_seed(9);
+  double worst = 0.;
+  for (int step = 0; step < 3; ++step) {
+    reg.begin_step();
+    auto ref = torch::zeros({s.nvar}, torch::kFloat64);
+    for (int st = 0; st < stages.size(); ++st) {
+      reg.begin_stage(st, stages[st]);
+      auto a = torch::randn({s.nvar, 1, 2, 8}, torch::kFloat64);
+      reg.cell_amount("vic.cell", a, stages[st].wght2(),
+                      AmountKind::cell_source);
+      reg.end_stage(0.37);
+      auto b = torch::randn({s.nvar}, torch::kFloat64);  // after_combine
+      reg.cell_amount("fixer", b, 1., AmountKind::fixer);
+      double later = 1.;
+      for (int t = st + 1; t < stages.size(); ++t) later *= stages[t].wght1();
+      ref += later * (stages[st].wght2() * a.sum({1, 2, 3}) + b);
+    }
+    auto got =
+        reg.monitor().amounts("vic.cell") + reg.monitor().amounts("fixer");
+    double r = rel(got, ref);
+    worst = std::max(worst, r);
+    EXPECT_LE(r, 1.e-15) << step;
+    EXPECT_EQ(reg.monitor().amounts("reconcile.x1").abs().sum().item<double>(),
+              0.);
+  }
+  std::printf("G-R14 (cell amounts): worst relative difference %.3e\n", worst);
+}
+
+// R-5 on R-4.rows: apply_prescribed(1) prescribes lane I's kept x1 parts on
+// every row the mask sets (IDN and IPR here), with the total's value, unbooked
+TEST(FluxRegister, apply_prescribed_sets_every_masked_row_of_lane_i_parts) {
+  Seam s;
+  RegisterRequest req;
+  req.keep = {"vic.mass_total@1", "vic.momentum_t@1"};
+  auto reg = s.make(req, 10);
+  s.stage(reg);
+  auto t0 = reg.total(1).clone();
+  auto m0 = reg.kept(1, "vic.mass_total").clone();
+  auto p0 = reg.kept(1, "vic.momentum_t").clone();
+  // IDN at the lower wall face, IPR at the upper: both rows apply
+  auto mask = torch::zeros_like(t0, torch::kBool);
+  int nc1 = t0.size(3);
+  mask[IDN].select(2, 3).fill_(true);
+  mask[IPR].select(2, nc1 - 3).fill_(true);
+  auto value = torch::full_like(t0, 0.25);
+  reg.set_prescribed(1, mask, value);
+  reg.apply_prescribed(1);
+  for (auto const& [name, before] :
+       {std::pair{"vic.mass_total", m0}, std::pair{"vic.momentum_t", p0}}) {
+    ASSERT_FALSE(
+        torch::equal(before.masked_select(mask), value.masked_select(mask)))
+        << name;
+    auto part = reg.kept(1, name);
+    EXPECT_TRUE(
+        torch::equal(part.masked_select(mask), value.masked_select(mask)))
+        << name;
+  }
+  reg.end_stage(1.);
+  auto ref =
+      (s.area(1, reg) * torch::where(mask, value - t0, 0.)).sum({1, 2, 3});
+  EXPECT_LE(rel(reg.monitor().amounts("boundary.prescribed"), ref), 1.e-15);
+}
+
+// R-5: hydro requests lane I's vic parts with the implicit solve and
+// mass.dry.limited@d with scalars; the scalars' flux read is that part, row
+// IDN of the total as limit ends, the same values as the total after the
+// hydro forward (the switch is bitwise until I-4 posts into total(1))
+TEST(FluxRegister, hydro_keeps_the_parts_its_readers_need) {
+  Variables plain;
+  auto bub = bubble(plain);
+  auto& r0 = bub->phydro->flux_register();
+  EXPECT_FALSE(r0.keeps(1, "vic.mass_total"));
+  EXPECT_FALSE(r0.keeps(1, "mass.dry.limited"));
+
+  std::string deck = kDeck;
+  auto at = deck.find("implicit-scheme: 0");
+  ASSERT_NE(at, std::string::npos);
+  deck.replace(at, 18, "implicit-scheme: 1");
+  deck += "scalar: {nvar: 1, names: [trace], reconstruct: {type: weno5}}\n";
+  {
+    std::ofstream f("test_flux_register_scalar.yaml");
+    f << deck;
+  }
+  auto block = MeshBlock(
+      MeshBlockOptionsImpl::from_yaml("test_flux_register_scalar.yaml"));
+  block->to(torch::kCPU, torch::kFloat64);
+  auto& reg = block->phydro->flux_register();
+  for (auto const* p : {"vic.mass_total", "vic.mass_dry", "vic.momentum_t"})
+    EXPECT_TRUE(reg.keeps(1, p)) << p;
+  EXPECT_TRUE(reg.keeps(1, "mass.dry.limited"));
+  EXPECT_TRUE(reg.keeps(2, "mass.dry.limited"));
+  EXPECT_FALSE(reg.keeps(3, "mass.dry.limited"));  // nx3 = 1
+
+  Variables vars;
+  vars["hydro_w"] = plain.at("hydro_w").clone();
+  vars["scalar_r"] = torch::full_like(vars["hydro_w"].narrow(0, 0, 1), 1.e-3);
+  block->initialize(vars);
+  double dt = block->max_time_step(vars);
+  for (int stage = 0; stage < block->pintg->stages.size(); ++stage) {
+    block->forward(vars, dt, stage);
+    for (int d : {1, 2}) {
+      auto part = reg.kept(d, "mass.dry.limited");
+      EXPECT_TRUE(torch::equal(part[IDN], reg.total(d)[IDN])) << d;
+      EXPECT_EQ(part.narrow(0, 1, part.size(0) - 1).abs().sum().item<double>(),
+                0.)
+          << d;
+    }
+  }
+  EXPECT_GT(reg.kept(1, "mass.dry.limited").abs().max().item<double>(), 0.);
+  EXPECT_GT(vars.at("scalar_s").abs().max().item<double>(), 0.);
+}

@@ -142,8 +142,9 @@ TEST_P(DeviceTest, scalar_upper_bound_holds_both_sides) {
 
   // The hydro is never advanced here, so give the tracer a mass flux to ride
   // on; a uniform one has zero divergence, which keeps rho consistent with
-  // hydro_w.
-  block->phydro->flux1()[IDN].fill_(2.0);
+  // hydro_w. The scalars read the hydro register's mass.dry.limited@1 (R-5).
+  auto& hreg = block->phydro->flux_register();
+  hreg.keep(1, "mass.dry.limited", torch::full_like(hreg.total(1)[IDN], 2.0));
   BoundaryFuncOptions bops;
   bops.nghost(block->pcoord->options->nghost());
   bops.type(kScalar);

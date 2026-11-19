@@ -2,11 +2,14 @@
 #include <algorithm>
 #include <cstdlib>
 #include <limits>
+#include <numeric>
 
 // harp
 #include <harp/integrator/integrator.hpp>
 
 // snap
+#include <snap/snap.h>
+
 #include <snap/coord/coordinate.hpp>
 #include <snap/mesh/precision_policy.hpp>
 
@@ -47,6 +50,7 @@ void RegisterMonitor::begin_step() {
   if (_step_amount.defined()) {
     _step_amount.zero_();
     _stage_amount.zero_();
+    _stage_post.zero_();
   }
 }
 
@@ -85,6 +89,7 @@ void RegisterMonitor::reset_amounts(int nrows) {
       std::vector<int64_t>{static_cast<int64_t>(_amount.size()), nrows};
   _step_amount = torch::zeros(shape, torch::kFloat64);
   _stage_amount = torch::zeros(shape, torch::kFloat64);
+  _stage_post = torch::zeros(shape, torch::kFloat64);
 }
 
 void RegisterMonitor::place_amounts(torch::Device device) {
@@ -93,6 +98,7 @@ void RegisterMonitor::place_amounts(torch::Device device) {
     return;
   _step_amount = _step_amount.to(device, wide);
   _stage_amount = _stage_amount.to(device, wide);
+  _stage_post = _stage_post.to(device, wide);
 }
 
 int RegisterMonitor::amount_index(std::string const& name) const {
@@ -113,10 +119,38 @@ void RegisterMonitor::book(std::string const& name, torch::Tensor const& rate) {
   _stage_amount[i].add_(rate.to(_stage_amount.scalar_type()));
 }
 
+void RegisterMonitor::post(std::string const& name, AmountKind kind,
+                           torch::Tensor const& amount, double weight,
+                           bool in_stage) {
+  TORCH_CHECK(_step_amount.defined(), "[FluxRegister] amount '", name,
+              "' before the register was reset");
+  auto it = std::find(_amount.begin(), _amount.end(), name);
+  int i = static_cast<int>(it - _amount.begin());
+  if (it == _amount.end()) {  // created at its first post, with its kind
+    _amount.push_back(name);
+    _kind.push_back(kind);
+    auto row = [](torch::Tensor const& t) {
+      return torch::cat({t, torch::zeros_like(t.narrow(0, 0, 1))}, 0);
+    };
+    _step_amount = row(_step_amount);
+    _stage_amount = row(_stage_amount);
+    _stage_post = row(_stage_post);
+  }
+  TORCH_CHECK(_kind[i] == kind, "[FluxRegister] amount '", name,
+              "' was first posted with another AmountKind");
+  TORCH_CHECK(amount.dim() == 1 && amount.size(0) == _step_amount.size(1),
+              "[FluxRegister] amount '", name, "' must be (",
+              _step_amount.size(1), ",); got ", amount.sizes());
+  place_amounts(amount.device());
+  auto& to = in_stage ? _stage_post : _step_amount;
+  to[i].add_(amount.to(to.scalar_type()), weight);
+}
+
 void RegisterMonitor::end_stage(double w1, double w2dt) {
   if (!_step_amount.defined()) return;
-  _step_amount.mul_(w1).add_(_stage_amount, w2dt);
+  _step_amount.mul_(w1).add_(_stage_amount, w2dt).add_(_stage_post);
   _stage_amount.zero_();
+  _stage_post.zero_();
 }
 
 void FluxRegister::reset(int nvar, std::array<int64_t, 3> const& cells,
@@ -151,6 +185,7 @@ void FluxRegister::reset(int nvar, std::array<int64_t, 3> const& cells,
   _monitor.reset_amounts(nvar);
   _stage = -1;
   _w1 = _w2 = 0.;
+  _in_stage = false;
 }
 
 void FluxRegister::reset(CoordinateImpl const* coord,
@@ -182,6 +217,7 @@ void FluxRegister::begin_step() {
     else
       _step[d].zero_();
   }
+  _in_stage = false;
   for (auto const& t : _total)
     if (t.defined() && _monitor._step_amount.defined()) {
       _monitor.place_amounts(t.device());
@@ -311,6 +347,30 @@ void FluxRegister::set_prescribed(int dim, torch::Tensor const& mask,
   _pvalue[dim - 1] = value;
 }
 
+void FluxRegister::keep(int dim, std::string const& part,
+                        torch::Tensor const& value) {
+  auto p = part_slot(dim, part);
+  auto v = value.dim() == p.dim() ? value.squeeze(0) : value;
+  TORCH_CHECK(v.sizes() == p.sizes().slice(1), "[FluxRegister] keep '", part,
+              "': value must be shaped like total(", dim,
+              ") without the row axis, ", p.sizes().slice(1), "; got ",
+              value.sizes());
+  p[IDN].copy_(v);
+}
+
+void FluxRegister::cell_amount(std::string const& name,
+                               torch::Tensor const& vol_du, double stage_weight,
+                               AmountKind kind) {
+  auto wide = vol_du.is_mps() ? torch::kFloat32 : torch::kFloat64;
+  auto a = vol_du.to(wide);
+  if (a.dim() > 1) {
+    std::vector<int64_t> dims(a.dim() - 1);
+    std::iota(dims.begin(), dims.end(), 1);
+    a = a.sum(dims);
+  }
+  _monitor.post(name, kind, a, stage_weight, _in_stage);
+}
+
 void FluxRegister::apply_prescribed(int dim) {
   auto t = slot(dim, "boundary.prescribed");
   auto& mask = _pmask[dim - 1];
@@ -332,6 +392,7 @@ void FluxRegister::begin_stage(int stage, harp::IntegratorWeight const& w) {
   _stage = stage;
   _w1 = w.wght1();
   _w2 = w.wght2();
+  _in_stage = true;
 }
 
 void FluxRegister::end_stage(double dt) {
@@ -341,6 +402,7 @@ void FluxRegister::end_stage(double dt) {
     _step[d].mul_(_w1).add_(_total[d].to(_step[d].scalar_type()), _w2 * dt);
   }
   _monitor.end_stage(_w1, _w2 * dt);
+  _in_stage = false;
 }
 
 void FluxRegister::rollback() { begin_step(); }
