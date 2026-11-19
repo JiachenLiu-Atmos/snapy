@@ -101,6 +101,7 @@ struct SedHydroOptionsImpl {
 };
 using SedHydroOptions = std::shared_ptr<SedHydroOptionsImpl>;
 
+class FluxRegister;
 class HydroImpl;
 class SedHydroImpl;
 
@@ -162,6 +163,9 @@ class SedHydroImpl : public torch::nn::Cloneable<SedHydroImpl> {
   //! particle indices in hydro
   torch::Tensor hydro_ids;
 
+  //! the x1 settling flux of the stage (P1): EF's buffer, kept until 4.C
+  torch::Tensor settling;
+
   //! non-owning reference to parent
   HydroImpl const* phydro = nullptr;
 
@@ -185,6 +189,13 @@ class SedHydroImpl : public torch::nn::Cloneable<SedHydroImpl> {
    */
   torch::Tensor forward(torch::Tensor wr,
                         torch::optional<torch::Tensor> out = torch::nullopt);
+
+  //! whether forward adds anything (gravity and a settling species)
+  bool settles() const;
+
+  //! P1: the settling flux into `settling`, then add(1, "sedimentation") of
+  //! its rows (species, IVX..IVZ, IPR) onto the register's x1 total
+  torch::Tensor const& post(FluxRegister& reg, torch::Tensor wr);
 };
 TORCH_MODULE(SedHydro);
 
