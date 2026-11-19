@@ -1,11 +1,11 @@
 // An ideal-gas EOS refuses a card with vapor, cloud or reactions at
 // construction (it used to fail in the first limiter or saturation step), and
-// a float32 tensor copied into AthenaArray<double> keeps its values.
+// a float32 field cast to the host by Frame::to_host() keeps its values.
 #include <gtest/gtest.h>
 #include <snap/snap.h>
 
-#include <snap/interface/athena_arrays.hpp>
 #include <snap/mesh/meshblock.hpp>
+#include <snap/output/writer_core.hpp>
 #include <string>
 
 using namespace snap;
@@ -30,24 +30,24 @@ TEST(MoistEOS, ideal_gas_accepts_a_card_without_species) {
   EXPECT_NO_THROW(std::make_shared<MeshBlockImpl>(op));
 }
 
-TEST(AthenaArray, float32_tensor_keeps_its_values) {
+TEST(Frame, to_host_keeps_float32_values) {
   torch::manual_seed(3);
   auto t4 = torch::rand({3, 2, 4, 5}, torch::kFloat32) + 1.;
-  AthenaArray<double> a4;
-  a4.InitFromTensor(t4, 4);
-  auto back4 = torch::from_blob(a4.data(), {3, 2, 4, 5}, torch::kFloat64);
-  EXPECT_EQ((back4 - t4.to(torch::kFloat64)).abs().max().item<double>(), 0.);
-
   auto t3 = torch::rand({2, 4, 5}, torch::kFloat32) + 1.;
-  AthenaArray<double> a3;
-  a3.CopyFromTensor(t3);
-  auto back3 = torch::from_blob(a3.data(), {2, 4, 5}, torch::kFloat64);
-  EXPECT_EQ((back3 - t3.to(torch::kFloat64)).abs().max().item<double>(), 0.);
-
-  // float64 keeps its bytes
   auto d3 = torch::rand({2, 4, 5}, torch::kFloat64);
-  AthenaArray<double> b3;
-  b3.CopyFromTensor(d3);
-  auto backd = torch::from_blob(b3.data(), {2, 4, 5}, torch::kFloat64);
+  Frame fr;
+  fr.fields = {{"a", t4}, {"b", t3}, {"c", d3}};
+  fr.to_host();
+  for (auto const& f : fr.fields) {
+    EXPECT_EQ(f.data.scalar_type(), torch::kFloat64);
+    EXPECT_EQ(f.data.dim(), 4);
+  }
+  auto back4 = fr.fields[0].data;
+  EXPECT_EQ((back4 - t4.to(torch::kFloat64)).abs().max().item<double>(), 0.);
+  auto back3 = fr.fields[1].data.view({2, 4, 5});
+  EXPECT_EQ((back3 - t3.to(torch::kFloat64)).abs().max().item<double>(), 0.);
+  // float64 keeps its bytes, in a copy of its own
+  auto backd = fr.fields[2].data.view({2, 4, 5});
   EXPECT_TRUE(torch::equal(backd, d3));
+  EXPECT_NE(backd.data_ptr(), d3.data_ptr());
 }

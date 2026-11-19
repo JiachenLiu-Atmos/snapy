@@ -75,7 +75,6 @@ TEST(options_table, pin_defaults) {
   EXPECT_FALSE(o.double_precision());
   EXPECT_TRUE(o.combine());
   EXPECT_FALSE(o.verbose());
-  EXPECT_FALSE(o.super_resolution());
 
   HydroOptionsImpl h;
   EXPECT_FALSE(h.verbose());

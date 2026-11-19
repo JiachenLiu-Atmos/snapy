@@ -43,110 +43,84 @@ void OutputType::loadHydroOutputData(MeshBlockImpl* pmb,
     auto mean = PrimStatMean(w);
     auto std = PrimStatStd(w);
 
-    appendTensorSliceOutput("SCALARS", "rho_mean", mean, 4, IDN, 1);
-    appendTensorSliceOutput("SCALARS", "rho_std", std, 4, IDN, 1);
+    appendTensorSliceOutput("rho_mean", mean, IDN, 1);
+    appendTensorSliceOutput("rho_std", std, IDN, 1);
 
     if (nhydro > 4) {
-      appendTensorSliceOutput("SCALARS", "press_mean", mean, 4, IPR, 1);
-      appendTensorSliceOutput("SCALARS", "press_std", std, 4, IPR, 1);
+      appendTensorSliceOutput("press_mean", mean, IPR, 1);
+      appendTensorSliceOutput("press_std", std, IPR, 1);
     }
 
-    appendTensorSliceOutput("SCALARS", "vel1_mean", mean, 4, IVX, 1);
-    appendTensorSliceOutput("SCALARS", "vel2_mean", mean, 4, IVY, 1);
-    appendTensorSliceOutput("SCALARS", "vel3_mean", mean, 4, IVZ, 1);
-    appendTensorSliceOutput("SCALARS", "vel1_std", std, 4, IVX, 1);
-    appendTensorSliceOutput("SCALARS", "vel2_std", std, 4, IVY, 1);
-    appendTensorSliceOutput("SCALARS", "vel3_std", std, 4, IVZ, 1);
+    appendTensorSliceOutput("vel1_mean", mean, IVX, 1);
+    appendTensorSliceOutput("vel2_mean", mean, IVY, 1);
+    appendTensorSliceOutput("vel3_mean", mean, IVZ, 1);
+    appendTensorSliceOutput("vel1_std", std, IVX, 1);
+    appendTensorSliceOutput("vel2_std", std, IVY, 1);
+    appendTensorSliceOutput("vel3_std", std, IVZ, 1);
 
     if (ncomp > 0) {
       auto hydro_names = get_hydro_names(pmb);
       if (!hydro_names.empty()) {
-        appendTensorSliceOutput("VECTORS", append_suffix(hydro_names, "_mean"),
-                                mean, 4, ICY, ncomp);
-        appendTensorSliceOutput("VECTORS", append_suffix(hydro_names, "_std"),
-                                std, 4, ICY, ncomp);
+        appendTensorSliceOutput(append_suffix(hydro_names, "_mean"), mean, ICY,
+                                ncomp);
+        appendTensorSliceOutput(append_suffix(hydro_names, "_std"), std, ICY,
+                                ncomp);
       }
     }
   }
 
   // (lab-frame) density
   if (shouldOutputConserved({"D"})) {
-    appendTensorSliceOutput("SCALARS", "dens", u, 4, IDN, 1);
+    appendTensorSliceOutput("dens", u, IDN, 1);
   }
 
   // (rest-frame) density
   if (shouldOutputPrimitive({"d"})) {
-    appendTensorSliceOutput("SCALARS", "rho", w, 4, IDN, 1);
+    appendTensorSliceOutput("rho", w, IDN, 1);
   }
 
   // total energy
   if (nhydro > 4) {
     if (shouldOutputConserved({"E"})) {
-      appendTensorSliceOutput("SCALARS", "Etot", u, 4, IPR, 1);
+      appendTensorSliceOutput("Etot", u, IPR, 1);
     }
 
     // pressure
     if (shouldOutputPrimitive({"p"})) {
-      appendTensorSliceOutput("SCALARS", "press", w, 4, IPR, 1);
+      appendTensorSliceOutput("press", w, IPR, 1);
     }
   }
 
   // momentum vector
   if (shouldOutputConserved({"m"})) {
-    appendTensorSliceOutput("VECTORS", "mom", u, 4, IVX, 3);
-    /*if (options.cartesian_vector) {
-      AthenaArray<Real> src;
-      src.InitFromTensor(pmb->hydro_u, 4, IVX, 3);
-
-      pod = new OutputData;
-      pod->type = "VECTORS";
-      pod->name = "mom_xyz";
-      pod->data.NewAthenaArray(3, pmb->hydro_u.GetDim3(),
-                               pmb->hydro_u.GetDim2(), pmb->hydro_u.GetDim1());
-      CalculateCartesianVector(src, pod->data, pmb->pcoord);
-      AppendOutputDataNode(pod);
-      num_vars_ += 3;
-    }*/
+    appendTensorSliceOutput("mom", u, IVX, 3);
   }
 
   // each component of momentum
   if (ContainVariable("m1")) {
-    appendTensorSliceOutput("SCALARS", "mom1", u, 4, IVX, 1);
+    appendTensorSliceOutput("mom1", u, IVX, 1);
   }
   if (ContainVariable("m2")) {
-    appendTensorSliceOutput("SCALARS", "mom2", u, 4, IVY, 1);
+    appendTensorSliceOutput("mom2", u, IVY, 1);
   }
   if (ContainVariable("m3")) {
-    appendTensorSliceOutput("SCALARS", "mom3", u, 4, IVZ, 1);
+    appendTensorSliceOutput("mom3", u, IVZ, 1);
   }
 
   // velocity vector
   if (shouldOutputPrimitive({"v"})) {
-    appendTensorSliceOutput("VECTORS", "vel", w, 4, IVX, 3);
-    /*if (options.cartesian_vector) {
-      AthenaArray<Real> src;
-      src.InitFromTensor(GET_SHARED("hydro/w"), 4, IVX, 3);
-
-      pod = new OutputData;
-      pod->type = "VECTORS";
-      pod->name = "vel_xyz";
-      pod->data.NewAthenaArray(3, pmb->phydro_w.GetDim3(),
-                               pmb->hydro_w.GetDim2(), pmb->hydro_w.GetDim1());
-      CalculateCartesianVector(src, pod->data, pmb->pcoord);
-      AppendOutputDataNode(pod);
-      num_vars_ += 3;
-    }*/
+    appendTensorSliceOutput("vel", w, IVX, 3);
   }
 
   // each component of velocity
   if (ContainVariable("vx") || ContainVariable("v1")) {
-    appendTensorSliceOutput("SCALARS", "vel1", w, 4, IVX, 1);
+    appendTensorSliceOutput("vel1", w, IVX, 1);
   }
   if (ContainVariable("vy") || ContainVariable("v2")) {
-    appendTensorSliceOutput("SCALARS", "vel2", w, 4, IVY, 1);
+    appendTensorSliceOutput("vel2", w, IVY, 1);
   }
   if (ContainVariable("vz") || ContainVariable("v3")) {
-    appendTensorSliceOutput("SCALARS", "vel3", w, 4, IVZ, 1);
+    appendTensorSliceOutput("vel3", w, IVZ, 1);
   }
 
   // vapor + cloud
@@ -154,11 +128,11 @@ void OutputType::loadHydroOutputData(MeshBlockImpl* pmb,
     auto hydro_names = get_hydro_names(pmb);
     if (!hydro_names.empty()) {
       if (shouldOutputPrimitive()) {
-        appendTensorSliceOutput("VECTORS", hydro_names, w, 4, ICY, ncomp);
+        appendTensorSliceOutput(hydro_names, w, ICY, ncomp);
       }
 
       if (shouldOutputConserved()) {
-        appendTensorSliceOutput("VECTORS", hydro_names, u, 4, ICY, ncomp);
+        appendTensorSliceOutput(hydro_names, u, ICY, ncomp);
       }
     }
   }
@@ -176,10 +150,10 @@ void OutputType::loadHydroOutputData(MeshBlockImpl* pmb,
       auto [lon, lat] = cs_ab_to_lonlat(face, alpha, beta);
 
       // longitude
-      appendTensorOutput("SCALARS", "lon", lon);
+      appendTensorOutput("lon", lon);
 
       // latitude
-      appendTensorOutput("SCALARS", "lat", lat);
+      appendTensorOutput("lat", lat);
     }
   }
 }

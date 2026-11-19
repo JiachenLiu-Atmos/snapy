@@ -19,8 +19,8 @@
 #include <snap/implicit/implicit_dispatch.hpp>
 #include <snap/input/read_restart_file.hpp>
 #include <snap/mesh/signal_handler.hpp>
-#include <snap/output/output_formats.hpp>
 #include <snap/output/restart_metadata.hpp>
+#include <snap/output/writer_core.hpp>
 #include <snap/utils/log.hpp>
 
 #include "cycle_diagnostics.hpp"

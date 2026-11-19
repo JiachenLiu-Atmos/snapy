@@ -5,7 +5,7 @@
 
 // snap
 #include <snap/mesh/meshblock.hpp>
-#include <snap/output/output_formats.hpp>
+#include <snap/output/writer_core.hpp>
 
 // python
 #include "pyoptions.hpp"
@@ -43,19 +43,23 @@ void bind_output(py::module &m) {
       .def_readwrite("next_time", &snap::OutputType::next_time);
 
   auto pyNetcdfOutput =
-      py::class_<snap::NetcdfOutput, snap::OutputType,
-                 std::shared_ptr<snap::NetcdfOutput>>(m, "NetcdfOutput");
+      py::class_<snap::GriddedWriter, snap::OutputType,
+                 std::shared_ptr<snap::GriddedWriter>>(m, "NetcdfOutput");
 
-  pyNetcdfOutput.def(py::init<snap::OutputOptions>())
+  pyNetcdfOutput
+      .def(py::init([](snap::OutputOptions op) {
+        return std::make_shared<snap::GriddedWriter>(op,
+                                                     snap::make_netcdf_sink());
+      }))
       .def("__repr__",
-           [](const snap::NetcdfOutput &a) {
+           [](const snap::GriddedWriter &a) {
              return fmt::format(
                  "NetcdfOutput(file_number = {}; next_time = {})",
                  a.file_number, a.next_time);
            })
       .def(
           "write_output_file",
-          [](snap::NetcdfOutput &self, py::object block_obj,
+          [](snap::GriddedWriter &self, py::object block_obj,
              py::dict const &vars, double time, int wtflag) {
             py::object cpp_module = block_obj.attr("cpp_module");
             auto pmb = cpp_module.cast<std::shared_ptr<snap::MeshBlockImpl>>();
