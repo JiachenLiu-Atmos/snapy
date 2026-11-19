@@ -42,6 +42,8 @@ Arms (8):
 - `jupiter_1d`: G-1's `jupiter_evap_precip_1d` deck, with three settling
   particles, from its initial restart. The restart is in `data/`, written by
   the base build (R-3 206e342f) in a G-1 run. dt is `max_time_step`.
+  The repository's `.gitignore` ignores `data/`, so these two files are
+  tracked with `git add -f`; edit them with that in mind.
 
 ```sh
 PYTHONPATH=<base-pkg> python gef1.py --tree <snapy> --d349 <dumpset349> --device cuda --out runs/base
