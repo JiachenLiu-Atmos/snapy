@@ -12,30 +12,16 @@
 
 namespace snap {
 
-template <typename T>
-inline DISPATCH_MACRO T sedimentation_feps(T const* w, int flat, int stride_var,
-                                           int ny, int nvapor,
-                                           T const* inv_mu_ratio_m1) {
-  T feps = 1.;
-  for (int n = 0; n < nvapor; ++n) {
-    feps += w[(ICY + n) * stride_var + flat] * inv_mu_ratio_m1[n];
-  }
-  for (int n = nvapor; n < ny; ++n) {
-    feps -= w[(ICY + n) * stride_var + flat];
-  }
-  return feps;
-}
-
 //! Adds to x1 face `face` the sedimentation flux leaving cell `cell`, for the
 //! particles moving toward that face: rising (vsed > 0) when `rising`, else
 //! settling (vsed < 0). The carried velocity is accumulated into vsed_out.
+//! temp and energy (rho y e of each species, rows ICY..) come from the EOS.
 template <typename T>
 inline DISPATCH_MACRO void sedimentation_donor_impl(
-    T const* w, T* flux, T* vsed_out, T const* cosine_cell_kj, T const* radius,
-    T const* density, T const* const_vsed, int64_t const* hydro_ids,
-    T const* inv_mu_ratio_m1, T const* cv_ratio_m1, T const* u0, int nparticle,
-    int ny, int nvapor, int nc3, int nc2, int nc1, int cell, int face,
-    bool rising, T grav, T gas_constant_dry, T cv_dry, T gas_diameter,
+    T const* w, T const* temp, T const* energy, T* flux, T* vsed_out,
+    T const* cosine_cell_kj, T const* radius, T const* density,
+    T const* const_vsed, int64_t const* hydro_ids, int nparticle, int nc3,
+    int nc2, int nc1, int cell, int face, bool rising, T grav, T gas_diameter,
     T gas_epsilon_lj, T gas_mass, T upper_limit, T pi, T kboltz) {
   int ncells = nc1 * nc2 * nc3;
   int j = (cell / nc1) % nc2;
@@ -43,26 +29,21 @@ inline DISPATCH_MACRO void sedimentation_donor_impl(
 
   T rho = w[IDN * ncells + cell];
   T pres = w[IPR * ncells + cell];
-  T feps = sedimentation_feps(w, cell, ncells, ny, nvapor, inv_mu_ratio_m1);
-  T temp = pres / (rho * gas_constant_dry * feps);
+  T tem = temp[cell];
 
   T v1 = w[IVX * ncells + cell];
   T v2 = w[IVY * ncells + cell];
   T v3 = w[IVZ * ncells + cell];
-  T cth = cosine_cell_kj[k * nc2 + j];
-  coord_vec_lower_impl(&v2, &v3, cth);
-  T ke = T(0.5) * (w[IVX * ncells + cell] * v1 + w[IVY * ncells + cell] * v2 +
-                   w[IVZ * ncells + cell] * v3);
+  coord_vec_lower_impl(&v2, &v3, cosine_cell_kj[k * nc2 + j]);
 
   // eta and lambda are computed on the Stokes branch only, once per cell
   T eta = T(0), lambda = T(0);
   bool have_eta = false;
   // with these, a Stokes vsed has the sign of its drive term (or is NaN)
-  bool drive_sign = pres > T(0) && temp > T(0) && !(upper_limit < T(0));
+  bool drive_sign = pres > T(0) && tem > T(0) && !(upper_limit < T(0));
 
   for (int p = 0; p < nparticle; ++p) {
     int hydro_id = static_cast<int>(hydro_ids[p]);
-    int species_id = hydro_id - ICY;
     // A non-zero const_vsed is the whole velocity (prescribed, athena
     // convention); otherwise Stokes. grav is the SIGNED x1 acceleration,
     // so dense particles settle toward -x1.
@@ -77,11 +58,11 @@ inline DISPATCH_MACRO void sedimentation_donor_impl(
           (rising ? !(drive > T(0)) : !(drive < T(0))))
         continue;
       if (!have_eta) {
-        eta = (T(5) / T(16)) * sqrt(pi * kboltz) * sqrt(gas_mass) * sqrt(temp) *
-              pow(kboltz / gas_epsilon_lj * temp, T(0.16)) /
+        eta = (T(5) / T(16)) * sqrt(pi * kboltz) * sqrt(gas_mass) * sqrt(tem) *
+              pow(kboltz / gas_epsilon_lj * tem, T(0.16)) /
               (pi * gas_diameter * gas_diameter * T(1.22));
         lambda =
-            (eta * sqrt(pi * kboltz * temp)) / (pres * sqrt(T(2) * gas_mass));
+            (eta * sqrt(pi * kboltz * tem)) / (pres * sqrt(T(2) * gas_mass));
         have_eta = true;
       }
       T kn = lambda / r;
@@ -93,17 +74,13 @@ inline DISPATCH_MACRO void sedimentation_donor_impl(
     if (rising ? !(vsed > T(0)) : !(vsed < T(0))) continue;
     vsed_out[p * ncells + face] += vsed;
 
-    T y = w[hydro_id * ncells + cell];
-    T rhos_vsed = rho * y * vsed;
-    T species_energy = rho * y *
-                       (u0[1 + species_id] +
-                        (T(1) + cv_ratio_m1[species_id]) * cv_dry * temp + ke);
-
+    T rhos_vsed = rho * w[hydro_id * ncells + cell] * vsed;
     flux[hydro_id * ncells + face] += rhos_vsed;
     flux[IVX * ncells + face] += v1 * rhos_vsed;
     flux[IVY * ncells + face] += v2 * rhos_vsed;
     flux[IVZ * ncells + face] += v3 * rhos_vsed;
-    flux[IPR * ncells + face] += vsed * species_energy;
+    flux[IPR * ncells + face] +=
+        vsed * energy[(hydro_id - ICY) * ncells + cell];
   }
 }
 
@@ -112,32 +89,20 @@ inline DISPATCH_MACRO void sedimentation_donor_impl(
 //! rises. Faces at or below il and above iu are sealed.
 template <typename T>
 inline DISPATCH_MACRO void sedimentation_flux_impl(
-    T const* w, T* flux, T* vsed_out, T const* cosine_cell_kj, T const* radius,
-    T const* density, T const* const_vsed, int64_t const* hydro_ids,
-    T const* inv_mu_ratio_m1, T const* cv_ratio_m1, T const* u0, int nparticle,
-    int ny, int nvapor, int nvar, int nc3, int nc2, int nc1, int flat, int il,
-    int iu, T grav, T gas_constant_dry, T cv_dry, T gas_diameter,
+    T const* w, T const* temp, T const* energy, T* flux, T* vsed_out,
+    T const* cosine_cell_kj, T const* radius, T const* density,
+    T const* const_vsed, int64_t const* hydro_ids, int nparticle, int nc3,
+    int nc2, int nc1, int flat, int il, int iu, T grav, T gas_diameter,
     T gas_epsilon_lj, T gas_mass, T upper_limit, T pi, T kboltz) {
-  int ncells = nc1 * nc2 * nc3;
   int i = flat % nc1;
-
-  for (int p = 0; p < nparticle; ++p) vsed_out[p * ncells + flat] = T(0);
+  for (int p = 0; p < nparticle; ++p) vsed_out[p * nc1 * nc2 * nc3 + flat] = 0;
   if (i <= il || i > iu) return;
-
-  sedimentation_donor_impl(w, flux, vsed_out, cosine_cell_kj, radius, density,
-                           const_vsed, hydro_ids, inv_mu_ratio_m1, cv_ratio_m1,
-                           u0, nparticle, ny, nvapor, nc3, nc2, nc1, flat, flat,
-                           /*rising=*/false, grav, gas_constant_dry, cv_dry,
-                           gas_diameter, gas_epsilon_lj, gas_mass, upper_limit,
-                           pi, kboltz);
-  if (i > 0) {
-    sedimentation_donor_impl(w, flux, vsed_out, cosine_cell_kj, radius, density,
-                             const_vsed, hydro_ids, inv_mu_ratio_m1,
-                             cv_ratio_m1, u0, nparticle, ny, nvapor, nc3, nc2,
-                             nc1, flat - 1, flat, /*rising=*/true, grav,
-                             gas_constant_dry, cv_dry, gas_diameter,
-                             gas_epsilon_lj, gas_mass, upper_limit, pi, kboltz);
-  }
+  for (int up = 0; up < (i > 0 ? 2 : 1); ++up)
+    sedimentation_donor_impl(w, temp, energy, flux, vsed_out, cosine_cell_kj,
+                             radius, density, const_vsed, hydro_ids, nparticle,
+                             nc3, nc2, nc1, flat - up, flat, up == 1, grav,
+                             gas_diameter, gas_epsilon_lj, gas_mass,
+                             upper_limit, pi, kboltz);
 }
 
 }  // namespace snap

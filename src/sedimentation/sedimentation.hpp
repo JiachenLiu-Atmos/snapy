@@ -103,6 +103,14 @@ using SedHydroOptions = std::shared_ptr<SedHydroOptionsImpl>;
 
 class FluxRegister;
 class HydroImpl;
+
+//! The tensors of the one sedimentation kernel in the compute dtype and
+//! device, built on first use and again after a move (EF.rst D8)
+struct SedKernelArgs {
+  torch::Tensor radius, density, const_vsed;  //!< (nparticle,)
+  torch::Tensor hydro_ids;                    //!< (nparticle,) int64
+  torch::Tensor cosine_cell_kj;               //!< (nc3, nc2)
+};
 class SedHydroImpl;
 
 class SedVelImpl : public torch::nn::Cloneable<SedVelImpl> {
@@ -137,17 +145,6 @@ class SedVelImpl : public torch::nn::Cloneable<SedVelImpl> {
   explicit SedVelImpl(SedVelOptions const& options_,
                       torch::nn::Module* p = nullptr);
   void reset() override;
-
-  //! Calculate sedimentation velocites
-  /*!
-   * \param dens    atmospheric density [kg/m^3]
-   * \param pres    atmospheric pressure [Pa]
-   * \param temp    atmospheric temperature [K]
-   * \return        4D tensor of sedimentation velocities.
-   *                The first dimension is the number of particles.
-   */
-  torch::Tensor forward(torch::Tensor dens, torch::Tensor pres,
-                        torch::Tensor temp) const;
 };
 TORCH_MODULE(SedVel);
 
@@ -190,12 +187,18 @@ class SedHydroImpl : public torch::nn::Cloneable<SedHydroImpl> {
   torch::Tensor forward(torch::Tensor wr,
                         torch::optional<torch::Tensor> out = torch::nullopt);
 
+  //! the kernel's tensors for `like`'s dtype and device
+  SedKernelArgs& kernel_args(torch::Tensor const& like);
+
   //! whether forward adds anything (gravity and a settling species)
   bool settles() const;
 
   //! P1: the settling flux into `settling`, then add(1, "sedimentation") of
   //! its rows (species, IVX..IVZ, IPR) onto the register's x1 total
   torch::Tensor const& post(FluxRegister& reg, torch::Tensor wr);
+
+ private:
+  SedKernelArgs args_;
 };
 TORCH_MODULE(SedHydro);
 
