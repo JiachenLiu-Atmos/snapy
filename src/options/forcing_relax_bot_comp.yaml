@@ -1,0 +1,12 @@
+# forcing/relax-bot-comp options (src/forcing/forcing.hpp); columns: tools/gen_options.py
+module: relax_bot_comp
+struct: RelaxBotCompOptionsImpl
+yaml_node: forcing/relax-bot-comp
+report_title: "-- relax bottom composition options --"
+options:
+  - {name: tau, key: tau, type: double, default: 0., doc: "Relaxation time [s]."}
+  - {name: species, key: species, type: "list[string]", default: [], read_default: {cpp: "std::vector<std::string>{}"}, doc: "Species relaxed (not the dry one)."}
+  - {name: xfrac, key: xfrac, type: "list[double]", default: [], read_default: {cpp: "std::vector<double>{}"}, doc: "Their target mole fractions."}
+checks:
+  - {cond: "op.species().size() == op.xfrac().size()", message: "RelaxBotCompOptions: 'species' and 'xfrac' must have the same length."}
+  - {cond: "op.tau() > 0.", message: "RelaxBotCompOptions: tau must be greater than zero."}

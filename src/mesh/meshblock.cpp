@@ -737,8 +737,9 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   if (stage == 0) {
     // the register's step sums and monitor start the step (R.rst 3.4)
     freg.begin_step();
-    if (phydro->pdiffusion && phydro->pdiffusion->options->implicit_radial()) {
-      phydro->pdiffusion->begin_step(hydro_u, dt);
+    auto splits = phydro->sources.splits();
+    for (auto &s : splits) s->begin_split(hydro_u, dt);
+    if (!splits.empty()) {
       apply_boundaries(vars, hydro_u, scalar_s);
       exchange_ghost_zones(vars);
     }
@@ -922,9 +923,8 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
 
   // -------- (4) multi-stage averaging --------
   pintg->forward(stage, _state.u0(), hydro_u, fut_hydro_du, hydro_u);
-  if (stage + 1 == static_cast<int>(pintg->stages.size()) &&
-      phydro->pdiffusion && phydro->pdiffusion->options->implicit_radial())
-    phydro->pdiffusion->finish_step(hydro_u, dt);
+  if (stage + 1 == static_cast<int>(pintg->stages.size()))
+    for (auto &s : phydro->sources.splits()) s->finish_split(hydro_u, dt);
   // skipped dry and scalar-free before the last stage: next U->W applies it
   if (hydro_u.size(0) > ICY || pscalar->nvar() > 0 ||
       stage + 1 == static_cast<int>(pintg->stages.size()))
@@ -1499,8 +1499,7 @@ int MeshBlockImpl::apply_redo(Variables &vars, int causes) {
     phydro->flux_register().rollback();  // the census keeps accepted steps
     _state.adopt(vars);
     _state.restore();
-    if (phydro->pdiffusion && phydro->pdiffusion->options->implicit_radial())
-      phydro->pdiffusion->restore_step(vars["hydro_u"]);
+    for (auto &s : phydro->sources.splits()) s->restore_split(vars["hydro_u"]);
     phydro->peos->forward(vars["hydro_u"], vars["hydro_w"]);
     if (vars.count("scalar_s")) {
       set_scalar_primitive(vars, vars["scalar_s"], vars["hydro_u"], *phydro);

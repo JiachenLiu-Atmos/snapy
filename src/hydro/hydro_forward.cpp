@@ -971,7 +971,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   auto temp = peos->compute("W->T", {w});
   // only a block carrying tracers needs the forcings' dry-density increment
   bool track_dry =
-      pmb->pscalar && pmb->pscalar->nvar() > 0 && !forcings.empty();
+      pmb->pscalar && pmb->pscalar->nvar() > 0 && (pgrav || !sources.empty());
   auto dry_before = track_dry ? du[IDN].clone() : torch::Tensor();
   // x1 mass-flux w (step 8): the Coriolis rows that read rho w wait for the
   // stage's final x1 mass transfer, so Coriolis sees w = 0 here
@@ -980,10 +980,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
                 pmb->pcoord->options->nc1() > 1 &&
                 (ptype == "gnomonic-equiangle" ||
                  (ptype == "spherical-polar" && options->coriolis()));
-  auto coriolis = [](torch::nn::AnyModule& f) {
-    return f.type_info() == typeid(CoriolisXYZImpl) ||
-           f.type_info() == typeid(Coriolis123Impl);
-  };
   auto& mw = _mass_w;
   if (mass_w) {
     auto pc = pmb->pcoord;
@@ -1037,14 +1033,14 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   }
   bool split_gravity =
       background_force1.defined() && !options->disable_flux_x1();
-  for (auto& f : forcings) {
-    auto gravity = std::dynamic_pointer_cast<ConstGravityImpl>(f.ptr());
-    if (split_gravity && gravity)
-      gravity->forward_split(forcing_du, w, dt,
-                             perturb.density_delta.to(w.options()));
-    else
-      f.forward(forcing_du, mass_w && coriolis(f) ? mw.wc1 : w, temp, dt);
-  }
+  if (split_gravity && pgrav)
+    pgrav->forward_split(forcing_du, w, dt,
+                         perturb.density_delta.to(w.options()));
+  else if (pgrav)
+    pgrav->forward(forcing_du, w, temp, dt);
+  StageState stage{w, temp, dt, mass_w ? mw.wc1 : torch::Tensor()};
+  for (auto const& r : sources.runs(SourcePhase::pre_implicit))
+    sources.run(r, forcing_du, stage);
   if (fp32()) {
     _forcing_cast.copy_(forcing_du);
     du += _forcing_cast;
@@ -1317,8 +1313,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     auto m1i = m1.slice(-1, is, ie);
     torch::mul_out(m1i, phi.slice(-1, is, ie), mw.lo);
     m1i.addcmul_(phi.slice(-1, is + 1, ie + 1), mw.hi);
-    for (auto& f : forcings)
-      if (coriolis(f)) f.forward(du, mw.wc2, temp, dt);
+    for (auto const& r : sources.runs(SourcePhase::post_implicit))
+      sources.run(r, du, {w, temp, dt, mw.wc2});
     if (!aam) {
       pc->x1_mass_source_(du, w, m1, dt);
     } else {

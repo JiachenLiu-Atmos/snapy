@@ -183,12 +183,12 @@ TEST(StretchedX1Ref, heat_layer_deposits_flux_dt) {
   auto b = make_block(card(true));
   auto w = torch::ones({5, 1, 1, 30}, torch::kFloat64);
   auto t = b->phydro->peos->compute("W->T", {w});
-  BotHeat bot(BotHeatOptionsImpl::from_yaml(
-                  YAML::Load("bot-heat: {flux: 100., thickness: 230.}")),
-              b->phydro.get());
-  TopCool top(TopCoolOptionsImpl::from_yaml(
-                  YAML::Load("top-cool: {flux: -40., thickness: 7.}")),
-              b->phydro.get());
+  LayerHeat bot(BotHeatOptionsImpl::from_yaml(
+                    YAML::Load("bot-heat: {flux: 100., thickness: 230.}")),
+                b->phydro.get());
+  LayerHeat top(TopCoolOptionsImpl::from_yaml(
+                    YAML::Load("top-cool: {flux: -40., thickness: 7.}")),
+                b->phydro.get());
   auto e = [&](torch::Tensor du) {
     return (du[IPR] * b->pcoord->dx1f).narrow(-1, 3, 24).sum().item<double>();
   };
