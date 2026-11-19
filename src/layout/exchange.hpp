@@ -61,9 +61,9 @@ class Exchange {
   //! lowest x1 face) to the block below and `upper` (its highest face) to the
   //! block above, and return the neighbours' slabs for the same faces,
   //! {from below, from above}; undefined where there is no peer. The up
-  //! message carries tag, the down message tag + 1. process_only: only seams
-  //! to another process exchange (the rule at main; same-process seams do
-  //! not).
+  //! message carries tag, the down message tag + 1. A same-process peer goes
+  //! through a board, a remote one through the process group. process_only:
+  //! only seams to another process exchange.
   std::pair<torch::Tensor, torch::Tensor> x1_seam_slab(
       torch::Tensor const& lower, torch::Tensor const& upper, int tag,
       bool process_only) const;

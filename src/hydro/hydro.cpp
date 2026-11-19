@@ -233,7 +233,6 @@ void HydroImpl::reset() {
   // the flux register (R-1): F1/F2/F3 are its stage totals T_d, so every
   // producer still writes them in place; the monitor's tensors are buffers
   // too, so module moves and clones reach them
-  auto flux_dtype = fp32() ? torch::kFloat32 : torch::kFloat64;
   RegisterRequest req;
   // EF's names (EF.rst section 4, R.rst 4.5): EfStatus's slots (EF-2) move
   // to the monitor in R-1's second part; nothing writes these yet
@@ -267,7 +266,10 @@ void HydroImpl::reset() {
       if (nc[d - 1] > 1)
         req.keep.push_back("mass.dry.limited@" + std::to_string(d));
   }
-  freg.reset(nvar, {nc3, nc2, nc1}, {nc1 > 1, nc2 > 1, nc3 > 1}, flux_dtype,
+  // R-4's coordinate reset: replace and apply_prescribed (S step (4)) book
+  // with the face areas A_f; kFlux is float32 under precision float32, else
+  // float64, as before
+  freg.reset(pmb->pcoord.get(), PrecisionPolicy(options->precision()), nvar,
              req);
   _flux1 = register_buffer("F1", freg.totals()[0]);
   _flux2 = register_buffer("F2", freg.totals()[1]);

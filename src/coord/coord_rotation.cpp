@@ -69,6 +69,22 @@ void PanelRotation::cart_to_contra_(torch::Tensor vel, int panel,
   cs_cart_to_contra_(vel, alpha, beta, panel);
 }
 
+void PanelRotation::face_rows_to_cart_(torch::Tensor rows, int panel,
+                                       torch::Tensor alpha, torch::Tensor beta,
+                                       torch::Tensor cosine) const {
+  auto shape = rows[0].sizes().vec();  // own the sizes: rows[0] is a temporary
+  coord_vec_raise_(rows, cosine.expand(shape).contiguous());
+  cs_contra_to_cart_(rows, alpha.expand(shape), beta.expand(shape), panel);
+}
+
+void PanelRotation::cart_to_face_rows_(torch::Tensor rows, int panel,
+                                       torch::Tensor alpha, torch::Tensor beta,
+                                       torch::Tensor cosine) const {
+  auto shape = rows[0].sizes().vec();  // own the sizes: rows[0] is a temporary
+  cs_cart_to_contra_(rows, alpha.expand(shape), beta.expand(shape), panel);
+  coord_vec_lower_(rows, cosine.expand(shape).contiguous());
+}
+
 torch::Tensor PanelRotation::matrix(int panel, torch::Tensor alpha,
                                     torch::Tensor beta, bool to_global,
                                     torch::Tensor cosine) const {
