@@ -249,6 +249,12 @@ void HydroImpl::reset() {
                   "ef.scalar_pos_hits"};
   req.minima = {"ef.pos_min"};
   req.retry = {"ef.floor_patch", "ef.nan", "ef.vapor_fail", "ef.heat_capacity"};
+  // conserve-axial-momentum full: A's riemann.central on the x2/x3 faces
+  // (R-2), kept until the next stage
+  if (axial_coriolis_form()) {
+    if (nc2 > 1) req.keep.push_back("riemann.central@2");
+    if (nc3 > 1) req.keep.push_back("riemann.central@3");
+  }
   freg.reset(nvar, {nc3, nc2, nc1}, {nc1 > 1, nc2 > 1, nc3 > 1}, flux_dtype,
              req);
   _flux1 = register_buffer("F1", freg.totals()[0]);
@@ -257,6 +263,12 @@ void HydroImpl::reset() {
   register_buffer("monitor_counters", freg.monitor().counters);
   register_buffer("monitor_minima", freg.monitor().minima);
   register_buffer("monitor_retry", freg.monitor().retry_flags);
+  for (auto& [key, part] : freg.parts()) {  // "riemann.central@2" -> K_..._2
+    std::string name = "K_" + key;
+    std::replace(name.begin(), name.end(), '.', '_');
+    std::replace(name.begin(), name.end(), '@', '_');
+    register_buffer(name, part);
+  }
   _face_pressure1 = register_buffer(
       "P1", nc1 > 1 ? torch::zeros({nc3, nc2, nc1}, torch::kFloat64)
                     : torch::Tensor());
