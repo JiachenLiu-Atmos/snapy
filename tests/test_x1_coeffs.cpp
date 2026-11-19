@@ -3,12 +3,15 @@
 
 #include <algorithm>
 #include <cmath>
-#include <snap/recon/interpolation.hpp>
 #include <snap/recon/reconstruct.hpp>
 #include <snap/recon/x1_coeffs.hpp>
 #include <vector>
 
 #include "device_testing.hpp"
+
+// tests
+#include "make_interp.hpp"
+
 using namespace snap;
 
 namespace {
@@ -95,8 +98,8 @@ std::vector<double> primitive_row5(std::vector<double> const& z, double xf) {
 }  // namespace
 
 TEST(X1Coeffs, uniform_matches_shipped_rows) {
-  Weno5Interp weno;
-  Center5Interp cp5;
+  auto weno = make_interp("weno5");
+  auto cp5 = make_interp("cp5");
   for (double h : {1., 1.e-3, 7.5e3}) {
     auto x1f = faces_uniform(12, h);
     auto w = weno5_x1_coeffs(x1f);
@@ -275,10 +278,8 @@ TEST(X1Coeffs, reconstruct_seam_and_buffer_names) {
   EXPECT_EQ(named["interp2.cm_x1"].size(1), 5);
   auto live = named["interp1.cm_x1"];
   live[0][45] = 0.5;
-  EXPECT_EQ(std::dynamic_pointer_cast<Weno5InterpImpl>(recon->pinterp1)
-                ->cm_x1[0][45]
-                .item<double>(),
-            0.5);
+  ASSERT_EQ(recon->pinterp1->scheme, Scheme::weno5);
+  EXPECT_EQ(recon->pinterp1->cm_x1[0][45].item<double>(), 0.5);
 }
 
 TEST(X1Coeffs, uncovered_types_refuse_faces) {
@@ -344,8 +345,8 @@ TEST_P(DeviceTest, module_nu_path) {
     auto u = torch::zeros({nvar, 1, 1, nc1}, torch::kFloat64);
     for (int j = 0; j < nvar; ++j) u[j][0][0] = cell_avg_poly(x1f, cs[j]);
     auto w = u.to(device, dtype);
-    Weno5Interp weno;
-    Center5Interp cp5;
+    auto weno = make_interp("weno5");
+    auto cp5 = make_interp("cp5");
     weno->to(device, dtype);
     cp5->to(device, dtype);
     auto shape = w.sizes().vec();
@@ -414,10 +415,10 @@ TEST(X1Coeffs, a_shifted_row_to_face_mapping_is_detected) {
   auto shape = u.sizes().vec();
   shape[3] -= 4;
   const int64_t nout = shape[3];
-  Center5Interp uni;
+  auto uni = make_interp("cp5");
   auto bad_uniform = torch::empty(shape, u.options());
   uni->left(u, 3, bad_uniform);
-  Center5Interp cp5;
+  auto cp5 = make_interp("cp5");
   cp5->set_x1_coeffs(x1f);
   auto good = torch::empty(shape, u.options());
   cp5->left(u, 3, good);
@@ -484,7 +485,7 @@ TEST(X1Coeffs, cpu_face_index_under_threading_and_reordering) {
       for (int i = 0; i < nc2; ++i) u[j][k][i] = cell * (1. + 0.05 * i);
     }
   }
-  Center5Interp cp5;
+  auto cp5 = make_interp("cp5");
   cp5->set_x1_coeffs(x1f);
   auto shape = u.sizes().vec();
   shape[3] -= 4;
@@ -565,8 +566,8 @@ TEST(X1Coeffs, reconstruct_forward_face_index_on_a_stretched_grid) {
 
 TEST(X1Coeffs, a_non_x1_dimension_is_refused) {
   auto x1f = faces_geometric(21, 1.03);
-  Weno5Interp weno;
-  Center5Interp cp5;
+  auto weno = make_interp("weno5");
+  auto cp5 = make_interp("cp5");
   weno->set_x1_coeffs(x1f);
   cp5->set_x1_coeffs(x1f);
   auto u = torch::rand({2, 1, 9, 20}, torch::kFloat64) + 1.;
@@ -593,8 +594,8 @@ TEST(X1Coeffs, cuda_matches_cpu_on_both_launch_paths) {
     }
     auto shape = u.sizes().vec();
     shape[3] -= 4;
-    Weno5Interp wc;
-    Center5Interp pc;
+    auto wc = make_interp("weno5");
+    auto pc = make_interp("cp5");
     wc->set_x1_coeffs(x1f);
     pc->set_x1_coeffs(x1f);
     auto wl = torch::empty(shape, u.options());
@@ -605,8 +606,8 @@ TEST(X1Coeffs, cuda_matches_cpu_on_both_launch_paths) {
     wc->right(u, 3, wr);
     pc->left(u, 3, pl);
     pc->right(u, 3, pr);
-    Weno5Interp wg;
-    Center5Interp pg;
+    auto wg = make_interp("weno5");
+    auto pg = make_interp("cp5");
     wg->to(torch::kCUDA, torch::kFloat64);
     pg->to(torch::kCUDA, torch::kFloat64);
     wg->set_x1_coeffs(x1f);

@@ -327,7 +327,7 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! on first use
   mutable std::shared_ptr<WbRef4Stencils> wb_ref4_;
   //! the x1 reconstruction's optimal-linear rows (cp5) for the face density
-  mutable std::shared_ptr<Center5InterpImpl> dsf_lin_;
+  mutable std::shared_ptr<InterpImpl> dsf_lin_;
   //! key 4: (side, face) rows of the reflecting x1 walls that keep wb_ref4's
   //! face density, and the block layout they were built for
   mutable torch::Tensor wb4_lr_side_, wb4_lr_col_;

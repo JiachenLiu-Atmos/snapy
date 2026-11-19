@@ -709,7 +709,7 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w, torch::Tensor const& dw,
         dsf_lin_->cm.scalar_type() != w.scalar_type()) {
       auto op = InterpOptionsImpl::create();
       op->type("cp5");
-      dsf_lin_ = std::make_shared<Center5InterpImpl>(op);
+      dsf_lin_ = std::make_shared<InterpImpl>(op);
       if (precon1->pinterp1->has_x1_coeffs()) {
         auto const& co = pcoord->options;
         bool plain =

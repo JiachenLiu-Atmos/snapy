@@ -4,15 +4,42 @@
 #include <configure.h>
 
 // One definition of each reconstruction at one face, shared by the CPU line
-// loop (interp_impl.h) and the CUDA bodies (interp_impl.cuh). src points at
-// the first of the stencil's inputs, which are stride apart; c holds the
-// variant's coefficient rows. With scale, the stencil is divided by its mean
-// absolute value before the nonlinear weights and multiplied back after; a
-// stencil of zeros gives 0.
+// loop (recon_dispatch.cpp) and the CUDA line kernel (recon_line.cuh). src
+// points at the first of the stencil's inputs, which are stride apart; c holds
+// the scheme's coefficient rows. With scale, the stencil is divided by its
+// mean absolute value before the nonlinear weights and multiplied back after;
+// a stencil of zeros gives 0.
 
 #define SNAP_SQR(x) ((x) * (x))
 
 namespace snap {
+
+//! every reconstruction scheme. dc, plm and ppm are tensor code; the other
+//! four are stencil kernels with a coefficient table
+enum class Scheme : int { dc, plm, ppm, cp3, weno3, cp5, weno5 };
+
+//! stencil width and coefficient count of each scheme. ncoeff is the uniform
+//! table; ncoeff_nu is one face's row of a per-face x1 table (0: the scheme
+//! has none). A weno5 row holds its three linear weights d after the nine
+//! stencil rows (45 + 3).
+template <Scheme S>
+struct SchemeTraits {
+  static constexpr int stencil =
+      S == Scheme::dc                                              ? 1
+      : S == Scheme::plm || S == Scheme::cp3 || S == Scheme::weno3 ? 3
+                                                                   : 5;
+  static constexpr int ncoeff = S == Scheme::cp3     ? 3
+                                : S == Scheme::weno3 ? 12
+                                : S == Scheme::cp5   ? 5
+                                : S == Scheme::weno5 ? 45
+                                                     : 0;
+  static constexpr int ncoeff_nu = S == Scheme::cp5     ? 5
+                                   : S == Scheme::weno5 ? 48
+                                                        : 0;
+};
+
+constexpr int kWeno5NuCoeff = SchemeTraits<Scheme::weno5>::ncoeff_nu;
+constexpr int kPoly5NuCoeff = SchemeTraits<Scheme::cp5>::ncoeff_nu;
 
 template <int N, typename T>
 DISPATCH_MACRO inline T _vvdot(T const* v1, T const* v2) {
@@ -117,6 +144,24 @@ DISPATCH_MACRO inline T weno5_point(T const* src, int stride, T const* c,
 
   return vscale * (alpha0 * p0 + alpha1 * p1 + alpha2 * p2) /
          (alpha0 + alpha1 + alpha2);
+}
+
+//! one face of a stencil scheme: the loop body of the CPU loop and the CUDA
+//! line kernel. row is the uniform table, or with Nu one face's row of a
+//! per-face x1 table (cp5, weno5)
+template <Scheme S, typename T, bool Nu = false>
+DISPATCH_MACRO inline T recon_point(T const* src, int stride, T const* row,
+                                    bool scale) {
+  if constexpr (S == Scheme::cp3) {
+    return poly_point<T, 3>(src, stride, row);
+  } else if constexpr (S == Scheme::cp5) {
+    return poly_point<T, 5>(src, stride, row);
+  } else if constexpr (S == Scheme::weno3) {
+    return weno3_point(src, stride, row, scale);
+  } else {
+    static_assert(S == Scheme::weno5, "dc, plm and ppm are tensor code");
+    return weno5_point<T, Nu>(src, stride, row, scale);
+  }
 }
 
 }  // namespace snap

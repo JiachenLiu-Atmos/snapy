@@ -9,11 +9,12 @@
 #include <torch/torch.h>
 
 // snap
-#include <snap/recon/interpolation.hpp>
+#include <snap/recon/reconstruct.hpp>
 
 // tests
 #include "device_testing.hpp"
 #include "interp_simple.hpp"
+#include "make_interp.hpp"
 
 using namespace snap;
 
@@ -84,12 +85,12 @@ TEST_P(DeviceTest, uniform_coeff_cache_tracks_module_buffer_changes) {
     interp->to(device, other);
     check();
   };
-  check_interp(Center5Interp(), Center5Interp());
-  check_interp(Weno5Interp(), Weno5Interp());
+  check_interp(make_interp("cp5"), make_interp("cp5"));
+  check_interp(make_interp("weno5"), make_interp("weno5"));
 }
 
 TEST_P(DeviceTest, interp_cp5m_torch1) {
-  Center5Interp interp;
+  auto interp = make_interp("cp5");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -114,7 +115,7 @@ TEST_P(DeviceTest, interp_cp5m_torch1) {
 }
 
 TEST_P(DeviceTest, interp_cp5m_torch2) {
-  Center5Interp interp;
+  auto interp = make_interp("cp5");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -151,7 +152,7 @@ TEST_P(DeviceTest, interp_cp5m_torch2) {
 }
 
 TEST_P(DeviceTest, interp_cp5m_torch3) {
-  Center5Interp interp;
+  auto interp = make_interp("cp5");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -190,7 +191,7 @@ TEST_P(DeviceTest, interp_cp5m_torch3) {
 }
 
 TEST_P(DeviceTest, interp_cp5p_torch4) {
-  Center5Interp interp;
+  auto interp = make_interp("cp5");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -223,7 +224,7 @@ TEST_P(DeviceTest, interp_weno3a) {
 }
 
 TEST_P(DeviceTest, interp_weno3_smooth_limit) {
-  Weno3Interp interp;
+  auto interp = make_interp("weno3");
   interp->to(device, torch::kFloat64);
 
   constexpr double eps = 1.e-7;
@@ -255,7 +256,7 @@ TEST_P(DeviceTest, interp_weno5b) {
 }
 
 TEST_P(DeviceTest, interp_weno3m_torch1) {
-  Weno3Interp interp;
+  auto interp = make_interp("weno3");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -277,7 +278,7 @@ TEST_P(DeviceTest, interp_weno3m_torch1) {
 }
 
 TEST_P(DeviceTest, interp_weno3m_torch2) {
-  Weno3Interp interp;
+  auto interp = make_interp("weno3");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -310,7 +311,7 @@ TEST_P(DeviceTest, interp_weno3m_torch2) {
 }
 
 TEST_P(DeviceTest, interp_weno3m_torch3) {
-  Weno3Interp interp;
+  auto interp = make_interp("weno3");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -345,7 +346,7 @@ TEST_P(DeviceTest, interp_weno3m_torch3) {
 }
 
 TEST_P(DeviceTest, interp_weno3p_torch4) {
-  Weno3Interp interp;
+  auto interp = make_interp("weno3");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -367,7 +368,7 @@ TEST_P(DeviceTest, interp_weno3p_torch4) {
 }
 
 TEST_P(DeviceTest, interp_weno3p_torch5) {
-  Weno3Interp interp;
+  auto interp = make_interp("weno3");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -400,7 +401,7 @@ TEST_P(DeviceTest, interp_weno3p_torch5) {
 }
 
 TEST_P(DeviceTest, interp_weno3p_torch6) {
-  Weno3Interp interp;
+  auto interp = make_interp("weno3");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -435,7 +436,7 @@ TEST_P(DeviceTest, interp_weno3p_torch6) {
 }
 
 TEST_P(DeviceTest, interp_weno5m_torch1) {
-  Weno5Interp interp;
+  auto interp = make_interp("weno5");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -459,7 +460,7 @@ TEST_P(DeviceTest, interp_weno5m_torch1) {
 }
 
 TEST_P(DeviceTest, interp_weno5m_torch2) {
-  Weno5Interp interp;
+  auto interp = make_interp("weno5");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -496,7 +497,7 @@ TEST_P(DeviceTest, interp_weno5m_torch2) {
 }
 
 TEST_P(DeviceTest, interp_weno5m_torch3) {
-  Weno5Interp interp;
+  auto interp = make_interp("weno5");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -535,7 +536,7 @@ TEST_P(DeviceTest, interp_weno5m_torch3) {
 }
 
 TEST_P(DeviceTest, interp_weno5p_torch4) {
-  Weno5Interp interp;
+  auto interp = make_interp("weno5");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -559,7 +560,7 @@ TEST_P(DeviceTest, interp_weno5p_torch4) {
 }
 
 TEST_P(DeviceTest, interp_weno5p_torch5) {
-  Weno5Interp interp;
+  auto interp = make_interp("weno5");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -596,7 +597,7 @@ TEST_P(DeviceTest, interp_weno5p_torch5) {
 }
 
 TEST_P(DeviceTest, interp_weno5p_torch6) {
-  Weno5Interp interp;
+  auto interp = make_interp("weno5");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {

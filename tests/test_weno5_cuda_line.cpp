@@ -7,11 +7,12 @@
 
 #include <cmath>
 #include <exception>
-#include <snap/recon/interpolation.hpp>
+#include <snap/recon/reconstruct.hpp>
 #include <sstream>
 #include <vector>
 
 #include "cuda_test_gate.hpp"
+#include "make_interp.hpp"
 
 using namespace snap;
 
@@ -65,16 +66,16 @@ torch::Tensor recon(Kind kind, torch::Tensor w, int dim, torch::Device device,
     }
   };
   if (kind == Kind::Weno5) {
-    Weno5Interp interp;
+    auto interp = make_interp("weno5");
     run(interp);
   } else if (kind == Kind::Weno3) {
-    Weno3Interp interp;
+    auto interp = make_interp("weno3");
     run(interp);
   } else if (kind == Kind::Cp5) {
-    Center5Interp interp;
+    auto interp = make_interp("cp5");
     run(interp);
   } else {
-    Center3Interp interp;
+    auto interp = make_interp("cp3");
     run(interp);
   }
   if (device.is_cuda()) {

@@ -6,7 +6,7 @@
 #include <snap/utils/tensor_cast_cache.hpp>
 #include <utility>
 
-#include "x1_coeffs_device.h"
+#include "recon_point.h"
 
 namespace snap {
 

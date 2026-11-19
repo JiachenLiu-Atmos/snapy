@@ -9,13 +9,16 @@
 #include <snap/hydro/hydro.hpp>
 #include <snap/mesh/mesh.hpp>
 #include <snap/mesh/meshblock.hpp>
-#include <snap/recon/interpolation.hpp>
 #include <snap/recon/reconstruct.hpp>
 #include <snap/recon/x1_coeffs.hpp>
 #include <snap/scalar/scalar.hpp>
 #include <string>
 #include <utility>
 #include <vector>
+
+// tests
+#include "make_interp.hpp"
+
 using namespace snap;
 
 namespace {
@@ -87,16 +90,12 @@ std::string face_list(double q) {
 }
 using Tables = std::pair<torch::Tensor, torch::Tensor>;
 Tables installed(Interp const& p) {
-  if (auto w = std::dynamic_pointer_cast<Weno5InterpImpl>(p)) {
-    return {w->cm_x1, w->cp_x1};
-  }
-  auto c = std::dynamic_pointer_cast<Center5InterpImpl>(p);
-  EXPECT_NE(c, nullptr) << "a weno5 deck holds weno5 + cp5";
-  return c ? Tables{c->cm_x1, c->cp_x1} : Tables{};
+  bool rows = p->scheme == Scheme::weno5 || p->scheme == Scheme::cp5;
+  EXPECT_TRUE(rows) << "a weno5 deck holds weno5 + cp5";
+  return rows ? Tables{p->cm_x1, p->cp_x1} : Tables{};
 }
 Tables from_faces(Interp const& p, torch::Tensor const& x1f) {
-  return std::dynamic_pointer_cast<Weno5InterpImpl>(p) ? weno5_x1_coeffs(x1f)
-                                                       : cp5_x1_coeffs(x1f);
+  return p->scheme == Scheme::weno5 ? weno5_x1_coeffs(x1f) : cp5_x1_coeffs(x1f);
 }
 void expect_faces_installed(ReconstructImpl const& recon,
                             torch::Tensor const& x1f) {
