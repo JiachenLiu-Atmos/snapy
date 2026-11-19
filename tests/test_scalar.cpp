@@ -56,12 +56,19 @@ boundary-condition:
     x3-outer: reflecting
 )";
 
-std::string write_temp_config() {
+//! the config above, with its x1 boundaries replaced by x1_bc
+std::string write_temp_config(std::string const& x1_bc = "reflecting") {
   char fname[] = "/tmp/snapy_scalar_test.XXXXXX";
   int fd = mkstemp(fname);
   close(fd);
+  std::string config = scalar_config;
+  for (auto key : {"x1-inner: reflecting", "x1-outer: reflecting"}) {
+    std::string k = key;
+    auto at = config.find(k);
+    config.replace(at, k.size(), k.substr(0, 10) + x1_bc);
+  }
   std::ofstream out(fname);
-  out << scalar_config;
+  out << config;
   out.close();
   return fname;
 }
@@ -112,7 +119,10 @@ TEST_P(DeviceTest, initialize_and_transport_scalar) {
 // toward zero -- the latter bounds r too, but freezes the plateau instead of
 // advecting it.
 TEST_P(DeviceTest, scalar_upper_bound_holds_both_sides) {
-  auto filename = write_temp_config();
+  // The hand-set mass flux below is uniform through every x1 face. A
+  // reflecting wall carries zero normal mass flux, so the x1 boundaries are
+  // periodic here: a uniform flux through them is a state a run can reach.
+  auto filename = write_temp_config("periodic");
   auto opts = MeshBlockOptionsImpl::from_yaml(filename);
   opts->scalar()->upper_bound() = 1.0;
   opts->hydro()->eos()->limiter() =
