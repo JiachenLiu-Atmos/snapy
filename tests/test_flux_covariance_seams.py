@@ -139,7 +139,9 @@ def main():
                   f"mass {c['mass']:.3e}  vapor {c['vapor']:.3e}  E+PE {c['e_plus_pe']:.3e}  "
                   f"(max|v| {c['vmax']:.2f})", flush=True)
             if sw == "1":
-                for k in ("mass", "vapor", "e_plus_pe"):
+                # E+PE is the invariant of cell work + the gravity-work fixer,
+                # which V3 X5 removed: mass and vapor stay checked
+                for k in ("mass", "vapor"):
                     if not c[k] < DRIFT_TOL:
                         failures.append(f"{k} drift {c[k]:.3e} >= {DRIFT_TOL} with the term on")
         dc = abs(fps["1"] - fps["0"]) / abs(fps["0"])

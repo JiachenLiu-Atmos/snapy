@@ -29,13 +29,12 @@ ConstGravityOptions ConstGravityOptionsImpl::from_yaml(
   TORCH_CHECK(op->gravity_work() == "cell" || op->gravity_work() == "face",
               "forcing/const-gravity/gravity-work must be cell or face, got '",
               op->gravity_work(), "'");
-  bool cell = op->gravity_work() == "cell";
-  op->gravity_work_fixer() = node["gravity-work-fixer"].as<bool>(cell);
-  if (op->gravity_work_fixer() && op->grav1() != 0.) {
-    TORCH_CHECK(cell,
-                "forcing/const-gravity/gravity-work-fixer needs gravity-work: "
-                "cell");
-  }
+  // the global gravity-work fixer is removed (V3 X5, gw1; Cheng): the key
+  // stays readable so decks that switch it off keep working
+  op->gravity_work_fixer() = node["gravity-work-fixer"].as<bool>(false);
+  TORCH_CHECK(!op->gravity_work_fixer(),
+              "forcing/const-gravity/gravity-work-fixer was removed in V3; "
+              "set it false or drop the key");
 
   return op;
 }

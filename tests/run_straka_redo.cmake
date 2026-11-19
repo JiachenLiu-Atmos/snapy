@@ -1,8 +1,8 @@
 # run_straka_redo.cmake: straka on one process at cfl 1.5 (shipped 0.9) to
 # t = 30 s. Steps there go non-finite and are redone with a smaller dt; with
-# gravity-work: cell and its default fixer on, they must reach the redo check and the
-# run its time limit. (Runs to t = 60 s at this cfl end by chance on the redo limit
-# near t = 58 s, with or without the fixer; a 1-ulp change flips the outcome.)
+# gravity-work: cell, they must reach the redo check and the run its time
+# limit. (Runs to t = 60 s at this cfl end by chance on the redo limit near
+# t = 58 s; a 1-ulp change flips the outcome.)
 
 get_filename_component(build_dir "${CMAKE_CURRENT_BINARY_DIR}/.." ABSOLUTE)
 set(work_dir "${CMAKE_CURRENT_BINARY_DIR}/straka_redo")

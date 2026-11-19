@@ -292,7 +292,8 @@ void co4_face_density_at_the_seam_split_matches_one_block(
   torch::set_num_threads(1);
   g_conv_order = 4;
   g_recon = "plm";
-  double const pinned[2] = {0.017122980537687668, 0.036658874569637449};
+  // re-pinned in V3 X5 without the gravity-work fixer (cell work ran it)
+  double const pinned[2] = {0.017104446996277833, 0.036658877944399954};
   int k = 0;
   for (double nh : {1., 0.}) {
     auto one = make_column(1, 16, nh, "cell", 3, device);
