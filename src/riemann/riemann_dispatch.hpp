@@ -25,6 +25,10 @@ struct RiemannParams {
   int nvapor = 0;
   double gammad = 0.;
   bool dir_yz = false;
+  //! the iterator carries riemann.central (an output after the face pressure)
+  bool central = false;
+  //! roe: the iterator carries the LLF flag (an output after central)
+  bool llf = false;
 };
 
 }  // namespace snap

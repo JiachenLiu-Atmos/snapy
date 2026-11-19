@@ -413,11 +413,21 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     return out;
   };
   auto solve = [&](torch::Tensor lr, int dim, torch::Tensor flux,
-                   torch::Tensor face_pressure, torch::Tensor& background) {
+                   torch::Tensor face_pressure, torch::Tensor& background,
+                   torch::Tensor central = torch::Tensor()) {
+    // the solve's events (C5): hllc's clamped contact pressure, roe's LLF
+    auto post_events = [&] {
+      if (!priemann->events.defined()) return;
+      freg.monitor().count("riemann.pstar_clamp", priemann->events[0]);
+      freg.monitor().count("riemann.llf", priemann->events[1]);
+    };
     if (!split_flux) {
-      priemann->forward(lr[ILT], lr[IRT], dim, flux, face_pressure);
+      priemann->forward(lr[ILT], lr[IRT], dim, flux, face_pressure, central);
+      post_events();
       return;
     }
+    TORCH_CHECK(!central.defined(),
+                "riemann.central needs the total-state solve");
     if (!background.defined()) {
       // Horizontal (or gravity-free) sweeps: the shared face gauge need not
       // be hydrostatic. Its full gradient is retained in the momentum source.
@@ -436,6 +446,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     if (fp32()) lr = lr.to(torch::kFloat32);
     priemann->forward_perturbations(lr[ILT], lr[IRT], dim, flux, background,
                                     face_pressure);
+    post_events();
     // Public face pressure and all implicit/energy consumers keep TOTALS.
     if (face_pressure.defined() && face_pressure.numel())
       face_pressure += background;
@@ -451,13 +462,34 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   bool gw_cell = options->grav() && options->grav()->grav1() != 0. &&
                  options->grav()->gravity_work() == "cell";
 
+  // FaceFloor (C.rst 3.7): the faces a floor changed go to the monitor
+  auto& monitor = freg.monitor();
+  auto post_floors = [&](Reconstruct const& recon) {
+    if (!recon->floored.defined()) return;
+    monitor.count("face_floor.rho", recon->floored[0]);
+    monitor.count("face_floor.p", recon->floored[1]);
+    monitor.count("face_floor.species", recon->floored[2]);
+  };
   auto reconstruct_sweep = [&](int dim, torch::Tensor& background) {
     auto recon = dim == DIM1 ? precon1 : precon23;
-    if (!fp32()) return recon->forward(w, dim);
+    if (!fp32()) {
+      auto lr = recon->forward(w, dim);
+      post_floors(recon);
+      return lr;
+    }
     auto gauge = perturb.pressure0.mean(dim - 1, true);
     auto input = w.to(torch::kFloat32);
     input[IPR].copy_((perturb.pressure0 - gauge) + perturb.pressure_delta);
     auto lr = recon->forward(input, dim, false);
+    post_floors(recon);
+    // FaceFloor on the FP32 split path: the total face states this path
+    // floors itself, on the faces the reconstruction computes
+    auto count_below = [&](torch::Tensor const& x, double floor, int axis) {
+      int ng = recon->pinterp1->stencils() / 2 + 1;
+      int64_t n = x.size(axis);
+      int64_t il = ng, iu = n - ng;
+      return (x < floor).narrow(axis, il, std::min<int64_t>(iu + 2, n) - il);
+    };
     // Horizontal Cartesian sweeps need FP64 only for pressure cancellation.
     // Covariance consumers still require total face states; retain their path.
     bool active_horizontal = (dim == DIM2 && !options->disable_flux_x2()) ||
@@ -471,15 +503,27 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       background = 0.5 * (p0 + below);
       auto pressure = lr.select(1, IPR).to(torch::kFloat64);
       pressure += gauge;
+      monitor.count(
+          "face_floor.p",
+          count_below(pressure, peos->options->pressure_floor(), dim));
       pressure.clamp_min_(peos->options->pressure_floor());
       pressure -= background;
       lr.select(1, IPR).copy_(pressure);
+      monitor.count(
+          "face_floor.rho",
+          count_below(lr.select(1, IDN), peos->options->density_floor(), dim));
       lr.select(1, IDN).clamp_min_(peos->options->density_floor());
       return lr;
     }
     lr = lr.to(torch::kFloat64);
     for (int side : {ILT, IRT}) {
       lr[side][IPR] += gauge;
+      monitor.count(
+          "face_floor.p",
+          count_below(lr[side][IPR], peos->options->pressure_floor(), dim - 1));
+      monitor.count(
+          "face_floor.rho",
+          count_below(lr[side][IDN], peos->options->density_floor(), dim - 1));
       lr[side][IPR].clamp_min_(peos->options->pressure_floor());
       lr[side][IDN].clamp_min_(peos->options->density_floor());
     }
@@ -629,6 +673,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       // negative perturbations.
       wtmp = precon1->forward(fp32() ? wx1.to(torch::kFloat32) : wx1, DIM1,
                               /*floor=*/false);
+      post_floors(precon1);
 
       wx1[IPR].copy_(pressure);
       wx1[IDN].copy_(density);
@@ -643,6 +688,12 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         pl += split.gauge;
         pr += split.gauge;
       }
+      // FaceFloor: the WB fallbacks below count as floors, faces is..iu+1
+      auto fallback = [&](torch::Tensor const& x) {
+        return (x > 0.).logical_not().narrow(-1, is, iu + 2 - is);
+      };
+      monitor.count("face_floor.p", fallback(pl));
+      monitor.count("face_floor.p", fallback(pr));
       if (split_flux) {
         wtmp[ILT][IPR].copy_(torch::where(
             pl > 0., wtmp[ILT][IPR] + split.face_delta,
@@ -657,6 +708,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
 
       auto dl = wtmp[ILT][IDN] + dsf[ILT];
       auto dr = wtmp[IRT][IDN] + dsf[IRT];
+      monitor.count("face_floor.rho", fallback(dl));
+      monitor.count("face_floor.rho", fallback(dr));
       // Positivity fallback = the adjacent cell's density, not dsf: a
       // reference that overestimates density aloft (a bottom-anchored
       // isentrope did, by orders of magnitude) turns every floor event at a
@@ -679,8 +732,12 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         wtmp[1 - o][IVX].select(-1, i).neg_();
       }
     } else {
-      wtmp = fp32() ? reconstruct_sweep(DIM1, pressure_base1)
-                    : precon1->forward(wx1, DIM1);
+      if (fp32()) {
+        wtmp = reconstruct_sweep(DIM1, pressure_base1);
+      } else {
+        wtmp = precon1->forward(wx1, DIM1);
+        post_floors(precon1);
+      }
       if (grav1) {
         if (phys_x1inner) _revise_x1inner_lr(wtmp[ILT], wtmp[IRT]);
         if (phys_x1outer) _revise_x1outer_lr(wtmp[ILT], wtmp[IRT]);
@@ -838,19 +895,12 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
 
   //// ------------ (3.A) Calculate dimension 2 LR states ------------ ////
   // conserve-axial-momentum: full (#357): the Coriolis call also gets the
-  // solver's dissipative x2/x3 mass flux M - M_central, M_central = 1/2
-  // (F(wL, wL) + F(wR, wR)) from the face states of this stage
+  // solver's dissipative x2/x3 mass flux M - M_central; the solve writes
+  // M_central = 1/2 (F(wL) + F(wR)), riemann.central, in the kernel (C5)
   bool const c2 = axial_coriolis_form();
   TORCH_CHECK(
       !c2 || (!split_flux && !fp32()),
       "conserve-axial-momentum full needs FP64 and no perturbation-flux");
-  auto central = [&](torch::Tensor a, torch::Tensor b, int dim,
-                     torch::Tensor like) {
-    auto fa = torch::zeros_like(like), fb = torch::zeros_like(like);
-    priemann->forward(a.clone(), a.clone(), dim, fa);
-    priemann->forward(b.clone(), b.clone(), dim, fb);
-    return 0.5 * (fa + fb);
-  };
   torch::Tensor wtmp2, wtmp3;
   SyncOptions sync_opts;
   sync_opts.cross_panel_only(true).interpolate(false).type(kPrimitive);
@@ -958,12 +1008,10 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         _cov_wr[0] = cwr.clone();
         _cov_dry[0] = cov_dry(dcov, cwl);
       }
-      // riemann.central@2, kept for A until the next stage (R-2)
-      if (c2)
-        freg.part_slot(2, "riemann.central")
-            .copy_(central(wlr2[ILT], wlr2[IRT], DIM2, _flux2));
+      // riemann.central@2, kept for A until the next stage (R-2, C5)
       solve(wlr2, DIM2, freg.slot(2, "riemann"), torch::Tensor(),
-            pressure_base2);
+            pressure_base2,
+            c2 ? freg.part_slot(2, "riemann.central") : torch::Tensor());
       freg.post_slot(2, "riemann");
       if (dcov.defined()) add_cov(_flux2, dcov);
       cov2 = dcov.defined();
@@ -995,11 +1043,10 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         _cov_wr[1] = cwr.clone();
         _cov_dry[1] = cov_dry(dcov, cwl);
       }
-      if (c2)
-        freg.part_slot(3, "riemann.central")
-            .copy_(central(wlr3[ILT], wlr3[IRT], DIM3, _flux3));
+      // riemann.central@3, kept for A until the next stage (R-2, C5)
       solve(wlr3, DIM3, freg.slot(3, "riemann"), torch::Tensor(),
-            pressure_base3);
+            pressure_base3,
+            c2 ? freg.part_slot(3, "riemann.central") : torch::Tensor());
       freg.post_slot(3, "riemann");
       if (dcov.defined()) add_cov(_flux3, dcov);
       cov3 = dcov.defined();

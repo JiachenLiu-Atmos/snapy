@@ -343,6 +343,9 @@ snapy_add_python_test(test_fix_vapor_stale_count TIMEOUT 60 LABELS "python;eos;p
 snapy_add_python_test(test_fix_vapor_counts_every_column TIMEOUT 120 LABELS "python;eos;positivity")
 snapy_add_python_test(test_implicit_advection_cfl TIMEOUT 60 LABELS "python;hydro;implicit")
 # axial angular momentum in flux form on six cubed-sphere panels (#314)
+# FaceFloor counts on the FP32 split path (V3 C5)
+snapy_add_python_test(test_fp32_face_floor_counts TIMEOUT 300
+                      LABELS "python;hydro;fp32-foundations")
 snapy_add_python_test(test_axial_momentum_flux_form TIMEOUT 1200
                       LABELS "python;cubed-sphere;hydro;conservation")
 snapy_add_python_test(test_implicit_gravity_tall_column TIMEOUT 120 LABELS "python;hydro;implicit;gravity")

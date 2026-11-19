@@ -247,6 +247,11 @@ void HydroImpl::reset() {
   req.counters = {"ef.floor_patch",    "ef.nan",      "ef.vapor_fail",
                   "ef.heat_capacity",  "ef.pos_hits", "ef.pos_severe",
                   "ef.scalar_pos_hits"};
+  // C's FaceFloor counts (C.rst 3.7; names adopted in R.rst 2.6): faces a
+  // floor changed, which register counts, not flux
+  for (auto name : {"face_floor.rho", "face_floor.p", "face_floor.species",
+                    "riemann.pstar_clamp", "riemann.llf"})
+    req.counters.push_back(name);
   req.minima = {"ef.pos_min"};
   req.retry = {"ef.floor_patch", "ef.nan", "ef.vapor_fail", "ef.heat_capacity"};
   // conserve-axial-momentum full: A's riemann.central on the x2/x3 faces

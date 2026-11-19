@@ -303,10 +303,21 @@ torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
     return result;
   }
 
+  // FaceFloor's counts: the faces a floor changes, on the computed faces
+  floored = torch::zeros({3}, torch::dtype(torch::kInt64).device(w.device()));
+  auto faces = [&](torch::Tensor const& x) {
+    // face iu+1 exists only when a ghost cell follows (as the slices of
+    // _apply_inplace, which stop at the end of the axis)
+    return x.narrow(dim, il, std::min<int64_t>(iu + 2, x.size(dim)) - il);
+  };
+
   // the species faces are floored at 0 with the eos limiter. clamp_min keeps
   // -0., so non-negative faces are unchanged bit for bit
   auto floor_species = [&](bool on) {
-    if (on && nvar > ICY) result.narrow(1, ICY, nvar - ICY).clamp_min_(0.);
+    if (!on || nvar <= ICY) return;
+    auto y = result.narrow(1, ICY, nvar - ICY);
+    floored[2].add_(faces((y < 0.).any(1)).sum());
+    y.clamp_min_(0.);
   };
 
   if (options->shock()) {
@@ -324,7 +335,9 @@ torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
   _apply_inplace(dim, il, iu, w.narrow(0, IDN, 1), pinterp1,
                  result.narrow(1, IDN, 1));
   if (eos->limiter() && floor) {
-    result.select(1, IDN).clamp_min_(eos->density_floor());
+    auto d = result.select(1, IDN);
+    floored[0].add_(faces(d < eos->density_floor()).sum());
+    d.clamp_min_(eos->density_floor());
   }
 
   // velocity/pressure
@@ -332,7 +345,9 @@ torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
   _apply_inplace(dim, il, iu, w.narrow(0, IVX, len), pinterp2,
                  result.narrow(1, IVX, len));
   if (eos->limiter() && floor && result.size(1) > IPR) {
-    result.select(1, IPR).clamp_min_(eos->pressure_floor());
+    auto pr = result.select(1, IPR);
+    floored[1].add_(faces(pr < eos->pressure_floor()).sum());
+    pr.clamp_min_(eos->pressure_floor());
   }
 
   int ny = nvar - ICY;

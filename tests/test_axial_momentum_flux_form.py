@@ -466,6 +466,11 @@ def main(argv=None):
 
     # (f) explicit
     with_rotation("f", "Coriolis", lambda cfg: None)
+    # (f) with hllc and with roe (C.rst section 5): full reads the solver's
+    # riemann.central, which each kind's kernel writes (V3 C5)
+    for kind in ("hllc", "roe"):
+        with_rotation("f", "Coriolis, " + kind,
+                      lambda cfg, kind=kind: cfg["dynamics"]["riemann-solver"].update(type=kind))
 
     # (g) the traditional approximation in 3D on a shallow shell (8 m, vertically implicit), where
     #     the cos(lat) terms it leaves out are negligible

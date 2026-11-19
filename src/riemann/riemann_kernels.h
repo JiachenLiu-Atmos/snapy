@@ -274,7 +274,7 @@ void DISPATCH_MACRO roe_impl(T* flx, T const* wl, T const* wr, T el, T er,
                              bool ideal_moist, int nvapor, T gammad,
                              T const* inv_mu_ratio_m1, T const* cv_ratio_m1,
                              T const* u0, int stride_w, int stride_f,
-                             T* face_pressure = nullptr) {
+                             T* face_pressure = nullptr, T* llf = nullptr) {
   auto TINY_NUMBER = T(1.0e-10);
 
   auto ivx = IPR - dim;
@@ -456,6 +456,7 @@ void DISPATCH_MACRO roe_impl(T* flx, T const* wl, T const* wr, T el, T er,
           T(0.5) * (rholn * WL(ivx) + rhorn * WR(ivx)) - a * (rhorn - rholn);
     }
   }
+  if (llf != nullptr) *llf = llf_flag ? T(1) : T(0);
 }
 
 }  // namespace snap
@@ -543,7 +544,7 @@ namespace snap {
 template <typename T>
 struct RiemannArgs {
   int dim, ny, stride;
-  bool background;  // hllc: operand 7 is the face background p0
+  bool background;  // hllc: the operand after c is the face background p0
   bool ideal_moist;
   int nvapor;
   T gammad;
@@ -553,26 +554,63 @@ struct RiemannArgs {
   int dir_yz;
 };
 
-//! one face of kind K. p holds the iterator's operands at the face, in the
-//! order of call_riemann (riemann_dispatch.hpp); e, gamma and c are (2, ...)
-//! with the right side one output stride after the left.
+//! riemann.central's mass rows at one face (C.rst 3.6, section 4): 1/2 (F(w_L)
+//! + F(w_R)) of the dry row and of each species row, from the face-frame
+//! states the solve used; u is the face-normal velocity, rd = 1 - sum q.
+//! Shallow-roe has the one row 1/2 (h_L u_L + h_R u_R). The other rows are
+//! not written.
 template <RiemannKind K, typename T>
+DISPATCH_MACRO void riemann_central(T* cen, T const* wl, T const* wr,
+                                    RiemannArgs<T> const& a) {
+  auto s = a.stride;
+  if constexpr (K == RiemannKind::shallow_roe) {
+    int ivx = a.dir_yz ? (a.dim == 2 ? IVY : IVZ) : (a.dim == 3 ? IVX : IVY);
+    cen[IDN * s] =
+        T(0.5) * (wl[IDN * s] * wl[ivx * s] + wr[IDN * s] * wr[ivx * s]);
+  } else {
+    int ivx = IPR - a.dim;
+    auto ml = wl[IDN * s] * wl[ivx * s];
+    auto mr = wr[IDN * s] * wr[ivx * s];
+    T rdl = T(1), rdr = T(1);
+    for (int n = 0; n < a.ny; ++n) {
+      rdl -= wl[(ICY + n) * s];
+      rdr -= wr[(ICY + n) * s];
+      cen[(ICY + n) * s] =
+          T(0.5) * (ml * wl[(ICY + n) * s] + mr * wr[(ICY + n) * s]);
+    }
+    cen[IDN * s] = T(0.5) * (ml * rdl + mr * rdr);
+  }
+}
+
+//! one face of kind K. p holds the iterator's operands at the face, in the
+//! order of call_riemann (riemann_dispatch.hpp): the outputs (flux, the face
+//! pressure except for shallow-roe, riemann.central if C, roe's LLF flag if
+//! E), then wl, wr, e, gamma and c, (2, ...) with the right side one output
+//! stride after the left, and p0. C and E are template parameters so that
+//! the face functions compile as before when neither is requested.
+template <RiemannKind K, bool C, bool E, typename T>
 DISPATCH_MACRO void riemann_face(T* const* p, RiemannArgs<T> const& a) {
   auto s = a.stride;
+  constexpr int o = K == RiemannKind::shallow_roe ? 1 : 2;
+  constexpr int i = o + (C ? 1 : 0) + (E ? 1 : 0);
   if constexpr (K == RiemannKind::hllc) {
-    auto p0 = a.background ? *p[7] : T(0);
-    hllc_impl(p[0], p[2], p[3], *p[4], *(p[4] + s), *p[5], *(p[5] + s), *p[6],
-              *(p[6] + s), a.dim, a.ny, s, s, p[1], p0);
+    auto p0 = a.background ? *p[i + 5] : T(0);
+    hllc_impl(p[0], p[i], p[i + 1], *p[i + 2], *(p[i + 2] + s), *p[i + 3],
+              *(p[i + 3] + s), *p[i + 4], *(p[i + 4] + s), a.dim, a.ny, s, s,
+              p[1], p0);
   } else if constexpr (K == RiemannKind::lmars) {
-    lmars_impl(p[0], p[2], p[3], *p[4], *(p[4] + s), *p[5], *(p[5] + s), a.dim,
-               a.ny, s, s, p[1]);
+    lmars_impl(p[0], p[i], p[i + 1], *p[i + 2], *(p[i + 2] + s), *p[i + 3],
+               *(p[i + 3] + s), a.dim, a.ny, s, s, p[1]);
   } else if constexpr (K == RiemannKind::roe) {
-    roe_impl(p[0], p[2], p[3], *p[4], *(p[4] + s), *p[5], *(p[5] + s), *p[6],
-             *(p[6] + s), a.dim, a.ny, a.ideal_moist, a.nvapor, a.gammad,
-             a.inv_mu_ratio_m1, a.cv_ratio_m1, a.u0, s, s, p[1]);
+    roe_impl(p[0], p[i], p[i + 1], *p[i + 2], *(p[i + 2] + s), *p[i + 3],
+             *(p[i + 3] + s), *p[i + 4], *(p[i + 4] + s), a.dim, a.ny,
+             a.ideal_moist, a.nvapor, a.gammad, a.inv_mu_ratio_m1,
+             a.cv_ratio_m1, a.u0, s, s, p[1],
+             E ? p[o + (C ? 1 : 0)] : static_cast<T*>(nullptr));
   } else if constexpr (K == RiemannKind::shallow_roe) {
-    shallow_roe_impl(p[0], p[1], p[2], a.dim, a.dir_yz, s, s);
+    shallow_roe_impl(p[0], p[i], p[i + 1], a.dim, a.dir_yz, s, s);
   }
+  if constexpr (C) riemann_central<K>(p[o], p[i], p[i + 1], a);
 }
 
 }  // namespace snap

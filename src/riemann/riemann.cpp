@@ -163,7 +163,12 @@ static torch::Tensor lax_friedrichs_flux(torch::Tensor const& priml,
 
 torch::Tensor RiemannSolverImpl::forward(torch::Tensor wl, torch::Tensor wr,
                                          int dim, torch::Tensor vel_or_flux,
-                                         torch::Tensor face_pressure) {
+                                         torch::Tensor face_pressure,
+                                         torch::Tensor central) {
+  TORCH_CHECK(!central.defined() || (kind != RiemannKind::upwind &&
+                                     kind != RiemannKind::plume_roe),
+              "riemann.central is not defined for Riemann solver type ",
+              options->type(), " (no hydro mass rows)");
   if (kind == RiemannKind::upwind) {
     TORCH_CHECK(
         !face_pressure.defined(),
@@ -188,7 +193,8 @@ torch::Tensor RiemannSolverImpl::forward(torch::Tensor wl, torch::Tensor wr,
     return lax_friedrichs_flux(wl, wr, csl, csr);
   }
 
-  return solve(wl, wr, dim, vel_or_flux, face_pressure, torch::Tensor());
+  return solve(wl, wr, dim, vel_or_flux, face_pressure, torch::Tensor(),
+               central);
 }
 
 torch::Tensor RiemannSolverImpl::forward_perturbations(
@@ -198,13 +204,28 @@ torch::Tensor RiemannSolverImpl::forward_perturbations(
               "Riemann solver perturbations need hllc, not ", options->type());
   TORCH_CHECK(reference_pressure.defined(),
               "HLLC perturbations require a shared face pressure background");
-  return solve(wl, wr, dim, flx, face_pressure_delta, reference_pressure);
+  return solve(wl, wr, dim, flx, face_pressure_delta, reference_pressure,
+               torch::Tensor());
+}
+
+//! the faces of an x<dim> per-face tensor (nc3, nc2, nc1) the block owns:
+//! faces lo..hi+1 normal to dim, the interior cells across it
+static torch::Tensor interior_faces(CoordinateImpl const& c, int dim,
+                                    torch::Tensor x) {
+  int lo[3] = {c.kl(), c.jl(), c.il()}, hi[3] = {c.ku(), c.ju(), c.iu()};
+  int axis = dim - 1;
+  for (int a = 0; a < 3; ++a) {
+    int64_t end = std::min<int64_t>(hi[a] + 1 + (a == axis ? 1 : 0), x.size(a));
+    x = x.narrow(a, lo[a], end - lo[a]);
+  }
+  return x;
 }
 
 torch::Tensor RiemannSolverImpl::solve(torch::Tensor wl, torch::Tensor wr,
                                        int dim, torch::Tensor flx,
                                        torch::Tensor face_pressure,
-                                       torch::Tensor reference_pressure) {
+                                       torch::Tensor reference_pressure,
+                                       torch::Tensor central) {
   auto pcoord = phydro->pmb->pcoord;
   auto peos = phydro->peos;
   bool aneos = peos->options->type() == "aneos";
@@ -301,6 +322,16 @@ torch::Tensor RiemannSolverImpl::solve(torch::Tensor wl, torch::Tensor wr,
     face_pressure_out = direct ? face_pressure : torch::empty_like(wl[IDN]);
     config.add_owned_output(face_pressure_out.unsqueeze(0));
   }
+  // riemann.central: the mass rows of 1/2 (F(w_L) + F(w_R)), in the kernel
+  if (central.defined()) config.add_output(central);
+  params.central = central.defined();
+  // roe's LLF fallback, one flag per face (riemann.llf)
+  torch::Tensor llf;
+  if (kind == RiemannKind::roe) {
+    llf = torch::empty_like(wl[IDN]);
+    config.add_owned_output(llf.unsqueeze(0));
+    params.llf = true;
+  }
   config.add_input(wl).add_input(wr);
   for (auto const& t : {e, gamma, c})
     if (t.defined()) config.add_input(t);
@@ -312,6 +343,19 @@ torch::Tensor RiemannSolverImpl::solve(torch::Tensor wl, torch::Tensor wr,
                            dim, params, inv_mu_ratio_m1, cv_ratio_m1, u0);
   if (face_pressure.defined() && !face_pressure.is_same(face_pressure_out))
     face_pressure.copy_(face_pressure_out);
+
+  // the solve's events on the interior faces (C.rst 3.6; R.rst 2.6 names):
+  // hllc's contact pressure clamped to zero (to -p0 on the perturbation
+  // entry), the face pressure it writes; roe's LLF fallback
+  events = torch::zeros({2}, torch::dtype(torch::kInt64).device(flx.device()));
+  if (kind == RiemannKind::hllc) {
+    auto clamped = reference_pressure.defined()
+                       ? face_pressure_out <= -reference_pressure
+                       : face_pressure_out <= 0.;
+    events[0].add_(interior_faces(*pcoord, dim, clamped).sum());
+  }
+  if (llf.defined())
+    events[1].add_(interior_faces(*pcoord, dim, llf > 0.).sum());
 
   to_global_frame_(*pcoord, dim, flx);
 

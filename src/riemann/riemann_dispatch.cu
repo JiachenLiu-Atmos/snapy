@@ -13,8 +13,9 @@
 namespace snap {
 
 // One CUDA loop for every face-function kind: N operands, each face is
-// riemann_face<K>.
-template <RiemannKind K, int N>
+// riemann_face<K, C, E>, C when the iterator carries riemann.central, E
+// when it carries roe's LLF flag.
+template <RiemannKind K, int N, bool C, bool E>
 void riemann_cuda_loop(at::TensorIterator &iter, int dim,
                        RiemannParams const &params,
                        torch::Tensor const &inv_mu_ratio_m1,
@@ -28,7 +29,7 @@ void riemann_cuda_loop(at::TensorIterator &iter, int dim,
         dim,
         static_cast<int>(nhydro - ICY),
         static_cast<int>(stride),
-        N == 8,
+        N == (C ? 9 : 8) + (E ? 1 : 0),
         moist,
         params.nvapor,
         scalar_t(params.gammad),
@@ -39,11 +40,11 @@ void riemann_cuda_loop(at::TensorIterator &iter, int dim,
 
     native::gpu_kernel<N>(
         iter, [=] GPU_LAMBDA(char *const data[N], unsigned int strides[N]) {
-          scalar_t *p[8];
+          scalar_t *p[(C ? 9 : 8) + (E ? 1 : 0)];
 #pragma unroll
           for (int k = 0; k < N; ++k)
             p[k] = reinterpret_cast<scalar_t *>(data[k] + strides[k]);
-          riemann_face<K>(p, a);
+          riemann_face<K, C, E>(p, a);
         });
   });
 }
@@ -53,26 +54,33 @@ void riemann_cuda(at::TensorIterator &iter, int kind, int dim,
                   torch::Tensor const &inv_mu_ratio_m1,
                   torch::Tensor const &cv_ratio_m1, torch::Tensor const &u0) {
   at::cuda::CUDAGuard device_guard(iter.device());
-  switch (static_cast<RiemannKind>(kind)) {
+  auto k = static_cast<RiemannKind>(kind);
+  bool c = params.central;
+#define SNAP_RIEMANN_CUDA(K, N)                                       \
+  return c ? riemann_cuda_loop<K, N + 1, true, false>(                \
+                 iter, dim, params, inv_mu_ratio_m1, cv_ratio_m1, u0) \
+           : riemann_cuda_loop<K, N, false, false>(                   \
+                 iter, dim, params, inv_mu_ratio_m1, cv_ratio_m1, u0)
+  switch (k) {
     case RiemannKind::hllc:
-      if (iter.ninputs() == 6)
-        return riemann_cuda_loop<RiemannKind::hllc, 8>(
-            iter, dim, params, inv_mu_ratio_m1, cv_ratio_m1, u0);
-      return riemann_cuda_loop<RiemannKind::hllc, 7>(
-          iter, dim, params, inv_mu_ratio_m1, cv_ratio_m1, u0);
+      if (iter.ninputs() == 6) SNAP_RIEMANN_CUDA(RiemannKind::hllc, 8);
+      SNAP_RIEMANN_CUDA(RiemannKind::hllc, 7);
     case RiemannKind::lmars:
-      return riemann_cuda_loop<RiemannKind::lmars, 6>(
-          iter, dim, params, inv_mu_ratio_m1, cv_ratio_m1, u0);
+      SNAP_RIEMANN_CUDA(RiemannKind::lmars, 6);
     case RiemannKind::roe:
-      return riemann_cuda_loop<RiemannKind::roe, 7>(
-          iter, dim, params, inv_mu_ratio_m1, cv_ratio_m1, u0);
+      if (params.llf)
+        return c ? riemann_cuda_loop<RiemannKind::roe, 9, true, true>(
+                       iter, dim, params, inv_mu_ratio_m1, cv_ratio_m1, u0)
+                 : riemann_cuda_loop<RiemannKind::roe, 8, false, true>(
+                       iter, dim, params, inv_mu_ratio_m1, cv_ratio_m1, u0);
+      SNAP_RIEMANN_CUDA(RiemannKind::roe, 7);
     case RiemannKind::shallow_roe:
-      return riemann_cuda_loop<RiemannKind::shallow_roe, 3>(
-          iter, dim, params, inv_mu_ratio_m1, cv_ratio_m1, u0);
+      SNAP_RIEMANN_CUDA(RiemannKind::shallow_roe, 3);
     default:
       TORCH_CHECK(false, "[call_riemann] kind ", kind,
                   " is a torch formula, not a face function");
   }
+#undef SNAP_RIEMANN_CUDA
 }
 
 }  // namespace snap

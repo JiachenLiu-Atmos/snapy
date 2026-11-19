@@ -165,6 +165,12 @@ class ReconstructImpl : public torch::nn::Cloneable<ReconstructImpl> {
   // caller reconstructs perturbation variables that are legitimately
   // negative and enforces positivity itself); the scalar floor is kept.
   torch::Tensor forward(torch::Tensor w, int dim, bool floor = true);
+
+  //! FaceFloor's counts of the last forward (C.rst 3.7): int64 (3,), the
+  //! faces the floors changed, density, pressure and species (a face counts
+  //! once for any species row), each side of the faces il..iu+1 the
+  //! reconstruction computes. Undefined without a parent Hydro.
+  torch::Tensor floored;
 };
 
 TORCH_MODULE(Reconstruct);

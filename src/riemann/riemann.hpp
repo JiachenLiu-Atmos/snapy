@@ -85,6 +85,11 @@ class RiemannSolverImpl : public torch::nn::Cloneable<RiemannSolverImpl> {
   //! the solver, from options->type()
   RiemannKind kind = RiemannKind::hllc;
 
+  //! the last face-function solve's events on its interior faces, int64
+  //! (2,): riemann.pstar_clamp (hllc's contact pressure clamped) and
+  //! riemann.llf (roe's LLF fallback)
+  torch::Tensor events;
+
   //! non-owning reference to parent
   HydroImpl const* phydro = nullptr;
 
@@ -101,10 +106,16 @@ class RiemannSolverImpl : public torch::nn::Cloneable<RiemannSolverImpl> {
    * flux is returned. plume-roe (dim 1 only) returns its Lax-Friedrichs
    * flux of the plume equations. The other kinds write the flux into
    * vel_or_flux and return it.
+   *
+   * central, if defined (hllc, lmars, roe, shallow-roe): the kernel writes
+   * riemann.central there, the mass rows (IDN and the species) of
+   * 1/2 (F(w_L) + F(w_R)) from the face states it solved; other rows are
+   * left as they are.
    */
   torch::Tensor forward(torch::Tensor wl, torch::Tensor wr, int dim,
                         torch::Tensor vel_or_flux,
-                        torch::Tensor face_pressure = torch::Tensor());
+                        torch::Tensor face_pressure = torch::Tensor(),
+                        torch::Tensor central = torch::Tensor());
 
   //! hllc only. Pressure rows are perturbations about one shared face
   //! background. Returns perturbation normal-momentum flux and contact
@@ -117,13 +128,14 @@ class RiemannSolverImpl : public torch::nn::Cloneable<RiemannSolverImpl> {
       torch::Tensor face_pressure_delta = torch::Tensor());
 
  protected:
-  FORWARD_HAS_DEFAULT_ARGS({4, torch::nn::AnyValue(torch::Tensor())})
+  FORWARD_HAS_DEFAULT_ARGS({4, torch::nn::AnyValue(torch::Tensor())},
+                           {5, torch::nn::AnyValue(torch::Tensor())})
 
  private:
   //! the face functions' solve: one EOS face pass, rotation, call_riemann
   torch::Tensor solve(torch::Tensor wl, torch::Tensor wr, int dim,
                       torch::Tensor flx, torch::Tensor face_pressure,
-                      torch::Tensor reference_pressure);
+                      torch::Tensor reference_pressure, torch::Tensor central);
 };
 using RiemannSolver = std::shared_ptr<RiemannSolverImpl>;
 
