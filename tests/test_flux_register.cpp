@@ -11,6 +11,7 @@
 #include <limits>
 #include <snap/hydro/flux_register.hpp>
 #include <snap/mesh/meshblock.hpp>
+#include <snap/mesh/precision_policy.hpp>
 
 using namespace snap;
 
@@ -237,4 +238,251 @@ TEST(FluxRegister, step_field_recursion_equals_the_weighted_stage_sum) {
     ASSERT_EQ(block->check_redo(vars), 0);
   }
   std::printf("G-R3: worst max|S - sum c_s dt T_s| / max|sum| = %.3e\n", worst);
+}
+
+// R-4 (lane R's ruling): a register reset with the bubble's coordinate, so
+// replace and apply_prescribed book sum A_f (after - before) per row
+namespace {
+
+struct Seam {
+  Variables vars;
+  MeshBlock block;
+  int nvar;
+  Seam() : block(bubble(vars)), nvar(block->phydro->peos->nvar()) {}
+  FluxRegister make(RegisterRequest const& req, int seed) {
+    FluxRegister reg;
+    reg.reset(block->pcoord.get(), PrecisionPolicy("float64"), nvar, req);
+    torch::manual_seed(seed);
+    for (int d : {1, 2}) reg.total(d).copy_(torch::randn_like(reg.total(d)));
+    for (auto& [key, part] : reg.parts()) part.copy_(torch::randn_like(part));
+    return reg;
+  }
+  // A_f of T_d's faces, FP64
+  torch::Tensor area(int dim, FluxRegister& reg) {
+    auto t = reg.total(dim);
+    return dim == 1 ? block->pcoord->face_area1().narrow(2, 0, t.size(3))
+                    : block->pcoord->face_area2().narrow(1, 0, t.size(2));
+  }
+  // the face's dense peer: the total's rows, then the kept parts'
+  torch::Tensor peer(FluxRegister& reg, int dim) {
+    std::vector<torch::Tensor> rows = {reg.total(dim).clone()};
+    for (auto const& part : reg.kept_parts(dim))
+      rows.push_back(reg.kept(dim, part).clone());
+    return torch::cat(rows, 0);
+  }
+  // a fresh step, then stage 0 (rk3: w2 = 1), so the step amount is dt a_s
+  void stage(FluxRegister& reg) {
+    reg.begin_step();
+    reg.begin_stage(0, block->pintg->stages[0]);
+  }
+};
+
+double rel(torch::Tensor const& a, torch::Tensor const& b) {
+  return (a - b).abs().max().item<double>() / b.abs().max().item<double>();
+}
+
+}  // namespace
+
+TEST(FluxRegister, the_amounts_are_three_flux_corrections) {
+  Seam s;
+  auto reg = s.make({}, 1);
+  auto const& m = reg.monitor();
+  EXPECT_EQ(m.amount_names(),
+            (std::vector<std::string>{"reconcile.x1", "reconcile.panel",
+                                      "boundary.prescribed"}));
+  for (auto const& name : m.amount_names()) {
+    EXPECT_EQ(m.kind(name), AmountKind::flux_correction) << name;
+    EXPECT_EQ(m.amounts(name).sizes(), (std::vector<int64_t>{s.nvar}));
+    EXPECT_EQ(m.amounts(name).scalar_type(), torch::kFloat64);
+  }
+  EXPECT_THROW(m.amounts("vic.cell"), c10::Error);
+  // the coordinate reset equals R-1's for hydro's register
+  auto& hydro = s.block->phydro->flux_register();
+  for (int d : {1, 2, 3}) {
+    EXPECT_EQ(reg.total(d).defined(), hydro.total(d).defined()) << d;
+    if (reg.total(d).defined())
+      EXPECT_EQ(reg.total(d).sizes(), hydro.total(d).sizes()) << d;
+  }
+  EXPECT_EQ(reg.total(1).scalar_type(), torch::kFloat64);
+}
+
+// both sides of an x1 seam call mean: equal faces, bitwise, and the
+// amounts book the change each side made
+TEST(FluxRegister, replace_mean_gives_both_sides_the_same_faces) {
+  Seam s;
+  RegisterRequest req;
+  req.keep = {"pressure_base1@1", "riemann.central@2"};
+  auto a = s.make(req, 2), b = s.make(req, 3);
+  ASSERT_EQ(a.kept_parts(1), (std::vector<std::string>{"pressure_base1"}));
+  int nc1 = a.total(1).size(3);
+  auto faces = torch::zeros(a.total(1).sizes().slice(1), torch::kBool);
+  faces.select(2, 3).fill_(true);  // a's lower x1 face, il
+  auto a0 = a.total(1).clone(), a2 = a.total(2).clone();
+  auto pa = s.peer(a, 1), pb = s.peer(b, 1);
+  s.stage(a);
+  s.stage(b);
+  a.replace(1, faces, pb, SeamRule::mean);
+  b.replace(1, faces, pa, SeamRule::mean);
+  EXPECT_TRUE(torch::equal(a.total(1).select(3, 3), b.total(1).select(3, 3)));
+  EXPECT_TRUE(torch::equal(a.kept(1, "pressure_base1").select(3, 3),
+                           b.kept(1, "pressure_base1").select(3, 3)));
+  EXPECT_TRUE(torch::equal(a.total(1).narrow(3, 4, nc1 - 4),
+                           a0.narrow(3, 4, nc1 - 4)));  // unmasked: untouched
+  EXPECT_TRUE(torch::equal(a.total(2), a2));            // another direction
+  double dt = 0.7;
+  a.end_stage(dt);
+  b.end_stage(dt);
+  auto area = s.area(1, a);
+  auto ref = dt * (area * (a.total(1) - a0)).sum({1, 2, 3});
+  auto got = a.monitor().amounts("reconcile.x1");
+  EXPECT_LE(rel(got, ref), 1.e-15);
+  EXPECT_GT(ref.abs().max().item<double>(), 0.);
+  // a mean moves both sides by half the jump, in opposite directions
+  auto other = b.monitor().amounts("reconcile.x1");
+  EXPECT_LE(
+      (got + other).abs().max().item<double>() / ref.abs().max().item<double>(),
+      1.e-14);
+  EXPECT_EQ(a.monitor().amounts("reconcile.panel").abs().sum().item<double>(),
+            0.);
+}
+
+// on a panel seam only the non-owner calls owner_copy; its faces become the
+// owner's mapped slab, and the change is booked as reconcile.panel
+TEST(FluxRegister, replace_owner_copy_takes_the_peer_on_the_mask) {
+  Seam s;
+  auto owner = s.make({}, 4), other = s.make({}, 5);
+  auto faces = torch::zeros(owner.total(2).sizes().slice(1), torch::kBool);
+  faces.select(1, 3).narrow(1, 3, 32).fill_(true);  // jl, interior i
+  auto before = other.total(2).clone();
+  auto mine = owner.total(2).clone();
+  s.stage(other);
+  other.replace(2, faces, s.peer(owner, 2), SeamRule::owner_copy);
+  EXPECT_TRUE(torch::equal(other.total(2), mine.where(faces, before)));
+  EXPECT_TRUE(torch::equal(owner.total(2), mine));  // the owner is untouched
+  other.end_stage(1.);
+  auto ref = (s.area(2, other) * torch::where(faces, mine - before, 0.))
+                 .sum({1, 2, 3});
+  EXPECT_LE(rel(other.monitor().amounts("reconcile.panel"), ref), 1.e-15);
+  EXPECT_EQ(other.monitor().amounts("reconcile.x1").abs().sum().item<double>(),
+            0.);
+  // the layout is checked: a mask with a row axis, a peer without its parts
+  EXPECT_THROW(other.replace(2, faces.unsqueeze(0), s.peer(owner, 2),
+                             SeamRule::owner_copy),
+               c10::Error);
+  EXPECT_THROW(other.replace(2, faces.to(torch::kFloat64), s.peer(owner, 2),
+                             SeamRule::owner_copy),
+               c10::Error);
+  EXPECT_THROW(other.replace(2, faces, s.peer(owner, 2).narrow(0, 0, 2),
+                             SeamRule::owner_copy),
+               c10::Error);
+  // R-1's reset has no coordinate, so nothing can be booked
+  FluxRegister plain;
+  plain.reset(s.nvar, {1, 38, 38}, {true, true, false}, torch::kFloat64, {});
+  EXPECT_THROW(
+      plain.replace(2, faces, plain.total(2).clone(), SeamRule::owner_copy),
+      c10::Error);
+}
+
+TEST(FluxRegister, apply_prescribed_writes_the_value_and_books_the_change) {
+  Seam s;
+  auto reg = s.make({}, 6);
+  s.stage(reg);
+  auto t0 = reg.total(1).clone();
+  reg.apply_prescribed(1);  // S set no mask: a no-op
+  EXPECT_TRUE(torch::equal(reg.total(1), t0));
+  // the wall faces at il and iu + 1, mass and energy rows; value 0
+  auto mask = torch::zeros_like(t0, torch::kBool);
+  int nc1 = t0.size(3);
+  for (int r : {int(IDN), int(IPR)}) {
+    mask[r].select(2, 3).fill_(true);
+    mask[r].select(2, nc1 - 3).fill_(true);
+  }
+  auto value = torch::zeros_like(t0);
+  reg.set_prescribed(1, mask, value);
+  reg.apply_prescribed(1);
+  EXPECT_TRUE(torch::equal(reg.total(1), value.where(mask, t0)));
+  reg.end_stage(2.);
+  auto ref =
+      2. * (s.area(1, reg) * torch::where(mask, value - t0, 0.)).sum({1, 2, 3});
+  auto got = reg.monitor().amounts("boundary.prescribed");
+  EXPECT_LE(rel(got, ref), 1.e-15);
+  EXPECT_EQ(got[IVX].item<double>(), 0.);  // an unmasked row books nothing
+  // the second call (start of post_implicit) changes nothing more
+  s.stage(reg);
+  reg.apply_prescribed(1);
+  reg.end_stage(2.);
+  EXPECT_EQ(
+      reg.monitor().amounts("boundary.prescribed").abs().sum().item<double>(),
+      0.);
+  EXPECT_THROW(reg.set_prescribed(1, mask[0], value), c10::Error);
+}
+
+// R.rst 4.1 item 4: kept parts are reconciled and prescribed but never
+// scaled. apply_prescribed writes S's value on every kept part of dim, with
+// the total's mask; only the total's change is booked
+TEST(FluxRegister, apply_prescribed_prescribes_the_kept_parts) {
+  Seam s;
+  RegisterRequest req;
+  req.keep = {"vic.mass_total@1", "riemann.central@1", "riemann.central@2"};
+  auto reg = s.make(req, 8);
+  ASSERT_EQ(reg.kept_parts(1),
+            (std::vector<std::string>{"vic.mass_total", "riemann.central"}));
+  s.stage(reg);
+  auto t0 = reg.total(1).clone();
+  auto p0 = reg.kept(1, "vic.mass_total").clone();
+  auto c0 = reg.kept(1, "riemann.central").clone();
+  auto c2 = reg.kept(2, "riemann.central").clone();
+  auto mask = torch::zeros_like(t0, torch::kBool);
+  int nc1 = t0.size(3);
+  for (int r : {int(IDN), int(IPR)}) {
+    mask[r].select(2, 3).fill_(true);
+    mask[r].select(2, nc1 - 3).fill_(true);
+  }
+  auto value = torch::zeros_like(t0);
+  reg.set_prescribed(1, mask, value);
+  reg.apply_prescribed(1);
+  EXPECT_TRUE(torch::equal(reg.total(1), value.where(mask, t0)));
+  EXPECT_TRUE(
+      torch::equal(reg.kept(1, "vic.mass_total"), value.where(mask, p0)));
+  EXPECT_TRUE(
+      torch::equal(reg.kept(1, "riemann.central"), value.where(mask, c0)));
+  EXPECT_TRUE(torch::equal(reg.kept(2, "riemann.central"), c2));  // dim 2
+  // the kept parts change no amount: the booking is the total's alone
+  reg.end_stage(1.);
+  auto ref =
+      (s.area(1, reg) * torch::where(mask, value - t0, 0.)).sum({1, 2, 3});
+  EXPECT_LE(rel(reg.monitor().amounts("boundary.prescribed"), ref), 1.e-15);
+}
+
+// G-R14 (flux corrections only): the amounts' recursion equals
+// sum_s w2_s prod_{t>s} w1_t dt a_s over rk3; a rollback clears them
+TEST(FluxRegister, amounts_fold_like_the_step_field) {
+  Seam s;
+  auto reg = s.make({}, 7);
+  auto const& stages = s.block->pintg->stages;
+  auto faces = torch::zeros(reg.total(1).sizes().slice(1), torch::kBool);
+  faces.select(2, 3).fill_(true);
+  double dt = 0.37, worst = 0.;
+  for (int step = 0; step < 3; ++step) {
+    reg.begin_step();
+    auto ref = torch::zeros({s.nvar}, torch::kFloat64);
+    for (int st = 0; st < stages.size(); ++st) {
+      reg.begin_stage(st, stages[st]);
+      auto before = reg.total(1).clone();
+      auto peer = torch::randn_like(before);
+      reg.replace(1, faces, peer, SeamRule::mean);
+      auto a = (s.area(1, reg) * (reg.total(1) - before)).sum({1, 2, 3});
+      double c = stages[st].wght2();
+      for (int t = st + 1; t < stages.size(); ++t) c *= stages[t].wght1();
+      ref += (c * dt) * a;
+      reg.end_stage(dt);
+    }
+    double r = rel(reg.monitor().amounts("reconcile.x1"), ref);
+    worst = std::max(worst, r);
+    EXPECT_LE(r, 1.e-15) << step;
+  }
+  std::printf("G-R14 (reconcile.x1): worst relative difference %.3e\n", worst);
+  reg.rollback();
+  EXPECT_EQ(reg.monitor().amounts("reconcile.x1").abs().sum().item<double>(),
+            0.);
 }
