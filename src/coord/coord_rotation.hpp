@@ -25,6 +25,17 @@ class PanelRotation {
   void cart_to_contra_(torch::Tensor vel, int panel, torch::Tensor alpha,
                        torch::Tensor beta) const;
 
+  //! row 16r (S step (4)): the momentum rows of a face flux, covariant in
+  //! `panel`'s basis on a face of metric `cosine`, to the global Cartesian
+  //! frame (raise, then contra_to_cart_) and back (cart_to_contra_, then
+  //! lower). Both panels of a seam face evaluate the same physical points,
+  //! so owner -> Cartesian -> receiver joins the two covariant face bases;
+  //! rows is [3, ...], (alpha, beta, cosine) broadcast to rows[0]
+  void face_rows_to_cart_(torch::Tensor rows, int panel, torch::Tensor alpha,
+                          torch::Tensor beta, torch::Tensor cosine) const;
+  void cart_to_face_rows_(torch::Tensor rows, int panel, torch::Tensor alpha,
+                          torch::Tensor beta, torch::Tensor cosine) const;
+
   //! the pointwise [3, 3, ...] matrix the exchange caches: to_global maps the
   //! panel's components to the local geographic frame (v_r, v_theta, v_phi),
   //! else that frame to the panel's. With

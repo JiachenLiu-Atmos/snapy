@@ -5,6 +5,7 @@
 #include <snap/hydro/flux_positivity.hpp>
 #include <snap/hydro/hydro.hpp>
 #include <snap/layout/layout.hpp>
+#include <snap/layout/seam_register.hpp>
 #include <snap/mesh/meshblock.hpp>
 
 #include "scalar.hpp"
@@ -62,8 +63,10 @@ void ScalarImpl::reset() {
   auto nc2 = pcoord->options->nc2();
   auto nc3 = pcoord->options->nc3();
 
-  freg.reset(nvar(), {nc3, nc2, nc1}, {nc1 > 1, nc2 > 1, nc3 > 1},
-             torch::kFloat64, RegisterRequest());
+  // R-4's coordinate reset, so boundary.prescribed books with the face areas
+  // (S step 4); the scalar fluxes stay float64, as before
+  freg.reset(pcoord.get(), PrecisionPolicy("float64"), nvar(),
+             RegisterRequest());
   _flux1 = register_buffer("F1", freg.totals()[0]);
   _flux2 = register_buffer("F2", freg.totals()[1]);
   _flux3 = register_buffer("F3", freg.totals()[2]);
@@ -146,6 +149,15 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
     flux[d]->set_data(priemann->forward(rlr[d][ILT], rlr[d][IRT], 3 - d, vel) +
                       dcov);
   }
+
+  // S step (4), boundary.prescribed on this register too (S.rst rev 2.5
+  // section 4: every register instance): every tracer row is 0 on the wall
+  // and solid faces, as the hydro's species rows are
+  supply_prescribed(freg, pmb,
+                    other.count("solid") ? other.at("solid") : torch::Tensor(),
+                    {});
+  for (int d = 0; d < 3; ++d)
+    if (flux[d]->defined()) freg.apply_prescribed(d + 1);
 
   auto cells = pmb->part({0, 0, 0}, PartOptions().exterior(false));
   std::vector<int> rows(nvar());

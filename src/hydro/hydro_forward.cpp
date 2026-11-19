@@ -10,6 +10,7 @@
 #include <snap/coord/x1_centroid.hpp>
 #include <snap/eos/ideal_moist.hpp>
 #include <snap/layout/exchange.hpp>
+#include <snap/layout/seam_register.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/recon/conversion.hpp>
 #include <snap/utils/log.hpp>
@@ -305,6 +306,10 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   for (int k = 0; k < 2; ++k) {
     _cov_wl[k] = _cov_wr[k] = _cov_dry[k] = torch::Tensor();
   }
+  // S step (4), boundary.prescribed: the walls and solid faces S hands to
+  // R's register; R applies them after reconcile and after the implicit step
+  supply_prescribed(freg, pmb, has_solid ? other.at("solid") : torch::Tensor(),
+                    {IVX, IVX + 1, IVX + 2});
 
   //// ------------ (1) Calculate Primitives ------------ ////
   auto const& w = other.at("hydro_w");
@@ -583,66 +588,77 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         fsed1 = sed.narrow(0, ICY, ny);
     }
 
-    // Make internal x1 seam fluxes single-valued. The two ranks sharing an
-    // internal x1 face each compute the face flux from their own
-    // reconstruction. When the two are not bit-identical (e.g. a reference
-    // rebuilt per block, as the well-balanced reconstruction does once it
-    // spans seams), the shared face carries two different flux values --
-    // a spurious source/sink of mass, momentum, and energy at the seam.
-    // Exchange the seam-face slab with the x1 neighbors and set both sides
-    // to the average: averaging is symmetric, so both ranks hold
-    // bit-identical values and the conserved sums telescope exactly across
-    // the seam, independent of reconstruction details (same principle as
-    // flux correction at mesh-refinement boundaries). The scalar advective
-    // flux upwinds by this mass flux afterwards and inherits the property.
-    // No exchange, no behavior change at nb1 = 1. Across process seams only,
-    // as with one block per process; a same-process seam is not averaged.
-    if (!options->disable_flux_x1() && playout &&
-        playout->has_process_group() && playout->options->pz() > 1) {
+    // Make internal x1 seam fluxes single-valued (row 9). The two blocks
+    // sharing an internal x1 face each compute its flux from their own
+    // reconstruction; when the two are not bit-identical the shared face
+    // carries two values, a spurious source at the seam. S moves the
+    // seam-face slab and R's register sets both sides to the mean
+    // (replace(1, faces, peer, SeamRule::mean), S step (4)): averaging is
+    // symmetric, so both blocks hold bit-identical values and the conserved
+    // sums telescope across the seam. On every x1 seam, process or same
+    // process; nothing at nb1 = 1. The companions (face pressure, F^R,
+    // pressure base) are not register rows: S averages them alongside.
+    if (!options->disable_flux_x1() && playout && playout->options->pz() > 1) {
       Exchange ex(pmb);
-      auto [below, above] = ex.x1_seam_peers(/*process_only=*/true);
+      auto [below, above] = ex.x1_seam_peers(/*process_only=*/false);
       if (above >= 0 || below >= 0) {
         constexpr int kSeamFluxTag = 0x7720;  // up; down is kSeamFluxTag + 1
         int il = pmb->pcoord->il();
         int iu = pmb->pcoord->iu();
-        int nv = _flux1.size(0);
+        // R-4's peer rows: the total's, then each kept part's
+        std::vector<torch::Tensor> regrows = {_flux1};
+        for (auto const& part : freg.kept_parts(1))
+          regrows.push_back(freg.kept(1, part));
+        int nreg = 0;
+        for (auto const& t : regrows) nreg += t.size(0);
         bool has_fp = _face_pressure1.defined() && _face_pressure1.numel() > 0;
+        bool has_bf = bflux1.defined();
 
-        // Pack the flux slab and the face pressure into ONE contiguous tensor
-        // per direction: some backends restrict send/recv to a single tensor,
-        // and one message per seam is cheaper anyway. torch::cat allocates
-        // fresh storage, so the payload cannot alias the flux buffers while a
-        // send is in flight.
-        bool has_bf = bflux1.defined();  // F^R is averaged with the flux
+        // ONE contiguous tensor per direction: some backends restrict
+        // send/recv to a single tensor. torch::cat allocates fresh storage,
+        // so the payload cannot alias the flux buffers while it travels.
         auto pack = [&](int face) {
-          std::vector<torch::Tensor> rows = {_flux1.select(-1, face)};
+          std::vector<torch::Tensor> rows;
+          for (auto const& t : regrows) rows.push_back(t.select(-1, face));
           if (has_fp)
             rows.push_back(_face_pressure1.select(-1, face).unsqueeze(0));
           if (has_bf) rows.push_back(bflux1.select(-1, face).unsqueeze(0));
           if (pressure_base1.defined())
             rows.push_back(pressure_base1.select(-1, face).unsqueeze(0));
-          if (rows.size() == 1) return rows[0].clone();
           return torch::cat(rows, 0);
         };
-        auto unpack = [&](int face, torch::Tensor const& avg) {
-          _flux1.select(-1, face).copy_(avg.narrow(0, 0, nv));
-          int row = nv;
-          if (has_fp) _face_pressure1.select(-1, face).copy_(avg[row++]);
-          if (has_bf) bflux1.select(-1, face).copy_(avg[row++]);
-          if (pressure_base1.defined())
-            pressure_base1.select(-1, face).copy_(avg[row]);
-        };
-
-        // S moves the slabs; the rule (the mean of both sides) stays here
         torch::Tensor up_mine, dn_mine;
         if (above >= 0) up_mine = pack(iu + 1);
         if (below >= 0) dn_mine = pack(il);
         auto [from_below, from_above] =
-            ex.x1_seam_slab(dn_mine, up_mine, kSeamFluxTag, true);
-        if (above >= 0) unpack(iu + 1, 0.5 * (up_mine + from_above));
-        if (below >= 0) unpack(il, 0.5 * (dn_mine + from_below));
+            ex.x1_seam_slab(dn_mine, up_mine, kSeamFluxTag, false);
+
+        auto peer = torch::cat(regrows, 0);
+        auto faces = torch::zeros(_flux1.sizes().slice(1),
+                                  _flux1.options().dtype(torch::kBool));
+        auto companions = [&](int face, torch::Tensor const& mine,
+                              torch::Tensor const& theirs) {
+          peer.select(-1, face).copy_(theirs.narrow(0, 0, nreg));
+          faces.select(-1, face).fill_(true);
+          int row = nreg;
+          if (has_fp)
+            _face_pressure1.select(-1, face).copy_(0.5 *
+                                                   (mine[row] + theirs[row]));
+          if (has_fp) ++row;
+          if (has_bf)
+            bflux1.select(-1, face).copy_(0.5 * (mine[row] + theirs[row]));
+          if (has_bf) ++row;
+          if (pressure_base1.defined())
+            pressure_base1.select(-1, face).copy_(0.5 *
+                                                  (mine[row] + theirs[row]));
+        };
+        if (above >= 0) companions(iu + 1, up_mine, from_above);
+        if (below >= 0) companions(il, dn_mine, from_below);
+        freg.replace(1, faces, peer, SeamRule::mean);
       }
     }
+    // reconcile, then boundary.prescribed on the x1 faces (R applies S's mask)
+    if (!options->disable_flux_x1()) freg.apply_prescribed(1);
 
     // SNAP_X1_CENTROID_EXACT: the pressure source's six-face window reaches
     // two faces past a seam; they are the neighbour's
@@ -820,6 +836,13 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
 
   //// ------------ (4.B) Calculate dimension 3 flux ------------ ////
   if (u.size(DIM3) > 1) cov3 = sweep(dir3, wtmp3, pressure_base3, _flux3, 1);
+
+  // S step (4), row 16r: the panel seams of the cubed sphere take the owning
+  // panel's face flux (replace(d, faces, peer, SeamRule::owner_copy)), then
+  // boundary.prescribed on the x2/x3 faces
+  reconcile_panel_seams(freg, pmb, 0x7750);
+  for (int d : {2, 3})
+    if (freg.total(d).defined()) freg.apply_prescribed(d);
 
   //// ------- (4.C) Tracer flux positivity limiter (flux_positivity.hpp) ----
   ///////
