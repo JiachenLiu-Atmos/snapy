@@ -28,6 +28,7 @@
 #include <snap/utils/log.hpp>
 
 #include "cycle_diagnostics.hpp"
+#include "stage_executor.hpp"
 
 namespace snap {
 
@@ -369,14 +370,13 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
   // conserve-axial-momentum-closure: R and I summed over the local blocks,
   // one reduction, then each block's solid-body increment
   auto root = blocks.front();
+  // the global phase (X4): the blocks' device partials, one reduction
   if (root->phydro->options->conserve_axial_momentum_closure()) {
-    auto sums = torch::zeros({2}, torch::kFloat64);
-    for (auto& b : blocks) sums += b->axial_closure_sums();
-    std::vector<at::Tensor> reduce = {sums};
-    if (root->get_layout()->has_process_group())
-      root->get_layout()->comm->allreduce(reduce, c10d::ReduceOp::SUM);
+    std::vector<torch::Tensor> partials;
+    for (auto& b : blocks) partials.push_back(b->axial_closure_sums());
+    auto global = global_phase_sum(partials, *root->get_layout());
     run_block_jobs([&](size_t i) {
-      blocks[i]->apply_axial_closure(vars[i], dt, stage, reduce[0]);
+      blocks[i]->apply_axial_closure(vars[i], dt, stage, global);
       auto& v = vars[i];
       blocks[i]->apply_boundaries(
           v, v.at("hydro_u"),
@@ -386,16 +386,12 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
   // gravity-work-fixer: one sum over the local blocks, one reduction
   if (stage == static_cast<int>(root->pintg->stages.size()) - 1 &&
       root->phydro->gravity_work_fixer()) {
-    auto sums = torch::zeros({5}, torch::kFloat64);
+    std::vector<torch::Tensor> partials;
     for (size_t i = 0; i < blocks.size(); ++i)
-      sums += blocks[i]->gravity_work_fixer_sums(vars[i]);
-    std::vector<at::Tensor> reduce = {sums};
-    auto layout = root->get_layout();
-    if (layout->has_process_group()) {
-      layout->comm->allreduce(reduce, c10d::ReduceOp::SUM);
-    }
+      partials.push_back(blocks[i]->gravity_work_fixer_sums(vars[i]));
+    auto global = global_phase_sum(partials, *root->get_layout());
     run_block_jobs([&](size_t i) {
-      blocks[i]->apply_gravity_work_fixer(vars[i], reduce[0]);
+      blocks[i]->apply_gravity_work_fixer(vars[i], global);
       auto& v = vars[i];
       blocks[i]->apply_boundaries(
           v, v.at("hydro_u"),
