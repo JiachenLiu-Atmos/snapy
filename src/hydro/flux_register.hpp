@@ -19,9 +19,10 @@ namespace snap {
 //! (docs/v3/design/R.rst sections 3 and 4; skeleton R/flux_register.hpp).
 //! A post is a flux density per unit face area and time at the step dt,
 //! before stage weights. R-1 holds the stage totals T_d (hydro's _flux1/2/3
-//! are these tensors), the requested step fields S_d and the monitor; the
-//! posts (slot, add, scale, replace, apply_prescribed, keep, cell_amount)
-//! arrive with R-2 to R-7.
+//! are these tensors), the requested step fields S_d and the monitor; R-2
+//! the slots (slot, post_slot, part_slot, kept); the other posts (add,
+//! scale, replace, apply_prescribed, keep, cell_amount) arrive with R-3 to
+//! R-7.
 
 struct RegisterRequest {
   std::vector<std::string> row_names;  //! nvar conserved rows, in row order
@@ -29,6 +30,9 @@ struct RegisterRequest {
   std::vector<std::string> minima;     //! record_min() names
   std::vector<std::string> retry;      //! flag_retry() causes
   std::vector<int> step_field;         //! dims 1-3 whose S_d is read
+  //! kept parts "part@dim" (e.g. "riemann.central@2"), allocated at reset()
+  //! like T_d and valid from their post to the next begin_stage
+  std::vector<std::string> keep;
 };
 
 //! one per register instance; O reads after accept, never posts
@@ -83,6 +87,19 @@ class FluxRegister {
 
   //! the stage total T_d, written in place by its producers (kFlux)
   torch::Tensor total(int dim) const { return _total[dim - 1]; }
+
+  //! the first post of a stage (C's "riemann"): T_d itself, written in place
+  //! by the producer, which then calls post_slot with the same name
+  torch::Tensor slot(int dim, std::string const& name);
+  void post_slot(int dim, std::string const& name);
+  //! the name of dim's last posted slot ("" before the first post)
+  std::string const& slot_name(int dim) const { return _slot[dim - 1]; }
+  //! a requested part, written in place by its producer (C's kernel)
+  torch::Tensor part_slot(int dim, std::string const& part);
+  bool keeps(int dim, std::string const& part) const;
+  torch::Tensor kept(int dim, std::string const& part) const;
+  //! the parts, by "part@dim", for HydroImpl to register as buffers
+  std::map<std::string, torch::Tensor>& parts() { return _parts; }
   //! S_d = sum over stages of w2_s prod_{t>s} w1_t dt T_s, per unit area
   torch::Tensor step_field(int dim) const { return _step[dim - 1]; }
   bool has_step_field(int dim) const { return _step[dim - 1].defined(); }
@@ -100,6 +117,8 @@ class FluxRegister {
 
  private:
   std::array<torch::Tensor, 3> _total, _step;
+  std::array<std::string, 3> _slot;
+  std::map<std::string, torch::Tensor> _parts;
   std::array<bool, 3> _want_step = {false, false, false};
   RegisterMonitor _monitor;
   int _stage = -1;

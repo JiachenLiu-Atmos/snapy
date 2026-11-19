@@ -116,6 +116,42 @@ TEST(FluxRegister, hydro_fluxes_are_the_stage_totals) {
   EXPECT_TRUE(block->phydro->flux1().is_same(reg.total(1)));
 }
 
+// R-2: C's riemann solve posts T_d through slot(d, "riemann")
+TEST(FluxRegister, the_riemann_solve_posts_its_slot) {
+  Variables vars;
+  auto block = bubble(vars);
+  auto& reg = block->phydro->flux_register();
+  EXPECT_EQ(reg.slot_name(1), "");
+  block->forward(vars, block->max_time_step(vars), 0);
+  for (int d : {1, 2}) {
+    EXPECT_EQ(reg.slot_name(d), "riemann") << d;
+    EXPECT_TRUE(reg.slot(d, "riemann").is_same(reg.total(d))) << d;
+  }
+  EXPECT_THROW(reg.slot(3, "riemann"), c10::Error);  // nx3 = 1
+  EXPECT_FALSE(reg.keeps(2, "riemann.central"));     // AAM full is off
+  EXPECT_THROW(reg.part_slot(2, "riemann.central"), c10::Error);
+}
+
+// R-2: a kept part is allocated at reset like T_d, for an active direction
+TEST(FluxRegister, kept_parts_are_requested_at_reset) {
+  FluxRegister reg;
+  RegisterRequest req;
+  req.keep = {"riemann.central@2", "riemann.central@3"};
+  reg.reset(5, {2, 3, 4}, {true, true, true}, torch::kFloat64, req);
+  auto part = reg.part_slot(2, "riemann.central");
+  EXPECT_EQ(part.sizes(), reg.total(2).sizes());
+  EXPECT_FALSE(part.is_same(reg.total(2)));
+  part.fill_(2.5);  // written in place by its producer, read back as kept
+  EXPECT_TRUE(reg.kept(2, "riemann.central").is_same(part));
+  EXPECT_EQ(reg.kept(2, "riemann.central").sum().item<double>(), 2.5 * 120);
+  EXPECT_TRUE(reg.keeps(3, "riemann.central"));
+  EXPECT_FALSE(reg.keeps(1, "riemann.central"));
+  req.keep = {"riemann.central@1"};  // x1 inactive
+  EXPECT_THROW(
+      reg.reset(5, {2, 3, 4}, {false, true, true}, torch::kFloat64, req),
+      c10::Error);
+}
+
 // G-R3: rk3, 10 steps, the recursion against the host FP64 product form
 TEST(FluxRegister, step_field_recursion_equals_the_weighted_stage_sum) {
   Variables vars;

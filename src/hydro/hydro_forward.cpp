@@ -840,7 +840,9 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       auto face_pressure1 = options->eos()->type() == "shallow-water"
                                 ? torch::Tensor()
                                 : _face_pressure1;
-      solve(wlr1, DIM1, _flux1, face_pressure1, pressure_base1);
+      solve(wlr1, DIM1, freg.slot(1, "riemann"), face_pressure1,
+            pressure_base1);
+      freg.post_slot(1, "riemann");
       if (gw_cell) {
         bflux1 = _flux1[IDN].clone();
         if (ny > 0) bflux1 += _flux1.narrow(0, ICY, ny).sum(0);
@@ -972,7 +974,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   TORCH_CHECK(
       !c2 || (!split_flux && !fp32()),
       "conserve-axial-momentum full needs FP64 and no perturbation-flux");
-  torch::Tensor cen2, cen3;
   auto central = [&](torch::Tensor a, torch::Tensor b, int dim,
                      torch::Tensor like) {
     auto fa = torch::zeros_like(like), fb = torch::zeros_like(like);
@@ -1087,8 +1088,13 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         _cov_wr[0] = cwr.clone();
         _cov_dry[0] = cov_dry(dcov, cwl);
       }
-      if (c2) cen2 = central(wlr2[ILT], wlr2[IRT], DIM2, _flux2);
-      solve(wlr2, DIM2, _flux2, torch::Tensor(), pressure_base2);
+      // riemann.central@2, kept for A until the next stage (R-2)
+      if (c2)
+        freg.part_slot(2, "riemann.central")
+            .copy_(central(wlr2[ILT], wlr2[IRT], DIM2, _flux2));
+      solve(wlr2, DIM2, freg.slot(2, "riemann"), torch::Tensor(),
+            pressure_base2);
+      freg.post_slot(2, "riemann");
       if (dcov.defined()) add_cov(_flux2, dcov);
       cov2 = dcov.defined();
       if (options->verbose()) {
@@ -1119,8 +1125,12 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         _cov_wr[1] = cwr.clone();
         _cov_dry[1] = cov_dry(dcov, cwl);
       }
-      if (c2) cen3 = central(wlr3[ILT], wlr3[IRT], DIM3, _flux3);
-      solve(wlr3, DIM3, _flux3, torch::Tensor(), pressure_base3);
+      if (c2)
+        freg.part_slot(3, "riemann.central")
+            .copy_(central(wlr3[ILT], wlr3[IRT], DIM3, _flux3));
+      solve(wlr3, DIM3, freg.slot(3, "riemann"), torch::Tensor(),
+            pressure_base3);
+      freg.post_slot(3, "riemann");
       if (dcov.defined()) add_cov(_flux3, dcov);
       cov3 = dcov.defined();
       if (options->verbose()) {
@@ -1387,10 +1397,12 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // full: the x2/x3 faces only; x1 stays in cell form
     _aam_mass_flux = {
         torch::Tensor(),
-        options->disable_flux_x2() || !cen2.defined() ? torch::Tensor()
-                                                      : _flux2 - cen2,
-        options->disable_flux_x3() || !cen3.defined() ? torch::Tensor()
-                                                      : _flux3 - cen3};
+        options->disable_flux_x2() || !freg.keeps(2, "riemann.central")
+            ? torch::Tensor()
+            : _flux2 - freg.kept(2, "riemann.central"),
+        options->disable_flux_x3() || !freg.keeps(3, "riemann.central")
+            ? torch::Tensor()
+            : _flux3 - freg.kept(3, "riemann.central")};
     _aam_mass_ny = ny;
   }
   auto forcing_du = du;
