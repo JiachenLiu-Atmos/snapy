@@ -1,6 +1,7 @@
 #include "exchange.hpp"
 
 // C/C++
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -21,6 +22,35 @@ std::pair<int, int> raw_x1_peers(LayoutImpl const& layout) {
 }
 
 }  // namespace
+
+FaceKind Exchange::kind(int face) const {
+  TORCH_CHECK(face >= 0 && face < 6, "[Exchange:kind] face ", face,
+              " is not in [0, 6)");
+  int side = face % 2 == 0 ? -1 : 1;
+  int dy = face / 2 == 2 ? side : 0;  // x3
+  int dx = face / 2 == 1 ? side : 0;  // x2
+  int dz = face / 2 == 0 ? side : 0;  // x1
+  // a boundary function on the face answers for it
+  auto k = pmb_->options->face_kind(dy, dx, dz);
+  if (k != FaceKind::interior) return k;
+
+  auto layout = pmb_->get_layout();
+  if (!layout) return FaceKind::interior;
+  int rank = layout->options->rank();
+  auto iloc = layout->loc_of(rank);
+  int nb = layout->neighbor_rank(iloc, {dy, dx, dz});
+  if (nb < 0) return FaceKind::interior;
+  if (nb == rank) return FaceKind::periodic;
+  if (layout->options->type() == "cubed-sphere" &&
+      std::get<2>(layout->loc_of(nb)) != std::get<2>(iloc))
+    return FaceKind::panel;
+  if (dz != 0) return FaceKind::seam_x1;
+  // the neighbour past a domain edge is the wrapped one
+  auto [rx, ry, rz] = iloc;
+  bool wrap = (dx != 0 && (rx + dx < 0 || rx + dx >= layout->options->px())) ||
+              (dy != 0 && (ry + dy < 0 || ry + dy >= layout->options->py()));
+  return wrap ? FaceKind::periodic : FaceKind::interior;
+}
 
 std::pair<int, int> Exchange::x1_neighbors() const {
   auto layout = pmb_->get_layout();

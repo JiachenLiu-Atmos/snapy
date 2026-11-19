@@ -1,6 +1,7 @@
 #pragma once
 
 // C/C++
+#include <cstdint>
 #include <utility>
 #include <vector>
 
@@ -11,6 +12,19 @@ namespace snap {
 
 class MeshBlockImpl;
 
+//! what a block face is (V3 S step (2); S.rst rev 2.4 section 3.1): one
+//! value per face, answered in one place
+enum class FaceKind : uint8_t {
+  interior,  // a neighbour block of the same panel, or no neighbour and no
+             // boundary function (nothing writes the ghosts but the exchange)
+  seam_x1,   // an x1 neighbour block (pz > 1)
+  panel,     // a cubed-sphere panel seam, rotated
+  periodic,  // a seam to self: the layout wraps, or a periodic bc copies
+  wall,      // reflecting or fixed temperature: a mirrored or set ghost
+  outflow,   // radiating
+  custom,    // any other boundary function, or one with no recorded name
+};
+
 //! The x1 transport of a block's within-stage exchanges (V3 lane S, step (3),
 //! phase 1: transport only). Exchange moves the bytes of the hand-written x1
 //! relays that hydro used to carry itself; what a received value means (a
@@ -20,6 +34,10 @@ class MeshBlockImpl;
 class Exchange {
  public:
   explicit Exchange(MeshBlockImpl const* pmb) : pmb_(pmb) {}
+
+  //! the kind of block face `face`, numbered as bfuncs(): x1 inner, x1
+  //! outer, x2 inner, x2 outer, x3 inner, x3 outer
+  FaceKind kind(int face) const;
 
   //! the x1 neighbours across a split column, {below, above}; -1 when the
   //! column is not split (one x1 block, or periodic x1)

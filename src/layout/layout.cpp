@@ -195,7 +195,8 @@ void LayoutImpl::for_each_direction(
       for (int dx = opts.dx_min(); dx <= opts.dx_max(); ++dx) {
         if (dz == 0 && dy == 0 && dx == 0) continue;
         if (opts.skip_corner() &&
-            std::abs(dz) + std::abs(dy) + std::abs(dx) > 1)
+            std::abs(dz) + std::abs(dy) + std::abs(dx) > 1 &&
+            !(dz == 0 && corner_rule() == CornerRule::diagonal))
           continue;
         fn(dy, dx, dz);
       }
@@ -679,46 +680,28 @@ void LayoutImpl::deserialize(MeshBlockImpl const* pmb, Variables& vars,
 }
 
 void LayoutImpl::fill_corners(MeshBlockImpl const* pmb, Variables& vars) const {
-  auto sub_left = pmb->part({0, -1, 0}, PartOptions().exterior(true));
-  auto sub_right = pmb->part({0, +1, 0}, PartOptions().exterior(true));
-  auto sub_bot = pmb->part({-1, 0, 0}, PartOptions().exterior(true));
-  auto sub_top = pmb->part({+1, 0, 0}, PartOptions().exterior(true));
-
-  // Fill-in left-bot inter-panel corners
-  std::tuple<int, int, int> corner(/*dy=*/-1, /*dx=*/-1, 0);
-  auto sub = pmb->part(corner, PartOptions().exterior(true));
-  for (auto& [name, var] : vars) {
-    auto var_left = var.index(sub_left).select(-3, 0).unsqueeze(-3);
-    auto var_bot = var.index(sub_bot).select(-2, 0).unsqueeze(-2);
-    var.index_put_(sub, 0.5 * (var_left + var_bot));
-  }
-
-  // Fill-in right-bot inter-panel corners
-  corner = std::tuple<int, int, int>(/*dy=*/-1, /*dx=*/1, 0);
-  sub = pmb->part(corner, PartOptions().exterior(true));
-  for (auto& [name, var] : vars) {
-    auto var_right = var.index(sub_right).select(-3, 0).unsqueeze(-3);
-    auto var_bot = var.index(sub_bot).select(-2, -1).unsqueeze(-2);
-    var.index_put_(sub, 0.5 * (var_right + var_bot));
-  }
-
-  // Fill-in left-top inter-panel corners
-  corner = std::tuple<int, int, int>(/*dy=*/1, /*dx=*/-1, 0);
-  sub = pmb->part(corner, PartOptions().exterior(true));
-  for (auto& [name, var] : vars) {
-    auto var_left = var.index(sub_left).select(-3, -1).unsqueeze(-3);
-    auto var_top = var.index(sub_top).select(-2, 0).unsqueeze(-2);
-    var.index_put_(sub, 0.5 * (var_left + var_top));
-  }
-
-  // Fill-in right-top inter-panel corners
-  corner = std::tuple<int, int, int>(/*dy=*/1, /*dx=*/1, 0);
-  sub = pmb->part(corner, PartOptions().exterior(true));
-  for (auto& [name, var] : vars) {
-    auto var_right = var.index(sub_right).select(-3, -1).unsqueeze(-3);
-    auto var_top = var.index(sub_top).select(-2, -1).unsqueeze(-2);
-    var.index_put_(sub, 0.5 * (var_right + var_top));
-  }
+  // Under CornerRule::diagonal the exchange already wrote every corner that
+  // has a diagonal neighbour (a periodic image included); the others, and
+  // every corner under CornerRule::synthesized, are 0.5 * (edge + edge).
+  auto iloc = loc_of(options->rank());
+  auto synthesize = [&](int dy, int dx) {
+    std::tuple<int, int, int> corner(dy, dx, 0);
+    if (corner_rule() == CornerRule::diagonal &&
+        !_skips_direction(pmb, corner) && neighbor_rank(iloc, corner) >= 0)
+      return;
+    auto sub = pmb->part(corner, PartOptions().exterior(true));
+    auto sub_x2 = pmb->part({0, dx, 0}, PartOptions().exterior(true));
+    auto sub_x3 = pmb->part({dy, 0, 0}, PartOptions().exterior(true));
+    for (auto& [name, var] : vars) {
+      auto var_x2 = var.index(sub_x2).select(-3, dy < 0 ? 0 : -1).unsqueeze(-3);
+      auto var_x3 = var.index(sub_x3).select(-2, dx < 0 ? 0 : -1).unsqueeze(-2);
+      var.index_put_(sub, 0.5 * (var_x2 + var_x3));
+    }
+  };
+  synthesize(-1, -1);
+  synthesize(-1, 1);
+  synthesize(1, -1);
+  synthesize(1, 1);
 }
 
 void LayoutImpl::finalize(MeshBlockImpl const* pmb, Variables& vars,

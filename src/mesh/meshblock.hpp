@@ -22,6 +22,7 @@
 #include <snap/coord/coordinate.hpp>
 #include <snap/eos/ef_status.hpp>
 #include <snap/hydro/hydro.hpp>
+#include <snap/layout/exchange.hpp>
 #include <snap/layout/layout.hpp>
 #include <snap/mesh/precision_policy.hpp>
 #include <snap/mesh/state_store.hpp>
@@ -64,6 +65,11 @@ struct MeshBlockOptionsImpl {
   //! functions are nulled (meshblock.cpp), so is_physical_boundary is false on
   //! both x1 faces there, as at an internal x1 seam.
   bool is_wall_boundary(int dy, int dx, int dz) const;
+
+  //! the boundary half of FaceKind (the layout's half is Exchange::kind):
+  //! interior with no boundary function, else periodic, wall (reflecting,
+  //! fixed temperature), outflow or custom; an unnamed function is custom
+  FaceKind face_kind(int dy, int dx, int dz) const;
 
   //! Replace every boundary function at once. The names describe the functions
   //! they were parsed with, so this invalidates all of them; set bcnames

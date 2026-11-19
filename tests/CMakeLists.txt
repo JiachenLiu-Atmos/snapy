@@ -340,6 +340,8 @@ endfunction()
 snapy_add_python_test(test_mesh_exchange LABELS "python;exchange")
 snapy_add_python_test(test_cubed_sphere_vertical_velocity_exchange
                       LABELS "python;exchange;cubed-sphere;diagnostic")
+# periodic corner ghosts from the diagonal neighbour (V3 S step (2), P)
+snapy_add_python_test(test_periodic_corners TIMEOUT 120 LABELS "python;exchange")
 snapy_add_python_test(test_jit_user_forcing TIMEOUT 30 LABELS "python;forcing")
 snapy_add_python_test(test_fix_vapor_reports_failure TIMEOUT 60 LABELS "python;eos;positivity")
 snapy_add_python_test(test_fix_vapor_stale_count TIMEOUT 60 LABELS "python;eos;positivity;redo")

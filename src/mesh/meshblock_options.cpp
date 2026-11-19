@@ -262,24 +262,29 @@ MeshBlockOptionsImpl &MeshBlockOptionsImpl::set_bfuncs(
 
 bool MeshBlockOptionsImpl::is_wall_boundary(int dy, int dx, int dz) const {
   auto i = static_cast<size_t>(face_of(dy, dx, dz));
-  if (i >= bfuncs().size() || bfuncs()[i] == nullptr) return false;
-
   // A boundary function with no recorded name cannot be classified. That is
   // the reachable silent-disable path -- set_bfuncs pads bcnames with empty
   // strings, so a length mismatch is not what a caller actually hits.
-  if (i >= bcnames().size() || bcnames()[i].empty()) {
+  if (i < bfuncs().size() && bfuncs()[i] != nullptr &&
+      (i >= bcnames().size() || bcnames()[i].empty())) {
     TORCH_WARN_ONCE(
         "[MeshBlockOptions] a boundary function is installed with no recorded "
         "name, so it cannot be classified as a wall and diffusion falls back "
         "to "
         "averaging the ghost there. Pass `name` to set_bfunc to declare what "
         "was installed.");
-    return false;
   }
+  return face_kind(dy, dx, dz) == FaceKind::wall;
+}
 
-  // A whitelist, deliberately. `reflecting` mirrors the interior, so its ghost
-  // is a physical state sitting at the wrong place; `fixed_temperature`
-  // engineers its ghost, so it is no state at all. The
+FaceKind MeshBlockOptionsImpl::face_kind(int dy, int dx, int dz) const {
+  auto i = static_cast<size_t>(face_of(dy, dx, dz));
+  if (i >= bfuncs().size() || bfuncs()[i] == nullptr) return FaceKind::interior;
+  if (i >= bcnames().size() || bcnames()[i].empty()) return FaceKind::custom;
+
+  // `wall` is a whitelist, deliberately. `reflecting` mirrors the interior,
+  // so its ghost is a physical state sitting at the wrong place;
+  // `fixed_temperature` engineers its ghost, so it is no state at all. The
   // operator may extrapolate past both. Everything else keeps
   // the two-cell average -- periodic's ghost is a true neighbour, outflow's
   // zero-gradient ghost IS that condition's statement about the face, custom is
@@ -287,8 +292,12 @@ bool MeshBlockOptionsImpl::is_wall_boundary(int dy, int dx, int dz) const {
   // into every variable, which makes the GRADIENT nonsense too; fixing the
   // coefficient alone would not rescue that face.
   auto const &name = bcnames()[i];
-  return name == "reflecting_inner" || name == "reflecting_outer" ||
-         name == "fixed_temperature_inner" || name == "fixed_temperature_outer";
+  if (name.compare(0, 8, "periodic") == 0) return FaceKind::periodic;
+  if (name == "reflecting_inner" || name == "reflecting_outer" ||
+      name == "fixed_temperature_inner" || name == "fixed_temperature_outer")
+    return FaceKind::wall;
+  if (is_outflow(bfuncs()[i])) return FaceKind::outflow;
+  return FaceKind::custom;
 }
 
 std::string MeshBlockOptionsImpl::device_str() const {

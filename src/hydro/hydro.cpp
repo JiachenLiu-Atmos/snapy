@@ -333,10 +333,9 @@ torch::Tensor HydroImpl::lim_flux() const {
 }
 
 bool HydroImpl::is_x1_wall(int f) const {
-  auto const& nm = pmb->options->bcnames();
-  return pmb->options->is_physical_boundary(0, 0, f == 0 ? -1 : 1) &&
-         !(f < static_cast<int>(nm.size()) &&
-           nm[f].compare(0, 8, "periodic") == 0);
+  // a boundary function that is not a periodic copy (S step (2): FaceKind)
+  auto k = Exchange(pmb).kind(f);
+  return k == FaceKind::wall || k == FaceKind::outflow || k == FaceKind::custom;
 }
 
 void HydroImpl::_check_stretched_x1(torch::Tensor const& u) const {
