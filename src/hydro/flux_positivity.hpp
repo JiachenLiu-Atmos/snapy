@@ -5,6 +5,7 @@
 
 // snap
 #include <snap/coord/coordinate.hpp>
+#include <snap/eos/ef_status.hpp>
 
 namespace snap {
 
@@ -43,41 +44,19 @@ double positivity_roundoff(c10::ScalarType dtype);
 //! machine epsilon of `dtype`
 double species_repair_mark(c10::ScalarType dtype);
 
-//! \brief Per-cell positivity limiter factors for donor-form tracer fluxes.
-//!
-//! For each channel c and cell i, sums the outgoing (donor-side) flux over all
-//! faces of the cell exactly as the divergence will apply them,
-//!   out_i = sum_faces max(+/- A*F, 0),
-//! and returns
-//!   theta_i = min(1, u_i * V_i / (dt * out_i)),
-//! the largest uniform scaling of cell i's outgoing fluxes that cannot drain
-//! the cell below zero in one forward-Euler step of size dt. Applying theta of
-//! the donor cell to every face (flux_positivity_scale_) then guarantees
-//!   u_i + dt * du_i(transport) >= 0
-//! cell by cell. All shipped integrators (rk1/rk2/rk3: wght2 == wght1 per
-//! stage; rk3s4: wght2 <= wght1) form each stage as a convex combination of
-//! previous states and one full-dt Euler step, so per-stage limiting at the
-//! full dt preserves non-negativity of the stage updates as well.
-//!
-//! theta == 1 wherever the cell is not near depletion, so the high-order flux
-//! is untouched almost everywhere; conservation is exact because each face is
-//! scaled by a single factor shared by both adjacent cells.
-//!
-//! Ghost cells get theta = 1 here (their outflow sum is not computed); the
-//! caller must make donor factors single-valued at internal seams by filling
-//! theta's ghost layer the same way conserved-variable ghosts are filled
-//! (exchange + physical boundary functions) BEFORE calling
-//! flux_positivity_scale_.
-//!
+//! \brief Per-cell positivity limiter factors for donor-form tracer fluxes:
+//! theta_i = min(1, u_i V_i / (dt out_i)), out_i = sum_faces max(+/- A F, 0)
+//! over the faces the divergence uses, the largest uniform scaling of cell i's
+//! outgoing fluxes that cannot drain it below zero in one Euler step of dt.
+//! Every shipped integrator is a convex combination of such steps, so the
+//! stages stay non-negative; each face takes its donor's theta, so
+//! conservation is exact. Ghosts get 1: the caller fills them like conserved
+//! ghosts (flux_positivity_sync_theta_) before any face reads them.
 //! \param u      conserved tracer densities, (nchan, nc3, nc2, nc1)
-//! \param flux1/2/3  channel-sliced flux views, same layout as u; undefined
-//!               tensors are skipped. flux[i] is the flux through the lower
-//!               face of cell i (divergence convention).
-//! \param pcoord coordinate providing face_area1/2/3 and cell_volume
-//! \param dt     full stage time step
-//! \param drain  if given, receives dt * out_i, the species mass (not density)
-//!               each cell would lose unlimited; the limiter withholds
-//!               (1 - theta_i) * drain_i of it
+//! \param flux1/2/3  channel fluxes through each cell's lower face; undefined
+//!               tensors are skipped
+//! \param drain  if given, receives dt * out_i (species mass); the limiter
+//!               withholds (1 - theta_i) * drain_i of it
 torch::Tensor flux_positivity_theta(torch::Tensor const& u,
                                     torch::Tensor const& flux1,
                                     torch::Tensor const& flux2,
@@ -85,54 +64,26 @@ torch::Tensor flux_positivity_theta(torch::Tensor const& u,
                                     Coordinate const& pcoord, double dt,
                                     torch::Tensor* drain = nullptr);
 
-//! \brief The share phi of a ratio q's relaxed drain that its neighbours repay.
-//!
-//! phi = clamp(min(q of the two neighbours along every resolved dimension) / q,
-//! 0, 1), and 0 where q <= 0. A cell drained past its content gets its ratio
-//! back from its neighbours (the implicit x1 refill, the inflow along x2 and
-//! x3), so it may drain past its content only as far as the poorer one repays.
-//! \param q  ratio to the dry density, (nchan, nc3, nc2, nc1)
+//! \brief phi = clamp(min of the neighbours' q along every resolved dimension
+//! / q, 0, 1), 0 where q <= 0: the share of a relaxed drain the neighbours
+//! repay. \param q  ratio to the dry density, (nchan, nc3, nc2, nc1)
 torch::Tensor flux_positivity_share(torch::Tensor const& q);
 
-//! \brief Scale each face's flux by the donor cell's theta, in place.
-//!
-//! The donor of a face is the cell the flux drains: the lower cell where the
-//! (per-channel) flux is positive, the upper cell otherwise. Only the faces
-//! the divergence consumes (lower faces il..iu+1 per dimension) are touched.
-void flux_positivity_scale_(torch::Tensor const& theta,
-                            torch::Tensor const& flux1,
-                            torch::Tensor const& flux2,
-                            torch::Tensor const& flux3,
-                            Coordinate const& pcoord);
-
-//! \brief The withhold factor of each face (P2): the donor cell's theta on
-//! the faces the divergence consumes (lower faces lo..hi+1 along `dim`, the
-//! tensor axis 3, 2 or 1), 1 elsewhere; the donor is the lower cell where the
-//! flux is positive. scale(d, "positivity.withhold", rows, factor) multiplies
-//! in place, as flux_positivity_scale_ does.
+//! \brief The withhold factor (P2): the donor's theta on the faces lo..hi+1
+//! along tensor axis `dim` (3: x1), 1 elsewhere; the donor is the lower cell
+//! where the flux is positive.
 torch::Tensor flux_positivity_factor(torch::Tensor const& theta,
                                      torch::Tensor const& flux, int dim,
                                      Coordinate const& pcoord);
 
 class FluxRegister;
-
-//! \brief Post the energy and momentum the withheld species mass carries
-//! (P3): add(d, "positivity.carry", {IPR}, -c_E), then {IVX..IVZ}, -c_m,
-//! reading the pre-scale reg.total(d) (call before the withhold scale).
-//!
-//! Per face and species, dm = (1 - theta_donor) * F_species; the energy flux
-//! loses dm * hspec(donor) and the momentum flux dm * vel(donor). When fsed1
-//! is given, the x1 species flux is split into its advected part F - fsed1
-//! and its settling part fsed1, posted in that order: each loses the same
-//! share (1 - theta_donor, donor of the net F) and carries hspec and vel of
-//! its own donor, picked by the sign of that part.
-//! \param hspec  energy per unit species mass, (ny, nc3, nc2, nc1)
-//! \param vel    momentum per unit mass, (3, nc3, nc2, nc1)
-//! \param fsed1  settling part of the x1 species flux (EF's P1 buffer),
-//!               (ny, nc3, nc2, nc1); undefined: the whole flux is one part
-//! \param vface2/3  per x2 (x3) face, the velocity of its lower [0] and upper
-//!               [1] cell in the basis of that face's momentum flux, (2, 3,
-//!               nc3, nc2, nc1) indexed by face; undefined: vel
+//! \brief P3, before the withhold: add(d, "positivity.carry") of -dm hspec to
+//! {IPR} and -dm vel to {IVX, IVY, IVZ}, dm = (1 - theta_donor) F_species read
+//! from the pre-scale reg.total(d). With fsed1 (x1 settling part, EF's P1
+//! buffer) the advected part F - fsed1 posts first, then fsed1; each carries
+//! hspec and vel of its own donor. vface2/3: per x2 (x3) face, the lower [0]
+//! and upper [1] donor velocity in the face's flux basis (#370); undefined:
+//! vel.
 void flux_positivity_carry_(torch::Tensor const& theta,
                             torch::Tensor const& hspec,
                             torch::Tensor const& vel, FluxRegister& reg,
@@ -141,27 +92,59 @@ void flux_positivity_carry_(torch::Tensor const& theta,
                             torch::Tensor const& vface2 = torch::Tensor(),
                             torch::Tensor const& vface3 = torch::Tensor());
 
-//! \brief Relax theta where the mass flux drains the cell too.
-//!
-//! Where 0 < td < 1 (td: the theta of the mass flux), a species may drain past
-//! its content as far as the poorer neighbour repays: theta moves toward
-//! min(theta / td, 1) by the share phi (flux_positivity_share). Elsewhere
-//! theta is returned unchanged.
+//! \brief Where 0 < td < 1 (td: theta of the mass flux) theta moves toward
+//! min(theta / td, 1) by the share phi; elsewhere it is unchanged.
 torch::Tensor flux_positivity_relax(torch::Tensor const& theta,
                                     torch::Tensor const& td,
                                     torch::Tensor const& phi);
 
 class MeshBlockImpl;
-
-//! \brief Fill theta's ghost layer in place, as a conserved variable's.
-//!
-//! A raw copy at internal seams (never interpolated: the donor of a panel-seam
-//! face is the neighbour's edge cell, and an interpolated ghost is not its
-//! factor), then the block's boundary functions at physical faces, so the
-//! donor factor of every shared face is identical on both ranks.
-//! \param key  name under which theta is exchanged
+//! \brief Fill theta's ghosts in place like a conserved variable's: a raw
+//! copy at internal seams (never interpolated), then the boundary functions.
 void flux_positivity_sync_theta_(MeshBlockImpl const* pmb,
                                  torch::Tensor const& theta,
                                  std::string const& key);
+
+//! What one limiter call needs (views only)
+struct PositivityInputs {
+  torch::Tensor u;        //!< channel densities (nchan, nc3, nc2, nc1)
+  torch::Tensor rho_dry;  //!< total dry density (1, nc3, nc2, nc1)
+  torch::Tensor flux[3];  //!< R1: the channel rows of reg.total(d)
+  torch::Tensor mass[3];  //!< the hydro total(d)'s dry-mass row (1, ...)
+  torch::Tensor fsed1;    //!< R2: the settling part (x1); undefined: scalars
+  torch::Tensor hspec;    //!< energy per unit species mass; undefined: no carry
+  torch::Tensor vel;      //!< donor momentum per unit mass, with hspec
+  torch::Tensor vface[2];  //!< x2/x3 seam donor velocity per face (#370)
+  int first = 0;           //!< the register row of channel 0
+  double dt = 0.;
+};
+
+//! \brief One driver for the hydro species (step 4.C) and the scalars (D7).
+class PositivityLimiter {
+ public:
+  //! hits: kPosHits (hydro: hits, severe, minimum, x1 cut) or kScalarPosHits
+  PositivityLimiter(MeshBlockImpl const* pmb, EfStatus* status,
+                    EfStatus::Slot hits);
+  //! theta relaxed where the dry mass drains too (phi 0 where settling drains)
+  torch::Tensor theta(PositivityInputs const& in,
+                      torch::Tensor* drain = nullptr) const;
+  //! the census of the interior cells, before the ghost fill
+  void census_(PositivityInputs const& in, torch::Tensor const& theta,
+               torch::Tensor const& drain) const;
+  //! the ghost fill of theta (key_theta) and hspec (key_hspec)
+  void sync_(PositivityInputs const& in, torch::Tensor const& theta,
+             std::string const& key) const;
+  //! the carry (when hspec is defined), then scale(d, withhold, rows, factor)
+  void post_(FluxRegister& reg, PositivityInputs const& in,
+             torch::Tensor const& theta, char const* withhold) const;
+  //! theta, census_, sync_, post_
+  void apply(FluxRegister& reg, PositivityInputs const& in,
+             std::string const& key, char const* withhold) const;
+
+ private:
+  MeshBlockImpl const* pmb_;
+  EfStatus* status_;
+  EfStatus::Slot hits_;
+};
 
 }  // namespace snap
