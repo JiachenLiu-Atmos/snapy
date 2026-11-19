@@ -8,7 +8,7 @@
 // snap
 #include <snap/mesh/mesh.hpp>
 #include <snap/mesh/meshblock.hpp>
-#include <snap/output/output_formats.hpp>
+#include <snap/output/writer_core.hpp>
 
 // python
 #include "pyoptions.hpp"

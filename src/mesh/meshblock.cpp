@@ -18,8 +18,8 @@
 #include <snap/implicit/implicit_dispatch.hpp>
 #include <snap/input/read_restart_file.hpp>
 #include <snap/mesh/signal_handler.hpp>
-#include <snap/output/output_formats.hpp>
 #include <snap/output/restart_metadata.hpp>
+#include <snap/output/writer_core.hpp>
 #include <snap/utils/log.hpp>
 
 #include "cycle_diagnostics.hpp"
@@ -242,10 +242,10 @@ void MeshBlockImpl::reset() {
     if (out_op->file_type() == "restart") {
       output_types.push_back(std::make_shared<RestartOutput>(out_op));
     } else if (out_op->file_type() == "netcdf") {
-      output_types.push_back(std::make_shared<NetcdfOutput>(out_op));
+      output_types.push_back(std::make_shared<GriddedWriter>(out_op));
     } else if (out_op->file_type() == "pnetcdf") {
 #ifdef PNETCDFOUTPUT
-      output_types.push_back(std::make_shared<PNetcdfOutput>(out_op));
+      output_types.push_back(std::make_shared<GriddedWriter>(out_op));
 #else
       throw std::runtime_error("Output type 'pnetcdf' requires PNETCDF=ON.");
 #endif

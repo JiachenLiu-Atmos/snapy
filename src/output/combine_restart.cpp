@@ -8,7 +8,7 @@
 // snap
 #include <snap/mesh/meshblock.hpp>
 
-#include "output_formats.hpp"
+#include "output_type.hpp"
 #include "writer_core.hpp"
 
 namespace snap {

@@ -11,14 +11,14 @@
 // snap
 #include <snap/mesh/meshblock.hpp>
 
-#include "output_formats.hpp"
 #include "writer_core.hpp"
 
 int mppnccombine(int argc, char* argv[]);
 
 namespace snap {
 
-void NetcdfOutput::combine_blocks(MeshBlockImpl* pmb, bool) {
+void combine_netcdf_blocks(MeshBlockImpl* pmb, OutputOptionsImpl const& op,
+                           int file_number) {
 // Only proceed if NETCDF output enabled
 #ifdef NETCDFOUTPUT
   auto layout = pmb->get_layout();
@@ -30,7 +30,7 @@ void NetcdfOutput::combine_blocks(MeshBlockImpl* pmb, bool) {
   key.append("|");
   key.append(pmb->options->basename());
   key.append("|");
-  key.append(options->file_id());
+  key.append(op.file_id());
   key.append("|");
   key.append(number);
 
@@ -40,18 +40,18 @@ void NetcdfOutput::combine_blocks(MeshBlockImpl* pmb, bool) {
     infile.append("/");
     infile.append(pmb->options->basename());
     infile.append(".block*.");
-    infile.append(options->file_id());
+    infile.append(op.file_id());
     infile.append(".");
     infile.append(number);
     infile.append(".nc");
-    auto files = glob_block_files(infile, "NetcdfOutput::combine_blocks");
+    auto files = glob_block_files(infile, "combine_netcdf_blocks");
 
     std::string outfile;
     outfile.assign(pmb->options->output_dir());
     outfile.append("/");
     outfile.append(pmb->options->basename());
     outfile.append(".");
-    outfile.append(options->file_id());
+    outfile.append(op.file_id());
     outfile.append(".");
     outfile.append(number);
     outfile.append(".nc");
@@ -76,8 +76,7 @@ void NetcdfOutput::combine_blocks(MeshBlockImpl* pmb, bool) {
     }
     if (err) {
       std::stringstream msg;
-      msg << "### FATAL ERROR in function [NetcdfOutput::combine_blocks]"
-          << std::endl
+      msg << "### FATAL ERROR in function [combine_netcdf_blocks]" << std::endl
           << "NetCDF block combine failed with error " << err << std::endl;
       throw std::runtime_error(msg.str().c_str());
     }

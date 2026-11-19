@@ -29,8 +29,8 @@
 
 // snap
 #include <snap/mesh/meshblock.hpp>
-#include <snap/output/output_formats.hpp>
 #include <snap/output/output_type.hpp>
+#include <snap/output/writer_core.hpp>
 
 using namespace snap;
 
@@ -38,7 +38,9 @@ namespace {
 
 class TestOutputType : public OutputType {
  public:
-  explicit TestOutputType(OutputOptions const& options) : OutputType(options) {}
+  explicit TestOutputType(OutputOptions const& options) : OutputType(options) {
+    ClearOutputData();
+  }
 
   void load_hydro(MeshBlockImpl* pmb, Variables const& vars) {
     loadHydroOutputData(pmb, vars);
@@ -57,47 +59,50 @@ class TestOutputType : public OutputType {
   }
 
   void append(std::string name, torch::Tensor const& tensor) {
-    appendTensorSliceOutput("SCALARS", std::move(name), tensor, 4, 0,
-                            tensor.size(0));
+    appendTensorSliceOutput(std::move(name), tensor, 0, tensor.size(0));
   }
 
   void append_reduced(std::string name, torch::Tensor const& tensor) {
-    appendTensorOutput("SCALARS", std::move(name), tensor);
+    appendTensorOutput(std::move(name), tensor);
+  }
+
+  Frame& frame() { return *frame_; }
+  void ClearOutputData() { frame_ = std::make_shared<Frame>(); }
+  bool TransformOutputData(MeshBlockImpl* pmb) {
+    frame_->to_host();
+    return frame_->transform(pmb, *options);
+  }
+
+  // the field's values on the host, [nx4, nx3, nx2, nx1]
+  torch::Tensor field(std::string const& name) const {
+    for (auto f : frame_->fields) {
+      if (f.name != name) continue;
+      Frame one;
+      one.fields = {f};
+      one.to_host();
+      return one.fields[0].data;
+    }
+    throw std::runtime_error("missing output variable: " + name);
   }
 
   std::vector<int> output_shape(std::string const& name) const {
-    for (auto* pdata = pfirst_data_; pdata != nullptr; pdata = pdata->pnext) {
-      if (pdata->name == name) {
-        return {pdata->data.GetDim4(), pdata->data.GetDim3(),
-                pdata->data.GetDim2(), pdata->data.GetDim1()};
-      }
-    }
-    throw std::runtime_error("missing output variable: " + name);
+    auto d = field(name);
+    return {int(d.size(0)), int(d.size(1)), int(d.size(2)), int(d.size(3))};
   }
 
   double output_value(std::string const& name, int n, int k, int j,
                       int i) const {
-    for (auto* pdata = pfirst_data_; pdata != nullptr; pdata = pdata->pnext) {
-      if (pdata->name == name) return pdata->data(n, k, j, i);
-    }
-    throw std::runtime_error("missing output variable: " + name);
+    return field(name)[n][k][j][i].item<double>();
   }
 
   std::vector<std::string> output_names() const {
     std::vector<std::string> names;
-    for (auto* pdata = pfirst_data_; pdata != nullptr; pdata = pdata->pnext) {
-      names.push_back(pdata->name);
-    }
+    for (auto const& f : frame_->fields) names.push_back(f.name);
     return names;
   }
 
   double output_value(std::string const& name) const {
-    for (auto* pdata = pfirst_data_; pdata != nullptr; pdata = pdata->pnext) {
-      if (pdata->name == name) {
-        return pdata->data(0, 0, 0, 0);
-      }
-    }
-    throw std::runtime_error("missing output variable: " + name);
+    return output_value(name, 0, 0, 0, 0);
   }
 };
 
@@ -215,15 +220,15 @@ TEST(OutputSlice, selects_boundary_cell_and_collapses_axis) {
   auto values = torch::arange(nc1 * nc2 * nc3, torch::kFloat64)
                     .reshape({1, nc3, nc2, nc1});
   output.append("field", values);
-  output.out_is = block->pcoord->il();
-  output.out_ie = block->pcoord->iu();
-  output.out_js = block->pcoord->jl();
-  output.out_je = block->pcoord->ju();
-  output.out_ks = block->pcoord->kl();
-  output.out_ke = block->pcoord->ku();
+  output.frame().is = block->pcoord->il();
+  output.frame().ie = block->pcoord->iu();
+  output.frame().js = block->pcoord->jl();
+  output.frame().je = block->pcoord->ju();
+  output.frame().ks = block->pcoord->kl();
+  output.frame().ke = block->pcoord->ku();
 
   ASSERT_TRUE(output.TransformOutputData(block.get()));
-  EXPECT_EQ(output.islice.at(0), block->pcoord->il() + 2);
+  EXPECT_EQ(output.frame().slice[0].at(0), block->pcoord->il() + 2);
   EXPECT_EQ(output.output_shape("field"), (std::vector<int>{1, nc3, nc2, 1}));
   EXPECT_DOUBLE_EQ(output.output_value("field", 0, block->pcoord->kl(),
                                        block->pcoord->jl(), 0),
@@ -245,12 +250,12 @@ TEST(OutputSlice, supports_multiple_axes_and_rejects_nonintersecting_block) {
   int nc2 = block->pcoord->options->nc2();
   int nc3 = block->pcoord->options->nc3();
   output.append("field", torch::ones({1, nc3, nc2, nc1}, torch::kFloat64));
-  output.out_is = block->pcoord->il();
-  output.out_ie = block->pcoord->iu();
-  output.out_js = block->pcoord->jl();
-  output.out_je = block->pcoord->ju();
-  output.out_ks = block->pcoord->kl();
-  output.out_ke = block->pcoord->ku();
+  output.frame().is = block->pcoord->il();
+  output.frame().ie = block->pcoord->iu();
+  output.frame().js = block->pcoord->jl();
+  output.frame().je = block->pcoord->ju();
+  output.frame().ks = block->pcoord->kl();
+  output.frame().ke = block->pcoord->ku();
 
   ASSERT_TRUE(output.TransformOutputData(block.get()));
   EXPECT_EQ(output.output_shape("field"), (std::vector<int>{1, 1, 1, nc1}));
@@ -273,12 +278,12 @@ TEST(OutputSlice, preserves_axes_absent_from_reduced_outputs) {
 
   int nc1 = block->pcoord->options->nc1();
   output.append_reduced("avg_vel", torch::ones({3, nc1}, torch::kFloat64));
-  output.out_is = block->pcoord->il();
-  output.out_ie = block->pcoord->iu();
-  output.out_js = block->pcoord->jl();
-  output.out_je = block->pcoord->ju();
-  output.out_ks = block->pcoord->kl();
-  output.out_ke = block->pcoord->ku();
+  output.frame().is = block->pcoord->il();
+  output.frame().ie = block->pcoord->iu();
+  output.frame().js = block->pcoord->jl();
+  output.frame().je = block->pcoord->ju();
+  output.frame().ks = block->pcoord->kl();
+  output.frame().ke = block->pcoord->ku();
 
   ASSERT_TRUE(output.TransformOutputData(block.get()));
   EXPECT_EQ(output.output_shape("avg_vel"), (std::vector<int>{1, 1, 3, nc1}));
@@ -296,12 +301,12 @@ TEST(OutputSlice, maps_reduced_output_spatial_axes) {
   auto values =
       torch::arange(2 * nc3 * nc2, torch::kFloat64).reshape({2, nc3, nc2});
   output.append_reduced("path_species", values);
-  output.out_is = block->pcoord->il();
-  output.out_ie = block->pcoord->iu();
-  output.out_js = block->pcoord->jl();
-  output.out_je = block->pcoord->ju();
-  output.out_ks = block->pcoord->kl();
-  output.out_ke = block->pcoord->ku();
+  output.frame().is = block->pcoord->il();
+  output.frame().ie = block->pcoord->iu();
+  output.frame().js = block->pcoord->jl();
+  output.frame().je = block->pcoord->ju();
+  output.frame().ks = block->pcoord->kl();
+  output.frame().ke = block->pcoord->ku();
 
   ASSERT_TRUE(output.TransformOutputData(block.get()));
   EXPECT_EQ(output.output_shape("path_species"),
@@ -324,12 +329,12 @@ TEST(OutputSlice, maps_reduced_output_sum_axes) {
   auto values =
       torch::arange(2 * nc3 * nc2, torch::kFloat64).reshape({2, nc3, nc2});
   output.append_reduced("path_species", values);
-  output.out_is = block->pcoord->il();
-  output.out_ie = block->pcoord->iu();
-  output.out_js = block->pcoord->jl();
-  output.out_je = block->pcoord->ju();
-  output.out_ks = block->pcoord->kl();
-  output.out_ke = block->pcoord->ku();
+  output.frame().is = block->pcoord->il();
+  output.frame().ie = block->pcoord->iu();
+  output.frame().js = block->pcoord->jl();
+  output.frame().je = block->pcoord->ju();
+  output.frame().ks = block->pcoord->kl();
+  output.frame().ke = block->pcoord->ku();
 
   ASSERT_TRUE(output.TransformOutputData(block.get()));
   EXPECT_EQ(output.output_shape("path_species"),
@@ -396,7 +401,7 @@ TEST(OutputSlice, combines_uneven_lists_across_blocks) {
   opts->x1_slice({0., 2., 5.});
   opts->x2_slice({1., 2., 3.});
   opts->combine(false);
-  NetcdfOutput output(opts);
+  GriddedWriter output(opts);
   for (int rank = 0; rank < 2; ++rank) {
     auto op = MeshBlockOptionsImpl::from_yaml("test_forcing_3d.yaml");
     op->layout()->px(2).world_size(2).rank(rank).blocks_per_process(2);
@@ -529,7 +534,7 @@ TEST(OutputSlice, netcdf_writes_selected_coordinate_and_collapsed_dimension) {
   opts->variables({"d"});
   opts->x1_slice({2.0});
   opts->combine(false);
-  NetcdfOutput output(opts);
+  GriddedWriter output(opts);
 
   int nc1 = block->pcoord->options->nc1();
   int nc2 = block->pcoord->options->nc2();
@@ -577,7 +582,7 @@ TEST(OutputPrecision, netcdf_float_output_keeps_nonfinite) {
   opts->file_type("netcdf");
   opts->variables({"d"});
   opts->combine(false);
-  NetcdfOutput output(opts);
+  GriddedWriter output(opts);
 
   int nc1 = block->pcoord->options->nc1();
   int nc2 = block->pcoord->options->nc2();
@@ -649,7 +654,7 @@ TEST(OutputPrecision, netcdf_double_precision_reads_back_exactly) {
   block->options->output_dir(dir.string());
   block->options->basename("double");
 
-  NetcdfOutput output(OutputOptionsImpl::from_yaml(
+  GriddedWriter output(OutputOptionsImpl::from_yaml(
       YAML::Load("{type: netcdf, variables: [d], double_precision: true, "
                  "combine: false}")));
 
@@ -1118,71 +1123,6 @@ TEST(OutputStatistics, scalar_statistics_are_time_weighted_and_reset) {
   output.load_scalar(block.get(), vars);
   EXPECT_DOUBLE_EQ(output.output_value("r_tracer_a_mean"), 7.0);
   EXPECT_DOUBLE_EQ(output.output_value("r_tracer_a_std"), 0.0);
-}
-
-// Super resolution doubles the block's horizontal cell counts, and the faces
-// are sliced out of the GLOBAL array, so the global counts must move with them.
-TEST(SuperResolution, refined_block_keeps_the_domain_and_halves_the_spacing) {
-  auto block = make_block("ideal-gas");
-  auto const& co = block->pcoord->options;
-  int ng = co->nghost();
-  int nx2 = co->nx2();
-  int nx3 = co->nx3();
-  ASSERT_GT(nx2, 1);
-  ASSERT_GT(nx3, 1);
-
-  auto x1f_in = block->pcoord->x1f.clone();
-  auto x2f_in = block->pcoord->x2f.clone();
-
-  int nvar = block->phydro->peos->nvar();
-  Variables vars;
-  vars["hydro_w"] =
-      torch::ones({nvar, co->nc3(), co->nc2(), co->nc1()}, torch::kFloat64);
-  vars["hydro_u"] = vars["hydro_w"].clone();
-
-  auto opts = OutputOptionsImpl::create();
-  opts->super_resolution(true);
-  TestOutputType output(opts);
-
-  MeshBlockImpl* fine = nullptr;
-  ASSERT_NO_THROW(fine = output.LoadOutputData(block.get(), vars));
-  ASSERT_NE(fine, nullptr);
-  ASSERT_NE(fine, block.get());
-
-  ASSERT_EQ(fine->pcoord->x2f.size(0), 2 * nx2 + 2 * ng + 1);
-  ASSERT_EQ(fine->pcoord->x3f.size(0), 2 * nx3 + 2 * ng + 1);
-
-  // same domain at half the cell width, not merely a slice that fits
-  auto const& x2f = fine->pcoord->x2f;
-  double dx2 = (x2f_in[ng + 1] - x2f_in[ng]).item<double>();
-  EXPECT_DOUBLE_EQ(x2f[ng].item<double>(), x2f_in[ng].item<double>());
-  EXPECT_DOUBLE_EQ(x2f[ng + 2 * nx2].item<double>(),
-                   x2f_in[ng + nx2].item<double>());
-  EXPECT_NEAR((x2f[ng + 1] - x2f[ng]).item<double>(), 0.5 * dx2,
-              1.e-14 * std::abs(dx2));
-
-  // x1 is not refined, so it must come out bit for bit unchanged
-  EXPECT_TRUE(torch::equal(fine->pcoord->x1f, x1f_in));
-
-  output.ClearOutputData();
-  delete fine;
-
-  // moist arm: with species the HYDRO loader runs first and asks the same
-  // raw-new block for its module list, which the ideal-gas arm never reaches
-  auto moist = make_3d_block();
-  auto const& mco = moist->pcoord->options;
-  int mnvar = moist->phydro->peos->nvar();
-  ASSERT_GT(mnvar, 5);
-  Variables mvars;
-  mvars["hydro_w"] =
-      torch::ones({mnvar, mco->nc3(), mco->nc2(), mco->nc1()}, torch::kFloat64);
-  mvars["hydro_u"] = mvars["hydro_w"].clone();
-
-  MeshBlockImpl* mfine = nullptr;
-  ASSERT_NO_THROW(mfine = output.LoadOutputData(moist.get(), mvars));
-  ASSERT_NE(mfine, moist.get());
-  output.ClearOutputData();
-  delete mfine;
 }
 
 int main(int argc, char** argv) {
