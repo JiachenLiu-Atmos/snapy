@@ -86,25 +86,17 @@ torch::Tensor MoistMixtureImpl::_prim2temp(torch::Tensor prim) {
   return temp;
 }
 
-torch::Tensor MoistMixtureImpl::_prim2speciesEng(torch::Tensor prim) {
-  auto pcoord = phydro->pmb->pcoord;
-
-  int ny = nspecies();
-
-  auto yfrac = prim.narrow(0, ICY, ny);
-
+torch::Tensor MoistMixtureImpl::species_pressure_share(torch::Tensor prim) {
+  int ngas = pthermo->options->vapor_ids().size();
   _ensure_cache(prim);
-
-  auto Rgas = kintera::constants::Rgas * pthermo->inv_mu;
-  auto ie = eval_intEng_R(temp, ivol, pthermo->options) * Rgas * ivol;
-
-  auto vel = prim.narrow(0, IVX, 3).clone();
-
-  coord_vec_lower_(vel, pcoord->cosine_cell_kj);
-  auto ke = 0.5 * (prim.narrow(0, IVX, 3) * vel).sum(0, /*keepdim=*/true);
-
-  auto rhoc = prim[IDN] * yfrac;
-  return ie.narrow(-1, 1, ny).permute({3, 0, 1, 2}) + ke * rhoc;
+  auto conc = ivol * pthermo->inv_mu;
+  // z_n R_n T of a vapour, the share species_enthalpy adds; none for a cloud
+  auto s = torch::zeros_like(conc);
+  s.narrow(-1, 0, ngas) =
+      kintera::eval_czh(temp, conc.narrow(-1, 0, ngas), pthermo->options) *
+      temp.unsqueeze(-1);
+  s *= kintera::constants::Rgas * pthermo->inv_mu;
+  return s.narrow(-1, 1, nspecies()).permute({3, 0, 1, 2});
 }
 
 torch::Tensor MoistMixtureImpl::species_enthalpy(torch::Tensor prim) {

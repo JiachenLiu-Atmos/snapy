@@ -265,28 +265,14 @@ torch::Tensor IdealMoistImpl::_prim2temp(torch::Tensor prim) {
   return t;
 }
 
-torch::Tensor IdealMoistImpl::_prim2speciesEng(torch::Tensor prim) {
-  auto pcoord = phydro->pmb->pcoord;
-  int ny = nspecies();
-
-  auto mud = options->weight();
-  auto Rd = kintera::constants::Rgas / mud;
-  auto cvd = pthermo->options->cref_R()[0] * Rd;
-
-  auto yfrac = prim.narrow(0, ICY, ny);
-  auto temp = prim[IPR] / (prim[IDN] * Rd * f_eps(yfrac));
-
-  auto rhos = prim[IDN] * yfrac;
-
-  std::vector<int64_t> vec = {ny, 1, 1, 1};
-  auto ie = rhos * (u0.narrow(0, 1, ny).view(vec) +
-                    (cv_ratio_m1.view(vec) + 1.) * cvd * temp);
-
-  auto vel = prim.narrow(0, IVX, 3).clone();
-  coord_vec_lower_(vel, pcoord->cosine_cell_kj);
-  auto ke = 0.5 * (prim.narrow(0, IVX, 3) * vel).sum(0, /*keepdim=*/true);
-
-  return ie + ke * rhos;
+torch::Tensor IdealMoistImpl::species_pressure_share(torch::Tensor prim) {
+  int nvapor = pthermo->options->vapor_ids().size() - 1;
+  auto r = torch::zeros({nspecies()}, inv_mu_ratio_m1.options());
+  r.narrow(0, 0, nvapor) = (inv_mu_ratio_m1.narrow(0, 0, nvapor) + 1.) *
+                           kintera::constants::Rgas / options->weight();
+  std::vector<int64_t> vec(prim.dim(), 1);
+  vec[0] = nspecies();
+  return r.view(vec) * _prim2temp(prim);
 }
 
 torch::Tensor IdealMoistImpl::species_enthalpy(torch::Tensor prim) {
