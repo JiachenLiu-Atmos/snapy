@@ -1156,82 +1156,27 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   // exact. Positivity of the full multi-stage update follows from the SSP
   // structure of the integrators (see flux_positivity.hpp).
   if ((options->eos()->limiter() || cov2 || cov3) && ny > 0) {
-    auto uy = u.narrow(0, ICY, ny);
-    auto f1 = _flux1.defined() ? _flux1.narrow(0, ICY, ny) : torch::Tensor();
-    auto f2 = _flux2.defined() ? _flux2.narrow(0, ICY, ny) : torch::Tensor();
-    auto f3 = _flux3.defined() ? _flux3.narrow(0, ICY, ny) : torch::Tensor();
-
-    torch::Tensor drain;
-    auto theta = flux_positivity_theta(uy, f1, f2, f3, pmb->pcoord, dt, &drain);
-    // the eos limiter does not limit the mass flux either: where it drains
-    // the dry air too (Courant>1), the neighbours (implicit x1 refill, inflow
-    // along x2, x3) bring their q back, so a species may drain past its
-    // content only as far as the poorer neighbour repays: all of it at a
-    // uniform q, none beside an empty cell
-    {
-      auto m = [&](torch::Tensor const& f) {
-        return f.defined() ? f.narrow(0, IDN, 1) : torch::Tensor();
-      };
-      auto rho = dry_density(u).unsqueeze(0);
-      auto td = flux_positivity_theta(rho, m(_flux1), m(_flux2), m(_flux3),
-                                      pmb->pcoord, dt);
-      auto phi = flux_positivity_share(uy / rho);
-      // settling mass is not dry air: nothing refills it, so a cell it drains
-      // keeps the plain theta
-      if (fsed1.defined()) {
-        auto out = fsed1.clamp_min(0.).roll(-1, DIM1) + (-fsed1).clamp_min(0.);
-        phi.masked_fill_(out > 0., 0.);
-      }
-      theta = flux_positivity_relax(theta, td, phi);
+    PositivityInputs in;
+    in.u = u.narrow(0, ICY, ny);
+    in.rho_dry = dry_density(u).unsqueeze(0);
+    for (int d = 1; d <= 3; ++d) {
+      auto t = d == 1 ? _flux1 : d == 2 ? _flux2 : _flux3;
+      if (!t.defined()) continue;
+      in.flux[d - 1] = t.narrow(0, ICY, ny);
+      in.mass[d - 1] = t.narrow(0, IDN, 1);
     }
-    // census of interior (cell, species) entries, before the ghost fill
-    auto cells = pmb->part({0, 0, 0}, PartOptions().exterior(false));
-    auto ti = theta.index(cells).to(wide);
-    auto& status = *pmb->pefs;
-    status.slot(EfStatus::kPosHits) += (ti < 1.).sum();
-    // severe: theta < 0.9 AND the withheld mass is above round-off of the
-    // cell's gas mass. An empty cell drained by a round-off face flux has
-    // theta = 0 at any dt; its withheld mass is ~1e-20 of the cell's (#256).
-    // the cell volume depends on the grid only
-    auto& vc = _cell_vol;
-    auto pc = pmb->pcoord;
-    if (!(vc.f1.defined() && vc.f1.is_same(pc->x1f) && vc.f2.is_same(pc->x2f) &&
-          vc.f3.is_same(pc->x3f) && vc.v1 == pc->x1f._version() &&
-          vc.v2 == pc->x2f._version() && vc.v3 == pc->x3f._version() &&
-          vc.val.defined() && vc.val.device() == u.device() &&
-          vc.val.scalar_type() == u.scalar_type())) {
-      vc.val = pc->cell_volume();
-      vc.f1 = pc->x1f;
-      vc.f2 = pc->x2f;
-      vc.f3 = pc->x3f;
-      vc.v1 = pc->x1f._version();
-      vc.v2 = pc->x2f._version();
-      vc.v3 = pc->x3f._version();
-    }
-    auto cell_mass = (dry_density(u) + uy.sum(0)) * vc.val;
-    auto withheld = ((1. - theta) * drain).index(cells).to(wide);
-    auto above = withheld > positivity_roundoff(u.scalar_type()) *
-                                cell_mass.unsqueeze(0).index(cells).to(wide);
-    status.slot(EfStatus::kPosSevere) += ((ti < 0.9) & above).sum();
-    auto& tmin = status.slot(EfStatus::kPosMin);
-    torch::minimum_out(tmin, tmin, ti.min());
-
-    // the energy each species carries, from w; its ghost layer is synced like
-    // theta's (a raw copy at seams, never interpolated): the carry below
-    // removes theta's withheld share at its donor's enthalpy, and a panel-seam
-    // donor is the neighbour's edge cell, so both ranks must read the same one
-    auto hspec = peos->species_enthalpy(w);
-    flux_positivity_sync_theta_(pmb, theta, "hydro_theta");
-    if (hspec.defined()) flux_positivity_sync_theta_(pmb, hspec, "hydro_hspec");
-
-    // the withheld species mass keeps its energy and momentum in the donor
-    if (hspec.defined()) {
+    in.fsed1 = fsed1;
+    in.first = ICY;
+    in.dt = dt;
+    // the energy each species carries, from w; the withheld mass keeps it
+    in.hspec = peos->species_enthalpy(w);
+    if (in.hspec.defined()) {
+      in.vel = u.narrow(0, IVX, 3) / w[IDN];
       // a lateral face's momentum flux is covariant in the face's own basis
       // (flux2global2_, 3_), and each block of a panel seam holds its own copy
       // of the face: carry each donor's velocity as a face state, synced
       // across the seam like them and taken to that basis, so both copies
       // withhold the same momentum
-      torch::Tensor vface[2];
       if (playout && playout->options->type() == "cubed-sphere") {
         std::vector<int> dims;
         if (_flux2.defined() && u.size(DIM2) > 1) dims.push_back(DIM2);
@@ -1266,32 +1211,14 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
               pmb->pcoord->flux2global3_(t);
             }
           }
-          vface[dims[d] == DIM2 ? 0 : 1] =
+          in.vface[dims[d] == DIM2 ? 0 : 1] =
               torch::stack({fv[d]["hydro_vlo:+"].narrow(0, IVX, 3),
                             fv[d]["hydro_vhi:-"].narrow(0, IVX, 3)});
         }
       }
-      flux_positivity_carry_(theta, hspec, u.narrow(0, IVX, 3) / w[IDN], freg,
-                             pmb->pcoord, fsed1, vface[0], vface[1]);
     }
-
-    // the withhold (P2): each species face flux times its donor's theta
-    std::vector<int> species(ny);
-    std::iota(species.begin(), species.end(), static_cast<int>(ICY));
-    for (int d = 1; d <= 3; ++d) {
-      auto f = d == 1 ? f1 : d == 2 ? f2 : f3;
-      if (!f.defined()) continue;
-      auto factor = flux_positivity_factor(theta, f, 4 - d, pmb->pcoord);
-      if (d == 1) {
-        // theta's depth is not its consequence: measure the flux it removes,
-        // non-negative while every bfunc keeps the ghost theta in [0,1]
-        auto pre = f.abs();
-        auto cut = pre - (f * factor).to(f.scalar_type()).abs();
-        status.slot(EfStatus::kLimFlux) += pre.index(cells).to(wide).sum();
-        status.slot(EfStatus::kLimCut) += cut.index(cells).to(wide).sum();
-      }
-      freg.scale(d, "positivity.withhold", species, factor);
-    }
+    PositivityLimiter(pmb, pmb->pefs.get(), EfStatus::kPosHits)
+        .apply(freg, in, "hydro", "positivity.withhold");
 
     if (options->verbose()) {
       auto end = std::chrono::high_resolution_clock::now();
