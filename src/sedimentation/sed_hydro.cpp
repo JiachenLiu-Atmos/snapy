@@ -24,7 +24,15 @@ void SedHydroImpl::reset() {
       phydro->options->grav(),
       "[SedHydro] sedimentation reads grav1; set forcing/const-gravity");
 
-  psedvel = SedVelImpl::create(options->sedvel(), this);
+  auto const& sv = options->sedvel();
+  TORCH_CHECK(sv->radius().size() == sv->density().size(),
+              "[SedHydro] radius and density must have the same size");
+  radius =
+      register_buffer("radius", torch::tensor(sv->radius(), torch::kFloat64));
+  density =
+      register_buffer("density", torch::tensor(sv->density(), torch::kFloat64));
+  const_vsed = register_buffer(
+      "const_vsed", torch::tensor(sv->const_vsed(), torch::kFloat64));
 
   // register buffer
   vsed = register_buffer("vsed", torch::empty({0}, torch::kFloat64));
@@ -45,7 +53,7 @@ torch::Tensor SedHydroImpl::forward(torch::Tensor wr,
              ? pmb->pcoord->iu()
              : static_cast<int>(wr.size(3));
   p.grav = phydro->options->grav()->grav1();
-  auto const& so = psedvel->options;
+  auto const& so = options->sedvel();
   p.gas_diameter = so->a_diameter();
   p.gas_epsilon_lj = so->a_epsilon_LJ();
   p.gas_mass = so->a_mass();
@@ -70,9 +78,9 @@ SedKernelArgs& SedHydroImpl::kernel_args(torch::Tensor const& like) {
       a.radius.scalar_type() == like.scalar_type())
     return a;
   auto o = like.options();
-  a.radius = psedvel->radius.to(o).contiguous();
-  a.density = psedvel->density.to(o).contiguous();
-  a.const_vsed = psedvel->const_vsed.to(o).contiguous();
+  a.radius = radius.to(o).contiguous();
+  a.density = density.to(o).contiguous();
+  a.const_vsed = const_vsed.to(o).contiguous();
   a.hydro_ids = hydro_ids.to(like.device(), torch::kLong).contiguous();
   auto c = phydro->pmb->pcoord->cosine_cell_kj.to(o);
   while (c.dim() > 2) {

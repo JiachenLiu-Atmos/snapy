@@ -113,41 +113,6 @@ struct SedKernelArgs {
 };
 class SedHydroImpl;
 
-class SedVelImpl : public torch::nn::Cloneable<SedVelImpl> {
- public:
-  //! Create and register a `SedVel` module
-  /*!
-   * This function registers the created module as a submodule
-   * of the given parent module `p`.
-   *
-   * \param[in] options  options for creating the `SedVel` module
-   * \param[in] p        parent module for registering the created module
-   * \param[in] name     name for registering the created module
-   * \return           created `SedVel` module
-   */
-  static std::shared_ptr<SedVelImpl> create(SedVelOptions const& opts,
-                                            torch::nn::Module* p,
-                                            std::string const& name = "sedvel");
-
-  //! particle radius and density
-  //! 1D tensor of number of particles
-  //! radius and density must have the same size
-  torch::Tensor radius, density, const_vsed;
-
-  //! options with which this `SedVel` was constructed
-  SedVelOptions options;
-
-  //! non-owning reference to parent
-  SedHydroImpl const* psed = nullptr;
-
-  //! Constructor to initialize the layers
-  SedVelImpl() : options(SedVelOptionsImpl::create()) {}
-  explicit SedVelImpl(SedVelOptions const& options_,
-                      torch::nn::Module* p = nullptr);
-  void reset() override;
-};
-TORCH_MODULE(SedVel);
-
 class SedHydroImpl : public torch::nn::Cloneable<SedHydroImpl> {
  public:
   static std::shared_ptr<SedHydroImpl> create(SedHydroOptions const& opts,
@@ -163,11 +128,12 @@ class SedHydroImpl : public torch::nn::Cloneable<SedHydroImpl> {
   //! the x1 settling flux of the stage (P1): EF's buffer, kept until 4.C
   torch::Tensor settling;
 
+  //! particle radius, density and constant velocity (nparticle,), rebuilt
+  //! from the options at reset() (D14: SedVel folded in)
+  torch::Tensor radius, density, const_vsed;
+
   //! non-owning reference to parent
   HydroImpl const* phydro = nullptr;
-
-  //! submodules
-  SedVel psedvel = nullptr;
 
   //! options with which this `SedHydro` was constructed
   SedHydroOptions options;
