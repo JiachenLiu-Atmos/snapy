@@ -74,6 +74,12 @@ class GriddedWriter : public OutputType {
 };
 
 std::shared_ptr<Sink> make_netcdf_sink();
+//! merges the part files into a new netcdf file `outfile`, then removes the
+//! parts: mppnccombine's `-r <outfile> <parts...>`, the only form snapy uses
+//! (O.rst 10.1). Returns 0 or a netcdf error code. Not called by runs until
+//! O6b; gate G-2 compares it with mppnccombine first.
+int combine_parts(std::string const& outfile,
+                  std::vector<std::string> const& parts);
 //! joins the block files of one netcdf output into <basename>.<fileid>.<n>.nc
 void combine_netcdf_blocks(MeshBlockImpl* pmb, OutputOptionsImpl const& op,
                            int file_number);
