@@ -168,6 +168,10 @@ setup_test(test_netcdf_utils)
 setup_test(test_combine_parts)
 target_compile_definitions(test_combine_parts.${buildl}
                            PRIVATE SNAPY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+# gate G-4 (lane O, O7): restart bundle round trip, broken bundles throw
+setup_test(test_restart_bundle)
+target_compile_definitions(test_restart_bundle.${buildl}
+                           PRIVATE SNAPY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 setup_test(test_user_output)
 setup_test(test_process_group)
 setup_test(test_diffusion)
