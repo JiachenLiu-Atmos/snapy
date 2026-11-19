@@ -113,28 +113,15 @@ void HydroImpl::reset() {
     TORCH_CHECK(gw == "cell" || gw == "face",
                 "const-gravity gravity-work must be cell or face, got '", gw,
                 "'");
-    // the fixer runs with gravity-work: cell only; record the effective value
-    // (a face form set from Python keeps the default true otherwise)
-    if (gw != "cell") options->grav()->gravity_work_fixer() = false;
-    TORCH_CHECK(!gravity_work_fixer() || (options->grav()->grav2() == 0. &&
-                                          options->grav()->grav3() == 0.),
-                "const-gravity gravity-work-fixer needs grav2 = grav3 = 0 (its "
-                "potential is -grav1 * x1); set it false otherwise");
-    // mass that wraps across a periodic x1 face jumps by grav1 * Lx1 in that
-    // potential, which the E+PE defect would book as a defect. The layout's
-    // x1 wrap is read from its topology: a Python bfuncs() call clears names.
+    // the global gravity-work fixer is removed (V3 X5, gw1; Cheng)
+    TORCH_CHECK(!options->grav()->gravity_work_fixer(),
+                "const-gravity gravity-work-fixer was removed in V3; "
+                "set it false or drop the key");
+    // the corrected PE needs a single-valued potential; -grav1 * x1 jumps at
+    // a periodic x1 face: warn, no change. The layout's x1 wrap is read from
+    // its topology: a Python bfuncs() call clears the names.
     auto const& nm = pmb->options->bcnames();
     bool wrap = pmb->options->layout()->periodic_z();
-    for (int f : {0, 1}) {
-      TORCH_CHECK(!gravity_work_fixer() ||
-                      !(wrap || (f < static_cast<int>(nm.size()) &&
-                                 nm[f].compare(0, 8, "periodic") == 0)),
-                  "const-gravity gravity-work-fixer needs non-periodic x1 "
-                  "boundaries (its potential -grav1 * x1 jumps across a "
-                  "periodic x1 face); set it false otherwise");
-    }
-    // the corrected PE needs a single-valued potential; -grav1 * x1 jumps at
-    // a periodic x1 face (read as for the fixer above): warn, no change
     if (options->grav()->grav1() != 0. && gw == "face") {
       bool periodic_x1 = wrap;
       for (int f : {0, 1})
@@ -309,13 +296,6 @@ void HydroImpl::reset() {
                                          torch::zeros({1}, torch::kFloat64)));
   register_buffer("lim_flux", status.bind(EfStatus::kLimFlux,
                                           torch::zeros({1}, torch::kFloat64)));
-  _gwfix_d = register_buffer("gwfix_d", torch::zeros({1}, torch::kFloat64));
-  _gwfix_total =
-      register_buffer("gwfix_total", torch::zeros({1}, torch::kFloat64));
-  _gwfix_pending =
-      register_buffer("gwfix_pending", torch::zeros({1}, torch::kFloat64));
-  _gwfix_wall =
-      register_buffer("gwfix_wall", torch::zeros({1}, torch::kFloat64));
 }
 
 torch::Tensor HydroImpl::positivity_hits() const {
@@ -357,12 +337,6 @@ void HydroImpl::_check_stretched_x1(torch::Tensor const& u) const {
         "widths; the x1-", f == 0 ? "inner" : "outer",
         " boundary is not reflecting");
   }
-}
-
-bool HydroImpl::gravity_work_fixer() const {
-  auto g = options->grav();
-  return g && g->grav1() != 0. && g->gravity_work() == "cell" &&
-         g->gravity_work_fixer();
 }
 
 bool HydroImpl::radial_exact_work() const {

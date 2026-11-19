@@ -750,7 +750,10 @@ TEST(forcing, limiter_patch_is_reported_below_the_temperature_floor) {
     for (int stage = 0; stage < block->pintg->stages.size(); ++stage) {
       block->forward(vars, 1.e-3, stage);
     }
-    EXPECT_EQ(block->limiter_patch_hit(), pres < 1.e4) << "pres=" << pres;
+    // the limiter's patch mark (marks: {patched, nan})
+    auto const& marks = block->phydro->peos->limiter_marks();
+    bool patched = marks.defined() && marks[0].item<bool>();
+    EXPECT_EQ(patched, pres < 1.e4) << "pres=" << pres;
   }
 }
 

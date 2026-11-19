@@ -1094,8 +1094,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   // sedimentation. Implicit face mode consumes it before the solve; the
   // other modes keep their existing cell or post-solve work.
   torch::Tensor gravity_energy_correction;
-  // gravity-work-fixer: this stage's E+PE change of the dynamics (J)
-  torch::Tensor gwfix_stage;
   if (options->grav() && options->grav()->grav1() != 0. && _flux1.defined() &&
       !options->disable_flux_x1()) {
     auto grav1 = options->grav()->grav1();
@@ -1104,8 +1102,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     if (ny > 0) {
       vertical_mass_flux1 += _flux1.narrow(0, ICY, ny).sum(0);
     }
-    auto total_mass_flux1 =
-        gw_cell ? vertical_mass_flux1.clone() : torch::Tensor();
     // cell: the cell work rho g v (const-gravity forcing) stays; only F - F^R
     // is booked as face work
     if (gw_cell) {
@@ -1185,33 +1181,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     }
     if (gw_cell) {
       gravity_energy_correction = face_gravity_work;
-      if (gravity_work_fixer()) {
-        // the PE change of the mass the x1 fluxes move (x1 wall faces dropped:
-        // the fixer runs with sealed walls only) plus the gravity work booked
-        // into E; x2/x3 fluxes do not move mass across geopotential surfaces
-        auto fw = total_mass_flux1.clone();
-        if (is_x1_wall(0)) fw.select(-1, is).zero_();
-        if (is_x1_wall(1)) fw.select(-1, ie).zero_();
-        auto dm =
-            -dt *
-            (area1.slice(-1, is + 1, ie + 1) * fw.slice(-1, is + 1, ie + 1) -
-             area1.slice(-1, is, ie) * fw.slice(-1, is, ie)) /
-            volume.slice(-1, is, ie);
-        auto e = (original_gravity_work + face_gravity_work +
-                  phi_cell.slice(0, is, ie) * dm) *
-                 volume.slice(-1, is, ie);
-        int js = pmb->pcoord->jl(), je = pmb->pcoord->ju() + 1;
-        int ks = pmb->pcoord->kl(), ke = pmb->pcoord->ku() + 1;
-        gwfix_stage = e.slice(-2, js, je).slice(-3, ks, ke).to(wide).sum();
-        // the fixer drops these faces, so it checks that no mass crossed them
-        for (int f : {0, 1}) {
-          if (!is_x1_wall(f)) continue;
-          int i = f == 0 ? is : ie;
-          auto m = area1.select(-1, i) * total_mass_flux1.select(-1, i).abs();
-          _gwfix_wall +=
-              dt * m.slice(-1, js, je).slice(-2, ks, ke).sum().to(wide);
-        }
-      }
     } else {
       gravity_energy_correction = face_gravity_work - original_gravity_work;
     }
@@ -1262,21 +1231,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
             "caller invoking HydroImpl::forward directly will see this.");
       }
     }
-    // gravity-work-fixer: the implicit block's E+PE change (its mass transfer
-    // and the cell gravity work it linearises; its other energy flux sums to
-    // zero over a sealed column)
-    auto epe = [&](torch::Tensor const& d) {
-      auto m = d[IDN].clone();
-      if (ny > 0) m += d.narrow(0, ICY, ny).sum(0);
-      auto phi = -options->grav()->grav1() * pmb->pcoord->x1v;
-      auto in3 = pmb->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
-      return ((d[IPR] + phi * m) * pmb->pcoord->cell_volume())
-          .index(in3)
-          .sum()
-          .to(wide);
-    };
-    torch::Tensor epe0;
-    if (gwfix_stage.defined()) epe0 = epe(du);
     // face work in the operator: the solve also sees the explicit face
     // correction, so the energy it inverts is the face-form energy
     if (gravity_energy_correction.defined() && face_work_in_operator()) {
@@ -1286,7 +1240,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       gravity_energy_correction = torch::Tensor();
     }
     _apply_implicit_correction(du, w, dt_corr, other);
-    if (gwfix_stage.defined()) gwfix_stage = gwfix_stage + epe(du) - epe0;
 
     if (options->verbose()) {
       auto end = std::chrono::high_resolution_clock::now();
@@ -1362,19 +1315,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // conserve-axial-momentum: no K component, as in the branch above
     if (aam) pmb->pcoord->axial_x1_source_(src[IVY], src[IVZ], torch::Tensor());
     du.index(interior) += src.index(interior);
-  }
-
-  if (gwfix_stage.defined()) {
-    // weight of this stage's du in the step's update u0 -> u1 (stage s:
-    // u <- w0 u0 + w1 u + w2 du): w2_s * prod_{t > s} w1_t (rk3: 1/6 1/6 2/3)
-    double cw = 1.;
-    auto const& st = pmb->pintg->stages;
-    if (rk_stage >= 0 && rk_stage < static_cast<int>(st.size())) {
-      cw = st[rk_stage].wght2();
-      for (int t = rk_stage + 1; t < static_cast<int>(st.size()); ++t)
-        cw *= st[t].wght1();
-    }
-    _gwfix_d += cw * gwfix_stage.to(_gwfix_d.device());
   }
 
   return fp32() ? du.to(torch::kFloat32) : du;

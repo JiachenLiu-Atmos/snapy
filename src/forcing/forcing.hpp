@@ -44,8 +44,7 @@ struct ConstGravityOptionsImpl {
        << "* grav2 = " << grav2() << "\n"
        << "* grav3 = " << grav3() << "\n"
        << "* non-hydrostatic = " << non_hydrostatic() << "\n"
-       << "* gravity-work = " << gravity_work() << "\n"
-       << "* gravity-work-fixer = " << gravity_work_fixer() << "\n";
+       << "* gravity-work = " << gravity_work() << "\n";
   }
 
   ADD_ARG(double, non_hydrostatic) = 1.;
@@ -57,9 +56,8 @@ struct ConstGravityOptionsImpl {
   //!     linearises; mass moved by sedimentation or the positivity limiter
   //!     keeps its face-form booking
   ADD_ARG(std::string, gravity_work) = "face";
-  //! with "cell": add the step's global E+PE defect back as uniform heat per
-  //! unit mass (one global reduction per step)
-  ADD_ARG(bool, gravity_work_fixer) = true;
+  //! removed in V3 (X5, gw1): must stay false; read so old decks still load
+  ADD_ARG(bool, gravity_work_fixer) = false;
   ADD_ARG(double, grav1) = 0.;
   ADD_ARG(double, grav2) = 0.;
   ADD_ARG(double, grav3) = 0.;

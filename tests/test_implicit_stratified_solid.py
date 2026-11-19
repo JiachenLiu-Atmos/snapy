@@ -12,7 +12,7 @@ from pathlib import Path
 import torch
 import yaml
 import test_implicit_face_work_operator as tall
-import test_gravity_work_fixer as box
+import gravity_box as box
 import snapy
 from snapy import MeshBlock, MeshBlockOptions, kIDN, kIPR, kIV1
 torch.set_default_dtype(torch.float64)
@@ -249,7 +249,7 @@ def coarse_restart():
 if __name__ == '__main__':
     coarse_restart()
     failures = []
-    for work, fixer in (('cell', True), ('cell', False), ('face', False)):
+    for work, fixer in (('cell', False), ('face', False)):
         for nz in (120, 140, 150):
             out = tall_run(nz, nz * 11.3 / 45, 9, work, 300, fixer=fixer)
             if not (out['finite'] and out['redos'] == 0 and out['steps'] == 300 and abs(out['top_rho']) < 0.01
@@ -275,7 +275,7 @@ if __name__ == '__main__':
                 and (work == 'cell' and not fixer or abs(out['epe_drift']) < tall.EPE_TOL)):
             failures.append(f'coarse column 160: {out}')
     for scheme in (0, 1, 9):
-        for (work, fixer) in (('cell', False), ('cell', True), ('face', False)):
+        for (work, fixer) in (('cell', False), ('face', False)):
             out = solid_run(scheme, work, fixer)
             if not (out['finite'] and abs(out['mass']) < 1e-12):
                 failures.append(f'solid mass: {out}')

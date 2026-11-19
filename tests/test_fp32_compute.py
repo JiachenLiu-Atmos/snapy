@@ -64,10 +64,6 @@ def case(scheme, steps, sediment=True):
                 "hydro.positivity_min",
                 "hydro.lim_cut",
                 "hydro.lim_flux",
-                "hydro.gwfix_d",
-                "hydro.gwfix_total",
-                "hydro.gwfix_pending",
-                "hydro.gwfix_wall",
                 "hydro.icorr.clamp_residual",
                 "hydro.icorr.dry_clamp_step",
             }
