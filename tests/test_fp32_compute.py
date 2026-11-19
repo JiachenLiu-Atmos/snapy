@@ -54,7 +54,9 @@ def case(scheme, steps, sediment=True):
                 "hydro.eos.",
                 "hydro.recon1.",
                 "hydro.recon23.",
-                "hydro.sed.sedvel.",
+                "hydro.sed.radius",
+                "hydro.sed.density",
+                "hydro.sed.const_vsed",
             )
             diagnostics = {
                 "hydro.P1",
