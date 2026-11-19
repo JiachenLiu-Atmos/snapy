@@ -92,7 +92,7 @@ TEST(diffusion,
 
   // dx=1 and ndim=1 in this fixture.
   double expected = rho_cv_min / (2. * diffusion->options->kappa_iso());
-  EXPECT_NEAR(diffusion->max_time_step(w), expected, 1.e-12 * expected);
+  EXPECT_NEAR(diffusion->max_time_step({w}), expected, 1.e-12 * expected);
 }
 
 TEST_P(DeviceTest, conserved_limiter_uses_nucleation_parent_metadata) {

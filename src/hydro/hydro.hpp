@@ -106,8 +106,9 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
 
   SedHydro psed = nullptr;
 
-  //! forcings
-  std::vector<torch::nn::AnyModule> forcings;
+  //! forcings: gravity (lane I's) runs first, then the sources (A.rst 3.6)
+  ConstGravity pgrav = nullptr;
+  SourceRegistry sources;
   Diffusion pdiffusion = nullptr;
 
   //! Constructor to initialize the layers

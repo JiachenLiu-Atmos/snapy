@@ -1,0 +1,14 @@
+# forcing/diffusion options (src/forcing/forcing.hpp); columns: tools/gen_options.py
+module: diffusion
+struct: DiffusionOptionsImpl
+yaml_node: forcing/diffusion
+extra_keys:
+  "": [nu_scale_x1, kappa_scale_x1]
+options:
+  - {name: nu_iso, key: nu_iso, type: double, default: 0., read: none, doc: "Isotropic viscosity, a finite number >= 0."}
+  - {name: kappa_iso, key: kappa_iso, type: double, default: 0., read: none, doc: "Isotropic heat diffusivity, a finite number >= 0."}
+  - {name: dynamic, key: dynamic, type: bool, default: false, read: none, doc: "nu_iso/kappa_iso as dynamic coefficients: flux = -mu*stress, -k*grad T."}
+  - {name: temperature_inner, key: temperature_inner, type: double, default: 0., read: none, doc: "Prescribed inner x1 wall temperature [K]; zero keeps the default heat BC."}
+  - {name: temperature_outer, key: temperature_outer, type: double, default: 0., read: none, doc: "Prescribed outer x1 wall temperature [K]; zero keeps the default heat BC."}
+  - {name: wall_velocity, key: wall_velocity, type: string, default: stress-free, read: if_present, doc: "stress-free or no-slip."}
+  - {name: implicit_radial, key: implicit_radial, type: bool, default: false, read: none, doc: "Strang-split, second-order L-stable radial heat solve (dry ideal gas)."}

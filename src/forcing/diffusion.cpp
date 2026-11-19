@@ -21,6 +21,8 @@
 #include "forcing.hpp"
 
 namespace snap {
+
+#include <snap_options/diffusion_read.inc>
 namespace {
 
 constexpr int kSpatialDims[] = {3, 2, 1};
@@ -268,6 +270,26 @@ bool active(Coordinate const& coord, int idir) {
 
 }  // namespace
 
+void DiffusionOptionsImpl::report(std::ostream& os) const {
+  auto show = [&os](char const* name, torch::Tensor const& cells,
+                    torch::Tensor const& table) {
+    os << "* " << name << " = ";
+    if (cells.defined()) {
+      os << cells.numel() << " cells\n";
+    } else if (table.defined()) {
+      os << "table of " << table.size(-1) << " points in x1\n";
+    } else {
+      os << "none (uniform)\n";
+    }
+  };
+  os << "-- diffusion options --\n";
+  os << "* nu_iso = " << nu_iso() << "\n"
+     << "* kappa_iso = " << kappa_iso() << "\n"
+     << "* dynamic = " << (dynamic() ? "true" : "false") << "\n";
+  show("nu_scale_x1", nu_scale_x1(), nu_scale_x1_table());
+  show("kappa_scale_x1", kappa_scale_x1(), kappa_scale_x1_table());
+}
+
 DiffusionOptions DiffusionOptionsImpl::from_yaml(YAML::Node const& forcing) {
   if (!forcing["diffusion"]) return nullptr;
 
@@ -275,14 +297,10 @@ DiffusionOptions DiffusionOptionsImpl::from_yaml(YAML::Node const& forcing) {
   TORCH_CHECK(!node["K"] && !node["type"],
               "DiffusionOptions: legacy 'K' and 'type' keys are unsupported; "
               "use 'nu_iso' and 'kappa_iso'.");
-  check_keys(node, "forcing/diffusion",
-             {"nu_iso", "kappa_iso", "dynamic", "nu_scale_x1", "kappa_scale_x1",
-              "temperature_inner", "temperature_outer", "wall_velocity",
-              "implicit_radial"});
-
   // the tables are ordinary tensors even when parsed under inference mode
   c10::InferenceMode not_inference(false);
   auto op = DiffusionOptionsImpl::create();
+  read_diffusion_rows(*op, node, "forcing/diffusion");
   auto take_non_negative = [&](char const* key) {
     if (!node[key]) return 0.;
     auto const value = node[key];
@@ -304,8 +322,6 @@ DiffusionOptions DiffusionOptionsImpl::from_yaml(YAML::Node const& forcing) {
   op->kappa_iso() = take_non_negative("kappa_iso");
   op->temperature_inner() = take_non_negative("temperature_inner");
   op->temperature_outer() = take_non_negative("temperature_outer");
-  if (node["wall_velocity"])
-    op->wall_velocity() = node["wall_velocity"].as<std::string>();
   if (node["implicit_radial"]) {
     auto value = node["implicit_radial"].as<std::string>();
     TORCH_CHECK(value == "true" || value == "false",
@@ -360,10 +376,16 @@ DiffusionOptions DiffusionOptionsImpl::from_yaml(YAML::Node const& forcing) {
   return op;
 }
 
-DiffusionImpl::DiffusionImpl(DiffusionOptions const& options_,
-                             torch::nn::Module* p)
-    : options(options_) {
-  phydro = dynamic_cast<HydroImpl const*>(p);
+DiffusionImpl::DiffusionImpl(DiffusionOptions op, HydroImpl const* p)
+    : SourceModule(std::move(op), p) {
+  // check_profiles reads the profiles on the host each call
+  decl_ = {"diffusion",
+           SourcePhase::pre_implicit,
+           options->implicit_radial(),
+           SourceKind::physical,
+           kMomentum | kEnergy,
+           SourceRegion::interior,
+           false};
   reset();
 }
 
@@ -515,8 +537,9 @@ void DiffusionImpl::check_profiles() const {
               "dynamic: true, set after the MeshBlock was constructed.");
 }
 
-torch::Tensor DiffusionImpl::forward(torch::Tensor du, torch::Tensor w,
-                                     torch::Tensor temp, double dt) {
+void DiffusionImpl::add(torch::Tensor du, StageState const& s) {
+  auto w = s.w, temp = s.temp;
+  double dt = s.dt;
   auto pmb = phydro->pmb;
   auto coord = pmb->pcoord;
 
@@ -531,8 +554,9 @@ torch::Tensor DiffusionImpl::forward(torch::Tensor du, torch::Tensor w,
   on_state(nu_scale_, nu_scale_w_);
   on_state(kappa_scale_, kappa_scale_w_);
   if (coord->options->type() == "gnomonic-equiangle") {
-    if (options->nu_iso() == 0. && options->kappa_iso() == 0.) return du;
-    return forward_cubed_sphere(du, w, temp, dt);
+    if (options->nu_iso() == 0. && options->kappa_iso() == 0.) return;
+    forward_cubed_sphere(du, w, temp, dt);
+    return;
   }
 
   auto [cell_start, cell_end] = region_bounds(
@@ -671,10 +695,10 @@ torch::Tensor DiffusionImpl::forward(torch::Tensor du, torch::Tensor w,
   if (has_flux) {
     du -= dt * coord->divergence(fluxes[0], fluxes[1], fluxes[2]);
   }
-  return du;
 }
 
-double DiffusionImpl::max_time_step(torch::Tensor w) const {
+double DiffusionImpl::max_time_step(StageState const& s) const {
+  auto w = s.w;
   check_profiles();
   auto coord = phydro->pmb->pcoord;
   auto interior =

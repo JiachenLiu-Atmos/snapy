@@ -427,10 +427,10 @@ TEST(CubedSphereDiffusion, radial_implicit_conservation_stability_and_order) {
             .sum()
             .item<double>();
     EXPECT_NEAR(energy1, energy0, 1.e-12 * energy0);
-    d->begin_step(u, 10.);
-    d->finish_step(u, 10.);
+    d->begin_split(u, 10.);
+    d->finish_split(u, 10.);
     EXPECT_TRUE(torch::isfinite(u).all().item<bool>());
-    d->restore_step(u);
+    d->restore_split(u);
     auto restored =
         b->phydro->peos
             ->compute("W->T", {b->phydro->peos->compute("U->W", {u})})

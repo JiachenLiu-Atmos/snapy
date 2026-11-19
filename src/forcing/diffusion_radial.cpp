@@ -4,14 +4,14 @@
 #include "forcing.hpp"
 
 namespace snap {
-void DiffusionImpl::begin_step(torch::Tensor u, double dt) {
+void DiffusionImpl::begin_split(torch::Tensor u, double dt) {
   split_initial_ = u.clone();
   radial_conduction_step(u, 0.5 * dt);
 }
-void DiffusionImpl::finish_step(torch::Tensor u, double dt) {
+void DiffusionImpl::finish_split(torch::Tensor u, double dt) {
   radial_conduction_step(u, 0.5 * dt);
 }
-void DiffusionImpl::restore_step(torch::Tensor u) const {
+void DiffusionImpl::restore_split(torch::Tensor u) const {
   TORCH_CHECK(split_initial_.defined(),
               "[Diffusion] No split-step state to restore.");
   u.copy_(split_initial_);
