@@ -504,14 +504,14 @@ TEST(diffusion_x1_scale, timestep_uses_the_largest_scaled_coefficient) {
   options->hydro()->diffusion() =
       parse(table_yaml("nu_scale_x1", {0., 6.}, {1., 4.}));
   auto block = build(options);
-  EXPECT_NEAR(block->phydro->pdiffusion->max_time_step(w_of(block)),
+  EXPECT_NEAR(block->phydro->pdiffusion->max_time_step({w_of(block)}),
               1. / (2. * 0.5 * 4.), 1.e-12);
 
   options = base_options();
   options->hydro()->diffusion() =
       parse(table_yaml("kappa_scale_x1", {0., 6.}, {1., 4.}));
   block = build(options);
-  EXPECT_NEAR(block->phydro->pdiffusion->max_time_step(w_of(block)),
+  EXPECT_NEAR(block->phydro->pdiffusion->max_time_step({w_of(block)}),
               1. / (2. * 0.25 * 4.), 1.e-12);
 }
 
@@ -723,9 +723,10 @@ TEST_P(DeviceTest, profile_change_is_refused_by_max_time_step) {
     auto w = sheared_state(block, device, dtype, &temp);
     auto diffusion = block->phydro->pdiffusion;
     // dx = 1, one active dimension: 1 / (2 nu max s) with max s = 1
-    EXPECT_NEAR(diffusion->max_time_step(w), 1. / (2. * 0.5), 1.e-12) << c.what;
+    EXPECT_NEAR(diffusion->max_time_step({w}), 1. / (2. * 0.5), 1.e-12)
+        << c.what;
     c.change(diffusion->options);
-    EXPECT_THROW(diffusion->max_time_step(w), c10::Error) << c.what;
+    EXPECT_THROW(diffusion->max_time_step({w}), c10::Error) << c.what;
     EXPECT_THROW(tendency(block, w, temp), c10::Error) << c.what;
   }
 }
@@ -757,10 +758,11 @@ TEST(diffusion_x1_scale, profile_write_through_outside_storage_is_refused) {
     torch::Tensor temp;
     auto w = sheared_state(block, torch::kCPU, torch::kFloat64, &temp);
     auto diffusion = block->phydro->pdiffusion;
-    EXPECT_NEAR(diffusion->max_time_step(w), 1. / (2. * 0.5), 1.e-12) << c.what;
+    EXPECT_NEAR(diffusion->max_time_step({w}), 1. / (2. * 0.5), 1.e-12)
+        << c.what;
     c.write();
     EXPECT_EQ(c.cells[3].item<double>(), 4.) << c.what;  // the write landed
-    EXPECT_THROW(diffusion->max_time_step(w), c10::Error) << c.what;
+    EXPECT_THROW(diffusion->max_time_step({w}), c10::Error) << c.what;
     EXPECT_THROW(tendency(block, w, temp), c10::Error) << c.what;
   }
 }

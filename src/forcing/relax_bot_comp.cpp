@@ -3,9 +3,6 @@
 #include <numeric>
 #include <unordered_set>
 
-// yaml
-#include <yaml-cpp/yaml.h>
-
 // snap
 #include <snap/snap.h>
 
@@ -17,44 +14,30 @@
 
 namespace snap {
 
+#include <snap_options/relax_bot_comp_read.inc>
+
 RelaxBotCompOptions RelaxBotCompOptionsImpl::from_yaml(
     YAML::Node const& forcing) {
-  if (!forcing["relax-bot-comp"]) return nullptr;
-
-  auto node = forcing["relax-bot-comp"];
-  check_keys(node, "forcing/relax-bot-comp", {"tau", "species", "xfrac"});
-  auto op = RelaxBotCompOptionsImpl::create();
-
-  op->tau() = node["tau"].as<double>(0.0);
-  op->species() =
-      node["species"].as<std::vector<std::string>>(std::vector<std::string>{});
-  op->xfrac() = node["xfrac"].as<std::vector<double>>(std::vector<double>{});
-
-  TORCH_CHECK(
-      op->species().size() == op->xfrac().size(),
-      "RelaxBotCompOptions: 'species' and 'xfrac' must have the same length.");
-  TORCH_CHECK(op->tau() > 0.,
-              "RelaxBotCompOptions: tau must be greater than zero.");
-
+  auto op = read_forcing(forcing, "relax-bot-comp", read_relax_bot_comp_rows);
   std::unordered_set<std::string> names;
-  for (int n = 0; n < op->species().size(); ++n) {
+  for (int n = 0; op && n < op->species().size(); ++n) {
     TORCH_CHECK(names.insert(op->species()[n]).second,
                 "RelaxBotCompOptions: duplicate species '", op->species()[n],
                 "'.");
     TORCH_CHECK(op->xfrac()[n] >= 0. && op->xfrac()[n] <= 1.,
                 "RelaxBotCompOptions: xfrac values must lie in [0, 1].");
   }
-  TORCH_CHECK(std::accumulate(op->xfrac().begin(), op->xfrac().end(), 0.) <= 1.,
-              "RelaxBotCompOptions: configured xfrac values must sum to no "
-              "more than one.");
-
+  TORCH_CHECK(
+      !op || std::accumulate(op->xfrac().begin(), op->xfrac().end(), 0.) <= 1.,
+      "RelaxBotCompOptions: configured xfrac values must sum to no "
+      "more than one.");
   return op;
 }
 
-RelaxBotCompImpl::RelaxBotCompImpl(RelaxBotCompOptions const& options_,
-                                   torch::nn::Module* p)
-    : options(options_) {
-  phydro = dynamic_cast<HydroImpl const*>(p);
+RelaxBotCompImpl::RelaxBotCompImpl(RelaxBotCompOptions op, HydroImpl const* p)
+    : BottomSlab(std::move(op), p, "relax-bot-comp",
+                 kMass | kSpecies | kEnergy) {
+  decl_.capturable = false;  // kintera's VT->U is not capturable (section 8)
   reset();
 }
 
@@ -79,13 +62,8 @@ void RelaxBotCompImpl::reset() {
   }
 }
 
-torch::Tensor RelaxBotCompImpl::forward(torch::Tensor du, torch::Tensor w,
-                                        torch::Tensor temp, double dt) {
-  // Applies at the physical lower x1 boundary only: under an x1-decomposed
-  // layout (nb1 > 1) a rank whose lower face is an internal block interface
-  // must not force there.
-  if (!phydro->pmb->options->is_physical_boundary(0, 0, -1)) return du;
-
+void RelaxBotCompImpl::add(torch::Tensor du, StageState const& s) {
+  auto w = s.w, temp = s.temp;
   auto bottom =
       phydro->pmb->part({0, 0, -1}, PartOptions().exterior(false).depth(1));
   auto bottom3 = phydro->pmb->part(
@@ -114,8 +92,7 @@ torch::Tensor RelaxBotCompImpl::forward(torch::Tensor du, torch::Tensor w,
   delta[IDN] = -rho * (target_y - current_y).sum(0);
   delta.narrow(0, ICY, ny) = rho * (target_y - current_y);
   delta[IPR] = target_ie - current_ie;
-  du.index(bottom) += dt / options->tau() * delta;
-  return du;
+  du.index(bottom) += s.dt / options->tau() * delta;
 }
 
 }  // namespace snap

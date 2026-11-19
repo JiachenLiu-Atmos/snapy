@@ -1,0 +1,11 @@
+# forcing/top-sponge-lyr options (src/forcing/forcing.hpp); columns: tools/gen_options.py
+module: top_sponge_lyr
+struct: TopSpongeLyrOptionsImpl
+yaml_node: forcing/top-sponge-lyr
+report_title: "-- top sponge layer options --"
+options:
+  - {name: tau, key: tau, type: double, default: 0., doc: "Damping time [s]."}
+  - {name: width, key: width, type: double, default: 0., doc: "Layer width in x1 length units."}
+checks:
+  - {cond: "op.tau() > 0.", message: "TopSpongeLyrOptions: tau must be greater than zero."}
+  - {cond: "op.width() > 0.", message: "TopSpongeLyrOptions: width must be greater than zero."}

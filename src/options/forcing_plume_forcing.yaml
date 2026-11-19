@@ -1,0 +1,8 @@
+# forcing/plume-forcing options (src/forcing/forcing.hpp); columns: tools/gen_options.py
+module: plume_forcing
+struct: PlumeForcingOptionsImpl
+yaml_node: forcing/plume-forcing
+report_title: "-- plume forcing options --"
+options:
+  - {name: entrainment, key: entrainment, type: double, default: 0.1, doc: "Entrainment rate."}
+  - {name: N2, key: N2, type: double, default: 0., doc: "Buoyancy frequency squared [1/s^2]."}

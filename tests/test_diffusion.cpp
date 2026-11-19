@@ -482,7 +482,7 @@ TEST_P(DeviceTest, timestep_uses_largest_diffusivity) {
   auto block = make_block();
   block->to(device, dtype);
   auto w = make_primitive(block, device, dtype);
-  EXPECT_NEAR(block->phydro->pdiffusion->max_time_step(w), 1., 1.e-12);
+  EXPECT_NEAR(block->phydro->pdiffusion->max_time_step({w}), 1., 1.e-12);
 
   w[IPR] = 1.e-6;
   EXPECT_NEAR(block->phydro->max_time_step(w), 1., 1.e-6);
@@ -493,7 +493,7 @@ TEST(diffusion, timestep_rejects_a_non_positive_bound) {
   auto w = make_primitive(block, torch::kCPU, torch::kFloat64);
   w[IDN].fill_(-1.);
   block->phydro->pdiffusion->options->dynamic(true);
-  EXPECT_THROW(block->phydro->pdiffusion->max_time_step(w), c10::Error);
+  EXPECT_THROW(block->phydro->pdiffusion->max_time_step({w}), c10::Error);
 }
 
 // std::min(dt, NaN) returns dt: a NaN diffusivity used to drop the bound
@@ -571,6 +571,6 @@ TEST(diffusion, dynamic_coefficients_carry_no_density) {
          coeff =
              std::max(0.5 / rho_min, 0.25 / (rho_min * peos->species_cv_ref()));
   opts->dynamic(true);
-  EXPECT_NEAR(block->phydro->pdiffusion->max_time_step(w), 1. / (2. * coeff),
+  EXPECT_NEAR(block->phydro->pdiffusion->max_time_step({w}), 1. / (2. * coeff),
               1.e-12);
 }

@@ -1,0 +1,14 @@
+# forcing/bot-heat options (src/forcing/forcing.hpp); columns: tools/gen_options.py
+module: bot_heat
+struct: BotHeatOptionsImpl
+yaml_node: forcing/bot-heat
+report_title: "-- bottom heating options --"
+options:
+  - {name: flux, key: flux, type: double, default: 0., doc: "Heat flux [W/m^2], >= 0."}
+  - {name: depth, key: depth, type: int, default: 1, doc: "Layer depth in cells."}
+  - {name: thickness, key: thickness, type: double, default: 0., doc: "The layer in x1 length units; used instead of depth when > 0 (#280)."}
+checks:
+  - {cond: '!(node["depth"] && node["thickness"])', message: "BotHeat: give depth (cells) or thickness (x1 length), not both"}
+  - {cond: "op.flux() >= 0.", message: "BotHeat flux must be positive"}
+  - {cond: "op.depth() > 0.", message: "BotHeat depth must be greater than zero"}
+  - {cond: '!node["thickness"] || (std::isfinite(op.thickness()) && op.thickness() > 0.)', message: "BotHeat thickness must be finite and greater than zero"}

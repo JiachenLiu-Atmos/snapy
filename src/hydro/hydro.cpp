@@ -226,11 +226,6 @@ void HydroImpl::reset() {
     SINFO(Hydro) << "Forcings: " << fmt::format("{}", forcing_names) << "\n";
   }
 
-  //// ---- (9) register all forcings ---- ////
-  for (auto i = 0; i < forcings.size(); i++) {
-    register_module(forcing_names[i], forcings[i].ptr());
-  }
-
   //// ---- (10) populate buffers ---- ////
   int nc1 = pmb->options->coord()->nc1();
   int nc2 = pmb->options->coord()->nc2();
@@ -455,7 +450,7 @@ double HydroImpl::max_time_step(torch::Tensor w, torch::Tensor solid) const {
   }
 
   double dt = dt_min.min().item<double>();
-  if (pdiffusion) dt = std::min(dt, pdiffusion->max_time_step(w));
+  dt = std::min(dt, sources.max_time_step({w}));
   return dt;
 }
 
