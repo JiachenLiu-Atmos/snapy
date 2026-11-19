@@ -103,6 +103,7 @@ set_tests_properties(test_hydro_ref_x1_stretched_cuda.${buildl}
 setup_test(test_uranus_cycle1_abort)
 setup_test(test_pref_local_seam)
 setup_test(test_gravity_work_cache_to)
+setup_test(test_gravity_work_rows)
 setup_test(test_x1_seam_split)
 # one arm per entry: its environment, its one test, which must run and pass (a
 # skip or an empty filter prints "PASSED ] 0 tests" and fails the entry)

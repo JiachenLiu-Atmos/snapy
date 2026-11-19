@@ -7,7 +7,7 @@
 
 // snap
 #include <snap/forcing/forcing.hpp>
-#include <snap/hydro/gravity_work_radial.hpp>
+#include <snap/hydro/gravity_work.hpp>
 
 // arg
 #include <snap/add_arg.h>
@@ -126,32 +126,19 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
   torch::Tensor _a, _b, _c, _delta, _du0, _corr, _mass_corr, _clamp_residual,
       _dry_clamp_step;
 
-  //! corrected-PE work: the grid-only stencil rows and work
-  //! factors, built once per grid (#291)
-  X1GridKey _rx_key;
-  torch::Tensor _rx_lo, _rx_mid, _rx_hi;
-  //! wall third points of the exact 3-point slope, solved by Woodbury
-  torch::Tensor _rx_t0, _rx_t1;
-  CorrectedPEFactors _rx_work;
+  //! the gravity work's grid-only coefficients: W's face weights and the
+  //! potentials of the remainder, K's rows and factors (V3 I-3)
+  GravityWork _gw;
 
-  // grid-only factors of forward_masked, rebuilt only
-  // when a coordinate face tensor, the device, dtype, shape or grav1 changes
-  struct GeoKey {
-    c10::TensorImpl const *f1 = nullptr, *f2 = nullptr, *f3 = nullptr;
-    int64_t v1 = -1, v2 = -1, v3 = -1;
-    torch::Device dev = torch::kCPU;
-    c10::ScalarType st = torch::kDouble;
-    std::vector<int64_t> shape;
-    double grav1 = 0.;
-    bool operator==(GeoKey const& o) const {
-      return f1 == o.f1 && f2 == o.f2 && f3 == o.f3 && v1 == o.v1 &&
-             v2 == o.v2 && v3 == o.v3 && dev == o.dev && st == o.st &&
-             shape == o.shape && grav1 == o.grav1;
-    }
-  };
-  GeoKey _g_key;
-  torch::Tensor _g_area, _g_volume, _g_work_lo, _g_work_hi, _g_mask0, _g_phi,
-      _g_dp_lo, _g_dp_hi;
+  //! the post-solve gravity-work remainder, one call (V3 I-3): the work of the
+  //! projection and the availability clamp, then the corrected potential
+  //! energy's remainder g1 sigma^2 s[du - du0] beyond what the matrix booked;
+  //! added to du[IPR] in that order
+  void book_remainder_(torch::Tensor du, int wsize, torch::Tensor const& mask,
+                       bool no_solid, bool face_work, bool diffusive_work,
+                       bool radial_exact, double grav1,
+                       torch::Tensor const& rx_mass0,
+                       torch::Tensor const& rx_fluid, int nx1);
 };
 TORCH_MODULE(ImplicitHydro);
 

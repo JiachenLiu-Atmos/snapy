@@ -42,6 +42,5 @@ namespace snap {
 constexpr int kVicFaceWork = 16;
 // Cell work plus gravity work of the implicit Roe mass diffusion.
 constexpr int kVicDiffusiveCell = 32;
-constexpr int kVicCartesianFaceWork = 64;
 
 }  // namespace snap
