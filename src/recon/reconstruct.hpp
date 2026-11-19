@@ -174,6 +174,37 @@ class ReconstructImpl : public torch::nn::Cloneable<ReconstructImpl> {
 };
 
 TORCH_MODULE(Reconstruct);
+
+class Conversion;
+class CoordinateImpl;
+class PrecisionPolicy;
+class RegisterMonitor;
+struct ReferenceFaces;
+
+//! x1 well-balanced reconstruction: w' = w - ref, parity ghosts, recon of w',
+//! restore ref at faces with the reference fallbacks, wall mirror. The
+//! reference (X1Reference) and the split path's pressure_base1 are the
+//! caller's.
+struct WellBalancedX1 {
+  CoordinateImpl const* coord = nullptr;
+  PrecisionPolicy const* policy = nullptr;
+  //! physical, non-outflow x1 walls (inner, outer): even-parity ghosts
+  bool mirror[2] = {false, false};
+  //! conversion order 4: the reflecting walls whose ghosts conv4 fills
+  //! (wall4_rows) and whose wall face mirrors its owned side; trips counts
+  bool wall4[2] = {false, false};
+  Conversion const* conv4 = nullptr;
+  torch::Tensor conv4_trips;
+  //! dynamics/x1-mass-covariance: the velocity correction before the recon
+  bool covariance = false;
+  //! split path: the cell pressure background and its increment
+  torch::Tensor pressure0, pressure_delta;
+
+  //! the x1 face states [wl, wr] of wx1, which is changed and restored in
+  //! place; recon (floors off) and the fallbacks count into monitor
+  torch::Tensor forward(torch::Tensor wx1, ReferenceFaces const& ref,
+                        ReconstructImpl& recon, RegisterMonitor& monitor) const;
+};
 }  // namespace snap
 
 #undef ADD_ARG

@@ -16,6 +16,7 @@
 #include <snap/implicit/implicit_hydro.hpp>
 #include <snap/layout/layout.hpp>
 #include <snap/recon/reconstruct.hpp>
+#include <snap/recon/x1_reference.hpp>
 #include <snap/recon/x1_rows.hpp>
 #include <snap/riemann/riemann.hpp>
 #include <snap/sedimentation/sedimentation.hpp>
@@ -27,11 +28,7 @@ namespace snap {
 
 class MeshBlockImpl;
 class Conversion;
-class HydroReferenceX1Operator;
 struct X1PlainMeanStencils;
-struct HydroPressureSplit {
-  torch::Tensor face0, face_delta, cell0, cell_delta, gauge;
-};
 struct X1PressureSourceStencils;
 
 struct HydroOptionsImpl {
@@ -306,13 +303,10 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
                                  torch::Tensor const& wr, int dim) const;
 
   // Per-column hydrostatic references for the well-balanced x1
-  // reconstruction: {psf_lo (face pressure), pref (cell pressure), dsf (face
-  // density, (2, ...) = its ILT and IRT values), dref (cell density)},
-  // rebuilt from the current field on every call.
-  std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
-  _hydro_ref_x1(torch::Tensor const& w,
-                torch::Tensor const& dw = torch::Tensor(),
-                HydroPressureSplit* split = nullptr) const;
+  // reconstruction (X1Reference over this block's x1 column), rebuilt from
+  // the current field on every call; dw defined: the split path
+  ReferenceFaces _hydro_ref_x1(torch::Tensor const& w,
+                               torch::Tensor const& dw = torch::Tensor()) const;
   torch::Tensor _apply_implicit_correction(torch::Tensor& du,
                                            torch::Tensor const& w, double dt,
                                            Variables const& other);
@@ -321,20 +315,10 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! Register all forcing modules
   std::vector<std::string> _register_forcings_module();
 
-  mutable std::shared_ptr<HydroReferenceX1Operator> x1_reference_;
+  //! the well-balanced x1 reference and its caches
+  X1Reference x1_reference_;
 
   void _check_stretched_x1(torch::Tensor const& u) const;
-  //! conversion-order 4 face-density rows for this block's x1 grid, built on
-  //! first use and again when their X1RowsKey changes
-  mutable std::shared_ptr<FaceDensityRows> wb_ref4_;
-  //! the x1 reconstruction's optimal-linear rows (cp5) for the face density,
-  //! and the X1RowsKey they were built for
-  mutable std::shared_ptr<InterpImpl> dsf_lin_;
-  mutable X1RowsKey dsf_lin_key_;
-  //! key 4: (side, face) rows of the reflecting x1 walls that keep wb_ref4's
-  //! face density, and the block layout they were built for
-  mutable torch::Tensor wb4_lr_side_, wb4_lr_col_;
-  mutable std::array<int64_t, 3> wb4_lr_at_{-1, -1, -1};
   //! SNAP_X1_CENTROID_EXACT r^2 -> plain-mean stencils, built on first use
   mutable std::shared_ptr<X1PlainMeanStencils> x1pm_;
   //! and its pressure-force stencils, for the hydrostatic correction

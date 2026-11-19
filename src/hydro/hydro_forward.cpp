@@ -579,7 +579,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     }
     torch::Tensor wtmp;
     if (wb_x1) {
-      HydroPressureSplit split;
       auto base = wx1;
       torch::Tensor delta;
       if (split_flux) {
@@ -590,10 +589,9 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         delta[IPR].copy_(perturb.pressure_delta);
         delta[IDN].copy_(perturb.density_delta);
       }
-      auto [psf_lo, pref, dsf, dref] =
-          _hydro_ref_x1(base, delta, split_flux ? &split : nullptr);
+      auto ref = _hydro_ref_x1(base, delta);
       if (split_flux) {
-        pressure_base1 = split.face0;
+        pressure_base1 = ref.face0;
         // The unclamped scan satisfies grad(p0)=g*rho0 analytically. Retain
         // the exceptional floor residual, rather than imposing rest balance.
         auto grad = face_gradient(pressure_base1, DIM1);
@@ -602,137 +600,30 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         background_force1 = torch::where(
             clamped, options->grav()->grav1() * perturb.density0 - grad,
             torch::zeros_like(grad));
-        if (fp32()) pressure_base1 = pressure_base1 + split.gauge;
+        if (pmb->policy.fp32()) pressure_base1 = pressure_base1 + ref.gauge;
         pressure_base1_before_seam = pressure_base1.clone();
       }
-      auto pressure = wx1[IPR].clone();
-      auto density = wx1[IDN].clone();
 
-      if (split_flux)
-        wx1[IPR].copy_((perturb.pressure0 - split.cell0) +
-                       (perturb.pressure_delta - split.cell_delta));
-      else
-        wx1[IPR] -= pref;
-      if (fp32()) wx1[IPR] -= split.gauge;
-      wx1[IDN] -= dref;
-
-      // Even-parity ghost perturbations at the walls: p'(is-m) =
-      // p'(is+m-1), rho' likewise. Only apply this at physical x1 walls.
-      int ng = pmb->pcoord->options->nghost();
-      int is = pmb->pcoord->il();
-      int iu = pmb->pcoord->iu();
-      for (int c : {(int)IPR, (int)IDN}) {
-        if (phys_x1inner && !is_outflow(pmb->options->bfuncs()[0])) {
-          wx1[c]
-              .narrow(-1, is - ng, ng)
-              .copy_(wx1[c].narrow(-1, is, ng).flip(-1));
-        }
-
-        if (phys_x1outer && !is_outflow(pmb->options->bfuncs()[1])) {
-          wx1[c]
-              .narrow(-1, iu + 1, ng)
-              .copy_(wx1[c].narrow(-1, iu + 1 - ng, ng).flip(-1));
-        }
-        // key 4 rho', p' parity ghosts (wall4_rows); runs only with gravity
-        fill4(wx1[c], c == IDN ? 2 : 3, true, c == IDN ? dref : pref);
-      }
-
-      torch::Tensor velocity;
-      if (x1_mass_covariance()) {
-        velocity = wx1[IVX].clone();
-        auto x1v = pmb->pcoord->x1v.to(w.device(), w.scalar_type());
-        auto dx1f = pmb->pcoord->dx1f.to(w.device(), w.scalar_type());
-        bool stretched = pmb->pcoord->options->stretched_x1();
-        auto rho_1 = x1_cov_d1_centred(density, x1v, stretched);
-        // next to a reflecting wall the even ghost density is not the
-        // stratified column: one-sided second order in the first/last cell
-        if (phys_x1inner && !is_outflow(pmb->options->bfuncs()[0]))
-          rho_1.select(-1, is).copy_(
-              x1_cov_one_sided(density, x1v, is, 1, stretched));
-        if (phys_x1outer && !is_outflow(pmb->options->bfuncs()[1]))
-          rho_1.select(-1, iu).copy_(
-              x1_cov_one_sided(density, x1v, iu, -1, stretched));
-        auto w_1 = x1_cov_d1_centred(velocity, x1v, stretched);
-        wx1[IVX] -= dx1f * dx1f / 12. * rho_1 * w_1 / density;
-        // ghosts at reflecting walls: odd mirror of the corrected interior
-        if (phys_x1inner && !is_outflow(pmb->options->bfuncs()[0]))
-          wx1[IVX]
-              .narrow(-1, is - ng, ng)
-              .copy_(-wx1[IVX].narrow(-1, is, ng).flip(-1));
-        if (phys_x1outer && !is_outflow(pmb->options->bfuncs()[1]))
-          wx1[IVX]
-              .narrow(-1, iu + 1, ng)
-              .copy_(-wx1[IVX].narrow(-1, iu + 1 - ng, ng).flip(-1));
+      WellBalancedX1 wb;
+      wb.coord = pmb->pcoord.get();
+      wb.policy = &pmb->policy;
+      for (int f : {0, 1}) {
+        wb.mirror[f] = (f ? phys_x1outer : phys_x1inner) &&
+                       !is_outflow(pmb->options->bfuncs()[f]);
+        wb.wall4[f] = wall4[f];
       }
       if (wall4[0] || wall4[1]) {
-        if (!velocity.defined()) velocity = wx1[IVX].clone();
-        fill4(wx1[IVX], 1, false, {});
+        wb.conv4 = conv4_.get();
+        wb.conv4_trips = _conv4_trips;
       }
-
-      // floor=false: reconstruction-stage floors would clamp legitimately
-      // negative perturbations.
-      wtmp = precon1->forward(fp32() ? wx1.to(torch::kFloat32) : wx1, DIM1,
-                              /*floor=*/false);
-      post_floors(precon1);
-
-      wx1[IPR].copy_(pressure);
-      wx1[IDN].copy_(density);
-      if (velocity.defined()) wx1[IVX].copy_(velocity);
-      // Restore full face pressure/density; floor any nonlinear-WENO overshoot
-      // that would go non-positive (the references are tiny near the top) back
-      // to the reference. At rest the perturbation is ~0 so the floor never
-      // fires and well-balancing is preserved.
-      auto pl = wtmp[ILT][IPR] + psf_lo;
-      auto pr = wtmp[IRT][IPR] + psf_lo;
-      if (fp32()) {
-        pl += split.gauge;
-        pr += split.gauge;
-      }
-      // FaceFloor: the WB fallbacks below count as floors, faces is..iu+1
-      auto fallback = [&](torch::Tensor const& x) {
-        return (x > 0.).logical_not().narrow(-1, is, iu + 2 - is);
-      };
-      monitor.count("face_floor.p", fallback(pl));
-      monitor.count("face_floor.p", fallback(pr));
+      wb.covariance = x1_mass_covariance();
       if (split_flux) {
-        wtmp[ILT][IPR].copy_(torch::where(
-            pl > 0., wtmp[ILT][IPR] + split.face_delta,
-            fp32() ? split.face_delta - split.gauge : split.face_delta));
-        wtmp[IRT][IPR].copy_(torch::where(
-            pr > 0., wtmp[IRT][IPR] + split.face_delta,
-            fp32() ? split.face_delta - split.gauge : split.face_delta));
-      } else {
-        wtmp[ILT][IPR].copy_(torch::where(pl > 0., pl, psf_lo));
-        wtmp[IRT][IPR].copy_(torch::where(pr > 0., pr, psf_lo));
+        wb.pressure0 = perturb.pressure0;
+        wb.pressure_delta = perturb.pressure_delta;
       }
-
-      auto dl = wtmp[ILT][IDN] + dsf[ILT];
-      auto dr = wtmp[IRT][IDN] + dsf[IRT];
-      monitor.count("face_floor.rho", fallback(dl));
-      monitor.count("face_floor.rho", fallback(dr));
-      // Positivity fallback = the adjacent cell's density, not dsf: a
-      // reference that overestimates density aloft (a bottom-anchored
-      // isentrope did, by orders of magnitude) turns every floor event at a
-      // reflecting top wall into a large spurious wall impedance.
-      // Shift by one along x1 with EDGE REPLICATION, not torch::roll: roll is
-      // circular, so at index 0 it would substitute the density from the TOP
-      // of the column. That word is not consumed today (physical faces run
-      // il..iu+1 with il = nghost), but a wraparound inside a positivity
-      // fallback becomes live the moment a caller changes the range.
-      auto n1 = density.size(-1);
-      auto rho_below = torch::cat(
-          {density.narrow(-1, 0, 1), density.narrow(-1, 0, n1 - 1)}, -1);
-      wtmp[ILT][IDN].copy_(torch::where(dl > 0., dl, rho_below));
-      wtmp[IRT][IDN].copy_(torch::where(dr > 0., dr, density));
-      // key 4, after the floors: the wall face mirrors its owned side, v* = 0
-      for (int s : {0, 1}) {
-        if (!wall4[s]) continue;
-        int i = s ? iu + 1 : is, o = s ? ILT : IRT;
-        wtmp[1 - o].select(-1, i).copy_(wtmp[o].select(-1, i));
-        wtmp[1 - o][IVX].select(-1, i).neg_();
-      }
+      wtmp = wb.forward(wx1, ref, *precon1, monitor);
     } else {
-      if (fp32()) {
+      if (pmb->policy.fp32()) {
         wtmp = reconstruct_sweep(DIM1, pressure_base1);
       } else {
         wtmp = precon1->forward(wx1, DIM1);
