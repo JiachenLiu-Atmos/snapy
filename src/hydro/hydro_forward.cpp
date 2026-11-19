@@ -1,6 +1,7 @@
 // C/C++
 #include <chrono>
 #include <limits>
+#include <numeric>
 #include <typeinfo>
 
 // snap
@@ -572,7 +573,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       face_pressure += background;
   };
   int ny = u.size(0) - ICY;
-  // the settling part of the x1 species flux, for the positivity carry
+  // the settling part of the x1 species flux, for the positivity carry: the
+  // species rows of sedimentation's own P1 buffer (R2)
   torch::Tensor fsed1;
   // gravity-work: cell -- the Riemann (background) x1 mass flux F^R; the mass
   // that sedimentation and the positivity limiter add (F - F^R) keeps its
@@ -855,14 +857,14 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       }
     }
 
-    // sedimentation flux; skipped when x1 flux is off (_flux1 not rewritten).
-    // Its settling part is kept wherever step 4.C can limit species: with the
-    // eos limiter, or with the covariance rows that switch it on (cov2, cov3)
-    if (psed && !options->disable_flux_x1()) {
-      bool carry = (options->eos()->limiter() || flux_covariance()) && ny > 0;
-      auto fadv = carry ? _flux1.narrow(0, ICY, ny).clone() : torch::Tensor();
-      psed->forward(fp32() ? w.to(torch::kFloat32) : w, _flux1);
-      if (carry) fsed1 = _flux1.narrow(0, ICY, ny) - fadv;
+    // sedimentation flux (P1); skipped when x1 flux is off (_flux1 not
+    // rewritten). Its settling part is read wherever step 4.C can limit
+    // species: with the eos limiter, or with the covariance rows that switch
+    // it on (cov2, cov3)
+    if (psed && !options->disable_flux_x1() && psed->settles()) {
+      auto const& sed = psed->post(freg, fp32() ? w.to(torch::kFloat32) : w);
+      if ((options->eos()->limiter() || flux_covariance()) && ny > 0)
+        fsed1 = sed.narrow(0, ICY, ny);
     }
 
     // Make internal x1 seam fluxes single-valued. The two ranks sharing an
@@ -1222,9 +1224,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     flux_positivity_sync_theta_(pmb, theta, "hydro_theta");
     if (hspec.defined()) flux_positivity_sync_theta_(pmb, hspec, "hydro_hspec");
 
-    // theta's depth is not its consequence: measure the flux it removes
-    auto f1_pre = f1.defined() ? f1.abs() : torch::Tensor();
-
     // the withheld species mass keeps its energy and momentum in the donor
     if (hspec.defined()) {
       // a lateral face's momentum flux is covariant in the face's own basis
@@ -1272,17 +1271,26 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
                             fv[d]["hydro_vhi:-"].narrow(0, IVX, 3)});
         }
       }
-      flux_positivity_carry_(theta, hspec, u.narrow(0, IVX, 3) / w[IDN], _flux1,
-                             _flux2, _flux3, pmb->pcoord, fsed1, vface[0],
-                             vface[1]);
+      flux_positivity_carry_(theta, hspec, u.narrow(0, IVX, 3) / w[IDN], freg,
+                             pmb->pcoord, fsed1, vface[0], vface[1]);
     }
-    flux_positivity_scale_(theta, f1, f2, f3, pmb->pcoord);
 
-    if (f1_pre.defined()) {
-      // non-negative while every bfunc keeps the ghost theta in [0,1]
-      auto cut = f1_pre - f1.abs();
-      status.slot(EfStatus::kLimFlux) += f1_pre.index(cells).to(wide).sum();
-      status.slot(EfStatus::kLimCut) += cut.index(cells).to(wide).sum();
+    // the withhold (P2): each species face flux times its donor's theta
+    std::vector<int> species(ny);
+    std::iota(species.begin(), species.end(), static_cast<int>(ICY));
+    for (int d = 1; d <= 3; ++d) {
+      auto f = d == 1 ? f1 : d == 2 ? f2 : f3;
+      if (!f.defined()) continue;
+      auto factor = flux_positivity_factor(theta, f, 4 - d, pmb->pcoord);
+      if (d == 1) {
+        // theta's depth is not its consequence: measure the flux it removes,
+        // non-negative while every bfunc keeps the ghost theta in [0,1]
+        auto pre = f.abs();
+        auto cut = pre - (f * factor).to(f.scalar_type()).abs();
+        status.slot(EfStatus::kLimFlux) += pre.index(cells).to(wide).sum();
+        status.slot(EfStatus::kLimCut) += cut.index(cells).to(wide).sum();
+      }
+      freg.scale(d, "positivity.withhold", species, factor);
     }
 
     if (options->verbose()) {

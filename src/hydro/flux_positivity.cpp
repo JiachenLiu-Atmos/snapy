@@ -7,6 +7,7 @@
 #include <snap/mesh/meshblock.hpp>
 
 #include "flux_positivity.hpp"
+#include "flux_register.hpp"
 
 namespace snap {
 
@@ -121,17 +122,32 @@ void flux_positivity_scale_(torch::Tensor const& theta,
   }
 }
 
-void flux_positivity_carry_(
-    torch::Tensor const& theta, torch::Tensor const& hspec,
-    torch::Tensor const& vel, torch::Tensor const& flux1,
-    torch::Tensor const& flux2, torch::Tensor const& flux3,
-    Coordinate const& pcoord, torch::Tensor const& fsed1,
-    torch::Tensor const& vface2, torch::Tensor const& vface3) {
+torch::Tensor flux_positivity_factor(torch::Tensor const& theta,
+                                     torch::Tensor const& flux, int dim,
+                                     Coordinate const& pcoord) {
+  int lo = dim == 3 ? pcoord->il() : dim == 2 ? pcoord->jl() : pcoord->kl();
+  int hi = dim == 3 ? pcoord->iu() : dim == 2 ? pcoord->ju() : pcoord->ku();
+  auto f = flux.slice(dim, lo, hi + 2);  // faces lo..hi+1
+  auto factor = torch::ones(flux.sizes(), theta.options());
+  factor.slice(dim, lo, hi + 2)
+      .copy_(torch::where(f > 0., theta.slice(dim, lo - 1, hi + 1),
+                          theta.slice(dim, lo, hi + 2)));
+  return factor;
+}
+
+void flux_positivity_carry_(torch::Tensor const& theta,
+                            torch::Tensor const& hspec,
+                            torch::Tensor const& vel, FluxRegister& reg,
+                            Coordinate const& pcoord,
+                            torch::Tensor const& fsed1,
+                            torch::Tensor const& vface2,
+                            torch::Tensor const& vface3) {
   enum { DIM1 = 3, DIM2 = 2, DIM3 = 1 };
   int ny = theta.size(0);
 
-  auto carry = [&](torch::Tensor const& flux, int dim, int lo, int hi,
-                   torch::Tensor const& fsed, torch::Tensor const& vface) {
+  auto carry = [&](int d, int dim, int lo, int hi, torch::Tensor const& fsed,
+                   torch::Tensor const& vface) {
+    auto flux = reg.total(d);
     if (!flux.defined()) return;
     auto f = flux.narrow(0, ICY, ny).slice(dim, lo, hi + 2);  // faces lo..hi+1
     auto lower = [&](torch::Tensor const& x) {
@@ -143,30 +159,39 @@ void flux_positivity_carry_(
     // the donors' velocities: the cells', or given per face
     auto vlo = vface.defined() ? upper(vface[0]) : lower(vel);
     auto vhi = vface.defined() ? upper(vface[1]) : upper(vel);
-    // the share withheld is the net flux's donor's (flux_positivity_scale_)
+    // the share withheld is the net flux's donor's (flux_positivity_factor)
     auto share = 1. - torch::where(f > 0., lower(theta), upper(theta));
+    // -c on faces lo..hi+1 and -0. elsewhere, so x + inc == x - c there and x
+    // elsewhere, in the dtype the in-place subtraction would use
+    auto post = [&](std::vector<int> const& rows, torch::Tensor const& c) {
+      auto shape = flux.sizes().vec();
+      shape[0] = rows.size();
+      auto type = torch::promote_types(flux.scalar_type(), c.scalar_type());
+      auto inc = torch::full(shape, -0., c.options().dtype(type));
+      inc.slice(dim, lo, hi + 2).copy_(-c);
+      reg.add(d, "positivity.carry", rows, inc);
+    };
     // each part of the face flux keeps the energy and momentum of its donor
     auto withhold = [&](torch::Tensor const& part) {
       auto up = part > 0.;  // the donor is the lower cell
       auto dm = share * part;
-      flux[IPR].slice(dim - 1, lo, hi + 2) -=
-          (dm * torch::where(up, lower(hspec), upper(hspec))).sum(0);
-      flux.narrow(0, IVX, 3).slice(dim, lo, hi + 2) -=
-          (dm * up).sum(0) * vlo + (dm * up.logical_not()).sum(0) * vhi;
+      post({IPR},
+           (dm * torch::where(up, lower(hspec), upper(hspec))).sum(0, true));
+      post({IVX, IVY, IVZ},
+           (dm * up).sum(0) * vlo + (dm * up.logical_not()).sum(0) * vhi);
     };
     if (fsed.defined()) {
       auto sed = fsed.slice(dim, lo, hi + 2);
-      auto adv = f - sed;
-      withhold(adv);
+      withhold(f - sed);
       withhold(sed);
     } else {
       withhold(f);
     }
   };
 
-  carry(flux1, DIM1, pcoord->il(), pcoord->iu(), fsed1, torch::Tensor());
-  carry(flux2, DIM2, pcoord->jl(), pcoord->ju(), torch::Tensor(), vface2);
-  carry(flux3, DIM3, pcoord->kl(), pcoord->ku(), torch::Tensor(), vface3);
+  carry(1, DIM1, pcoord->il(), pcoord->iu(), fsed1, torch::Tensor());
+  carry(2, DIM2, pcoord->jl(), pcoord->ju(), torch::Tensor(), vface2);
+  carry(3, DIM3, pcoord->kl(), pcoord->ku(), torch::Tensor(), vface3);
 }
 
 torch::Tensor flux_positivity_relax(torch::Tensor const& theta,
