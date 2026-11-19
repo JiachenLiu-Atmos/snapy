@@ -286,9 +286,11 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   // the current field on every call; dw defined: the split path
   ReferenceFaces _hydro_ref_x1(torch::Tensor const& w,
                                torch::Tensor const& dw = torch::Tensor()) const;
+  //! post_dt: the step's dt, for the solve's register posts (V3 I-4)
   torch::Tensor _apply_implicit_correction(torch::Tensor& du,
                                            torch::Tensor const& w, double dt,
-                                           Variables const& other);
+                                           Variables const& other,
+                                           double post_dt = 0.);
 
  private:
   //! Register all forcing modules

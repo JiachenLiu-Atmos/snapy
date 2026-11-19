@@ -1239,7 +1239,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       du[IPR].slice(-1, is, ie) += gravity_energy_correction;
       gravity_energy_correction = torch::Tensor();
     }
-    _apply_implicit_correction(du, w, dt_corr, other);
+    _apply_implicit_correction(du, w, dt_corr, other, dt);
 
     if (options->verbose()) {
       auto end = std::chrono::high_resolution_clock::now();
@@ -1272,16 +1272,18 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // phi: mass transfer rate through face i (below i), explicit flux plus
     // the implicit transfer per unit time
     auto& phi = mw.phi;
+    // V3 I-4: A_f total(1) on the mass rows; total(1) holds the solve's
+    // posts by now (G-R11), so no separate mc / dt term
     if (_flux1.defined() && !options->disable_flux_x1()) {
       // no species rows: the dry flux is the whole mass flux
       auto f1 =
           ny > 0 ? _flux1[IDN] + _flux1.narrow(0, ICY, ny).sum(0) : _flux1[IDN];
       torch::mul_out(phi, mw.area.narrow(-1, 0, f1.size(-1)), f1);
-    } else {
+    } else {  // the x1 flux is off: the solve posts nothing (hydro.cpp)
       phi.zero_();
+      auto mc = implicit_mass_correction();
+      if (mc.defined() && mc.numel() > 0) phi.add_(mc[IVZ], 1. / dt);
     }
-    auto mc = implicit_mass_correction();
-    if (mc.defined() && mc.numel() > 0) phi.add_(mc[IVZ], 1. / dt);
     // m1 lives in row IVX of the Coriolis input wc2 = (1, m1, 0, 0), x1
     // ghosts stay 0: only the rows driven by rho w are added here, the
     // w-free rows went in before the implicit solve

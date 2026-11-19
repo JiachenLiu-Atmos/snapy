@@ -93,7 +93,7 @@ def step(block, v, dt, q0):  # one rk3 step: max|r/r0-1|, max|q/q0-1|, min s, mi
     for stage in range(3):
         block.forward(v, dt, stage)
         if stage == 0:
-            Fr, Fs = B["hydro.F1"][kIDN][I[:2]][..., 3:-2], B["scalar.F1"][0][I[:2]][..., 3:-2]
+            Fr, Fs = B["hydro.K_mass_dry_limited_1"][kIDN][I[:2]][..., 3:-2], B["scalar.F1"][0][I[:2]][..., 3:-2]
             face = Fs[Fr != 0] / (R0 * Fr[Fr != 0])
         u, s = block.total_u(v)[(slice(None),) + I], v["scalar_s"][0][I]
         dr = max(dr, float((s / u[kIDN] / R0 - 1).abs().max()))

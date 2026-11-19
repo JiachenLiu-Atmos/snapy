@@ -7,6 +7,7 @@
 
 // snap
 #include <snap/forcing/forcing.hpp>
+#include <snap/hydro/flux_register.hpp>
 #include <snap/hydro/gravity_work.hpp>
 
 // arg
@@ -85,9 +86,16 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
   //! corrector for the implicit hydro
   torch::Tensor forward(torch::Tensor du, torch::Tensor w, torch::Tensor gamma,
                         double dt);
+  //! V3 I-4: with reg and the step's post_dt (> 0), the face transfers are
+  //! posted to reg in phase implicit (add "vic.mass_dry", "vic.mass_species",
+  //! "vic.momentum_t"; keep "vic.mass_total"; the amounts "vic.cell",
+  //! "vic.mass_clamped" and, full matrix, "vic.momentum_t.top"), each as
+  //! M_f / (A_f post_dt), and the gravity-work remainder reads the kept
+  //! "vic.mass_total" (I.rst section 4)
   torch::Tensor forward_masked(torch::Tensor du, torch::Tensor w,
                                torch::Tensor gamma, double dt,
-                               torch::Tensor solid);
+                               torch::Tensor solid, FluxRegister* reg = nullptr,
+                               double post_dt = 0.);
 
   void record_fp64_fallback() { _fp64_fallbacks += 1; }
   torch::Tensor correction() const { return _corr; }
@@ -138,7 +146,14 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
                        bool no_solid, bool face_work, bool diffusive_work,
                        bool radial_exact, double grav1,
                        torch::Tensor const& rx_mass0,
-                       torch::Tensor const& rx_fluid, int nx1);
+                       torch::Tensor const& rx_fluid, int nx1,
+                       torch::Tensor const& moved_total);
+  //! I-4: the posts, the kept total and the amounts, after the stage's
+  //! failure mask
+  void post_(FluxRegister& reg, torch::Tensor const& du,
+             torch::Tensor const& fail, torch::Tensor const& kdt,
+             torch::Tensor const& ptan, torch::Tensor const& energy_solved,
+             torch::Tensor const& volume);
 };
 TORCH_MODULE(ImplicitHydro);
 
