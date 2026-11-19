@@ -20,9 +20,9 @@ namespace snap {
 //! A post is a flux density per unit face area and time at the step dt,
 //! before stage weights. R-1 holds the stage totals T_d (hydro's _flux1/2/3
 //! are these tensors), the requested step fields S_d and the monitor; R-2
-//! the slots (slot, post_slot, part_slot, kept); the other posts (add,
-//! scale, replace, apply_prescribed, keep, cell_amount) arrive with R-3 to
-//! R-7.
+//! the slots (slot, post_slot, part_slot, kept); R-3 add and scale; the
+//! other posts (replace, apply_prescribed, keep, cell_amount) arrive with
+//! R-4 to R-7.
 
 struct RegisterRequest {
   std::vector<std::string> row_names;  //! nvar conserved rows, in row order
@@ -98,6 +98,15 @@ class FluxRegister {
   torch::Tensor part_slot(int dim, std::string const& part);
   bool keeps(int dim, std::string const& part) const;
   torch::Tensor kept(int dim, std::string const& part) const;
+  //! R-3: total[rows] += increment, in call order and never fused, so
+  //! successive adds round as the pin's in-place ones; increment is
+  //! [rows.size(), faces...]. A requested part of the same name gets a copy.
+  void add(int dim, std::string const& name, std::vector<int> const& rows,
+           torch::Tensor const& increment);
+  //! total[rows] *= factor in place; factor [faces...] (every row) or
+  //! [rows.size(), faces...]
+  void scale(int dim, std::string const& name, std::vector<int> const& rows,
+             torch::Tensor const& factor);
   //! the parts, by "part@dim", for HydroImpl to register as buffers
   std::map<std::string, torch::Tensor>& parts() { return _parts; }
   //! S_d = sum over stages of w2_s prod_{t>s} w1_t dt T_s, per unit area
