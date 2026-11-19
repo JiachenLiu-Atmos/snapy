@@ -7,8 +7,6 @@
 // base
 #include <configure.h>
 
-#include <snap/interface/athena_arrays.hpp>
-
 namespace snap {
 
 class MetadataTable {
@@ -41,22 +39,6 @@ inline std::string horizontal_axis_units(std::string const& coord_type) {
   return coord_type == "gnomonic-equiangle" || coord_type == "spherical-polar"
              ? "radian"
              : "m";
-}
-
-template <typename T>
-int get_num_variables(std::string grid, AthenaArray<T> const& data) {
-  int nvar;
-  if (grid == "--C" || grid == "--F") {
-    nvar = data.GetDim2();
-  } else if (grid == "-CC" || grid == "-CF" || grid == "-FC" || grid == "-FF") {
-    nvar = data.GetDim3();
-  } else if (grid == "---") {
-    nvar = data.GetDim1();
-  } else {
-    nvar = data.GetDim4();
-  }
-
-  return nvar;
 }
 
 class MeshBlockImpl;

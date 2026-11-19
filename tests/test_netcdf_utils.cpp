@@ -2,8 +2,8 @@
 #include <gtest/gtest.h>
 
 // snap
-#include <snap/output/netcdf_utils.hpp>
 #include <snap/output/output_utils.hpp>
+#include <snap/output/writer_core.hpp>
 
 TEST(NetcdfUtils, keeps_valid_names) {
   EXPECT_EQ(snap::sanitize_netcdf_name("rho"), "rho");

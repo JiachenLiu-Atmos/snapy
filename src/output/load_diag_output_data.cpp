@@ -45,11 +45,9 @@ torch::Tensor interp_to_face(torch::Tensor value, int dim) {
 }
 
 void OutputType::loadDiagOutputData(MeshBlockImpl* pmb, Variables const& vars) {
-  OutputData* pod;
   auto peos = pmb->phydro->peos;
   auto pcoord = pmb->pcoord;
 
-  // pmb may be the raw-new super-resolution block: it has no shared_ptr owner
   auto modules = pmb->named_modules(std::string(), /*include_self=*/false);
   if (ContainVariable("thermo") && pmb->phydro->options->eos()->thermo() &&
       modules.contains("hydro.eos.thermo")) {
@@ -113,53 +111,21 @@ void OutputType::loadDiagOutputData(MeshBlockImpl* pmb, Variables const& vars) {
       rh = kintera::relative_humidity(temp, conc, thermo_x->stoich, nucleation);
     }
 
-    // temperature
-    pod = new OutputData;
-    pod->type = "SCALARS";
-    pod->name = "temp";
-    pod->data.CopyFromTensor(temp);
-    AppendOutputDataNode(pod);
-    num_vars_ += 1;
-
-    // potential temperature
-    pod = new OutputData;
-    pod->type = "SCALARS";
-    pod->name = "theta";
-    pod->data.CopyFromTensor(theta);
-    AppendOutputDataNode(pod);
-    num_vars_ += 1;
-
-    // virtual potential temperature
-    pod = new OutputData;
-    pod->type = "SCALARS";
-    pod->name = "theta_v";
-    pod->data.CopyFromTensor(theta_v);
-    AppendOutputDataNode(pod);
-    num_vars_ += 1;
-
-    // entropy
-    pod = new OutputData;
-    pod->type = "SCALARS";
-    pod->name = "entropy";
-    pod->data.CopyFromTensor(entropy);
-    AppendOutputDataNode(pod);
-    num_vars_ += 1;
+    appendTensorOutput("temp", temp);
+    appendTensorOutput("theta", theta);
+    appendTensorOutput("theta_v", theta_v);
+    appendTensorOutput("entropy", entropy);
 
     // relative humidity
     for (int i = 0; i < reactions.size(); ++i) {
-      pod = new OutputData;
-      pod->type = "SCALARS";
-      pod->name = fmt::format("rh_{}", reactions[i].products().begin()->first);
+      auto name = fmt::format("rh_{}", reactions[i].products().begin()->first);
       // replace special characters '(' ')' and ',' with '_'
-      for (char& c : pod->name) {
+      for (char& c : name) {
         if (c == '(' || c == ')' || c == ',') {
           c = '_';
         }
       }
-      pod->data.CopyFromTensor(rh.select(-1, i));
-
-      AppendOutputDataNode(pod);
-      num_vars_ += 1;
+      appendTensorOutput(name, rh.select(-1, i));
     }
   }
 
@@ -189,8 +155,7 @@ void OutputType::loadDiagOutputData(MeshBlockImpl* pmb, Variables const& vars) {
       }
 
       if (ContainVariable("diagnostics") || ContainVariable("div")) {
-        appendTensorOutput("SCALARS", "div",
-                           pcoord->divergence(v1f, v2f, v3f).squeeze(0));
+        appendTensorOutput("div", pcoord->divergence(v1f, v2f, v3f).squeeze(0));
       }
 
       if (ContainVariable("diagnostics") || ContainVariable("div_h")) {
@@ -200,7 +165,7 @@ void OutputType::loadDiagOutputData(MeshBlockImpl* pmb, Variables const& vars) {
         } else {
           div_h = torch::zeros_like(w[IDN]);
         }
-        appendTensorOutput("SCALARS", "div_h", div_h);
+        appendTensorOutput("div_h", div_h);
       }
     }
 
@@ -209,9 +174,9 @@ void OutputType::loadDiagOutputData(MeshBlockImpl* pmb, Variables const& vars) {
       pcoord->prim2local1_(w_local);
       auto curl = pcoord->curl(w_local.narrow(0, IVX, 3));
       if (pcoord->options->nx3() > 1) {
-        appendTensorSliceOutput("VECTORS", "curl", curl, 4, 0, 3);
+        appendTensorSliceOutput("curl", curl, 0, 3);
       } else {
-        appendTensorOutput("SCALARS", "curl", curl[VEL3]);
+        appendTensorOutput("curl", curl[VEL3]);
       }
     }
   }
@@ -220,43 +185,13 @@ void OutputType::loadDiagOutputData(MeshBlockImpl* pmb, Variables const& vars) {
   if (ContainVariable("implicit") && pmb->phydro->picorr) {
     auto du = pmb->phydro->picorr->correction();
 
-    // density
-    pod = new OutputData;
-    pod->type = "SCALARS";
-    pod->name = "ic_dry";
-    pod->data.InitFromTensor(du, 4, IDN, 1);
-    AppendOutputDataNode(pod);
-    num_vars_++;
-
-    // momentum
-    pod = new OutputData;
-    pod->type = "VECTORS";
-    pod->name = "ic_mom";
-    pod->data.InitFromTensor(du, 4, IVX, 3);
-
-    AppendOutputDataNode(pod);
-    num_vars_ += 3;
-
-    // total energy
-    pod = new OutputData;
-    pod->type = "SCALARS";
-    pod->name = "ic_etot";
-    pod->data.InitFromTensor(du, 4, IPR, 1);
-
-    AppendOutputDataNode(pod);
-    num_vars_++;
-
+    appendTensorSliceOutput("ic_dry", du, IDN, 1);
+    appendTensorSliceOutput("ic_mom", du, IVX, 3);
+    appendTensorSliceOutput("ic_etot", du, IPR, 1);
     // vapor + cloud
     auto ny = peos->nvar() - ICY;
-    if (ny > 0) {
-      pod = new OutputData;
-      pod->type = "VECTORS";
-      pod->name = get_hydro_names(pmb, "ic_");
-      pod->data.InitFromTensor(du, 4, ICY, ny);
-
-      AppendOutputDataNode(pod);
-      num_vars_ += ny;
-    }
+    if (ny > 0)
+      appendTensorSliceOutput(get_hydro_names(pmb, "ic_"), du, ICY, ny);
   }
 
   // vapor and cloud paths
@@ -269,15 +204,9 @@ void OutputType::loadDiagOutputData(MeshBlockImpl* pmb, Variables const& vars) {
     int iu = pcoord->iu();
 
     if (ny > 0) {
-      pod = new OutputData;
-      pod->type = "VECTORS";
-      pod->name = get_hydro_names(pmb, "path_");
       auto u_sum = (u * vol).narrow(0, ICY, ny).slice(-1, il, iu + 1).sum(-1) /
                    area.select(-1, il);
-
-      pod->data.CopyFromTensor(u_sum);
-      AppendOutputDataNode(pod);
-      num_vars_ += ny;
+      appendTensorOutput(get_hydro_names(pmb, "path_"), u_sum);
     }
   }
 
@@ -300,39 +229,13 @@ void OutputType::loadDiagOutputData(MeshBlockImpl* pmb, Variables const& vars) {
     }
     auto avg_w = sum1[0] / sum2[0];
 
-    // density
-    pod = new OutputData;
-    pod->type = "SCALARS";
-    pod->name = "avg_rho";
-    pod->data.InitFromTensor(avg_w, 2, IDN, 1);
-    AppendOutputDataNode(pod);
-    num_vars_++;
-
-    // velocity vector
-    pod = new OutputData;
-    pod->type = "VECTORS";
-    pod->name = "avg_vel";
-    pod->data.InitFromTensor(avg_w, 2, IVX, 3);
-    AppendOutputDataNode(pod);
-    num_vars_ += 3;
-
-    // pressure
-    pod = new OutputData;
-    pod->type = "SCALARS";
-    pod->name = "avg_press";
-    pod->data.InitFromTensor(avg_w, 2, IPR, 1);
-    AppendOutputDataNode(pod);
-    num_vars_++;
-
+    appendTensorSliceOutput("avg_rho", avg_w, IDN, 1);
+    appendTensorSliceOutput("avg_vel", avg_w, IVX, 3);
+    appendTensorSliceOutput("avg_press", avg_w, IPR, 1);
     auto ny = peos->nvar() - ICY;
-    if (ny > 0) {
-      pod = new OutputData;
-      pod->type = "VECTORS";
-      pod->name = get_hydro_names(pmb, "avg_");
-      pod->data.CopyFromTensor(avg_w.narrow(0, ICY, ny));
-      AppendOutputDataNode(pod);
-      num_vars_ += ny;
-    }
+    if (ny > 0)
+      appendTensorOutput(get_hydro_names(pmb, "avg_"),
+                         avg_w.narrow(0, ICY, ny));
   }
 }
 }  // namespace snap
