@@ -24,6 +24,7 @@
 
 #include "cycle_diagnostics.hpp"
 #include "meshblock.hpp"
+#include "stage_executor.hpp"
 
 namespace snap {
 
@@ -36,15 +37,18 @@ void MeshBlockImpl::to(torch::Device device, torch::Dtype dtype,
   else
     torch::nn::Module::to(device, dtype, non_blocking);
   _state.reallocate();  // like the moved u0 and s0
+  if (_executor) _executor->invalidate();
 }
 void MeshBlockImpl::to(torch::Dtype dtype, bool non_blocking) {
   if (policy.fp32()) return;
   torch::nn::Module::to(dtype, non_blocking);
   _state.reallocate();
+  if (_executor) _executor->invalidate();
 }
 void MeshBlockImpl::to(torch::Device device, bool non_blocking) {
   torch::nn::Module::to(device, non_blocking);
   _state.reallocate();
+  if (_executor) _executor->invalidate();
 }
 
 static void set_scalar_primitive(Variables &vars, torch::Tensor const &scalar_s,
@@ -314,6 +318,17 @@ void MeshBlockImpl::reset() {
   _state.reset(policy, phydro->peos->nvar(), pscalar->nvar(), nc3, nc2, nc1);
   register_buffer("u0", _state.u0());
   register_buffer("s0", _state.s0());
+  register_flux_storage();
+
+  //// ------- (10) stage executor (eager unless cuda-graph) ------- ////
+  TORCH_CHECK(
+      options->execution() == "eager" || options->execution() == "cuda-graph",
+      "integration/execution must be eager or cuda-graph, got '",
+      options->execution(), "'");
+  TORCH_CHECK(!(options->execution() == "eager" && options->execution_strict()),
+              "integration/execution-strict needs execution: cuda-graph "
+              "(eager is never refused)");
+  _executor = std::make_shared<StageExecutor>(this);
 
   if (options->verbose()) {
     SINFO(MeshBlock) << "setting up buffer with shapes:" << std::endl
@@ -619,8 +634,33 @@ void MeshBlockImpl::forward(Variables &vars, double dt, int stage) {
   // host-side operator-split source terms applied between forward calls
   // (e.g. condensation on hydro_u) are then synced before use, removing a
   // one-signed seam bias on the cubed sphere.
-  exchange_ghost_zones(vars);
-  advance_local(vars, dt, stage);
+  _executor->run_stage(vars, dt, stage);  // exchange_ghost_zones, then
+                                          // advance_local, or their graph
+}
+
+std::map<std::string, int64_t> MeshBlockImpl::execution_report() const {
+  return _executor->report();
+}
+
+void MeshBlockImpl::bump_config_generation() {
+  _executor->bump_config_generation();
+}
+
+void MeshBlockImpl::register_flux_storage() {
+  auto &freg = phydro->flux_register();
+  for (int d = 1; d <= 3; ++d) {
+    auto name = std::to_string(d);
+    if (freg.total(d).defined())
+      _state.register_storage("freg.total" + name, freg.total(d));
+    if (freg.has_step_field(d))
+      _state.register_storage("freg.step" + name, freg.step_field(d));
+  }
+  auto &mon = freg.monitor();
+  for (auto [name, t] :
+       {std::pair<char const *, torch::Tensor>{"freg.counters", mon.counters},
+        {"freg.minima", mon.minima},
+        {"freg.retry_flags", mon.retry_flags}})
+    if (t.defined()) _state.register_storage(name, t);
 }
 
 void MeshBlockImpl::exchange(Variables &vars, SyncOptions const &opts) const {
@@ -1813,6 +1853,7 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
 
   // a restart is a new state: new storage, adopted at the next step
   _state.reallocate();
+  _executor->invalidate();
   return current_time;
 }
 

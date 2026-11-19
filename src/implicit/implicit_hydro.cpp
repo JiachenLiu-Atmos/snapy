@@ -33,7 +33,8 @@ ImplicitOptions ImplicitOptionsImpl::from_yaml(const std::string& filename,
   // pyharp's integrator reads this block too, so its keys are listed by name
   check_keys(intg, "integration",
              {"implicit-scheme", "implicit-advection-cfl", "shear-cfl",
-              "implicit-precision", "implicit-fallback-fp64"},
+              "implicit-precision", "implicit-fallback-fp64", "execution",
+              "execution-strict"},
              "pyharp",
              {"type", "cfl", "tlim", "nlim", "ncycle_out", "verbose"});
   auto op =

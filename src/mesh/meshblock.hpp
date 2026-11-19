@@ -76,6 +76,12 @@ struct MeshBlockOptionsImpl {
   //! verbose
   ADD_ARG(bool, verbose) = false;
 
+  //! integration.execution: eager (default) or cuda-graph; with
+  //! integration.execution-strict a case that cannot be captured is refused
+  //! (V3 X3; both names provisional, DESIGN.rst "pending Cheng's naming")
+  ADD_ARG(std::string, execution) = "eager";
+  ADD_ARG(bool, execution_strict) = false;
+
   //! output
   ADD_ARG(std::string, basename) = "";
   ADD_ARG(std::string, output_dir) = ".";
@@ -119,7 +125,11 @@ struct PartOptions {
   ADD_ARG(int, ndim) = 4;
 };
 
+class StageExecutor;
+
 class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
+  friend class StageExecutor;
+
  public:
   //! options with which this `MeshBlock` was constructed
   MeshBlockOptions options;
@@ -214,6 +224,11 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
    */
   void forward(Variables& vars, double dt, int stage);
   void advance_local(Variables& vars, double dt, int stage);
+
+  //! the stage executor's counters: captures, replays, eager stages, graphs
+  std::map<std::string, int64_t> execution_report() const;
+  //! an option or prescribed-mask change a captured stage depends on
+  void bump_config_generation();
 
   //! build the anomaly reference (hydro.ref) from the initial hydro_w;
   //! called by finalize_initialization and by a restart without one
@@ -328,6 +343,13 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
 
   //! hydro_u, scalar_s, scalar_r and the RK backups in fixed storage
   StateStore _state;
+
+  //! registers the flux register's tensors in _state (a moved one bumps
+  //! the store generation)
+  void register_flux_storage();
+
+  //! runs each stage of forward() eagerly or as a captured graph (X3)
+  std::shared_ptr<StageExecutor> _executor;
 };
 
 TORCH_MODULE(MeshBlock);

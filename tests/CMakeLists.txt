@@ -428,9 +428,9 @@ snapy_add_python_test(test_fp32_split SCRIPT test_perturbation_flux_split.py
 snapy_add_python_test(test_fp32_compute TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
 snapy_add_python_test(test_fp32_horizontal_sweep TIMEOUT 120 LABELS "python;hydro;fp32-foundations;fp32-compute")
 snapy_add_python_test(test_fp32_science TIMEOUT 300 LABELS "python;hydro;fp32-science")
-if(CUDAToolkit_FOUND)
-  snapy_add_python_test(test_straka_cuda_graph TIMEOUT 300 LABELS "python;cuda;hydro;fp32-science")
-endif()
+# no cuda label: its setup checks run on CPU builds too; the capture part
+# skips without a CUDA device
+snapy_add_python_test(test_stage_executor_capture TIMEOUT 300 LABELS "python;hydro;fp32-science")
 snapy_add_python_test(test_fp32_restart TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-restart")
 snapy_add_python_test(test_fp32_policy TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
 snapy_add_python_test(test_fp32_implicit TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")

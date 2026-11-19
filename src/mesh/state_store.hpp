@@ -18,7 +18,9 @@ using Variables = std::map<std::string, torch::Tensor>;
 //! scalar_r and the RK backups u0, s0, in the storage dtype. The RK combine
 //! writes into hydro_u and scalar_s (pyharp out=), so their addresses change
 //! only on reset(), reallocate() (to() and restart) and adopt(), and each of
-//! those bumps generation().
+//! those bumps generation(). Other owners' tensors that a captured stage
+//! reads or writes are registered by name (X3: the flux register's); a new
+//! address bumps generation() too.
 class StateStore {
  public:
   //! allocates every buffer; u0 and s0 are the ones MeshBlock registers
@@ -62,6 +64,27 @@ class StateStore {
     if (_s0.size(0) > 0) _scalar_s.copy_(_s0);
   }
 
+  //! an owner's tensor, allocated by its owner; re-registering the same
+  //! address is a no-op, a new one bumps generation()
+  void register_storage(std::string const& name, torch::Tensor const& t) {
+    auto it = _storage.find(name);
+    if (it != _storage.end() && it->second.defined() == t.defined() &&
+        (!t.defined() || (it->second.data_ptr() == t.data_ptr() &&
+                          it->second.sizes() == t.sizes() &&
+                          it->second.device() == t.device())))
+      return;
+    _storage[name] = t;
+    ++_generation;
+  }
+  torch::Tensor const& storage(std::string const& name) const {
+    auto it = _storage.find(name);
+    TORCH_CHECK(it != _storage.end(), "StateStore: no storage named ", name);
+    return it->second;
+  }
+  std::map<std::string, torch::Tensor> const& registered() const {
+    return _storage;
+  }
+
   torch::Tensor& hydro_u() { return _hydro_u; }
   torch::Tensor& scalar_s() { return _scalar_s; }
   torch::Tensor& scalar_r() { return _scalar_r; }
@@ -97,6 +120,7 @@ class StateStore {
   }
 
   torch::Tensor _hydro_u, _scalar_s, _scalar_r, _u0, _s0;
+  std::map<std::string, torch::Tensor> _storage;  // register_storage()
   int _generation = 0;
 };
 

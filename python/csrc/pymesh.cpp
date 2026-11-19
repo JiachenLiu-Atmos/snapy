@@ -270,6 +270,9 @@ in totals (a new tensor): the inverse of total_u.)doc")
       .def("print_cycle_info", &snap::MeshBlockImpl::print_cycle_info)
       .def("finalize", &snap::MeshBlockImpl::finalize)
       .def("check_redo", &snap::MeshBlockImpl::check_redo)
+      .def("execution_report", &snap::MeshBlockImpl::execution_report)
+      .def("bump_config_generation",
+           &snap::MeshBlockImpl::bump_config_generation)
       .def("get_outputs",
            [](snap::MeshBlockImpl& self) { return self.output_types; })
       .def(

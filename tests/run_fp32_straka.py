@@ -24,7 +24,7 @@ from snapy import MeshBlock, MeshBlockOptions, kIDN, kIPR
 from test_fp32_science import memory_bytes
 
 
-def make_case(precision, device):
+def make_case(precision, device, execution="eager", strict=False):
     os.environ["DEVICE"] = device.type
     os.environ["DEVICE_ID"] = "0"
     root = Path(__file__).resolve().parents[1]
@@ -50,6 +50,8 @@ def make_case(precision, device):
         "pressure-floor": 1.0e-10,
     }
     cfg["integration"]["ncycle_out"] = 0
+    cfg["integration"]["execution"] = execution
+    cfg["integration"]["execution-strict"] = strict
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
         yaml.safe_dump(cfg, f)
     try:
@@ -94,7 +96,9 @@ def main():
     device = torch.device(args.device)
     os.environ["DEVICE"] = device.type
     os.environ["DEVICE_ID"] = "0"
-    block, state, cfg, rd, cp, x, z = make_case(args.precision, device)
+    if args.execution == "cuda-graph" and device.type != "cuda":
+        ap.error("cuda-graph execution requires CUDA")
+    block, state, cfg, rd, cp, x, z = make_case(args.precision, device, args.execution)
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "config.yaml").write_text(yaml.safe_dump(cfg))
     sl = tuple(block.part((0, 0, 0), False))
@@ -126,20 +130,9 @@ def main():
         )
         print(data, flush=True)
 
-    graph_step = None
-    if args.execution == "cuda-graph":
-        if device.type != "cuda":
-            ap.error("cuda-graph execution requires CUDA")
-        from straka_cuda_graph import StrakaGraphStep
-
-        graph_step = StrakaGraphStep(block, state, args.dt, cfg)
-
     def advance(dt):
-        if graph_step is not None:
-            graph_step(dt)
-        else:
-            for stage in range(len(block.intg.stages)):
-                block.forward(state, dt, stage)
+        for stage in range(len(block.intg.stages)):
+            block.forward(state, dt, stage)
 
     snapshot(0.0)
     if device.type == "cuda":
@@ -168,9 +161,8 @@ def main():
     report = {
         "precision": args.precision,
         "execution": args.execution,
-        "graph_setup_seconds": graph_step.setup_seconds if graph_step else 0.0,
-        "graph_captures": graph_step.captures if graph_step else 0,
-        "graph_replays": graph_step.replays if graph_step else 0,
+        "graph_captures": block.execution_report()["captures"],
+        "graph_replays": block.execution_report()["replays"],
         "device": str(device),
         "gpu": torch.cuda.get_device_name() if device.type == "cuda" else None,
         "visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
