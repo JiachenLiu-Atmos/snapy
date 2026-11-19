@@ -453,8 +453,13 @@ torch::Tensor HydroImpl::implicit_mass_correction() const {
 torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
                                                     torch::Tensor const& w,
                                                     double dt,
-                                                    Variables const& other) {
+                                                    Variables const& other,
+                                                    double post_dt) {
   if (!picorr) return torch::Tensor();
+  // V3 I-4: the solve posts its face transfers into total(1), which the
+  // Riemann slot rewrites each stage; with the x1 flux off nothing does, so
+  // nothing is posted and m1 keeps the solve's own transfer
+  FluxRegister* reg = options->disable_flux_x1() ? nullptr : &freg;
 
   // Implicit x1 solve has no cross-rank coupling, so nb1 > 1 would silently
   // solve each rank's own sub-column. Full column <=> both x1 faces physical.
@@ -497,7 +502,8 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
     return peos->compute("W->A", {state});
   };
   auto solid = other.count("solid") ? other.at("solid") : torch::Tensor();
-  auto correction = picorr->forward_masked(du, wi, gamma_for(wi), dt, solid);
+  auto correction =
+      picorr->forward_masked(du, wi, gamma_for(wi), dt, solid, reg, post_dt);
   // The existing solve rejects a whole block. Retry that same block in FP64,
   // from its pre-solve RHS, rather than keeping partly corrected columns.
   if (solve_float && !failed_before && options->icorr()->fallback_fp64() &&
@@ -505,7 +511,8 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
     picorr->reset_solve_failure();
     picorr->record_fp64_fallback();
     du = rhs64;
-    correction = picorr->forward_masked(du, wi64, gamma_for(wi64), dt, solid);
+    correction = picorr->forward_masked(du, wi64, gamma_for(wi64), dt, solid,
+                                        reg, post_dt);
   }
   // Restore energy offsets in FP64, then write the increment to state dtype.
   if (boundary) {

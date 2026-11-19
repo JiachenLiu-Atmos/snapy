@@ -644,7 +644,13 @@ TEST(FluxRegister, hydro_keeps_the_parts_its_readers_need) {
     block->forward(vars, dt, stage);
     for (int d : {1, 2}) {
       auto part = reg.kept(d, "mass.dry.limited");
-      EXPECT_TRUE(torch::equal(part[IDN], reg.total(d)[IDN])) << d;
+      if (d == 1) {  // I-4: total(1) also holds the implicit dry transfer
+        auto rest = reg.total(1)[IDN] - reg.kept(1, "vic.mass_dry")[IDN];
+        EXPECT_LE((part[IDN] - rest).abs().max().item<double>(),
+                  1.e-15 * reg.total(1)[IDN].abs().max().item<double>());
+      } else {
+        EXPECT_TRUE(torch::equal(part[IDN], reg.total(d)[IDN])) << d;
+      }
       EXPECT_EQ(part.narrow(0, 1, part.size(0) - 1).abs().sum().item<double>(),
                 0.)
           << d;
@@ -652,4 +658,99 @@ TEST(FluxRegister, hydro_keeps_the_parts_its_readers_need) {
   }
   EXPECT_GT(reg.kept(1, "mass.dry.limited").abs().max().item<double>(), 0.);
   EXPECT_GT(vars.at("scalar_s").abs().max().item<double>(), 0.);
+}
+
+// V3 I-4: the vertical solve posts its face transfers to the register as
+// M_f / (A_f dt). The kept vic.mass_total and vic.mass_dry give back the
+// solve's moved masses, the vic.momentum_t posts telescope to the solve's
+// tangential cell increments, and G-R11: m1's A_f total(1) equals the pin's
+// Phi = A_f F_explicit + mc / dt to round-off (F_explicit is the scalars'
+// mass.dry.limited@1, total(1)[IDN] as limit ends; the deck is dry). The
+// G-R11 rounding is in ulp of the larger operand, max(|A F|, |mc / dt|):
+// a face where the two nearly cancel keeps their absolute error
+TEST(FluxRegister, the_vertical_solve_posts_its_face_transfers) {
+  for (int scheme : {1, 9}) {
+    std::string deck = kDeck;
+    auto at = deck.find("implicit-scheme: 0");
+    ASSERT_NE(at, std::string::npos);
+    deck.replace(at, 18, "implicit-scheme: " + std::to_string(scheme));
+    deck += "scalar: {nvar: 1, names: [trace], reconstruct: {type: weno5}}\n";
+    {
+      std::ofstream f("test_flux_register_vic.yaml");
+      f << deck;
+    }
+    Variables plain;
+    auto bub = bubble(plain);
+    auto block = MeshBlock(
+        MeshBlockOptionsImpl::from_yaml("test_flux_register_vic.yaml"));
+    block->to(torch::kCPU, torch::kFloat64);
+    Variables vars;
+    vars["hydro_w"] = plain.at("hydro_w").clone();
+    vars["scalar_r"] = torch::full_like(vars["hydro_w"].narrow(0, 0, 1), 1e-3);
+    block->initialize(vars);
+    auto& reg = block->phydro->flux_register();
+    auto co = block->pcoord;
+    int nc1 = co->options->nc1(), is = co->il(), ie = co->iu() + 1;
+    auto A = co->face_area1().narrow(-1, 0, nc1);
+    auto vol = co->cell_volume();
+    auto rel = [](torch::Tensor const& a, torch::Tensor const& b) {
+      return (a - b).abs().max().item<double>() / b.abs().max().item<double>();
+    };
+    double worst_ulp = 0., worst_m = 0., worst_t = 0.;
+    for (int step = 0; step < 2; ++step) {
+      double dt = block->max_time_step(vars);
+      for (int st = 0; st < block->pintg->stages.size(); ++st) {
+        block->forward(vars, dt, st);
+        auto mc = block->phydro->picorr->mass_correction();
+        ASSERT_GT(mc[IVZ].abs().max().item<double>(), 0.) << scheme;
+        // the kept parts give back the moved masses
+        auto total = reg.kept(1, "vic.mass_total")[IDN] * A * dt;
+        auto dry = reg.kept(1, "vic.mass_dry")[IDN] * A * dt;
+        worst_m = std::max({worst_m, rel(total, mc[IVZ]), rel(dry, mc[IVY])});
+        // G-R11
+        auto phi_new = A * reg.total(1)[IDN];
+        auto phi_old = A * reg.kept(1, "mass.dry.limited")[IDN] + mc[IVZ] / dt;
+        auto opscale =
+            torch::maximum((A * reg.kept(1, "mass.dry.limited")[IDN]).abs(),
+                           (mc[IVZ] / dt).abs());
+        auto ulp = ((phi_new - phi_old).abs() /
+                    (opscale * std::ldexp(1., -52)).clamp_min(1e-300))
+                       .slice(-1, is, ie + 1);
+        worst_ulp = std::max(worst_ulp, ulp.max().item<double>());
+        // the tangential posts telescope to the solve's cell increments
+        auto P = reg.kept(1, "vic.momentum_t").narrow(0, IVY, 2) * A * dt;
+        auto div = (P.slice(-1, is, ie) - P.slice(-1, is + 1, ie + 1))
+                       .slice(-2, co->jl(), co->ju() + 1);
+        auto inc = (block->phydro->picorr->correction().narrow(0, IVY, 2) * vol)
+                       .slice(-1, is, ie)
+                       .slice(-2, co->jl(), co->ju() + 1);
+        // relative to the transfers. Partial matrix: correction() is
+        // (du0 + sum p / V) - du0 and keeps du0's rounding, |du0 V| ~ 1e3 |P|
+        // here (measured with du0 exposed: <= 0.93 ulp of max(|du0 V|,
+        // |inc|)); the full matrix posts are built from correction() itself
+        double pmax = P.abs().max().item<double>();
+        if (pmax > 0.)
+          worst_t =
+              std::max(worst_t, (div - inc).abs().max().item<double>() / pmax);
+      }
+      ASSERT_EQ(block->check_redo(vars), 0);
+    }
+    std::printf(
+        "I-4 scheme %d: G-R11 worst |A total(1) - Phi| %.2f ulp; kept masses "
+        "rel %.3e; momentum_t telescoping / max|P| %.3e\n",
+        scheme, worst_ulp, worst_m, worst_t);
+    EXPECT_LE(worst_ulp, 4.) << scheme;
+    EXPECT_LE(worst_m, 1.e-14) << scheme;
+    EXPECT_LE(worst_t, scheme == 1 ? 1.e-11 : 1.e-14) << scheme;
+    auto const& names = reg.monitor().amount_names();
+    auto kind_of = [&](char const* n) {
+      bool has = std::find(names.begin(), names.end(), n) != names.end();
+      EXPECT_TRUE(has) << n << " scheme " << scheme;
+      return has ? reg.monitor().kind(n) : AmountKind::floor;
+    };
+    EXPECT_EQ(kind_of("vic.cell"), AmountKind::cell_source);
+    EXPECT_EQ(kind_of("vic.mass_clamped"), AmountKind::flux_correction);
+    if (scheme == 9)
+      EXPECT_EQ(kind_of("vic.momentum_t.top"), AmountKind::diagnostic);
+  }
 }

@@ -173,10 +173,9 @@ torch::Tensor ImplicitHydroImpl::forward(torch::Tensor du, torch::Tensor w,
   return forward_masked(du, w, gamma, dt, torch::Tensor());
 }
 
-torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
-                                                torch::Tensor w,
-                                                torch::Tensor gamma, double dt,
-                                                torch::Tensor solid) {
+torch::Tensor ImplicitHydroImpl::forward_masked(
+    torch::Tensor du, torch::Tensor w, torch::Tensor gamma, double dt,
+    torch::Tensor solid, FluxRegister* reg, double post_dt) {
   if (options->scheme() == 0) {  // null operation
     if (_corr.sizes() != du.sizes() ||
         _corr.scalar_type() != du.scalar_type() ||
@@ -456,14 +455,40 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   auto dry_next =
       torch::maximum(_dry_clamp_step, _mass_corr[IPR].max().detach());
 
+  // V3 I-4: the face transfers go to the register. A face i of total(1) is
+  // the face below cell i, as MASS(IVX+dir, i); the posts are M_f / (A_f dt)
+  // with the step's dt (I.rst section 4, "Frame and units")
+  bool post = reg != nullptr && post_dt > 0. && reg->keeps(1, "vic.mass_total");
+  bool partial = options->matrix() == VicMatrix::partial;
+  torch::Tensor kdt, ptan;
+  if (post) {
+    kdt = pcoord->face_area1().narrow(-1, 0, nc1).to(_mass_corr.options()) *
+          post_dt;
+    // partial matrix: the donor-cell tangential transfers of
+    // vic_tangential_momentum_column, q w_t(donor), in the local frame
+    if (partial) {
+      auto q = _mass_corr[IVZ];
+      auto wt = w.narrow(0, IVY, 2);
+      ptan = q * torch::where(q > 0., wt.roll(1, -1), wt);
+    }
+  }
+
   /// (3) De-project from local orthonormal frame
   w[IVZ] /= sin_theta;
   w[IVY] -= w[IVZ] * cos_theta;
   pcoord->flux2global1_(du);
 
-  // the post-solve gravity-work remainder, one call (V3 I-3)
+  // the post-solve gravity-work remainder, one call (V3 I-3); I-4: it reads
+  // the moved total mass from the kept "vic.mass_total"
+  torch::Tensor moved_total = _mass_corr[IVZ], energy_solved;
+  if (post) {
+    reg->keep(1, "vic.mass_total", _mass_corr[IVZ] / kdt);
+    moved_total =
+        reg->kept(1, "vic.mass_total")[IDN].to(_mass_corr.options()) * kdt;
+    energy_solved = du[IPR].clone();  // vic.cell: without the remainder
+  }
   book_remainder_(du, w.size(0), mask, no_solid, face_work, diffusive_work,
-                  radial_exact, grav1, rx_mass0, rx_fluid, nx1);
+                  radial_exact, grav1, rx_mass0, rx_fluid, nx1, moved_total);
 
   _corr.copy_(du);
   _corr.sub_(_du0);
@@ -484,7 +509,81 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   // a failed stage leaves the meters as they were
   _clamp_residual.copy_(torch::where(fail, _clamp_residual, clamp_next));
   _dry_clamp_step.copy_(torch::where(fail, _dry_clamp_step, dry_next));
+  if (post) post_(*reg, du, fail, kdt, ptan, energy_solved, volume);
   return _corr;
+}
+
+void ImplicitHydroImpl::post_(FluxRegister& reg, torch::Tensor const& du,
+                              torch::Tensor const& fail,
+                              torch::Tensor const& kdt,
+                              torch::Tensor const& ptan,
+                              torch::Tensor const& energy_solved,
+                              torch::Tensor const& volume) {
+  auto pcoord = phydro->pmb->pcoord;
+  int is = pcoord->il(), ie = pcoord->iu() + 1;
+  int ny = du.size(0) - ICY;
+  // a failed stage leaves _mass_corr and _corr zero, so it posts zeros
+  auto ok = [&](torch::Tensor const& t) {
+    return torch::where(fail, torch::zeros_like(t), t);
+  };
+  auto interior_jk = [&](torch::Tensor t) {
+    return t.slice(-2, pcoord->jl(), pcoord->ju() + 1)
+        .slice(-3, pcoord->kl(), pcoord->ku() + 1);
+  };
+
+  // (1) the posts, in declared order; each add also fills its kept part
+  reg.add(1, "vic.mass_dry", {IDN}, (_mass_corr[IVY] / kdt).unsqueeze(0));
+  if (ny > 0) {
+    // the species face transfers of pass 3b, from their cell increments:
+    // q_{i+1} = q_i - MASS(ICY+n, i) VOL(i), q = 0 at the bottom wall; the
+    // top wall moves nothing
+    auto q = torch::zeros_like(_mass_corr.narrow(0, ICY, ny));
+    if (ie - is > 1) {
+      auto s = (_mass_corr.narrow(0, ICY, ny) * volume).slice(-1, is, ie - 1);
+      q.slice(-1, is + 1, ie) = -s.cumsum(-1);
+    }
+    std::vector<int> rows(ny);
+    for (int n = 0; n < ny; ++n) rows[n] = ICY + n;
+    reg.add(1, "vic.mass_species", rows, q / kdt);
+  }
+  // tangential momenta, in the explicit x1 flux's global components
+  torch::Tensor pt;
+  if (ptan.defined()) {  // partial matrix: donor transfers, local frame
+    auto tmp = torch::zeros_like(du);
+    tmp.narrow(0, IVY, 2).copy_(ok(ptan));
+    pcoord->flux2global1_(tmp);
+    pt = tmp.narrow(0, IVY, 2);
+  } else {  // full matrix: the prefix sum of the cell increments from the
+            // bottom wall, top face included (gnomonic axial_x1_source_)
+    pt = torch::zeros_like(du.narrow(0, IVY, 2));
+    auto T = interior_jk((_corr.narrow(0, IVY, 2) * volume).slice(-1, is, ie));
+    interior_jk(pt).slice(-1, is + 1, ie + 1).copy_(-T.cumsum(-1));
+  }
+  reg.add(1, "vic.momentum_t", {IVY, IVZ}, pt / kdt);
+
+  // (2) the kept total, from the (on failure zeroed) moved masses
+  reg.keep(1, "vic.mass_total", _mass_corr[IVZ] / kdt);
+
+  // (3) the amounts, V du of this stage's du: weight w2_s
+  double w2 = reg.weight2();
+  int nvar = du.size(0);
+  auto in = [&](torch::Tensor t) { return interior_jk(t.slice(-1, is, ie)); };
+  auto cell = torch::zeros_like(du);
+  cell[IVX] = du[IVX] - _du0[IVX];
+  cell[IPR] = ok(energy_solved - _du0[IPR]);
+  if (!ptan.defined()) cell.narrow(0, IVY, 2) = _corr.narrow(0, IVY, 2);
+  reg.cell_amount("vic.cell", in(cell * volume), w2, AmountKind::cell_source);
+  // V div(moved - requested) of the total mass, on row IDN
+  auto d = _mass_corr[IVZ] - _mass_corr[IVX];
+  auto clamped = torch::zeros({nvar}, du.options());
+  clamped[IDN] =
+      interior_jk(d.slice(-1, is + 1, ie + 1) - d.slice(-1, is, ie)).sum();
+  reg.cell_amount("vic.mass_clamped", clamped, w2, AmountKind::flux_correction);
+  if (!ptan.defined()) {  // the top face of the prefix sum (scheme 9)
+    auto top = torch::zeros({nvar}, du.options());
+    top.narrow(0, IVY, 2) = interior_jk(pt.narrow(-1, ie, 1)).sum({-3, -2, -1});
+    reg.cell_amount("vic.momentum_t.top", top, w2, AmountKind::diagnostic);
+  }
 }
 
 std::shared_ptr<ImplicitHydroImpl> ImplicitHydroImpl::create(
@@ -499,7 +598,8 @@ std::shared_ptr<ImplicitHydroImpl> ImplicitHydroImpl::create(
 void ImplicitHydroImpl::book_remainder_(
     torch::Tensor du, int wsize, torch::Tensor const& mask, bool no_solid,
     bool face_work, bool diffusive_work, bool radial_exact, double grav1,
-    torch::Tensor const& rx_mass0, torch::Tensor const& rx_fluid, int nx1) {
+    torch::Tensor const& rx_mass0, torch::Tensor const& rx_fluid, int nx1,
+    torch::Tensor const& moved_total) {
   auto pcoord = phydro->pmb->pcoord;
   // du[IPR] is a scalar row: the frame de-projection before this call
   // (flux2global1_) leaves it as it was, so the order of the two terms below
@@ -513,7 +613,7 @@ void ImplicitHydroImpl::book_remainder_(
         phydro->pmb->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
     auto volume = _gw.volume().index(in3);  // cached
     auto requested = _mass_corr[IVX];
-    auto moved = _mass_corr[IVZ] - requested;
+    auto moved = moved_total - requested;
     auto projected =
         (requested.slice(-1, is, ie) - requested.slice(-1, is + 1, ie + 1))
             .slice(-2, pcoord->jl(), pcoord->ju() + 1)
