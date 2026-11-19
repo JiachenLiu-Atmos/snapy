@@ -65,7 +65,7 @@ class CubedSphereLayoutImpl : public LayoutImpl {
                              torch::Tensor var) const;
 
   torch::Tensor const& _velocity_transform(SyncOptions const& opts,
-                                           int buffer_id, bool to_spherical,
+                                           int buffer_id, bool to_global,
                                            torch::Tensor alpha,
                                            torch::Tensor beta,
                                            torch::Tensor cosine,
