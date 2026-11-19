@@ -50,22 +50,12 @@ SedVelOptions SedVelOptionsImpl::from_yaml(YAML::Node const& node) {
               "a-mass", "upper-limit"});
   auto op = SedVelOptionsImpl::create();
 
-  // get all sedimentation particles
+  // the three per-particle keys, one reader (D13): every name first, then
+  // each key's values in particle order
+  char const* keys[3] = {"radius", "density", "const-vsed"};
   std::set<std::string> particle_names;
-  for (auto r : node["radius"]) {
-    auto name = r.first.as<std::string>();
-    particle_names.insert(name);
-  }
-
-  for (auto r : node["density"]) {
-    auto name = r.first.as<std::string>();
-    particle_names.insert(name);
-  }
-
-  for (auto r : node["const-vsed"]) {
-    auto name = r.first.as<std::string>();
-    particle_names.insert(name);
-  }
+  for (auto key : keys)
+    for (auto r : node[key]) particle_names.insert(r.first.as<std::string>());
 
   // get particle ids
   for (auto& name : particle_names) {
@@ -78,34 +68,19 @@ SedVelOptions SedVelOptionsImpl::from_yaml(YAML::Node const& node) {
     op->particle_names().push_back(name);
   }
 
-  op->radius().resize(op->particle_ids().size(), 0.);
-  op->density().resize(op->particle_ids().size(), 0.);
-  op->const_vsed().resize(op->particle_ids().size(), 0.);
-
-  // read particle radius
   auto species = op->species();
-  for (auto r : node["radius"]) {
-    auto name = r.first.as<std::string>();
-    auto it = std::find(species.begin(), species.end(), name);
-    auto radius = r.second.as<double>();
-    TORCH_CHECK(radius > 0., "Sedimentation radius must be positive.");
-    op->radius()[it - species.begin()] = radius;
-  }
-
-  // read particle density
-  for (auto r : node["density"]) {
-    auto name = r.first.as<std::string>();
-    auto it = std::find(species.begin(), species.end(), name);
-    auto density = r.second.as<double>();
-    TORCH_CHECK(density > 0., "Sedimentation density must be positive.");
-    op->density()[it - species.begin()] = density;
-  }
-
-  // read particle constant sedimentation velocity
-  for (auto r : node["const-vsed"]) {
-    auto name = r.first.as<std::string>();
-    auto it = std::find(species.begin(), species.end(), name);
-    op->const_vsed()[it - species.begin()] = r.second.as<double>();
+  std::vector<double>* values[3] = {&op->radius(), &op->density(),
+                                    &op->const_vsed()};
+  for (int k = 0; k < 3; ++k) {
+    values[k]->assign(op->particle_ids().size(), 0.);
+    for (auto r : node[keys[k]]) {
+      auto it =
+          std::find(species.begin(), species.end(), r.first.as<std::string>());
+      auto value = r.second.as<double>();
+      TORCH_CHECK(k == 2 || value > 0., "Sedimentation ", keys[k],
+                  " must be positive.");
+      (*values[k])[it - species.begin()] = value;
+    }
   }
 
   // every particle needs a positive radius (Stokes) or a non-zero const-vsed
