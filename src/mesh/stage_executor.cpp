@@ -15,6 +15,22 @@
 
 namespace snap {
 
+torch::Tensor global_phase_sum(std::vector<torch::Tensor> const& partials,
+                               LayoutImpl const& layout) {
+  TORCH_CHECK(!partials.empty(), "global_phase_sum: no partial sums");
+  auto sums = partials.front();
+  if (partials.size() > 1) {
+    sums = torch::zeros_like(partials.front());
+    for (auto const& p : partials) sums += p;
+  }
+  if (layout.has_process_group()) {  // the host segment: one allreduce
+    std::vector<at::Tensor> reduce = {sums.cpu()};
+    layout.comm->allreduce(reduce, c10d::ReduceOp::SUM);
+    sums = reduce[0].to(sums.device());
+  }
+  return sums;
+}
+
 bool GraphKey::operator==(GraphKey const& other) const {
   return device_index == other.device_index && names == other.names &&
          layout == other.layout && store_generation == other.store_generation &&

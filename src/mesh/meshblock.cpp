@@ -1001,14 +1001,11 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
     }
   }
 
+  // the global phase of a bare block (a Mesh runs it over its blocks)
   if (phydro->options->conserve_axial_momentum_closure() &&
-      !defer_axial_closure) {
-    std::vector<at::Tensor> reduce = {axial_closure_sums()};
-    if (_playout->has_process_group()) {
-      _playout->comm->allreduce(reduce, c10d::ReduceOp::SUM);
-    }
-    apply_axial_closure(vars, dt, stage, reduce[0]);
-  }
+      !defer_axial_closure)
+    apply_axial_closure(vars, dt, stage,
+                        global_phase_sum({axial_closure_sums()}, *_playout));
 
   // Physical ghosts must include the final-stage species adjustment.
   // gravity-work-fixer (#283): once per step, after the last mass change, add
@@ -1016,42 +1013,45 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   // dE_i = -D m_i / sum_j m_j V_j. Momentum and mass are untouched. A Mesh
   // with several local blocks sums them first (MeshImpl::forward).
   if (stage == pintg->stages.size() - 1 && phydro->gravity_work_fixer() &&
-      !defer_gravity_work_fixer) {
-    std::vector<at::Tensor> reduce = {gravity_work_fixer_sums(vars)};
-    if (_playout->has_process_group()) {
-      _playout->comm->allreduce(reduce, c10d::ReduceOp::SUM);
-    }
-    apply_gravity_work_fixer(vars, reduce[0]);
-  }
+      !defer_gravity_work_fixer)
+    apply_gravity_work_fixer(
+        vars, global_phase_sum({gravity_work_fixer_sums(vars)}, *_playout));
 
   apply_boundaries(vars, hydro_u, scalar_s);
 }
 
 torch::Tensor MeshBlockImpl::axial_closure_sums() const {
-  auto const &s = phydro->axial_closure_sums();
-  return s.defined() ? s.clone() : torch::zeros({2}, torch::kFloat64);
+  auto const &s = phydro->axial_closure_sums();  // device, FP64 (MPS: FP32)
+  auto wide = pcoord->x1v.is_mps() ? torch::kFloat32 : torch::kFloat64;
+  return s.defined() ? s.clone()
+                     : torch::zeros({2}, pcoord->x1v.options().dtype(wide));
 }
 
 void MeshBlockImpl::apply_axial_closure(Variables &vars, double dt, int stage,
                                         torch::Tensor const &global) {
-  // d(rho u_east) = -rho s R dt / I with this stage's weight, along K
-  auto g = global.to(torch::kCPU, torch::kFloat64);
-  double R = g[0].item<double>(), I = g[1].item<double>();
+  // d(rho u_east) = -rho s R dt / I with this stage's weight, along K.
+  // R and I stay on the device (X4): a mask replaces the host branch.
   auto pg = dynamic_cast<GnomonicEquiangleImpl const *>(pcoord.get());
   auto rho = phydro->axial_closure_rho();
   phydro->axial_closure_rho() = torch::Tensor();
   phydro->axial_closure_sums() = torch::Tensor();
-  if (!pg || !rho.defined() || !(I > 0.) || !std::isfinite(R)) return;
+  if (!pg || !rho.defined()) return;
+  auto hydro_u = vars.at("hydro_u");
+  auto g = global.to(hydro_u.device(),
+                     hydro_u.is_mps() ? torch::kFloat32 : torch::kFloat64);
+  auto R = g[0], I = g[1];
+  auto ok = (I > 0.).logical_and(torch::isfinite(R));
   auto in = part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
   auto kj = std::vector<torch::indexing::TensorIndex>{in[0], in[1]};
   auto r = pg->x1v.index({in[2]});
   auto omega = -pintg->stages[stage].wght2() * dt * R / I;
-  auto hydro_u = vars.at("hydro_u");
   auto z2 = torch::zeros_like(hydro_u[IVY]),
        z3 = torch::zeros_like(hydro_u[IVZ]);
   pg->axial_rate_to_rows_(z2, z3, omega * rho * r * r * pg->aam_kk_c.index(kj));
-  hydro_u[IVY] += z2;
-  hydro_u[IVZ] += z3;
+  for (auto [row, z] : {std::pair<int, torch::Tensor>{IVY, z2}, {IVZ, z3}}) {
+    auto u = hydro_u[row];
+    u.copy_(torch::where(ok, u + z, u));
+  }
 }
 
 torch::Tensor MeshBlockImpl::gravity_work_fixer_sums(

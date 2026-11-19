@@ -179,10 +179,11 @@ void CoriolisImpl::add(torch::Tensor du, StageState const &s) {
                           mf[2].defined() ? phydro->flux3() : torch::Tensor(),
                           options->omega1(), phydro->axial_mass_species()) -
                       target;
+        // stays on the device (V3 X4); FP64, MPS FP32 (X.rst:295)
         phydro->axial_closure_sums() =
             torch::stack(
                 {(vol * (kf - rate_c)).sum(), (vol * rho * r * r * kk).sum()})
-                .to(torch::kCPU, torch::kFloat64);
+                .to(vol.is_mps() ? torch::kFloat32 : torch::kFloat64);
         phydro->axial_closure_rho() = rho.clone();
       }
       pg->axial_rate_to_rows_(z2, z3, target);  // K . z = target, along K
