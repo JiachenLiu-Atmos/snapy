@@ -148,6 +148,32 @@ torch::Tensor FluxRegister::kept(int dim, std::string const& part) const {
   return _parts.at(key);
 }
 
+void FluxRegister::add(int dim, std::string const& name,
+                       std::vector<int> const& rows,
+                       torch::Tensor const& increment) {
+  auto t = slot(dim, name);
+  TORCH_CHECK(increment.size(0) == static_cast<int64_t>(rows.size()),
+              "[FluxRegister] add '", name, "': ", increment.size(0),
+              " increment rows for ", rows.size(), " rows");
+  for (size_t i = 0; i < rows.size(); ++i) t[rows[i]].add_(increment[i]);
+  if (keeps(dim, name)) {
+    auto part = part_slot(dim, name);
+    for (size_t i = 0; i < rows.size(); ++i) part[rows[i]].copy_(increment[i]);
+  }
+}
+
+void FluxRegister::scale(int dim, std::string const& name,
+                         std::vector<int> const& rows,
+                         torch::Tensor const& factor) {
+  auto t = slot(dim, name);
+  bool per_row = factor.dim() == t.dim();
+  TORCH_CHECK(!per_row || factor.size(0) == static_cast<int64_t>(rows.size()),
+              "[FluxRegister] scale '", name, "': ", factor.size(0),
+              " factor rows for ", rows.size(), " rows");
+  for (size_t i = 0; i < rows.size(); ++i)
+    t[rows[i]].mul_(per_row ? factor[i] : factor);
+}
+
 void FluxRegister::begin_stage(int stage, harp::IntegratorWeight const& w) {
   _stage = stage;
   _w1 = w.wght1();
