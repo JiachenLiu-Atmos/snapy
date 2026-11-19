@@ -1,0 +1,166 @@
+reference-state:
+  Tref: 0.0
+  Pref: 1.e5
+species:
+- name: dry
+  composition:
+    H: 1.5
+    He: 0.15
+  cv_R: 2.5
+- name: H2O
+  composition:
+    H: 2
+    O: 1
+  cv_R: 2.5
+  u0_R: 0.0
+- name: NH3
+  composition:
+    N: 1
+    H: 3
+  cv_R: 2.5
+  u0_R: 0.0
+- name: H2S
+  composition:
+    H: 2
+    S: 1
+  cv_R: 2.5
+  u0_R: 0.0
+- name: H2O(l)
+  composition:
+    H: 2
+    O: 1
+  cv_R: 9.0
+  u0_R: -3430.0
+- name: H2O(l,p)
+  composition:
+    H: 2
+    O: 1
+  cv_R: 9.0
+  u0_R: -3430.0
+- name: NH3(s)
+  composition:
+    N: 1
+    H: 3
+  cv_R: 9.0
+  u0_R: -5520.0
+- name: NH3(s,p)
+  composition:
+    N: 1
+    H: 3
+  cv_R: 9.0
+  u0_R: -5520.0
+- name: NH4SH(s)
+  composition:
+    N: 1
+    H: 5
+    S: 1
+  cv_R: 9.0
+  u0_R: -1.2e4
+- name: NH4SH(s,p)
+  composition:
+    N: 1
+    H: 5
+    S: 1
+  cv_R: 9.0
+  u0_R: -1.2e4
+- name: H2S(l)
+  composition:
+    H: 2
+    S: 1
+  cv_R: 5.5
+  u0_R: -1284.6
+- name: H2S(l,p)
+  composition:
+    H: 2
+    S: 1
+  cv_R: 5.5
+  u0_R: -1284.6
+geometry:
+  type: cartesian
+  bounds:
+    x1min: 0.0
+    x1max: 350.e3
+    x2min: 0.0
+    x2max: 1440.e3
+    x3min: -0.5
+    x3max: 0.5
+  cells:
+    nx1: 100
+    nx2: 200
+    nx3: 1
+    nghost: 3
+dynamics:
+  equation-of-state:
+    type: moist-mixture
+    density-floor: 1.0e-10
+    pressure-floor: 1.0e-10
+    limiter: true
+    max-iter: 10
+    ftol: 1.0e-06
+  reconstruct:
+    vertical:
+      type: weno5
+      scale: true
+      shock: true
+    horizontal:
+      type: weno5
+      scale: true
+      shock: true
+  riemann-solver:
+    type: lmars
+boundary-condition:
+  internal:
+    solid-density: 1.e3
+    solid-pressure: 1.9
+    max-iter: 10
+  external:
+    x1-inner: reflecting
+    x1-outer: reflecting
+    x2-inner: periodic
+    x2-outer: periodic
+    x3-inner: periodic
+    x3-outer: periodic
+integration:
+  type: rk3
+  cfl: 0.9
+  implicit-scheme: 1
+  nlim: 3
+  tlim: 1.e5
+forcing:
+  const-gravity:
+    grav1: -9.01
+sedimentation:
+  radius:
+    H2S(l,p): 1.0e-10
+  density:
+    H2S(l,p): 1000.0
+  const-vsed:
+    H2S(l,p): -200.0
+reactions:
+- equation: H2S => H2S(l)
+  type: nucleation
+  rate-constant:
+    formula: h2s_ideal
+- equation: H2S(l) => H2S(l,p)
+  type: coagulation
+  rate-constant:
+    A: 0.01
+    b: 0
+    Ea_R: 0.0
+- equation: H2S(l,p) => H2S
+  type: evaporation
+  rate-constant:
+    formula: h2s_ideal
+    diff_c: 2.0e-05
+    diff_T: 1.75
+    diff_P: -1.0
+    vm: 3.59e-05
+    diameter: 0.0001
+problem:
+  Ps: 50.e5
+  Ts: 250.0
+  Tmin: 52.0
+  xH2S: 0.0008
+outputs:
+- type: restart
+  dt: 1.0e-09
