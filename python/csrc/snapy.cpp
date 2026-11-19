@@ -7,7 +7,7 @@
 // snap
 #include <snap/snap.h>
 
-#include <snap/input/read_restart_file.hpp>
+#include <snap/output/restart.hpp>
 
 // python
 #include "pyoptions.hpp"

@@ -167,6 +167,10 @@ foreach(_t test_balance_column test_face_floor)
                        PROPERTIES ENVIRONMENT "SNAP_X1_CENTROID_EXACT=1")
 endforeach()
 setup_test(test_netcdf_utils)
+# gate G-4 (lane O, O7): restart bundle round trip, broken bundles throw
+setup_test(test_restart_bundle)
+target_compile_definitions(test_restart_bundle.${buildl}
+                           PRIVATE SNAPY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 setup_test(test_user_output)
 setup_test(test_process_group)
 setup_test(test_diffusion)
