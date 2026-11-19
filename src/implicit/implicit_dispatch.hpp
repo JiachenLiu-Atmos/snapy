@@ -18,8 +18,15 @@ enum VicStatusBit : int32_t {
   kVicSingular = 2,         //!< the forward sweep rejected the column
   kVicResultNonfinite = 4,  //!< a nonfinite solution or redistribution
   kVicFp64Retried = 8,      //!< the column predicate ran the FP64 stage (I-6)
-  kVicFp64Failed = 16       //!< the FP64 retry failed too (I-6)
+  kVicFp64Failed = 16,      //!< the FP64 retry failed too (I-6)
+  //! internal (I-6): a column the predicated FP64 stage does not solve; it
+  //! returns at once and never carries another bit
+  kVicSkipColumn = 1 << 20
 };
+
+//! the bits of a failed solve
+constexpr int32_t kVicFailBits =
+    kVicInputNonfinite | kVicSingular | kVicResultNonfinite;
 
 //! what one vic_stage call does: the stage, the block size n (3: partial,
 //! 5: full), the Woodbury solve (operands z0, z1), and the kernel scalars.

@@ -231,6 +231,9 @@ void HydroImpl::reset() {
   for (auto name : {"face_floor.rho", "face_floor.p", "face_floor.species",
                     "riemann.pstar_clamp", "riemann.llf"})
     req.counters.push_back(name);
+  // V3 I-6: the retried columns (R.rst 4.5), last, so the counters above
+  // keep their indices
+  req.counters.push_back("implicit.fp64_columns");
   req.minima = {"ef.pos_min"};
   // V3 I-5: lane I's cause (R.rst 4.5); X maps it to its cause bit 5
   req.retry = {"ef.floor_patch", "ef.nan", "ef.vapor_fail", "ef.heat_capacity",
@@ -491,7 +494,6 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
   du[IPR].sub_(peos->internal_energy_offset(du));
   auto rhs64 = solve_float ? du.clone() : torch::Tensor();
   auto wi64 = wi;
-  bool failed_before = solve_float && picorr->solve_failed();
   if (solve_float) {
     du = du.to(torch::kFloat32);
     wi = wi.to(torch::kFloat32);
@@ -506,15 +508,19 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
   auto solid = other.count("solid") ? other.at("solid") : torch::Tensor();
   auto correction =
       picorr->forward_masked(du, wi, gamma_for(wi), dt, solid, reg, post_dt);
-  // The existing solve rejects a whole block. Retry that same block in FP64,
-  // from its pre-solve RHS, rather than keeping partly corrected columns.
-  if (solve_float && !failed_before && options->icorr()->fallback_fp64() &&
-      picorr->solve_failed() && torch::isfinite(rhs64).all().item<bool>()) {
-    picorr->reset_solve_failure();
-    picorr->record_fp64_fallback();
-    du = rhs64;
-    correction = picorr->forward_masked(du, wi64, gamma_for(wi64), dt, solid,
-                                        reg, post_dt);
+  // V3 I-6: the predicated FP64 stage, always run with the FP32 solve and
+  // its fallback: only the columns whose FP32 solve failed are solved again,
+  // from rhs64 and wi64, and no host read decides it; the other columns keep
+  // their FP32 solution
+  torch::Tensor retry;
+  if (solve_float && options->icorr()->fallback_fp64() &&
+      options->icorr()->scheme() != 0) {
+    retry = picorr->stage_failed();
+    picorr->forward_masked(rhs64, wi64, gamma_for(wi64), dt, solid, reg,
+                           post_dt, retry);
+    correction = picorr->merge_fp64(retry);
+    picorr->count_fp64_columns(retry);
+    freg.monitor().count("implicit.fp64_columns", retry);
   }
   // V3 I-5: the column status OR after the whole-block FP64 fallback (until
   // I-6 retries per column); slot 5 of the redo still reads
@@ -525,6 +531,10 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
     du = du.to(torch::kFloat64);
     correction = correction.to(torch::kFloat64);
   }
+  // the retried columns' FP64 solution (rhs64 now holds it), in place of
+  // the FP32 stage's (I-6)
+  if (retry.defined())
+    du = torch::where(retry.unsqueeze(0).unsqueeze(-1), rhs64, du);
   du[IPR].add_(peos->internal_energy_offset(du));
   correction[IPR].add_(peos->internal_energy_offset(correction));
   if (boundary) {

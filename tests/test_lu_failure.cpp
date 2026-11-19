@@ -391,9 +391,11 @@ void column_status_case(torch::Device device) {
   EXPECT_EQ((st != 0).sum().item<int64_t>(), 1);  // that column only
   EXPECT_TRUE(ic->status().item<bool>());
   EXPECT_EQ(ic->solve_failed_tensor(torch::kFloat64).item<double>(), 1.);
-  EXPECT_TRUE(torch::equal(du, du0));  // the whole block is undone
-  EXPECT_TRUE(torch::equal(prim, prim0));
-  EXPECT_EQ(ic->correction().abs().sum().item<double>(), 0.);
+  // I-6: undone per column; the other columns keep their solution
+  EXPECT_TRUE(torch::equal(du.select(-2, j), du0.select(-2, j)));
+  EXPECT_FALSE(torch::equal(du, du0));
+  EXPECT_TRUE(torch::equal(prim, prim0));  // Cartesian: the projection is exact
+  EXPECT_EQ(ic->correction().select(-2, j).abs().sum().item<double>(), 0.);
   ic->reset_status();
   EXPECT_FALSE(ic->status().item<bool>());
   gamma.fill_(1.4);  // a clean solve leaves every column clear
@@ -410,4 +412,90 @@ TEST(lu_failure, column_status_flags_the_bad_column_only) {
 TEST(lu_failure, cuda_column_status_flags_the_bad_column_only) {
   if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CPU build or no CUDA device";
   column_status_case(torch::kCUDA);
+}
+
+// V3 I-6: the predicated FP64 stage. A column whose FP32 solve failed is
+// the stage's predicate (stage_failed()); the FP64 stage solves it alone and
+// leaves every other column as it came in. A retried column that succeeds is
+// not a failure of the step; one that fails again is (status(), and so
+// implicit.column and solve_failed_tensor()).
+namespace {
+void fp64_retry_case(bool fp64_fails) {
+  using namespace snap;
+  auto opts = MeshBlockOptionsImpl::from_yaml("test_mesh_multi_block.yaml");
+  opts->coord()->nx1(8);
+  opts->coord()->nx2(4);
+  opts->coord()->nx3(1);
+  opts->coord()->nghost(3);
+  opts->coord()->global_nx1(8);
+  opts->coord()->global_nx2(4);
+  opts->coord()->global_nx3(1);
+  opts->coord()->x2max(1.);
+  opts->coord()->x3max(1.);
+  opts->layout()->px(1);
+  opts->layout()->py(1);
+  auto gravity = ConstGravityOptionsImpl::create();
+  gravity->grav1(-9.8);
+  gravity->gravity_work("face");
+  gravity->gravity_work_fixer(false);
+  opts->hydro()->grav() = gravity;
+  auto implicit = ImplicitOptionsImpl::create();
+  implicit->scheme(9);
+  opts->hydro()->icorr() = implicit;
+  auto block = MeshBlock(opts);
+  block->to(torch::kFloat64);
+  auto coord = block->pcoord;
+  auto w = torch::zeros(
+      {5, coord->options->nc3(), coord->options->nc2(), coord->options->nc1()},
+      torch::kFloat64);
+  w[IDN].fill_(1.);
+  w[IPR].fill_(1.e5);
+  Variables vars{{"hydro_w", w}};
+  block->initialize(vars);
+  auto &ic = block->phydro->picorr;
+  int j = coord->jl() + 1;
+  // the FP32 stage: one column's gamma is not finite
+  auto prim32 = vars.at("hydro_w").to(torch::kFloat32);
+  auto du32 = 1.e-3 * torch::ones_like(prim32);
+  auto gamma32 = torch::full_like(prim32[IDN], 1.4);
+  gamma32.select(-2, j).fill_(std::numeric_limits<float>::quiet_NaN());
+  ic->forward_masked(du32, prim32, gamma32, 1., torch::Tensor());
+  auto retry = ic->stage_failed();
+  ASSERT_TRUE(retry.defined());
+  EXPECT_EQ(retry.sum().item<int64_t>(), 1);
+  EXPECT_TRUE(retry[0][j].item<bool>());
+  EXPECT_TRUE(ic->status().item<bool>());  // failed, not yet retried
+  // the FP64 stage, from the FP64 inputs
+  auto prim64 = vars.at("hydro_w").clone(), prim64_0 = prim64.clone();
+  auto du64 = 1.e-3 * torch::ones_like(prim64), du64_0 = du64.clone();
+  auto gamma64 = torch::full_like(prim64[IDN], 1.4);
+  if (fp64_fails)
+    gamma64.select(-2, j).fill_(std::numeric_limits<double>::quiet_NaN());
+  ic->forward_masked(du64, prim64, gamma64, 1., torch::Tensor(), nullptr, 0.,
+                     retry);
+  // the other columns are left as they came in, bit for bit
+  auto other = retry.logical_not().unsqueeze(0).unsqueeze(-1).expand_as(du64);
+  EXPECT_TRUE(
+      torch::equal(du64.masked_select(other), du64_0.masked_select(other)));
+  EXPECT_TRUE(torch::equal(prim64, prim64_0));
+  int bits = ic->col_status()[0][j].item<int>();
+  EXPECT_TRUE(bits & kVicFp64Retried);
+  EXPECT_TRUE(bits & kVicInputNonfinite);  // from the FP32 stage
+  EXPECT_EQ(bool(bits & kVicFp64Failed), fp64_fails);
+  EXPECT_EQ(ic->status().item<bool>(), fp64_fails);
+  EXPECT_EQ(ic->solve_failed_tensor(torch::kFloat64).item<double>(),
+            fp64_fails ? 1. : 0.);
+  if (!fp64_fails)  // the retried column is solved in FP64
+    EXPECT_FALSE(torch::equal(du64.select(-2, j), du64_0.select(-2, j)));
+  else
+    EXPECT_TRUE(torch::equal(du64.select(-2, j), du64_0.select(-2, j)));
+}
+}  // namespace
+
+TEST(lu_failure, fp64_retry_solves_the_failed_column_only) {
+  fp64_retry_case(false);
+}
+
+TEST(lu_failure, fp64_retry_that_fails_again_fails_the_step) {
+  fp64_retry_case(true);
 }

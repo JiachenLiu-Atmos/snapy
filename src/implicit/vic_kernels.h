@@ -56,6 +56,12 @@ DISPATCH_MACRO T* vic_op(char* const* p, int k) {
   return reinterpret_cast<T*>(p[k]);
 }
 
+//! the predicated FP64 stage (I-6): a column it does not solve
+template <typename T>
+DISPATCH_MACRO bool vic_skipped(char* const* p) {
+  return static_cast<int32_t>(vic_op<T>(p, kVicStatus)[0]) & kVicSkipColumn;
+}
+
 //! assemble a[i], b[i], c[i] of cell i; a solid cell gets (1/dt) I
 template <typename T, int N>
 DISPATCH_MACRO void vic_assemble_cell(char* const* p, VicLayout const& L, int i,
@@ -75,6 +81,7 @@ DISPATCH_MACRO void vic_assemble_cell(char* const* p, VicLayout const& L, int i,
   auto c = vic_op<Matrix>(p, kVicC);
   auto solid = vic_op<T>(p, kVicSolid);
   int nlayer = L.nlayer, stride2 = L.stride2;
+  if (vic_skipped<T>(p)) return;
   if (solid[i * stride2] != 0) {
     a[i].setIdentity();
     a[i] /= dt;
@@ -183,6 +190,7 @@ DISPATCH_MACRO void vic_solve_column(char* const* p, VicLayout const& L,
   int nlayer = L.nlayer;
   auto status = vic_op<T>(p, kVicStatus);
   int32_t bits = static_cast<int32_t>(status[0]);
+  if (bits & kVicSkipColumn) return;
   if (!vic_column_finite<T>(p, L)) bits |= kVicInputNonfinite;
   // partial: delta holds the assembly's m_t right-hand-side term
   if (!ForwardSweep<K>(a, b, c, delta, du, dt, 0, nlayer - 1, dir, L.ny,
@@ -213,6 +221,7 @@ DISPATCH_MACRO void vic_redistribute_column(char* const* p, VicLayout const& L,
   auto delta = vic_op<Vector>(p, kVicDelta);
   auto solid = vic_op<T>(p, kVicSolid);
   int nlayer = L.nlayer, stride1 = L.stride1, stride2 = L.stride2;
+  if (vic_skipped<T>(p)) return;
   for (int lo = 0; lo < nlayer;) {
     if (solid[lo * stride2] != 0) {
       ++lo;
@@ -237,7 +246,7 @@ DISPATCH_MACRO void vic_redistribute_one(char* const* p, VicLayout const& L,
                                          int i, int dir) {
   using Vector = Eigen::Matrix<T, N, 1>;
   auto solid = vic_op<T>(p, kVicSolid);
-  if (solid[i * L.stride2] != 0) return;
+  if (vic_skipped<T>(p) || solid[i * L.stride2] != 0) return;
   vic_redistribute_cell(vic_op<T>(p, kVicDu), vic_op<T>(p, kVicMassFix),
                         vic_op<Vector>(p, kVicDelta), i, dir, L.ny, L.stride1,
                         L.stride2);
