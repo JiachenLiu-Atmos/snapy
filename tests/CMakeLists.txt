@@ -9,6 +9,7 @@ setup_test(test_eos)
 setup_test(test_eos_io_core)
 setup_test(test_split_reference)
 setup_test(test_precision_policy)
+setup_test(test_state_store)
 set_tests_properties(test_split_reference.${buildl} PROPERTIES LABELS "fp32-foundations;fp32-dynamics;hydro")
 setup_test(test_pressure_scan_x1)
 set_tests_properties(test_pressure_scan_x1.${buildl} PROPERTIES

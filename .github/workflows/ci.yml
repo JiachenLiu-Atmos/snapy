@@ -60,7 +60,7 @@ jobs:
         run: |
           pip install wheel numpy pyyaml pytest netcdf4
           pip install 'torch==2.10.0'
-          pip install setuptools-scm 'pyharp>=2.2.0'
+          pip install setuptools-scm 'pyharp>=2.7.17'
 
       - name: Install NetCDF
         run: |

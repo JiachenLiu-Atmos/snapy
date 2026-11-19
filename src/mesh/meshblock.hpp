@@ -24,6 +24,7 @@
 #include <snap/hydro/hydro.hpp>
 #include <snap/layout/layout.hpp>
 #include <snap/mesh/precision_policy.hpp>
+#include <snap/mesh/state_store.hpp>
 #include <snap/scalar/scalar.hpp>
 
 // arg
@@ -151,6 +152,9 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! dtypes per quantity, built in reset() from dynamics.precision
   PrecisionPolicy policy;
 
+  //! counts the state store's address changes (reset, to, restart, adopt)
+  int state_generation() const { return _state.generation(); }
+
   //! the block's EOS/floor/positivity status: limiter marks, vapor-repair
   //! failures, heat-capacity latch and the positivity meters (V3 EF D4).
   //! Created before hydro and scalar, which register their meters in it.
@@ -168,6 +172,7 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   void to(torch::Device device, torch::Dtype dtype,
           bool non_blocking = false) override;
   void to(torch::Dtype dtype, bool non_blocking = false) override;
+  void to(torch::Device device, bool non_blocking = false) override;
 
   //! \brief return an index tensor for part of the meshblock
   /*!
@@ -321,9 +326,8 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! distribution layout
   Layout _playout;
 
-  //! stage registers
-  torch::Tensor _hydro_u0;
-  torch::Tensor _scalar_s0;
+  //! hydro_u, scalar_s, scalar_r and the RK backups in fixed storage
+  StateStore _state;
 };
 
 TORCH_MODULE(MeshBlock);
