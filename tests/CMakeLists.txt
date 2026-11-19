@@ -169,6 +169,10 @@ foreach(_t test_balance_column test_face_floor)
                        PROPERTIES ENVIRONMENT "SNAP_X1_CENTROID_EXACT=1")
 endforeach()
 setup_test(test_netcdf_utils)
+# gate G-2 (lane O, O6a): combine_parts against mppnccombine on the same parts
+setup_test(test_combine_parts)
+target_compile_definitions(test_combine_parts.${buildl}
+                           PRIVATE SNAPY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 # gate G-4 (lane O, O7): restart bundle round trip, broken bundles throw
 setup_test(test_restart_bundle)
 target_compile_definitions(test_restart_bundle.${buildl}
