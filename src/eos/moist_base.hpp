@@ -37,6 +37,9 @@ class MoistEOSImpl : public EquationOfStateImpl {
   double species_weight(int n = 0) const override;
   double species_cv_ref(int n = 0) const override;
 
+  //! "W->E": rho y (species_enthalpy - its pressure share), per species (D6)
+  torch::Tensor species_energy(torch::Tensor prim);
+
  protected:
   //! species rows of the state (vapors after the dry one, plus clouds)
   int nspecies() const { return thermo_species_rows(pthermo->options); }
@@ -68,7 +71,8 @@ class MoistEOSImpl : public EquationOfStateImpl {
   void _cons2prim(torch::Tensor cons, torch::Tensor& prim) override = 0;
   virtual torch::Tensor _prim2intEng(torch::Tensor prim) = 0;
   virtual torch::Tensor _prim2temp(torch::Tensor prim) = 0;
-  virtual torch::Tensor _prim2speciesEng(torch::Tensor prim) = 0;
+  //! the pressure share of each species' enthalpy per unit mass (0: cloud)
+  virtual torch::Tensor species_pressure_share(torch::Tensor prim) = 0;
   virtual torch::Tensor _temp2intEng(torch::Tensor cons,
                                      torch::Tensor temp) = 0;
 };
