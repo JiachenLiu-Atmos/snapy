@@ -18,6 +18,7 @@
 
 #include "../src/hydro/hydro_dispatch.hpp"
 #include "../src/hydro/x1_mass_covariance.hpp"
+#include "../src/recon/x1_rows.hpp"
 using namespace snap;
 
 namespace {
@@ -383,9 +384,8 @@ std::vector<double> pref_error(std::vector<double> const& f, bool stretched,
   auto lo = torch::empty({1, 1, n}, opt), hi = torch::empty_like(lo);
   auto pref = torch::empty_like(lo), dsf = torch::empty_like(lo),
        dref = torch::empty_like(lo);
-  auto rows = stretched
-                  ? hydro_ref_x1_stretched_rows(dx1f, n - 1, phys, phys, true)
-                  : torch::Tensor();
+  auto rows = stretched ? six_face_rows(dx1f, n - 1, phys, phys, true)
+                        : torch::Tensor();
   at::native::call_hydro_ref_x1(
       torch::kCPU, w, dx1f, anchor, lo, hi, pref, dsf, dref, n - 1, kG,
       stretched ? kX1RefStretched : kX1RefUniform, phys, phys, true, rows);
@@ -432,8 +432,8 @@ TEST(StretchedX1Ref, iv_adiabat_cells_within_2x_uniform) {
 
 TEST(StretchedX1Ref, iv_rows_on_uniform_faces_are_the_uniform_weights) {
   int n = 12;
-  auto rows = hydro_ref_x1_stretched_rows(
-      torch::full({n}, 2.5e3, torch::kFloat64), n - 1, true, true, true);
+  auto rows = six_face_rows(torch::full({n}, 2.5e3, torch::kFloat64), n - 1,
+                            true, true, true);
   double const w6[6] = {11. / 1440., -31. / 480., 401. / 720.,
                         401. / 720., -31. / 480., 11. / 1440.};
   double const w6e[2][6] = {{95. / 288., 1427. / 1440., -133. / 240.,

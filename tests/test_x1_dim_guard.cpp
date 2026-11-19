@@ -4,7 +4,7 @@
 
 #include <cmath>
 #include <snap/recon/reconstruct.hpp>
-#include <snap/recon/x1_coeffs.hpp>
+#include <snap/recon/x1_rows.hpp>
 #include <vector>
 
 // tests

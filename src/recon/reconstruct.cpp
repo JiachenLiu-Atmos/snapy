@@ -10,7 +10,7 @@
 
 #include "recon_dispatch.hpp"
 #include "reconstruct.hpp"
-#include "x1_coeffs.hpp"
+#include "x1_rows.hpp"
 
 namespace snap {
 

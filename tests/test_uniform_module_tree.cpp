@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 #if defined(__has_include)
-#if __has_include(<snap/recon/x1_coeffs.hpp>)
+#if __has_include(<snap/recon/x1_rows.hpp>)
 #define SNAPY_HAS_ROUTE_A 1
 #endif
 #endif

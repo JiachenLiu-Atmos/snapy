@@ -18,6 +18,7 @@
 
 #include <snap/hydro/hydro_dispatch.hpp>
 #include <snap/hydro/hydro_reference.hpp>
+#include <snap/recon/x1_rows.hpp>
 
 namespace {
 
@@ -349,9 +350,9 @@ TEST(HydroRefX1Dispatch, cuda_matches_cpu_on_the_stretched_rows) {
 
       auto dx1f = stretched_dx1f(nc1, dtype);
       int iu = nc1 - 4;  // il = 3: three ghost cells each side
-      auto rows = snap::hydro_ref_x1_stretched_rows(dx1f, iu, /*phys_in=*/true,
-                                                    /*phys_out=*/true,
-                                                    /*wall_clamp=*/true)
+      auto rows = snap::six_face_rows(dx1f, iu, /*phys_in=*/true,
+                                      /*phys_out=*/true,
+                                      /*wall_clamp=*/true)
                       .to(w.options())
                       .contiguous();
 
@@ -534,10 +535,10 @@ TEST(HydroRefX1Dispatch,
                                         : snap::kX1RefNonUniform);
         EXPECT_EQ(op.grid(), grid);
         auto expected = allocate_output(in.w);
-        auto rows = stretched ? snap::hydro_ref_x1_stretched_rows(
-                                    dx_master, kIu, true, true, true)
-                                    .to(in.w.options())
-                              : torch::Tensor();
+        auto rows = stretched
+                        ? snap::six_face_rows(dx_master, kIu, true, true, true)
+                              .to(in.w.options())
+                        : torch::Tensor();
         at::native::call_hydro_ref_x1(
             torch::kCPU, in.w, in.dx1f, in.anchor, expected.psf_lo,
             expected.psf_hi, expected.pref, expected.dsf, expected.dref, kIu,

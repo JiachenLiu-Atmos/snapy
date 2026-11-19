@@ -647,11 +647,11 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w, torch::Tensor const& dw,
   // faces.
   torch::Tensor wb4_flag;
   if (options->conversion_order() == 4) {
-    if (!wb_ref4_ || wb_ref4_->stale(w)) {
+    if (!wb_ref4_ || wb_ref4_->key != X1RowsKey(pcoord->x1f, w.options())) {
       bool clamp = options->wb_wall_clamp();
-      wb_ref4_ = std::make_shared<WbRef4Stencils>(
-          wb_ref4_stencils(pcoord->x1f, is, iu, clamp && phys_in,
-                           clamp && phys_out, w.options()));
+      wb_ref4_ = std::make_shared<FaceDensityRows>(
+          face_density_rows(pcoord->x1f, is, iu, clamp && phys_in,
+                            clamp && phys_out, w.options()));
     }
     wb4_flag = wb_ref4_flag(*wb_ref4_, psf_lo, psf_hi);
   }
@@ -705,8 +705,8 @@ HydroImpl::_hydro_ref_x1(torch::Tensor const& w, torch::Tensor const& dw,
   auto const& itype = options->recon1()->interp()->type();
   int nc1 = dref.size(-1);
   if ((itype == "weno5" || itype == "cp5") && nc1 >= 6) {
-    if (!dsf_lin_ || dsf_lin_->cm.device() != w.device() ||
-        dsf_lin_->cm.scalar_type() != w.scalar_type()) {
+    if (!dsf_lin_ || dsf_lin_key_ != X1RowsKey(pcoord->x1f, w.options())) {
+      dsf_lin_key_ = X1RowsKey(pcoord->x1f, w.options());
       auto op = InterpOptionsImpl::create();
       op->type("cp5");
       dsf_lin_ = std::make_shared<InterpImpl>(op);

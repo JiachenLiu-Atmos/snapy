@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <snap/hydro/hydro_dispatch.hpp>
+#include <snap/recon/x1_rows.hpp>
 #include <vector>
 
 namespace {
@@ -56,9 +57,9 @@ Out run(std::vector<double> const& h) {
   Out o{torch::empty(sizes, opts), torch::empty(sizes, opts),
         torch::empty(sizes, opts), torch::empty(sizes, opts),
         torch::empty(sizes, opts)};
-  auto rows = snap::hydro_ref_x1_stretched_rows(dx1f, kIu, /*phys_in=*/true,
-                                                /*phys_out=*/true,
-                                                /*wall_clamp=*/true);
+  auto rows = snap::six_face_rows(dx1f, kIu, /*phys_in=*/true,
+                                  /*phys_out=*/true,
+                                  /*wall_clamp=*/true);
   at::native::call_hydro_ref_x1(torch::kCPU, w, dx1f, torch::Tensor(), o.psf_lo,
                                 o.psf_hi, o.pref, o.dsf, o.dref, kIu, kGrav,
                                 snap::kX1RefStretched, /*phys_in=*/true,

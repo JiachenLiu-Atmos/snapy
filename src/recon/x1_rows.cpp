@@ -1,13 +1,22 @@
-#include "x1_coeffs.hpp"
+#include "x1_rows.hpp"
 
 #include <ATen/native/ReduceOpsUtils.h>
 
+#include <algorithm>
 #include <cmath>
+#include <vector>
+
+// snap
+#include <snap/hydro/hydro_ref_x1_impl.h>
+
+#include <snap/coord/x1_stencil.hpp>
 
 namespace snap {
-namespace {
 
-void primitive_row(double const* z, int n, double* w) {
+// lp[j] = L_j'(x), the Lagrange basis through z; the weight of cell k is its
+// width times the sum of lp over the faces above it
+void face_value_row(double const* z, int n, double x, double* w) {
+  TORCH_CHECK(n >= 1 && n <= 5, "[face_value_row] 1 to 5 cells, got ", n);
   double lp[6];
   for (int j = 0; j <= n; ++j) {
     double s = 0.;
@@ -16,7 +25,7 @@ void primitive_row(double const* z, int n, double* w) {
       double term = 1. / (z[j] - z[i]);
       for (int l = 0; l <= n; ++l) {
         if (l == j || l == i) continue;
-        term *= (0. - z[l]) / (z[j] - z[l]);
+        term *= (x - z[l]) / (z[j] - z[l]);
       }
       s += term;
     }
@@ -29,6 +38,8 @@ void primitive_row(double const* z, int n, double* w) {
     w[k] = (z[k + 1] - z[k]) * acc;
   }
 }
+
+namespace {
 
 void quad_inv_rows(double const* z, double* r1, double* r2) {
   double V[3][3];
@@ -70,7 +81,7 @@ void ptype_row(double const* y, double* row) {
     double const* nodes = z + k0[r];
 
     double w[3];
-    primitive_row(nodes, 3, w);
+    face_value_row(nodes, 3, 0., w);
 
     double r1[3], r2[3];
     quad_inv_rows(nodes, r1, r2);
@@ -234,6 +245,132 @@ void x1_coeffs_check_rows(at::TensorIterator const& iter,
   TORCH_CHECK(c.size(0) == nout, "[", what, "] coefficient table has ",
               c.size(0), " rows but the output has ", nout,
               " faces along dimension ", dim);
+}
+
+std::pair<torch::Tensor, torch::Tensor> conv4_rows(torch::Tensor const& x1f,
+                                                   int n) {
+  TORCH_CHECK(n >= 4 && x1f.size(0) == n + 1,
+              "dynamics/conversion-order 4 needs nc1 >= 4 cells and nc1 + 1 "
+              "x1 faces, got ",
+              n, " and ", x1f.size(0));
+  auto x = x1f.cpu().to(torch::kFloat64);
+  auto f = [&](int s) { return x.narrow(0, s, n - 2); };
+  auto c = (f(2) - f(1)).square() / 4. / (f(3) - f(0));
+  return {c / (f(3) - f(1)), c / (f(2) - f(0))};
+}
+
+torch::Tensor wall4_rows(torch::Tensor const& x1f, int is, int iu, int ng) {
+  TORCH_CHECK(ng <= 4, "key-4 wall ghosts mirror at most 4 cells");
+  auto x = x1f.to(torch::kCPU, torch::kFloat64);
+  auto E = torch::zeros({2, 4, ng, 4}, torch::kFloat64);
+  for (int s : {0, 1}) {
+    int w = s ? iu + 1 : is, d = s ? -1 : 1;
+    auto y = (x - x[w]) / (x[w + d] - x[w]);
+    auto m = torch::arange(5, torch::kFloat64) + 1.;
+    auto row = [&](int j) {
+      return (y[j + 1].pow(m) - y[j].pow(m)) / m / (y[j + 1] - y[j]);
+    };
+    std::vector<torch::Tensor> a, b;
+    for (int k = 0; k < 4; ++k) a.push_back(row(s ? iu - 3 + k : is + k));
+    for (int k = 0; k < ng; ++k) b.push_back(row(s ? iu + 1 + k : is - ng + k));
+    auto A = torch::stack(a), Cr = A.narrow(1, 0, 4).inverse();
+    E[s][0] = torch::stack(b).narrow(1, 0, 4).matmul(Cr);
+    auto Cv = at::linalg_pinv(A.narrow(1, 1, 3)), P = A.narrow(0, s, 3);
+    auto Cp = P.index_select(1, torch::tensor({0, 2, 3})).inverse();
+    for (int k = 0; k < ng; ++k) {
+      int m = s ? 3 - k : ng - 1 - k;  // the ghost's mirror cell
+      E[s][1][k][m] = -1., E[s][2][k][m] = E[s][3][k][m] = 1.;
+      E[s][1][k] += 2. * a[m][2] * Cv[1];
+      E[s][2][k] -= 2. * (a[m][1] * Cr[1] + a[m][3] * Cr[3]);
+      E[s][3][k].narrow(0, s, 3) -= 2. * a[m][3] * Cp[2];
+    }
+  }
+  return E;
+}
+
+FaceDensityRows face_density_rows(torch::Tensor const& x1f, int is, int iu,
+                                  bool clamp_in, bool clamp_out,
+                                  torch::TensorOptions const& options) {
+  FaceDensityRows st;
+  st.key = X1RowsKey(x1f, options);
+  auto xt = x1f.cpu().to(torch::kFloat64).contiguous();
+  int nc1 = xt.size(0) - 1;
+  auto const* xf = xt.data_ptr<double>();
+  int nown = iu - is + 1;
+  st.is = is;
+  st.iu = iu;
+  st.nc1 = nc1;
+  st.clamp_in = clamp_in;
+  st.clamp_out = clamp_out;
+  // the clamped windows need four owned cells next to the wall; a block
+  // between two seams reads its (exchanged) ghost cells instead
+  st.usable = (nown >= 4 || !(clamp_in || clamp_out)) && nc1 >= 5;
+  if (!st.usable) return st;
+
+  // window s = f - 2 kept inside the owned cells at a clamped wall, in units
+  // of the face's cell width. Uniform interior: (-1, 7, 7, -1) / 12
+  std::vector<std::vector<int64_t>> ai;
+  std::vector<std::vector<double>> aw;
+  for (int f = is; f <= iu + 1; ++f) {
+    int s = f - 2;
+    if (clamp_in) s = std::max(s, is);
+    if (clamp_out) s = std::min(s, iu - 3);
+    s = std::max(0, std::min(nc1 - 4, s));
+    double h = xf[f + (f < nc1 ? 1 : 0)] - xf[f - (f < nc1 ? 0 : 1)];
+    double z[5];
+    for (int j = 0; j < 5; ++j) z[j] = (xf[s + j] - xf[f]) / h;
+    std::vector<double> wt(4);
+    face_value_row(z, 4, 0., wt.data());
+    ai.push_back({s, s + 1, s + 2, s + 3});
+    aw.push_back(wt);
+  }
+  st.idx = x1_stencil_index(ai, 4).to(options.device());
+  st.wt = x1_stencil_weight(aw, 4).to(options);
+
+  // ghost cells past a clamped wall do not count for the resolution flag:
+  // the windows there never read them, and the scan pressure falls steeply
+  // past a top wall
+  auto counted = torch::ones({nc1}, torch::kBool);
+  if (clamp_in) counted.narrow(0, 0, is).fill_(false);
+  if (clamp_out) counted.narrow(0, iu + 1, nc1 - iu - 1).fill_(false);
+  st.counted = counted.to(options.device());
+  return st;
+}
+
+torch::Tensor six_face_rows(torch::Tensor const& dx1f, int iu, bool phys_in,
+                            bool phys_out, bool wall_clamp) {
+  auto h = dx1f.cpu().to(torch::kFloat64).contiguous();
+  int nc1 = h.size(0);
+  auto hp = h.data_ptr<double>();
+  auto rows = torch::zeros({nc1, 7}, torch::kFloat64);
+  auto r = rows.accessor<double, 2>();
+  long double const tq[3] = {0.5L - 0.1L * std::sqrt(15.0L), 0.5L,
+                             0.5L + 0.1L * std::sqrt(15.0L)};
+  long double const wq[3] = {5.0L / 18.0L, 8.0L / 18.0L, 5.0L / 18.0L};
+  for (int i = 0; i < nc1; ++i) {
+    int start =
+        hydro_ref_x1_six_face_start(i, nc1, iu, phys_in, phys_out, wall_clamp);
+    r[i][0] = start;
+    if (start < 0) continue;
+    long double t[6];
+    for (int k = 0; k < 6; ++k) {
+      long double o = 0.0L;
+      for (int j = i; j < start + k; ++j) o += hp[j];
+      for (int j = start + k; j < i; ++j) o -= hp[j];
+      t[k] = o / hp[i];
+    }
+    for (int m = 0; m < 6; ++m) {
+      long double wm = 0.0L;
+      for (int q = 0; q < 3; ++q) {
+        long double l = 1.0L;
+        for (int k = 0; k < 6; ++k)
+          if (k != m) l *= (tq[q] - t[k]) / (t[m] - t[k]);
+        wm += wq[q] * l;
+      }
+      r[i][1 + m] = static_cast<double>(wm);
+    }
+  }
+  return rows;
 }
 
 }  // namespace snap

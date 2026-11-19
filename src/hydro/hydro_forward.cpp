@@ -11,6 +11,7 @@
 #include <snap/eos/ideal_moist.hpp>
 #include <snap/layout/exchange.hpp>
 #include <snap/mesh/meshblock.hpp>
+#include <snap/recon/conversion.hpp>
 #include <snap/utils/log.hpp>
 
 #include "flux_positivity.hpp"
@@ -291,85 +292,6 @@ torch::Tensor HydroImpl::scalar_flux_covariance(torch::Tensor const& rl,
   return dflx;
 }
 
-// dynamics/conversion-order 4: the x1 weights of L a = h^2/24 q''(x_i), with q
-// the quadratic whose averages over cells i-1, i, i+1 are a. k = {kp, km}.
-static void conv4_x1_weights(torch::Tensor x1f, int n,
-                             torch::TensorOptions opts, torch::Tensor* k) {
-  TORCH_CHECK(n >= 4 && x1f.size(0) == n + 1,
-              "dynamics/conversion-order 4 needs nc1 >= 4 cells and nc1 + 1 "
-              "x1 faces, got ",
-              n, " and ", x1f.size(0));
-  x1f = x1f.cpu().to(torch::kFloat64);
-  auto f = [&](int s) { return x1f.narrow(0, s, n - 2); };
-  auto c = (f(2) - f(1)).square() / 4. / (f(3) - f(0));
-  k[0] = (c / (f(3) - f(1))).to(opts);
-  k[1] = (c / (f(2) - f(0))).to(opts);
-}
-
-// conversion-order 4 at a reflecting x1 wall: E[side][c] maps the four owned
-// averages next to the wall (narrow order) to the ghosts. c = 0: the cubic
-// through them. Parity ghosts, the mirrored cell plus twice the opposite-parity
-// part of a fit: c = 1 odd v + v''(0) z^2 (least squares on the four cells),
-// c = 2 even rho' - rho'_z(0) z - rho'_zzz(0) z^3 / 6 (the cubic), c = 3 even
-// p' - p'_zzz(0) z^3 / 6 (a0 + a2 z^2 + a3 z^3 through the three wall cells)
-torch::Tensor wall4_weights(torch::Tensor x1f, int is, int iu, int ng) {
-  TORCH_CHECK(ng <= 4, "key-4 wall ghosts mirror at most 4 cells");
-  x1f = x1f.to(torch::kCPU, torch::kFloat64);
-  auto E = torch::zeros({2, 4, ng, 4}, torch::kFloat64);
-  for (int s : {0, 1}) {
-    int w = s ? iu + 1 : is, d = s ? -1 : 1;
-    auto y = (x1f - x1f[w]) / (x1f[w + d] - x1f[w]);
-    auto m = torch::arange(5, torch::kFloat64) + 1.;
-    auto row = [&](int j) {
-      return (y[j + 1].pow(m) - y[j].pow(m)) / m / (y[j + 1] - y[j]);
-    };
-    std::vector<torch::Tensor> a, b;
-    for (int k = 0; k < 4; ++k) a.push_back(row(s ? iu - 3 + k : is + k));
-    for (int k = 0; k < ng; ++k) b.push_back(row(s ? iu + 1 + k : is - ng + k));
-    auto A = torch::stack(a), Cr = A.narrow(1, 0, 4).inverse();
-    E[s][0] = torch::stack(b).narrow(1, 0, 4).matmul(Cr);
-    auto Cv = at::linalg_pinv(A.narrow(1, 1, 3)), P = A.narrow(0, s, 3);
-    auto Cp = P.index_select(1, torch::tensor({0, 2, 3})).inverse();
-    for (int k = 0; k < ng; ++k) {
-      int m = s ? 3 - k : ng - 1 - k;  // the ghost's mirror cell
-      E[s][1][k][m] = -1., E[s][2][k][m] = E[s][3][k][m] = 1.;
-      E[s][1][k] += 2. * a[m][2] * Cv[1];
-      E[s][2][k] -= 2. * (a[m][1] * Cr[1] + a[m][3] * Cr[3]);
-      E[s][3][k].narrow(0, s, 3) -= 2. * a[m][3] * Cp[2];
-    }
-  }
-  return E;
-}
-
-void wall4_fill(torch::Tensor a, torch::Tensor const& E, int c, int i0, int i1,
-                bool const* wall, bool pos, torch::Tensor ref,
-                torch::Tensor rows, torch::Tensor trips) {
-  for (int s : {0, 1}) {
-    if (!wall[s]) continue;
-    int g = E.size(2);
-    auto old = a.narrow(-1, s ? i1 + 1 : i0 - g, g);
-    auto x = a.narrow(-1, s ? i1 - 3 : i0, 4).matmul(E[s][c].t());
-    if (!pos) {  // no positivity guard: the ghosts are the polynomial's
-      old.copy_(x);
-      continue;
-    }
-    auto t = ref.defined() ? x + ref.narrow(-1, s ? i1 + 1 : i0 - g, g) : x;
-    auto bad = rows.defined() ? (t <= 0.) & rows : t <= 0.;
-    if (trips.defined()) trips.add_(bad.sum());  // on the device
-    old.copy_(torch::where(bad, old, x));
-  }
-}
-
-torch::Tensor conv4_admissible(torch::Tensor const& a, bool prim,
-                               EquationOfStateImpl* eos, bool limiter) {
-  double df = limiter ? eos->options->density_floor() : 0.;
-  double pf = limiter ? eos->options->pressure_floor() : 0.;
-  auto good = torch::isfinite(a).all(0) & (a[IDN] > df);
-  if (limiter && a.size(0) > ICY)
-    good &= (a.narrow(0, ICY, a.size(0) - ICY) >= 0.).all(0);
-  return prim && a.size(0) > IPR ? good & (a[IPR] > pf) : good;
-}
-
 torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
                                  Variables const& other) {
   enum { DIM1 = 3, DIM2 = 2, DIM3 = 1 };
@@ -388,7 +310,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
 
   peos->forward(u, w);
   // conversion-order 4: x1 ghosts at a reflecting wall from the owned cells
-  // (wall4_weights, constraint c); a rho or p ghost whose total (ref + a) is
+  // (wall4_rows, constraint c); a rho or p ghost whose total (ref + a) is
   // not positive keeps the mirror and counts as a conversion trip
   int i0 = pmb->pcoord->il(), i1 = pmb->pcoord->iu();
   bool wall4[2];
@@ -399,10 +321,9 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       TORCH_WARN_ONCE("fewer than 4 x1 cells: wall ghosts stay mirrored");
     wall4[f] = wall4[f] && i1 - i0 >= 3;
   }
-  auto fill4 = [&](torch::Tensor a, int c, bool pos, torch::Tensor ref,
-                   torch::Tensor rows = {}) {
+  auto fill4 = [&](torch::Tensor a, int c, bool pos, torch::Tensor ref) {
     if (wall4[0] || wall4[1])  // key 2 and wall-less blocks never enter
-      wall4_fill(a, wall4_E_, c, i0, i1, wall4, pos, ref, rows, _conv4_trips);
+      conv4_->fill_walls(a, c, pos, ref, {}, _conv4_trips);
   };
   bool split_flux = options->perturbation_flux();
   IdealMoistPerturbations perturb;
@@ -418,73 +339,20 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     if (options->conversion_order() == 4) raw_primitive = w.clone();
   }
   // x1 point values u - L u, the primitives there, and back to cell averages:
-  // w = W(u - L u) + L W(u), fourth order where W(u) is second
+  // w = W(u - L u) + L W(u), fourth order where W(u) is second (Conversion)
   if (options->conversion_order() == 4 && u.size(DIM1) > 1) {
     auto const& mo = pmb->options;
     int ng = pmb->pcoord->options->nghost();
-    auto* k = conv4_x1_;
     auto const& x1f = pmb->pcoord->x1f;  // rebuilt on a new or rewritten grid
-    std::pair<void*, int64_t> at{x1f.data_ptr(), x1f._version()};
-    if (!k[0].defined() || at != conv4_x1_at_ || k[0].device() != u.device() ||
-        k[0].scalar_type() != w.scalar_type()) {
-      conv4_x1_weights(x1f, u.size(DIM1), w.options(), k), conv4_x1_at_ = at;
-      wall4_E_ = wall4_weights(x1f, i0, i1, ng).to(w.options());
-      wall4_pos_ =
-          torch::zeros({u.size(0), 1, 1, 1}, w.options().dtype(torch::kBool));
-      wall4_pos_[IDN].fill_(true), wall4_pos_[IPR].fill_(true);  // guarded rows
-    }
-    int n = u.size(DIM1) - 2;
-    // centred everywhere, reading the u ghosts the boundary condition or the
-    // exchange filled; the converted ghosts are refilled below
-    auto lap = [&](torch::Tensor const& a) {
-      auto out = torch::zeros_like(a);
-      auto am = a.narrow(-1, 0, n), a0 = a.narrow(-1, 1, n);
-      out.narrow(-1, 1, n) =
-          k[0] * (a.narrow(-1, 2, n) - a0) - k[1] * (a0 - am);
-      return out;
-    };
-    // per cell, keep the second-order w where u - L u or its primitives are
-    // not admissible: non-finite, rho or p not above the floor (zero with the
-    // limiter off), or repaired by the limiter. Those cells hand u to the
-    // EOS; this call's redo marks and vapor failures are dropped. Trips count
-    // cells per stage, ghosts included
-    bool lim = peos->options->limiter();
-    auto ok = [&](torch::Tensor const& a, bool p) {
-      return conv4_admissible(a, p, peos.get(), lim);
-    };
-    auto w0 = w.clone();
+    if (!conv4_ || conv4_->key != X1RowsKey(x1f, w.options()) ||
+        conv4_->wall(0) != wall4[0] || conv4_->wall(1) != wall4[1])
+      conv4_ = std::make_shared<Conversion>(x1f, i0, i1, ng, wall4, u.size(0),
+                                            w.options());
     // Conversion acts on total cell averages, including the static background.
     // Differencing only stored anomalies omits the background curvature.
-    auto averages = has_reference() ? total_u(u) : u;
-    // the wall cell's row reads one-sided ghosts, m odd parity (m(0) = 0); W(u)
-    // has no wall condition (m/rho = v + O(h^2), not zero at the wall)
-    if (wall4[0] || wall4[1]) {
-      averages = averages.clone();  // all rows at once, then m on its slot
-      fill4(averages, 0, true, {}, wall4_pos_);
-      fill4(averages.narrow(0, IVX, 1), 1, false, {});
-      fill4(w0, 0, true, {}, wall4_pos_);
-    }
-    auto up = averages - lap(averages);
-    auto good = ok(up, false);
-    auto tmp = torch::where(good, up, averages);
-    auto keep = [](torch::Tensor const& a) {
-      return a.defined() ? a.clone() : a;
-    };
-    auto marks = keep(peos->limiter_marks());
-    auto fails = keep(peos->vapor_failures());
-    auto tmp0 = lim ? tmp.clone() : torch::Tensor();
-    peos->compute("U->W", {tmp, w});
-    if (lim) {
-      good &= (tmp == tmp0).all(0);
-      if (marks.defined()) peos->limiter_marks().copy_(marks);
-      if (peos->vapor_failures().defined())
-        fails.defined() ? peos->vapor_failures().copy_(fails)
-                        : peos->vapor_failures().zero_();
-    }
-    good &= ok(w, true);
-    w.add_(lap(w0));
-    w.copy_(torch::where(good, w, w0));
-    _conv4_trips += good.logical_not().sum();
+    // Trips count cells per stage, ghosts included
+    conv4_->forward(has_reference() ? total_u(u) : u, w, *peos,
+                    peos->options->limiter(), _conv4_trips);
     // every ghost from the converted owned cells: the block's exchange, the
     // x1 rows again across all x2/x3 columns (the corners past a seam), then
     // the boundary conditions on every ghost layer (outflow from the saved
@@ -721,7 +589,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
               .narrow(-1, iu + 1, ng)
               .copy_(wx1[c].narrow(-1, iu + 1 - ng, ng).flip(-1));
         }
-        // key 4 rho', p' parity ghosts (wall4_weights); runs only with gravity
+        // key 4 rho', p' parity ghosts (wall4_rows); runs only with gravity
         fill4(wx1[c], c == IDN ? 2 : 3, true, c == IDN ? dref : pref);
       }
 

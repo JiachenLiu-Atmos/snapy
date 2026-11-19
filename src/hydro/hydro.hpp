@@ -16,6 +16,7 @@
 #include <snap/implicit/implicit_hydro.hpp>
 #include <snap/layout/layout.hpp>
 #include <snap/recon/reconstruct.hpp>
+#include <snap/recon/x1_rows.hpp>
 #include <snap/riemann/riemann.hpp>
 #include <snap/sedimentation/sedimentation.hpp>
 
@@ -25,7 +26,7 @@
 namespace snap {
 
 class MeshBlockImpl;
-struct WbRef4Stencils;
+class Conversion;
 class HydroReferenceX1Operator;
 struct X1PlainMeanStencils;
 struct HydroPressureSplit {
@@ -323,11 +324,13 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   mutable std::shared_ptr<HydroReferenceX1Operator> x1_reference_;
 
   void _check_stretched_x1(torch::Tensor const& u) const;
-  //! conversion-order 4 face-density stencils for this block's x1 grid, built
-  //! on first use
-  mutable std::shared_ptr<WbRef4Stencils> wb_ref4_;
-  //! the x1 reconstruction's optimal-linear rows (cp5) for the face density
+  //! conversion-order 4 face-density rows for this block's x1 grid, built on
+  //! first use and again when their X1RowsKey changes
+  mutable std::shared_ptr<FaceDensityRows> wb_ref4_;
+  //! the x1 reconstruction's optimal-linear rows (cp5) for the face density,
+  //! and the X1RowsKey they were built for
   mutable std::shared_ptr<InterpImpl> dsf_lin_;
+  mutable X1RowsKey dsf_lin_key_;
   //! key 4: (side, face) rows of the reflecting x1 walls that keep wb_ref4's
   //! face density, and the block layout they were built for
   mutable torch::Tensor wb4_lr_side_, wb4_lr_col_;
@@ -336,12 +339,9 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   mutable std::shared_ptr<X1PlainMeanStencils> x1pm_;
   //! and its pressure-force stencils, for the hydrostatic correction
   mutable std::shared_ptr<X1PressureSourceStencils> x1src_;
-  //! conversion-order 4 x1 weights {kp, km}, built on first use, and the x1f
-  //! (storage, version) they were built from
-  mutable torch::Tensor conv4_x1_[2];
-  mutable std::pair<void*, int64_t> conv4_x1_at_;
-  mutable torch::Tensor wall4_E_;    // reflecting-wall ghost weights, key 4
-  mutable torch::Tensor wall4_pos_;  // rows with a positivity guard, key 4
+  //! conversion order 4 (its x1 rows and wall ghosts), built on first use and
+  //! again when its X1RowsKey or the reflecting walls change
+  mutable std::shared_ptr<Conversion> conv4_;
   //! corrected-PE grid-only work factors, built on first use
   CorrectedPEFactors _pe_work;
   //! face_moment2_x1() for this block's x1 grid, built on first use. Holds

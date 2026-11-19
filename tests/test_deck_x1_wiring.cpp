@@ -10,7 +10,7 @@
 #include <snap/mesh/mesh.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/recon/reconstruct.hpp>
-#include <snap/recon/x1_coeffs.hpp>
+#include <snap/recon/x1_rows.hpp>
 #include <snap/scalar/scalar.hpp>
 #include <string>
 #include <utility>

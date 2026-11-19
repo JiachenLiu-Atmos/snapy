@@ -3,7 +3,7 @@
 
 // snap
 #include <snap/recon/reconstruct.hpp>
-#include <snap/recon/x1_coeffs.hpp>
+#include <snap/recon/x1_rows.hpp>
 
 // python
 #include "pyoptions.hpp"
@@ -52,7 +52,7 @@ which exist only after this call), x2/x3 are refused, and so is a module whose
 type is not weno5 or cp5 (note Sec. 4.7, design note bc29594f).)");
 
   // Free builders: route A coefficients from any face vector, with no mesh
-  // and no block (snapy#280 Sec. 4.2).  See src/recon/x1_coeffs.hpp for the
+  // and no block (snapy#280 Sec. 4.2).  See src/recon/x1_rows.hpp for the
   // 48-column layout and the face convention.
   m.def(
       "weno5_x1_coeffs",
