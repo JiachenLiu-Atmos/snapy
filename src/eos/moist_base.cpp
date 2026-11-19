@@ -28,6 +28,11 @@ double MoistEOSImpl::species_cv_ref(int n) const {
   return (options->thermo()->cref_R()[n] * Ri).item<double>();
 }
 
+torch::Tensor MoistEOSImpl::species_energy(torch::Tensor prim) {
+  return prim[IDN] * prim.narrow(0, ICY, nspecies()) *
+         (species_enthalpy(prim) - species_pressure_share(prim));
+}
+
 bool MoistEOSImpl::compute_common_(std::string const& ab,
                                    std::vector<torch::Tensor> const& args,
                                    torch::Tensor* out) {
@@ -38,7 +43,7 @@ bool MoistEOSImpl::compute_common_(std::string const& ab,
   } else if (ab == "W->T") {
     *out = _prim2temp(args[0]);
   } else if (ab == "W->E") {
-    *out = _prim2speciesEng(args[0]);
+    *out = species_energy(args[0]);
   } else if (ab == "U->K") {
     *out = _cons2ke(args[0]);
   } else if (ab == "UT->I") {
