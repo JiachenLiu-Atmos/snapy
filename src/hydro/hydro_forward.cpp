@@ -566,8 +566,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       lr[IRT][IPR] -= background;
     }
     if (fp32()) lr = lr.to(torch::kFloat32);
-    dynamic_cast<HLLCSolverImpl&>(*priemann).forward_perturbations(
-        lr[ILT], lr[IRT], dim, flux, background, face_pressure);
+    priemann->forward_perturbations(lr[ILT], lr[IRT], dim, flux, background,
+                                    face_pressure);
     // Public face pressure and all implicit/energy consumers keep TOTALS.
     if (face_pressure.defined() && face_pressure.numel())
       face_pressure += background;

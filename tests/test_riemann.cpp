@@ -14,20 +14,22 @@
 
 #include "device_testing.hpp"
 
-namespace snap {
-void call_hllc_cpu(at::TensorIterator&, int);
-}
-
 // kintera
 #include <kintera/species.hpp>
 
 // snap
-#include <snap/riemann/hllc_impl.h>
+#include <snap/riemann/riemann_kernels.h>
 
 #include <snap/eos/equation_of_state.hpp>
 #include <snap/mesh/meshblock.hpp>
-#include <snap/riemann/riemann_solver.hpp>
+#include <snap/riemann/riemann.hpp>
 #include <snap/utils/on_host.hpp>
+
+namespace snap {
+void riemann_cpu(at::TensorIterator&, int, int, RiemannParams const&,
+                 torch::Tensor const&, torch::Tensor const&,
+                 torch::Tensor const&);
+}
 
 enum {
   DIM1 = 3,
@@ -454,9 +456,8 @@ TEST_P(DeviceTest, hllc_pressure_split_dispatch_and_on_host) {
   opts->hydro()->riemann()->type() = "hllc";
   auto block = MeshBlock(opts);
   block->to(device, dtype);
-  auto solver =
-      std::dynamic_pointer_cast<HLLCSolverImpl>(block->phydro->priemann);
-  ASSERT_TRUE(solver);
+  auto solver = block->phydro->priemann;
+  ASSERT_TRUE(solver->kind == RiemannKind::hllc);
   auto coord = block->pcoord;
   auto wl = torch::zeros({block->phydro->peos->nvar(), coord->options->nc3(),
                           coord->options->nc2(), coord->options->nc1()},
@@ -493,7 +494,9 @@ TEST_P(DeviceTest, hllc_pressure_split_dispatch_and_on_host) {
                   .add_input(solver->clr)
                   .add_owned_input(p0.unsqueeze(0))
                   .build();
-  snap::OnHost<&snap::call_hllc_cpu>::run(iter, DIM1);
+  snap::OnHost<&snap::riemann_cpu>::run(
+      iter, static_cast<int>(snap::RiemannKind::hllc), DIM1,
+      snap::RiemannParams{}, torch::Tensor(), torch::Tensor(), torch::Tensor());
   if (device.is_cpu()) {
     EXPECT_TRUE(torch::equal(host_flux, flux));
     EXPECT_TRUE(torch::equal(host_dp, dp));

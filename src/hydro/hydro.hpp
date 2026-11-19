@@ -16,7 +16,7 @@
 #include <snap/implicit/implicit_hydro.hpp>
 #include <snap/layout/layout.hpp>
 #include <snap/recon/reconstruct.hpp>
-#include <snap/riemann/riemann_solver.hpp>
+#include <snap/riemann/riemann.hpp>
 #include <snap/sedimentation/sedimentation.hpp>
 
 // arg

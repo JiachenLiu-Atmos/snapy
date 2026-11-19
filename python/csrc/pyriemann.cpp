@@ -2,7 +2,7 @@
 #include <torch/extension.h>
 
 // snap
-#include <snap/riemann/riemann_solver.hpp>
+#include <snap/riemann/riemann.hpp>
 
 // python
 #include "pyoptions.hpp"
