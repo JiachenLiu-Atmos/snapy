@@ -1,5 +1,6 @@
 // C/C++
 #include <algorithm>
+#include <cstdlib>
 #include <limits>
 
 // harp
@@ -83,6 +84,15 @@ void FluxRegister::reset(int nvar, std::array<int64_t, 3> const& cells,
     _want_step[d] = false;
   }
   for (int d : req.step_field) request_step_field(d);
+  _parts.clear();
+  for (auto const& key : req.keep) {
+    auto at = key.rfind('@');
+    int d = at == std::string::npos ? 0 : std::atoi(key.c_str() + at + 1);
+    TORCH_CHECK(d >= 1 && d <= 3 && _total[d - 1].defined(), "[FluxRegister] ",
+                "kept part '", key, "' needs an active direction as @dim");
+    _parts[key] = torch::zeros(shape, kflux);
+  }
+  _slot = {};
   _monitor.reset(req);
   _stage = -1;
   _w1 = _w2 = 0.;
@@ -107,6 +117,35 @@ void FluxRegister::begin_step() {
       _step[d].zero_();
   }
   _monitor.begin_step();
+}
+
+torch::Tensor FluxRegister::slot(int dim, std::string const& name) {
+  TORCH_CHECK(dim >= 1 && dim <= 3 && _total[dim - 1].defined(),
+              "[FluxRegister] slot '", name, "' in an inactive direction ",
+              dim);
+  return _total[dim - 1];
+}
+
+void FluxRegister::post_slot(int dim, std::string const& name) {
+  _slot[dim - 1] = name;
+}
+
+bool FluxRegister::keeps(int dim, std::string const& part) const {
+  return _parts.count(part + "@" + std::to_string(dim)) > 0;
+}
+
+torch::Tensor FluxRegister::part_slot(int dim, std::string const& part) {
+  auto key = part + "@" + std::to_string(dim);
+  TORCH_CHECK(_parts.count(key), "[FluxRegister] part '", key,
+              "' was not requested in RegisterRequest::keep");
+  return _parts.at(key);
+}
+
+torch::Tensor FluxRegister::kept(int dim, std::string const& part) const {
+  auto key = part + "@" + std::to_string(dim);
+  TORCH_CHECK(_parts.count(key), "[FluxRegister] part '", key,
+              "' was not requested in RegisterRequest::keep");
+  return _parts.at(key);
 }
 
 void FluxRegister::begin_stage(int stage, harp::IntegratorWeight const& w) {
