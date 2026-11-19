@@ -1,7 +1,6 @@
 // snap
 #include <snap/snap.h>
 
-#include <snap/coord/coord_utils.hpp>
 #include <snap/hydro/flux_register.hpp>
 #include <snap/hydro/hydro.hpp>
 #include <snap/mesh/meshblock.hpp>
@@ -24,9 +23,13 @@ void SedHydroImpl::reset() {
       phydro->options->grav(),
       "[SedHydro] sedimentation reads grav1; set forcing/const-gravity");
 
-  psedvel = SedVelImpl::create(options->sedvel(), this);
-
-  // register buffer
+  auto const& sv = options->sedvel();
+  TORCH_CHECK(sv->radius().size() == sv->density().size(),
+              "[SedHydro] radius and density must have the same size");
+  auto f64 = [](auto const& v) { return torch::tensor(v, torch::kFloat64); };
+  radius = register_buffer("radius", f64(sv->radius()));
+  density = register_buffer("density", f64(sv->density()));
+  const_vsed = register_buffer("const_vsed", f64(sv->const_vsed()));
   vsed = register_buffer("vsed", torch::empty({0}, torch::kFloat64));
   settling = register_buffer("settling", torch::empty({0}, torch::kFloat64));
   hydro_ids = register_buffer(
@@ -42,7 +45,7 @@ torch::Tensor SedHydroImpl::forward(torch::Tensor wr,
 
   // the one kernel (D8) for every EOS: temperature and species energy from it
   auto pmb = phydro->pmb;
-  auto const& so = psedvel->options;
+  auto const& so = options->sedvel();
   SedParams p{
       pmb->options->is_physical_boundary(0, 0, -1) ? pmb->pcoord->il() : -1,
       pmb->options->is_physical_boundary(0, 0, 1) ? pmb->pcoord->iu()
@@ -77,9 +80,9 @@ SedKernelArgs& SedHydroImpl::kernel_args(torch::Tensor const& like) {
       here(a.cosine_cell_kj, dt) && here(a.hydro_ids, torch::kLong))
     return a;
   auto o = like.options();
-  a.radius = psedvel->radius.to(o).contiguous();
-  a.density = psedvel->density.to(o).contiguous();
-  a.const_vsed = psedvel->const_vsed.to(o).contiguous();
+  a.radius = radius.to(o).contiguous();
+  a.density = density.to(o).contiguous();
+  a.const_vsed = const_vsed.to(o).contiguous();
   a.hydro_ids = hydro_ids.to(like.device(), torch::kLong).contiguous();
   auto c = phydro->pmb->pcoord->cosine_cell_kj.to(o);
   while (c.dim() > 2) {

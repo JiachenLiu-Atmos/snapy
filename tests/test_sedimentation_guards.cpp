@@ -151,6 +151,22 @@ TEST(sedimentation, a_permuted_input_settles_like_a_contiguous_one) {
   EXPECT_TRUE(torch::equal(flux, ref));
 }
 
+// EF-12 (D14): SedVel is folded into SedHydro, which holds the particle
+// buffers itself, rebuilt from the options at reset()
+TEST(sedimentation, particle_buffers_are_sedhydros_own) {
+  auto options = MeshBlockOptionsImpl::from_yaml(kCard);
+  auto gravity = ConstGravityOptionsImpl::create();
+  gravity->grav1(-1.);
+  options->hydro()->grav() = gravity;
+  auto block = std::make_shared<MeshBlockImpl>(options);
+  auto buffers = block->phydro->psed->named_buffers();
+  for (auto name : {"radius", "density", "const_vsed"})
+    EXPECT_TRUE(buffers.contains(name)) << name;
+  EXPECT_FALSE(buffers.contains("sedvel.radius"));
+  if (buffers.contains("const_vsed"))
+    EXPECT_EQ(buffers["const_vsed"][0].item<double>(), -2.);
+}
+
 // sedimentation reads grav1 in forward(); without const-gravity that was a null
 // dereference on the first step, so the card is refused at setup instead
 TEST(sedimentation, refuses_a_card_without_const_gravity) {
