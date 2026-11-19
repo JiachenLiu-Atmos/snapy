@@ -1,8 +1,18 @@
+// Restart: the writer, the bundle of block parts and the reader, with the
+// #367 metadata checks (O.rst 3.4). Every defined variable is written; a
+// bundle is one magic line, an index of "<part name>\t<bytes>" lines, an
+// empty line, then the parts in index order.
+
 // C/C++
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <random>
+#include <sstream>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 // kintera
 #include <kintera/utils/serialize.hpp>
@@ -11,11 +21,15 @@
 #include <snap/mesh/meshblock.hpp>
 
 #include "output_type.hpp"
-#include "output_utils.hpp"
-#include "restart_metadata.hpp"
+#include "restart.hpp"
 #include "writer_core.hpp"
 
+namespace fs = std::filesystem;
+
 namespace snap {
+namespace {
+constexpr char kRestartBundleMagic[] = "SNAPY_RESTART_BUNDLE_V1";
+}  // namespace
 
 RestartOutput::RestartOutput(OutputOptions const& options_)
     : OutputType(options_) {
@@ -125,6 +139,214 @@ void RestartOutput::write_output_file(MeshBlockImpl* pmb, Variables const& vars,
   if (options->combine()) {
     combine_blocks(pmb, final_write);
   }
+}
+
+static int make_restart_bundle(std::string const& bundle_name,
+                               std::vector<std::string> const& file_list) {
+  namespace fs = std::filesystem;
+
+  std::vector<std::uintmax_t> sizes;
+  sizes.reserve(file_list.size());
+  for (auto const& file : file_list) {
+    sizes.push_back(fs::file_size(file));
+  }
+
+  std::ofstream out(bundle_name, std::ios::binary | std::ios::trunc);
+  if (!out) return -1;
+
+  out << kRestartBundleMagic << "\n";
+  out << file_list.size() << "\n";
+  for (size_t i = 0; i < file_list.size(); ++i) {
+    out << fs::path(file_list[i]).filename().string() << "\t" << sizes[i]
+        << "\n";
+  }
+  out << "\n";
+  if (!out) return -1;
+
+  std::vector<char> buffer(1 << 20);
+  for (auto const& file : file_list) {
+    std::ifstream in(file, std::ios::binary);
+    if (!in) return -1;
+
+    while (in) {
+      in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+      auto count = in.gcount();
+      if (count > 0) {
+        out.write(buffer.data(), count);
+      }
+    }
+    if (!out) return -1;
+  }
+
+  out.flush();
+  return out ? 0 : -1;
+}
+
+void RestartOutput::combine_blocks(MeshBlockImpl* pmb, bool final_write) {
+  auto layout = pmb->get_layout();
+  char number[64];
+  snprintf(number, sizeof(number), "%05d", file_number);
+
+  std::string key;
+  key.assign(pmb->options->output_dir());
+  key.append("|");
+  key.append(pmb->options->basename());
+  key.append("|restart|");
+  key.append(final_write ? "final" : number);
+
+  combine_on_root(layout, key, [&] {
+    std::string infile;
+    infile.assign(pmb->options->output_dir());
+    infile.append("/");
+    infile.append(pmb->options->basename());
+    infile.append(".block*.");
+    if (final_write) {
+      infile.append("final");
+    } else {
+      infile.append(number);
+    }
+    infile.append(".part");
+    auto file_list = glob_block_files(infile, "RestartOutput::combine_blocks");
+
+    std::string outfile;
+    outfile.assign(pmb->options->output_dir());
+    outfile.append("/");
+    outfile.append(pmb->options->basename());
+    outfile.append(".");
+    if (final_write) {
+      outfile.append("final");
+    } else {
+      outfile.append(number);
+    }
+    outfile.append(".restart");
+
+    int err = 0;
+    remove(outfile.c_str());
+    if (file_list.size() == 1) {
+      err = std::rename(file_list.front().c_str(), outfile.c_str());
+    } else {
+      err = make_restart_bundle(outfile, file_list);
+    }
+
+    if (err) {
+      std::stringstream msg;
+      msg << "### FATAL ERROR in function [RestartOutput::combine_blocks]"
+          << std::endl
+          << "restart bundling failed with error " << err << std::endl;
+      throw std::runtime_error(msg.str().c_str());
+    }
+
+    // remove input part files
+    if (file_list.size() != 1) {
+      for (auto const& f : file_list) {
+        remove(f.c_str());
+      }
+    }
+  });
+}
+
+namespace {
+[[noreturn]] void fail(std::string const& path, std::string const& what) {
+  throw std::runtime_error(path + ": " + what);
+}
+
+// the rank in a part name <basename>.block<rank>.<number>.part, or -1
+int part_rank(std::string const& name) {
+  auto dot2 = name.rfind('.', name.size() - std::strlen(".part") - 1);
+  auto dot1 = dot2 == std::string::npos ? dot2 : name.rfind('.', dot2 - 1);
+  if (dot1 == std::string::npos || name.compare(dot1 + 1, 5, "block") != 0 ||
+      name.size() < 5 || name.compare(name.size() - 5, 5, ".part") != 0)
+    return -1;
+  return std::stoi(name.substr(dot1 + 6, dot2 - dot1 - 6));
+}
+}  // namespace
+
+Variables load_restart(std::string const& path, int block_rank) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) fail(path, "failed to open restart file");
+  std::string line;
+  std::getline(in, line);
+  if (line != kRestartBundleMagic) return kintera::load_tensors(path);
+
+  // the index: a count, then "<part name>\t<bytes>" lines, then an empty line
+  std::getline(in, line);
+  if (line.empty()) fail(path, "restart bundle missing entry count");
+  size_t count = std::stoull(line);
+  std::vector<std::pair<std::string, std::uintmax_t>> entries;
+  for (size_t i = 0; i < count; ++i) {
+    std::getline(in, line);
+    auto tab = line.find('\t');
+    if (!in || tab == std::string::npos)
+      fail(path, "restart bundle index line missing tab");
+    entries.emplace_back(line.substr(0, tab),
+                         std::stoull(line.substr(tab + 1)));
+  }
+  std::getline(in, line);
+  if (!in || !line.empty())
+    fail(path, "restart bundle header missing terminator");
+
+  std::streamoff offset = in.tellg();
+  for (auto const& [name, size] : entries) {
+    if (part_rank(name) != block_rank) {
+      offset += static_cast<std::streamoff>(size);
+      continue;
+    }
+    std::vector<char> bytes(size);
+    in.seekg(offset);
+    in.read(bytes.data(), static_cast<std::streamsize>(size));
+    if (static_cast<std::uintmax_t>(in.gcount()) != size)
+      fail(path, "truncated restart bundle payload");
+    // kintera reads a file: the part goes through a temporary copy
+    auto tmp = fs::temp_directory_path() /
+               ("snapy_restart_" + std::to_string(std::random_device{}()) +
+                "_" + std::to_string(block_rank) + ".part");
+    {
+      std::ofstream out(tmp, std::ios::binary);
+      out.write(bytes.data(), static_cast<std::streamsize>(size));
+      if (!out) fail(path, "failed to create temp file for restart bundle");
+    }
+    auto vars = kintera::load_tensors(tmp.string());
+    std::error_code ec;
+    fs::remove(tmp, ec);
+    return vars;
+  }
+  fail(path, "no part for block " + std::to_string(block_rank) +
+                 " in restart bundle");
+}
+
+void check_restart_metadata(Variables const& data,
+                            std::array<torch::Tensor, 3> const& grid,
+                            bool perturbation_flux) {
+  if (data.count(kHydroRestartMetadata)) {
+    auto const& meta = data.at(kHydroRestartMetadata);
+    TORCH_CHECK(meta.scalar_type() == torch::kInt64 && meta.dim() == 1 &&
+                    meta.numel() == 2,
+                "restart: invalid hydro restart metadata");
+    TORCH_CHECK(meta[0].item<int64_t>() == kHydroRestartVersion,
+                "restart: unsupported hydro restart metadata version");
+    TORCH_CHECK(data.count("hydro_ref") && data.count("hydro_u_stored"),
+                "restart: metadata requires hydro_ref and hydro_u_stored");
+    auto const& stored = data.at("hydro_u_stored");
+    int bits = stored.scalar_type() == torch::kFloat32   ? 32
+               : stored.scalar_type() == torch::kFloat64 ? 64
+                                                         : 0;
+    TORCH_CHECK(bits && meta[1].item<int64_t>() == bits &&
+                    stored.sizes() == data.at("hydro_u").sizes(),
+                "restart: stored hydro dtype/shape disagrees with metadata");
+    // Regridding needs an explicit remap of totals and a new background.
+    // Never attach a serialized reference to a different same-shaped grid.
+    for (int d = 0; d < 3; ++d) {
+      auto key = kHydroReferenceGrid[d];
+      TORCH_CHECK(data.count(key) &&
+                      torch::equal(data.at(key), grid[d].to(torch::kCPU)),
+                  "restart: reference grid mismatch at ", key,
+                  "; remap totals and initialize a new background");
+    }
+  }
+  TORCH_CHECK(!perturbation_flux ||
+                  (data.count("hydro_ref") && data.count("hydro_ref_species")),
+              "restart: perturbation-flux requires the original hydro_ref "
+              "and hydro_ref_species");
 }
 
 }  // namespace snap
