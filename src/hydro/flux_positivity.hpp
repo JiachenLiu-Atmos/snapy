@@ -105,30 +105,41 @@ void flux_positivity_scale_(torch::Tensor const& theta,
                             torch::Tensor const& flux3,
                             Coordinate const& pcoord);
 
-//! \brief Withhold, in place, the energy and momentum the species mass carries
-//! that flux_positivity_scale_ is about to withhold (call it first).
+//! \brief The withhold factor of each face (P2): the donor cell's theta on
+//! the faces the divergence consumes (lower faces lo..hi+1 along `dim`, the
+//! tensor axis 3, 2 or 1), 1 elsewhere; the donor is the lower cell where the
+//! flux is positive. scale(d, "positivity.withhold", rows, factor) multiplies
+//! in place, as flux_positivity_scale_ does.
+torch::Tensor flux_positivity_factor(torch::Tensor const& theta,
+                                     torch::Tensor const& flux, int dim,
+                                     Coordinate const& pcoord);
+
+class FluxRegister;
+
+//! \brief Post the energy and momentum the withheld species mass carries
+//! (P3): add(d, "positivity.carry", {IPR}, -c_E), then {IVX..IVZ}, -c_m,
+//! reading the pre-scale reg.total(d) (call before the withhold scale).
 //!
 //! Per face and species, dm = (1 - theta_donor) * F_species; the energy flux
 //! loses dm * hspec(donor) and the momentum flux dm * vel(donor). When fsed1
 //! is given, the x1 species flux is split into its advected part F - fsed1
-//! and its settling part fsed1: each loses the same share (1 - theta_donor,
-//! donor of the net F) and carries hspec and vel of its own donor, picked by
-//! the sign of that part.
+//! and its settling part fsed1, posted in that order: each loses the same
+//! share (1 - theta_donor, donor of the net F) and carries hspec and vel of
+//! its own donor, picked by the sign of that part.
 //! \param hspec  energy per unit species mass, (ny, nc3, nc2, nc1)
 //! \param vel    momentum per unit mass, (3, nc3, nc2, nc1)
-//! \param flux1/2/3  full hydro fluxes; undefined tensors are skipped
-//! \param fsed1  settling part of flux1's species flux, (ny, nc3, nc2, nc1);
-//!               undefined: the whole flux is one part
+//! \param fsed1  settling part of the x1 species flux (EF's P1 buffer),
+//!               (ny, nc3, nc2, nc1); undefined: the whole flux is one part
 //! \param vface2/3  per x2 (x3) face, the velocity of its lower [0] and upper
 //!               [1] cell in the basis of that face's momentum flux, (2, 3,
 //!               nc3, nc2, nc1) indexed by face; undefined: vel
-void flux_positivity_carry_(
-    torch::Tensor const& theta, torch::Tensor const& hspec,
-    torch::Tensor const& vel, torch::Tensor const& flux1,
-    torch::Tensor const& flux2, torch::Tensor const& flux3,
-    Coordinate const& pcoord, torch::Tensor const& fsed1 = torch::Tensor(),
-    torch::Tensor const& vface2 = torch::Tensor(),
-    torch::Tensor const& vface3 = torch::Tensor());
+void flux_positivity_carry_(torch::Tensor const& theta,
+                            torch::Tensor const& hspec,
+                            torch::Tensor const& vel, FluxRegister& reg,
+                            Coordinate const& pcoord,
+                            torch::Tensor const& fsed1 = torch::Tensor(),
+                            torch::Tensor const& vface2 = torch::Tensor(),
+                            torch::Tensor const& vface3 = torch::Tensor());
 
 //! \brief Relax theta where the mass flux drains the cell too.
 //!

@@ -5,6 +5,7 @@
 #include <snap/snap.h>
 
 #include <snap/coord/coord_utils.hpp>
+#include <snap/hydro/flux_register.hpp>
 #include <snap/hydro/hydro.hpp>
 #include <snap/mesh/meshblock.hpp>
 
@@ -61,6 +62,7 @@ void SedHydroImpl::reset() {
 
   // register buffer
   vsed = register_buffer("vsed", torch::empty({0}, torch::kFloat64));
+  settling = register_buffer("settling", torch::empty({0}, torch::kFloat64));
   hydro_ids = register_buffer(
       "hydro_ids", torch::tensor(options->hydro_ids(), torch::kLong));
 }
@@ -69,11 +71,7 @@ torch::Tensor SedHydroImpl::forward(torch::Tensor wr,
                                     torch::optional<torch::Tensor> out) {
   auto flux = out.value_or(torch::zeros_like(wr));
 
-  // null-op
-  if (phydro->options->grav()->grav1() == 0. ||
-      options->sedvel()->species().size() == 0) {
-    return flux;
-  }
+  if (!settles()) return flux;
 
   auto pmb = phydro->pmb;
   int il =
@@ -126,6 +124,31 @@ torch::Tensor SedHydroImpl::forward(torch::Tensor wr,
       psedvel->options->a_mass(), psedvel->options->upper_limit());
 
   return flux;
+}
+
+bool SedHydroImpl::settles() const {
+  return phydro->options->grav()->grav1() != 0. &&
+         options->sedvel()->species().size() > 0;
+}
+
+torch::Tensor const& SedHydroImpl::post(FluxRegister& reg, torch::Tensor wr) {
+  auto t = reg.total(1);
+  if (settling.sizes() != t.sizes() || settling.dtype() != t.dtype() ||
+      settling.device() != t.device())
+    settling.set_data(torch::empty(t.sizes(), t.options()));
+  // -0. so that an entry the flux leaves alone adds nothing: x + (-0.) == x
+  settling.fill_(-0.);
+  forward(wr, settling);
+  // one add per run of consecutive rows, so no row is copied
+  std::vector<int> rows = options->hydro_ids();
+  rows.insert(rows.end(), {IVX, IVY, IVZ, IPR});
+  std::sort(rows.begin(), rows.end());
+  for (size_t a = 0, b = 1; a < rows.size(); a = b++) {
+    while (b < rows.size() && rows[b] == rows[b - 1] + 1) ++b;
+    reg.add(1, "sedimentation", {rows.begin() + a, rows.begin() + b},
+            settling.narrow(0, rows[a], b - a));
+  }
+  return settling;
 }
 
 std::shared_ptr<SedHydroImpl> SedHydroImpl::create(SedHydroOptions const& opts,
