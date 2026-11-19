@@ -104,9 +104,12 @@ def initial_w(block):
 NARMS = 18
 
 NSTEP = 6
-# the moist arms' card: tests/test_anomaly_storage.yaml of this checkout
-MOIST_DECK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..",
-                          "tests", "test_anomaly_storage.yaml")
+# the moist arms' card: tests/test_anomaly_storage.yaml of the checkout that
+# holds this file (the repo root is two levels up from the real script path,
+# so it does not depend on the working directory or on a symlink to the script)
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.realpath(__file__))))
+MOIST_DECK = os.path.join(REPO_ROOT, "tests", "test_anomaly_storage.yaml")
 # FP32 storage needs perturbation-flux, which needs HLLC (hydro.cpp)
 FP32 = {"precision": "float32", "perturbation-flux": True, "anomaly": True,
         "riemann-solver": {"type": "hllc"}}
@@ -265,9 +268,15 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--out")
     p.add_argument("--device", default="cpu", help="cpu or cuda")
-    p.add_argument("--moist-deck", default=MOIST_DECK)
+    p.add_argument("--moist-deck", default=MOIST_DECK,
+                   help="card for the two moist arms (default: %(default)s)")
     p.add_argument("--compare", nargs=2)
     a = p.parse_args()
+    if not a.compare and not os.path.isfile(a.moist_deck):
+        p.error(f"moist deck not found: {a.moist_deck}\n"
+                "  (the default is tests/test_anomaly_storage.yaml two levels "
+                "above this script; pass --moist-deck <step-checkout>/tests/"
+                "test_anomaly_storage.yaml)")
     if a.compare:
         sys.exit(0 if compare(*a.compare) else 1)
     produce(a)

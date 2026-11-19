@@ -41,9 +41,15 @@ python <step-checkout>/tools/gate_a_forcing/gate_a_forcing.py --compare runs/bas
 - `--device cpu|cuda` (default cpu) is the device the block runs on. The
   dumps are always copied to the CPU. Compare CPU with CPU and CUDA with CUDA,
   never across devices.
-- `--moist-deck` defaults to `tests/test_anomaly_storage.yaml` of the
-  checkout that holds the script. Run both builds with the same script and the
-  same card.
+- `--moist-deck YAML` is the card for the two `moist_every_*` arms. The
+  default is `tests/test_anomaly_storage.yaml` of the checkout that holds the
+  script: the path is taken from the script's real location (two levels up
+  from `tools/gate_a_forcing/`, symlinks resolved), not from the working
+  directory, so the default works from any directory as long as the script is
+  run in place in a checkout. If the script was copied out of its checkout,
+  pass `--moist-deck <step-checkout>/tests/test_anomaly_storage.yaml`. A
+  missing card stops the run with an error before any arm runs. Run both
+  builds with the same script and the same card.
 - Run the base twice and compare it with itself first (run-to-run
   determinism).
 - `OMP_NUM_THREADS=1` and, on CPU, `CUDA_VISIBLE_DEVICES=` were set for the
