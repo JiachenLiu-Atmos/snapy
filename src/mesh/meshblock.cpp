@@ -31,13 +31,13 @@ static std::mutex meshblock_mutex;
 
 void MeshBlockImpl::to(torch::Device device, torch::Dtype dtype,
                        bool non_blocking) {
-  if (phydro && phydro->fp32())
+  if (policy.fp32())
     torch::nn::Module::to(device, non_blocking);
   else
     torch::nn::Module::to(device, dtype, non_blocking);
 }
 void MeshBlockImpl::to(torch::Dtype dtype, bool non_blocking) {
-  if (!phydro || !phydro->fp32()) torch::nn::Module::to(dtype, non_blocking);
+  if (!policy.fp32()) torch::nn::Module::to(dtype, non_blocking);
 }
 
 static void set_scalar_primitive(Variables &vars, torch::Tensor const &scalar_s,
@@ -269,6 +269,7 @@ void MeshBlockImpl::reset() {
   //// -------- (6) set up hydro model -------- ////
   pefs = std::make_shared<EfStatus>();
   phydro = HydroImpl::create(options->hydro(), this);
+  policy = PrecisionPolicy(phydro->options->precision());
   if (options->verbose()) {
     SINFO(MeshBlock) << "using hydro type: " << phydro->peos->options->type()
                      << std::endl;
@@ -303,13 +304,14 @@ void MeshBlockImpl::reset() {
 
   //// ---------- (9) set up hydro buffer ------ ////
   TORCH_CHECK(phydro->peos->nvar() > 0, "Hydro model must have nvar > 0.");
-  _hydro_u0 = register_buffer(
-      "u0",
-      torch::zeros({phydro->peos->nvar(), nc3, nc2, nc1}, torch::kFloat64));
+  _hydro_u0 =
+      register_buffer("u0", torch::zeros({phydro->peos->nvar(), nc3, nc2, nc1},
+                                         policy.storage(Quantity::kBackup)));
 
   //// ------- (10) set up scalar buffer ------- ////
-  _scalar_s0 = register_buffer(
-      "s0", torch::zeros({pscalar->nvar(), nc3, nc2, nc1}, torch::kFloat64));
+  _scalar_s0 =
+      register_buffer("s0", torch::zeros({pscalar->nvar(), nc3, nc2, nc1},
+                                         policy.storage(Quantity::kBackup)));
 
   if (options->verbose()) {
     SINFO(MeshBlock) << "setting up buffer with shapes:" << std::endl
@@ -445,7 +447,8 @@ void MeshBlockImpl::initialize_local(Variables &vars) {
 
   TORCH_CHECK(vars.count("hydro_w"),
               "initialize: hydro_w is required for hydro model.");
-  if (phydro->fp32()) vars["hydro_w"] = vars.at("hydro_w").to(torch::kFloat64);
+  if (policy.fp32())
+    vars["hydro_w"] = policy.cast(Quantity::kPrimitive, vars.at("hydro_w"));
   hydro_w = vars.at("hydro_w");
 
   TORCH_CHECK(hydro_w.sizes() ==
@@ -531,10 +534,11 @@ void MeshBlockImpl::finalize_initialization(Variables &vars) {
   }
   // from here on hydro_u holds rows {IDN, IPR} as anomalies
   if (phydro->has_reference()) phydro->sub_reference_(vars.at("hydro_u"));
-  if (phydro->fp32()) {
-    vars["hydro_u"] = vars.at("hydro_u").to(torch::kFloat32);
+  if (policy.fp32()) {
+    vars["hydro_u"] = policy.store(Quantity::kHydroState, vars.at("hydro_u"));
     if (vars.count("scalar_s"))
-      vars["scalar_s"] = vars.at("scalar_s").to(torch::kFloat32);
+      vars["scalar_s"] =
+          policy.store(Quantity::kScalarState, vars.at("scalar_s"));
   }
 
   //// ------------- (8) Fill solid boundaries -------------- ////
@@ -695,8 +699,6 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
       apply_boundaries(vars, hydro_u, scalar_s);
       exchange_ghost_zones(vars);
     }
-    if (_hydro_u0.scalar_type() != hydro_u.scalar_type())
-      _hydro_u0.set_data(torch::empty_like(hydro_u));
     _hydro_u0.copy_(hydro_u);
     if (auto moist = dynamic_cast<IdealMoistImpl *>(phydro->peos.get()))
       moist->clear_heat_capacity_failure();
@@ -717,8 +719,6 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
       phydro->peos->vapor_failures().zero_();  // nor is a vapor failure
 
     if (pscalar->nvar() > 0) {
-      if (_scalar_s0.scalar_type() != scalar_s.scalar_type())
-        _scalar_s0.set_data(torch::empty_like(scalar_s));
       _scalar_s0.copy_(scalar_s);
     }
   }
@@ -1780,11 +1780,11 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
   }
 
   if (phydro->options->perturbation_flux()) {
-    auto dtype = phydro->fp32() ? torch::kFloat32 : torch::kFloat64;
-    vars["hydro_u"] = vars.at("hydro_u").to(dtype);
+    vars["hydro_u"] = policy.store(Quantity::kHydroState, vars.at("hydro_u"));
     vars["hydro_w"] = vars.at("hydro_w").to(torch::kFloat64);
     if (vars.count("scalar_s"))
-      vars["scalar_s"] = vars.at("scalar_s").to(dtype);
+      vars["scalar_s"] =
+          policy.store(Quantity::kScalarState, vars.at("scalar_s"));
   }
   if (has_radiating_boundary()) {
     TORCH_CHECK(

@@ -23,6 +23,7 @@
 #include <snap/eos/ef_status.hpp>
 #include <snap/hydro/hydro.hpp>
 #include <snap/layout/layout.hpp>
+#include <snap/mesh/precision_policy.hpp>
 #include <snap/scalar/scalar.hpp>
 
 // arg
@@ -146,6 +147,9 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   InternalBoundary pib = nullptr;
   Hydro phydro = nullptr;
   Scalar pscalar = nullptr;
+
+  //! dtypes per quantity, built in reset() from dynamics.precision
+  PrecisionPolicy policy;
 
   //! the block's EOS/floor/positivity status: limiter marks, vapor-repair
   //! failures, heat-capacity latch and the positivity meters (V3 EF D4).
