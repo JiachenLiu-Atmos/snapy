@@ -104,14 +104,15 @@ TEST(X1Coeffs, uniform_matches_shipped_rows) {
     auto x1f = faces_uniform(12, h);
     auto w = weno5_x1_coeffs(x1f);
     auto p = cp5_x1_coeffs(x1f);
-    auto shipped_m = weno->cm.reshape({45});
-    auto shipped_p = weno->cp.reshape({45});
+    // the uniform table is a whole 48-entry row: the nine stencil rows, then
+    // the linear weights d (V3 C9)
+    auto shipped_m = weno->cm;
+    auto shipped_p = weno->cp;
+    ASSERT_EQ(shipped_m.numel(), kWeno5NuCoeff);
     for (int64_t m = 0; m < w.first.size(0); ++m) {
-      auto cm45 = w.first[m].slice(0, 0, 45);
-      auto cp45 = w.second[m].slice(0, 0, 45);
-      EXPECT_LT((cm45 - shipped_m).abs().max().item<double>(), 1.e-14)
+      EXPECT_LT((w.first[m] - shipped_m).abs().max().item<double>(), 1.e-14)
           << "h = " << h << ", row " << m;
-      EXPECT_LT((cp45 - shipped_p).abs().max().item<double>(), 1.e-14)
+      EXPECT_LT((w.second[m] - shipped_p).abs().max().item<double>(), 1.e-14)
           << "h = " << h << ", row " << m;
       auto d = w.first[m].slice(0, 45, 48);
       EXPECT_NEAR(d[0].item<double>(), .3, 1.e-15);
