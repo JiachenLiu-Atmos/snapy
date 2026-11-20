@@ -5,7 +5,7 @@
 enable_testing()
 
 setup_test(test_eos)
-# ideal-gas refuses a moist card; AthenaArray keeps float32 values
+# ideal-gas refuses a moist card; the output frame keeps float32 values
 setup_test(test_eos_io_core)
 setup_test(test_split_reference)
 setup_test(test_precision_policy)

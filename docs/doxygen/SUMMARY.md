@@ -27,9 +27,6 @@ The following header files have been documented with comprehensive Doxygen-style
 - ✅ `lubksb.h` - LU decomposition backsubstitution solver
 - ✅ `ludcmp.h` - LU decomposition with partial pivoting
 
-#### Interface Module (`src/interface/`)
-- ✅ `stride_iterator.hpp` - Random-access iterator with custom stride
-
 #### Core Headers
 - ✅ `src/snap.h` - Index definitions and enumerations for variable access
 
@@ -92,7 +89,6 @@ The following files already had comprehensive Doxygen documentation and did not 
 - `src/riemann/riemann_solver.hpp` - Riemann solvers
 - `src/forcing/forcing.hpp` - Physical forcing terms
 - `src/sedimentation/sedimentation.hpp` - Sedimentation physics
-- `src/interface/athena_arrays.hpp` - Multi-dimensional arrays
 - `src/scalar/scalar.hpp` - Scalar transport
 - `src/output/output_type.hpp` - Output handling
 
