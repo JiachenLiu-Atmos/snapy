@@ -363,9 +363,6 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
   // gravity-work: face books the metric-weighted work in the energy row
   bool face_work = phydro->face_work_in_operator();
   int adir = face_work ? kVicFaceWork : 0;
-  bool diffusive_work =
-      grav1 != 0. && phydro->options->grav()->gravity_work() == "cell";
-  if (diffusive_work) adir |= kVicDiffusiveCell;
 
   // gravity-work: face: the energy row also carries the corrected
   // potential energy's work g1 sigma^2 s[drho] of the mass this solve moves
@@ -508,8 +505,8 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
         reg->kept(1, "vic.mass_total")[IDN].to(_mass_corr.options()) * kdt;
     energy_solved = du[IPR].clone();  // vic.cell: without the remainder
   }
-  book_remainder_(du, w.size(0), mask, no_solid, face_work, diffusive_work,
-                  radial_exact, grav1, rx_mass0, rx_fluid, nx1, moved_total);
+  book_remainder_(du, w.size(0), mask, no_solid, face_work, radial_exact, grav1,
+                  rx_mass0, rx_fluid, nx1, moved_total);
 
   _corr.copy_(du);
   _corr.sub_(_du0);
@@ -670,11 +667,13 @@ std::shared_ptr<ImplicitHydroImpl> ImplicitHydroImpl::create(
   return p->register_module(name, ImplicitHydro(opts, p));
 }
 
-void ImplicitHydroImpl::book_remainder_(
-    torch::Tensor du, int wsize, torch::Tensor const& mask, bool no_solid,
-    bool face_work, bool diffusive_work, bool radial_exact, double grav1,
-    torch::Tensor const& rx_mass0, torch::Tensor const& rx_fluid, int nx1,
-    torch::Tensor const& moved_total) {
+void ImplicitHydroImpl::book_remainder_(torch::Tensor du, int wsize,
+                                        torch::Tensor const& mask,
+                                        bool no_solid, bool face_work,
+                                        bool radial_exact, double grav1,
+                                        torch::Tensor const& rx_mass0,
+                                        torch::Tensor const& rx_fluid, int nx1,
+                                        torch::Tensor const& moved_total) {
   auto pcoord = phydro->pmb->pcoord;
   // du[IPR] is a scalar row: the frame de-projection before this call
   // (flux2global1_) leaves it as it was, so the order of the two terms below
@@ -682,7 +681,7 @@ void ImplicitHydroImpl::book_remainder_(
 
   // the projection's and the availability clamp's work, from the face masses
   // the solve requested and moved
-  if (face_work || diffusive_work) {
+  if (face_work) {
     int is = pcoord->il(), ie = pcoord->iu() + 1;
     auto in3 =
         phydro->pmb->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));

@@ -35,7 +35,7 @@ W_TOL = 1.0e-7  # m/s
 W_SETTLED = 1.0e-10  # m/s, max w at the last step: the column has settled
 
 
-def config(geometry="cartesian", cell_work=False):
+def config(geometry="cartesian"):
     rgas = 8.31446261815324
     cfg = {
         "geometry": {"type": "cartesian",
@@ -57,11 +57,6 @@ def config(geometry="cartesian", cell_work=False):
                                           "gravity-work-fixer": False}},
     }
 
-    if cell_work:
-        # Cell work, with the fixer key omitted: the global fixer is on by default with cell.
-        cfg["forcing"]["const-gravity"]["gravity-work"] = "cell"
-        cfg["forcing"]["const-gravity"].pop("gravity-work-fixer")
-
     if geometry == "spherical-polar":
         cfg["geometry"]["type"] = geometry
         cfg["geometry"]["cells"]["nx2"] = 1
@@ -80,13 +75,13 @@ def config(geometry="cartesian", cell_work=False):
     return cfg
 
 
-def run(dt, nstep, device, geometry="cartesian", cell_work=False):
+def run(dt, nstep, device, geometry="cartesian"):
 
     import snapy
     from snapy import MeshBlock, MeshBlockOptions, kIDN, kIPR, kIV1
 
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, dir=os.getcwd()) as f:
-        yaml.safe_dump(config(geometry, cell_work), f)
+        yaml.safe_dump(config(geometry), f)
         tmp = f.name
     try:
         block = MeshBlock(MeshBlockOptions.from_yaml(tmp))
@@ -199,17 +194,6 @@ def main():
                 failures.append((geometry, courant, n, wmax))
         print(json.dumps({"geometry": geometry, "first_failing_courant": first_failure,
                           "tested_courants": args.courants}), flush=True)
-    # Preserve the Cartesian cell work + global fixer coverage alongside the
-    # explicitly face-only, fixer-off ladder.
-    for dt in (() if args.ladder else (997.0, 100.0)):
-        finite, n, wmax, history, err = run(
-            dt, args.nstep, args.device, cell_work=True)
-        passed = finite and wmax < W_TOL
-        print(json.dumps({"arm": "cell-global-fixer", "dt": dt,
-                          "steps": n, "passed": passed, "max_w": wmax,
-                          "balance_error": err, "history": history}), flush=True)
-        if not passed:
-            failures.append(("cell-global-fixer", dt, n, wmax))
     for failure in failures:
         print("FAIL", failure, flush=True)
     return 1 if failures else 0

@@ -29,6 +29,6 @@ def config(gravity, x1bc="reflecting", scheme=0):
                                             "x2-inner": "periodic", "x2-outer": "periodic",
                                             "x3-inner": "periodic", "x3-outer": "periodic"}},
         "integration": {"type": "rk3", "cfl": 0.4, "implicit-scheme": scheme, "nlim": -1, "tlim": 1.e9},
-        # cell unless an arm says otherwise (the default is face)
-        "forcing": {"const-gravity": dict({"grav1": -GRAV, "gravity-work": "cell"}, **gravity)},
+        # face, the one gravity-work form since V3 I-7
+        "forcing": {"const-gravity": dict({"grav1": -GRAV, "gravity-work": "face"}, **gravity)},
     }

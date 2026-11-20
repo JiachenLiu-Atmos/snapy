@@ -51,8 +51,7 @@ void DISPATCH_MACRO vic_assemble_impl(
     Eigen::Matrix<T, N, 1>* rhs_corr = nullptr) {
   static_assert(N == 3 || N == 5, "VIC blocks are 3x3 or 5x5");
   bool face_work = dir & kVicFaceWork;
-  bool diffusive_cell = dir & kVicDiffusiveCell;
-  dir &= ~(kVicFaceWork | kVicDiffusiveCell);
+  dir &= ~kVicFaceWork;
   // eigenvectors, eigenvalues, inverse matrix of eigenvectors.
   Eigen::Matrix<T, 5, 5> Rmat, Rimat;
   Eigen::Matrix<T, 5, 1> Lambda;
@@ -159,8 +158,8 @@ void DISPATCH_MACRO vic_assemble_impl(
   c[i] = -(ApN - dnext) * area_ip1 * half_inv_vol;
 
   vic_gravity_work_rows<T, N>(a[i], b[i], c[i], AmN.row(0), ApN.row(0), e, m1,
-                              grav, face_work, diffusive_cell,
-                              work_lo[i * stride2], work_hi[i * stride2]);
+                              grav, face_work, work_lo[i * stride2],
+                              work_hi[i * stride2]);
 
   // Fix boundary conditions for the cells at the ends of the column.
   bool merged_lower = (i == is || solid_lower) && first_block && !periodic;
@@ -190,7 +189,7 @@ void DISPATCH_MACRO vic_assemble_impl(
          half_inv_vol;
     bT = -(AmT + dfp_T) * area_i * half_inv_vol;
     cT = -(ApT - dfn_T) * area_ip1 * half_inv_vol;
-    if (face_work || diffusive_cell) {
+    if (face_work) {
       T lower = work_lo[i * stride2], upper = work_hi[i * stride2];
       aT.row(2) -= grav * (upper * ApT.row(0) - lower * AmT.row(0));
       bT.row(2) -= grav * lower * AmT.row(0);

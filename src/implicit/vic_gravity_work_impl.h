@@ -14,27 +14,26 @@ namespace snap {
 //! face.
 //!   face_work: the face work of the linearised mass flux with lower / upper,
 //!     the face-to-centre potential weights of the mass update, which are
-//!     GravityWork's face weights (0.25 each on a uniform Cartesian grid);
-//!   diffusive_cell: the work of the Roe mass diffusion only (the cell work
-//!     stays in Phi).
+//!     GravityWork's face weights (0.25 each on a uniform Cartesian grid).
+//! (gravity-work: cell's diffusive_cell rows were removed in V3 I-7.)
 //! lower and upper are taken by value: as local copies, the CUDA build
 //! rounds these rows as the two copies this replaces did.
 template <typename T, int N>
-DISPATCH_MACRO void vic_gravity_work_rows(
-    Eigen::Matrix<T, N, N>& a, Eigen::Matrix<T, N, N>& b,
-    Eigen::Matrix<T, N, N>& c, Eigen::Matrix<T, 1, N> const& am,
-    Eigen::Matrix<T, 1, N> const& ap, int e, int m, double grav, bool face_work,
-    bool diffusive_cell, T lower, T upper) {
-  if (face_work || diffusive_cell) {
+DISPATCH_MACRO void vic_gravity_work_rows(Eigen::Matrix<T, N, N>& a,
+                                          Eigen::Matrix<T, N, N>& b,
+                                          Eigen::Matrix<T, N, N>& c,
+                                          Eigen::Matrix<T, 1, N> const& am,
+                                          Eigen::Matrix<T, 1, N> const& ap,
+                                          int e, int m, double grav,
+                                          bool face_work, T lower, T upper) {
+  if (face_work) {
     // The same face-to-centre potential weights as the mass update.
     a.row(e) -= grav * (upper * ap - lower * am);
     b.row(e) -= grav * lower * am;
     c.row(e) += grav * upper * ap;
-    if (face_work) {
-      a(e, m) += grav * (1. - lower - upper);
-      b(e, m) -= grav * lower;
-      c(e, m) -= grav * upper;
-    }
+    a(e, m) += grav * (1. - lower - upper);
+    b(e, m) -= grav * lower;
+    c(e, m) -= grav * upper;
   }
 }
 

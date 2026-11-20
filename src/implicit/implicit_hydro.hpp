@@ -163,9 +163,8 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
   //! energy's remainder g1 sigma^2 s[du - du0] beyond what the matrix booked;
   //! added to du[IPR] in that order
   void book_remainder_(torch::Tensor du, int wsize, torch::Tensor const& mask,
-                       bool no_solid, bool face_work, bool diffusive_work,
-                       bool radial_exact, double grav1,
-                       torch::Tensor const& rx_mass0,
+                       bool no_solid, bool face_work, bool radial_exact,
+                       double grav1, torch::Tensor const& rx_mass0,
                        torch::Tensor const& rx_fluid, int nx1,
                        torch::Tensor const& moved_total);
   //! I-4: the posts, the kept total and the amounts, after the stage's

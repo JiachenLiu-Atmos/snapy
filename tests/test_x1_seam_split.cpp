@@ -255,7 +255,7 @@ void centroid_exact_split_matches_one_block(torch::Device device) {
   torch::set_num_threads(1);
   ASSERT_TRUE(x1_centroid_exact_enabled());
   for (double nh : {1., 0.}) {
-    double gap = split_gap(32, nh, "cell", 20, nullptr, false, device);
+    double gap = split_gap(32, nh, "face", 20, nullptr, false, device);
     std::printf("non-hydrostatic %g: 2 blocks vs 1, max rel gap %.3e\n", nh,
                 gap);
     // round-off: 20 steps of a 32-cell column
@@ -292,18 +292,17 @@ void co4_face_density_at_the_seam_split_matches_one_block(
   torch::set_num_threads(1);
   g_conv_order = 4;
   g_recon = "plm";
-  // re-pinned in V3 X5 without the gravity-work fixer (cell work ran it)
-  double const pinned[2] = {0.017104446996277833, 0.036658877944399954};
+  double const pinned[2] = {0.017100679797010639, 0.036674368501359349};
   int k = 0;
   for (double nh : {1., 0.}) {
-    auto one = make_column(1, 16, nh, "cell", 3, device);
+    auto one = make_column(1, 16, nh, "face", 3, device);
     MeshVariables v1(1);
     fill_column(one, v1, /*cold=*/true);
     one->initialize(v1);
     double dt = 0.3 * (kLz / 16) / std::sqrt(kGamma);
     for (int n = 0; n < 20; ++n) step(one, v1, dt);
     double m1 = column_state(one, v1)[IVX].abs().max().item<double>();
-    double gap = split_gap(16, nh, "cell", 20, nullptr, /*cold=*/true, device);
+    double gap = split_gap(16, nh, "face", 20, nullptr, /*cold=*/true, device);
     std::printf(
         "conversion-order 4, plm, cold, non-hydrostatic %g: 2 blocks vs 1, "
         "max rel gap %.3e; one block max|m1| %.17g\n",
@@ -321,8 +320,8 @@ void co4_face_density_at_the_seam_split_matches_one_block(
 TEST(X1SeamSplit, switches_off_nghost_1_sets_up) {
   ASSERT_FALSE(std::getenv("SNAP_X1_CENTROID_EXACT"));
   // the nghost >= 3 check is the switches' own: the default nghost is 1
-  EXPECT_NO_THROW(make_column(1, 16, 1., "cell", 1));
-  EXPECT_NO_THROW(make_column(2, 16, 1., "cell", 1));
+  EXPECT_NO_THROW(make_column(1, 16, 1., "face", 1));
+  EXPECT_NO_THROW(make_column(2, 16, 1., "face", 1));
 }
 
 TEST(X1SeamSplit, centroid_exact_split_matches_one_block) {
@@ -345,16 +344,16 @@ TEST(X1SeamSplit, nghost_check_refuses_fewer_than_3_ghosts) {
   char const* setting =
       centroid ? "SNAP_X1_CENTROID_EXACT" : "dynamics/conversion-order 4";
   for (int ng : {1, 2}) try {
-      make_column(1, 16, 1., "cell", ng);
+      make_column(1, 16, 1., "face", ng);
       ADD_FAILURE() << setting << ": nghost " << ng << " accepted";
     } catch (c10::Error const& e) {
       std::string what = e.what();
       EXPECT_NE(what.find("needs nghost >= 3"), std::string::npos) << what;
       EXPECT_NE(what.find(setting), std::string::npos) << what;
     }
-  EXPECT_NO_THROW(make_column(1, 16, 1., "cell", 3));
+  EXPECT_NO_THROW(make_column(1, 16, 1., "face", 3));
   // no gravity, no reference: the check stays off
-  EXPECT_NO_THROW(make_column(1, 16, 1., "cell", 1, torch::kCPU, 0.));
+  EXPECT_NO_THROW(make_column(1, 16, 1., "face", 1, torch::kCPU, 0.));
   g_conv_order = 2;
 }
 
@@ -406,12 +405,12 @@ TEST(X1SeamSplit, co4_face_density_at_the_seam_split_matches_one_block_cuda) {
 // nghost 3 the coordinate setup already refuses two cells, so use nghost 2.
 TEST(X1SeamSplit, x1_mass_covariance_needs_3_x1_cells) {
   try {
-    make_column(1, 2, 1., "cell", 2, torch::kCPU, -1., true);
+    make_column(1, 2, 1., "face", 2, torch::kCPU, -1., true);
     ADD_FAILURE() << "nx1 2 accepted";
   } catch (c10::Error const& e) {
     EXPECT_NE(std::string(e.what()).find("needs at least 3 x1 cells"),
               std::string::npos)
         << e.what();
   }
-  EXPECT_NO_THROW(make_column(1, 3, 1., "cell", 2, torch::kCPU, -1., true));
+  EXPECT_NO_THROW(make_column(1, 3, 1., "face", 2, torch::kCPU, -1., true));
 }

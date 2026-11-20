@@ -230,7 +230,6 @@ TEST(lu_failure, mesh_terminal_failure_restores_all_blocks) {
   auto gravity = ConstGravityOptionsImpl::create();
   gravity->grav1(-1.);
   gravity->gravity_work("face");
-  gravity->gravity_work_fixer(false);
   opts->hydro()->grav() = gravity;
   auto implicit = ImplicitOptionsImpl::create();
   implicit->scheme(9);
@@ -298,7 +297,6 @@ void rest_column_clamp(torch::Dtype dtype) {
   auto gravity = ConstGravityOptionsImpl::create();
   gravity->grav1(0.);
   gravity->gravity_work("face");
-  gravity->gravity_work_fixer(false);
   opts->hydro()->grav() = gravity;
   auto implicit = ImplicitOptionsImpl::create();
   implicit->scheme(9);
@@ -361,7 +359,6 @@ void column_status_case(torch::Device device) {
   auto gravity = ConstGravityOptionsImpl::create();
   gravity->grav1(-9.8);
   gravity->gravity_work("face");
-  gravity->gravity_work_fixer(false);
   opts->hydro()->grav() = gravity;
   auto implicit = ImplicitOptionsImpl::create();
   implicit->scheme(9);
@@ -437,7 +434,6 @@ void fp64_retry_case(bool fp64_fails) {
   auto gravity = ConstGravityOptionsImpl::create();
   gravity->grav1(-9.8);
   gravity->gravity_work("face");
-  gravity->gravity_work_fixer(false);
   opts->hydro()->grav() = gravity;
   auto implicit = ImplicitOptionsImpl::create();
   implicit->scheme(9);

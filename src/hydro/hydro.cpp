@@ -110,9 +110,11 @@ void HydroImpl::reset() {
   // gravity-work options, checked here so YAML and Python construction agree
   if (options->grav()) {
     auto const& gw = options->grav()->gravity_work();
-    TORCH_CHECK(gw == "cell" || gw == "face",
-                "const-gravity gravity-work must be cell or face, got '", gw,
-                "'");
+    // V3 I-7 (rulings (a), (b)): the cell form is removed; face is the one
+    // gravity-work form
+    TORCH_CHECK(gw == "face", "const-gravity gravity-work: '", gw,
+                "' is not supported: the cell form was removed (V3 I-7); use "
+                "gravity-work: face");
     // the global gravity-work fixer is removed (V3 X5, gw1; Cheng)
     TORCH_CHECK(!options->grav()->gravity_work_fixer(),
                 "const-gravity gravity-work-fixer was removed in V3; "
@@ -131,7 +133,7 @@ void HydroImpl::reset() {
         TORCH_WARN_ONCE(
             "gravity-work: face with periodic x1: -grav1*x1 jumps at the "
             "periodic face, so the corrected PE its work books is not defined "
-            "there; use x1 walls or gravity-work: cell");
+            "there; use x1 walls");
     }
     // the corrected-PE work has no form on other grids: plain face work there
     if (options->grav()->grav1() != 0. && gw == "face" && pmb && pmb->pcoord) {

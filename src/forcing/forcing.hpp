@@ -52,9 +52,6 @@ struct ConstGravityOptionsImpl {
   //!   "face" (default): face-mass-flux work in every cell (the form before
   //!     #283), plus the work of the corrected potential energy on grids with
   //!     a form for it (derivation curved-gravity-work-weight.md sec 7)
-  //!   "cell": -g rho v at cell centres, the form the implicit matrix
-  //!     linearises; mass moved by sedimentation or the positivity limiter
-  //!     keeps its face-form booking
   ADD_ARG(std::string, gravity_work) = "face";
   //! removed in V3 (X5, gw1): must stay false; read so old decks still load
   ADD_ARG(bool, gravity_work_fixer) = false;

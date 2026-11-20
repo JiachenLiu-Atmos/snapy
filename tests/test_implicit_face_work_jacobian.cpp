@@ -64,12 +64,6 @@ void check_energy_row(int flag = snap::kVicFaceWork, bool curved = false,
     double upper = .5 * (q[1](snap::IVX) + q[2](snap::IVX)) -
                    .5 * (ap.row(snap::IDN) * (q[2] - q[1]))(0);
 
-    if (flag == snap::kVicDiffusiveCell) {
-      double lower_diffusion = lower - .5 * (q[0](snap::IVX) + q[1](snap::IVX));
-      double upper_diffusion = upper - .5 * (q[1](snap::IVX) + q[2](snap::IVX));
-      return grav * (q[1](snap::IVX) + lower_weight * lower_diffusion +
-                     upper_weight * upper_diffusion);
-    }
     return grav * (lower_weight * lower + upper_weight * upper);
   };
 
@@ -124,24 +118,6 @@ TEST(implicit_face_work, full_energy_row_matches_frozen_roe_flux) {
 
 TEST(implicit_face_work, partial_energy_row_matches_frozen_roe_flux) {
   check_energy_row<3>();
-}
-
-TEST(implicit_face_work, full_cell_work_includes_roe_mass_diffusion) {
-  check_energy_row<5>(snap::kVicDiffusiveCell);
-}
-
-TEST(implicit_face_work, partial_cell_work_includes_roe_mass_diffusion) {
-  check_energy_row<3>(snap::kVicDiffusiveCell);
-}
-
-TEST(implicit_face_work, full_cell_work_uses_curved_face_metrics) {
-  for (bool centroid : {false, true})
-    check_energy_row<5>(snap::kVicDiffusiveCell, true, centroid);
-}
-
-TEST(implicit_face_work, partial_cell_work_uses_curved_face_metrics) {
-  for (bool centroid : {false, true})
-    check_energy_row<3>(snap::kVicDiffusiveCell, true, centroid);
 }
 
 TEST(implicit_face_work, full_face_work_uses_curved_face_metrics) {

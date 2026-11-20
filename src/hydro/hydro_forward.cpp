@@ -297,7 +297,6 @@ torch::Tensor HydroImpl::scalar_flux_covariance(torch::Tensor const& rl,
 torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
                                  Variables const& other) {
   enum { DIM1 = 3, DIM2 = 2, DIM3 = 1 };
-  auto wide = u.is_mps() ? torch::kFloat32 : torch::kFloat64;  // MPS: no f64
   bool has_solid = other.count("solid");
   auto start = std::chrono::high_resolution_clock::now();
   _check_stretched_x1(u);
@@ -422,12 +421,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   // the settling part of the x1 species flux, for the positivity carry: the
   // species rows of sedimentation's own P1 buffer (R2)
   torch::Tensor fsed1;
-  // gravity-work: cell -- the Riemann (background) x1 mass flux F^R; the mass
-  // that sedimentation and the positivity limiter add (F - F^R) keeps its
-  // face-form gravity work
-  torch::Tensor bflux1;
-  bool gw_cell = options->grav() && options->grav()->grav1() != 0. &&
-                 options->grav()->gravity_work() == "cell";
 
   // FaceFloor (C.rst 3.7): the faces a floor changed go to the monitor
   auto& monitor = freg.monitor();
@@ -566,10 +559,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       riemann_solve(*this, wlr1, DIM1, freg.slot(1, "riemann"), face_pressure1,
                     pressure_base1, split);
       freg.post_slot(1, "riemann");
-      if (gw_cell) {
-        bflux1 = _flux1[IDN].clone();
-        if (ny > 0) bflux1 += _flux1.narrow(0, ICY, ny).sum(0);
-      }
       if (options->verbose()) {
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed = end - start;
@@ -596,7 +585,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // (replace(1, faces, peer, SeamRule::mean), S step (4)): averaging is
     // symmetric, so both blocks hold bit-identical values and the conserved
     // sums telescope across the seam. On every x1 seam, process or same
-    // process; nothing at nb1 = 1. The companions (face pressure, F^R,
+    // process; nothing at nb1 = 1. The companions (face pressure,
     // pressure base) are not register rows: S averages them alongside.
     if (!options->disable_flux_x1() && playout && playout->options->pz() > 1) {
       Exchange ex(pmb);
@@ -612,7 +601,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         int nreg = 0;
         for (auto const& t : regrows) nreg += t.size(0);
         bool has_fp = _face_pressure1.defined() && _face_pressure1.numel() > 0;
-        bool has_bf = bflux1.defined();
 
         // ONE contiguous tensor per direction: some backends restrict
         // send/recv to a single tensor. torch::cat allocates fresh storage,
@@ -622,7 +610,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
           for (auto const& t : regrows) rows.push_back(t.select(-1, face));
           if (has_fp)
             rows.push_back(_face_pressure1.select(-1, face).unsqueeze(0));
-          if (has_bf) rows.push_back(bflux1.select(-1, face).unsqueeze(0));
           if (pressure_base1.defined())
             rows.push_back(pressure_base1.select(-1, face).unsqueeze(0));
           return torch::cat(rows, 0);
@@ -645,9 +632,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
             _face_pressure1.select(-1, face).copy_(0.5 *
                                                    (mine[row] + theirs[row]));
           if (has_fp) ++row;
-          if (has_bf)
-            bflux1.select(-1, face).copy_(0.5 * (mine[row] + theirs[row]));
-          if (has_bf) ++row;
           if (pressure_base1.defined())
             pressure_base1.select(-1, face).copy_(0.5 *
                                                   (mine[row] + theirs[row]));
@@ -1092,7 +1076,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
 
   // Face work uses the x1 mass flux after positivity limiting and
   // sedimentation. Implicit face mode consumes it before the solve; the
-  // other modes keep their existing cell or post-solve work.
+  // other modes add it after the solve.
   torch::Tensor gravity_energy_correction;
   if (options->grav() && options->grav()->grav1() != 0. && _flux1.defined() &&
       !options->disable_flux_x1()) {
@@ -1101,13 +1085,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     auto vertical_mass_flux1 = _flux1[IDN].clone();
     if (ny > 0) {
       vertical_mass_flux1 += _flux1.narrow(0, ICY, ny).sum(0);
-    }
-    // cell: the cell work rho g v (const-gravity forcing) stays; only F - F^R
-    // is booked as face work
-    if (gw_cell) {
-      vertical_mass_flux1 = bflux1.defined()
-                                ? vertical_mass_flux1 - bflux1
-                                : torch::zeros_like(vertical_mass_flux1);
     }
 
     int is = pmb->pcoord->il();
@@ -1144,7 +1121,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // gravity-work: face adds the work of the corrected potential energy for
     // this stage's x1 density change (derivation sec 7), where the grid has a
     // form for it
-    bool radial_exact = !gw_cell && radial_exact_work();
+    bool radial_exact = radial_exact_work();
     if (radial_exact) {
       auto drho = -dt * vertical_mass_div;
       auto measure = x1_measure(pmb->pcoord->options->type());
@@ -1179,11 +1156,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
                                rho_grav.slice(-1, is, ie) *
                                (1. - non_hydrostatic);
     }
-    if (gw_cell) {
-      gravity_energy_correction = face_gravity_work;
-    } else {
-      gravity_energy_correction = face_gravity_work - original_gravity_work;
-    }
+    gravity_energy_correction = face_gravity_work - original_gravity_work;
   }
 
   // apply hydrostatic correction

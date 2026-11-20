@@ -38,12 +38,12 @@ def refused(fn):
 
 def main():
     failures = []
-    if not refused(lambda: build({"gravity-work": "cell", "gravity-work-fixer": True})):
+    if not refused(lambda: build({"gravity-work": "face", "gravity-work-fixer": True})):
         failures.append("YAML gravity-work-fixer: true was accepted")
-    if not refused(lambda: build({"gravity-work": "cell"}, python_fixer=True)):
+    if not refused(lambda: build({"gravity-work": "face"}, python_fixer=True)):
         failures.append("Python gravity_work_fixer(True) was accepted")
-    build({"gravity-work": "cell", "gravity-work-fixer": False})
-    build({"gravity-work": "cell"})
+    build({"gravity-work": "face", "gravity-work-fixer": False})
+    build({"gravity-work": "face"})
     assert not failures, failures
     print("gravity-work-fixer: true refused (YAML, Python); false and no key load")
 

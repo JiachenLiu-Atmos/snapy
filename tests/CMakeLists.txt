@@ -629,8 +629,8 @@ foreach(example IN LISTS reference_examples)
     LABELS "reference")
 endforeach()
 
-# straka at cfl 1.6 needs redos: a non-finite step must reach check_redo,
-# not stop the run
+# straka at cfl 1.6 needs redos: a non-finite step must reach check_redo
+# (gravity-work: face, V3 I-7), not stop the run
 add_test(NAME test_straka_redo
          COMMAND ${CMAKE_COMMAND} -Dbuildl=release
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/run_straka_redo.cmake)

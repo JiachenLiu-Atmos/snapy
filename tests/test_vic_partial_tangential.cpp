@@ -112,7 +112,7 @@ void check(int flag, int i) {
 }  // namespace
 
 TEST(vic_partial_tangential, equals_the_reduced_full_matrix) {
-  for (int flag : {0, int(snap::kVicFaceWork), int(snap::kVicDiffusiveCell)})
+  for (int flag : {0, int(snap::kVicFaceWork)})
     for (int i = is; i <= ie; ++i) check(flag, i);
 }
 
