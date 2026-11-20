@@ -15,6 +15,18 @@
 
 namespace snap {
 
+// Z-K2: ivol and temp are fixed buffers that compute_into writes in place,
+// sized (in eager code: the first call) as compute() would allocate them:
+// like's cells, plus a species axis of n if n > 0, in dtype and device o
+static void fit(torch::Tensor& buf, torch::Tensor const& like, int n,
+                torch::TensorOptions const& o) {
+  auto shape = like.sizes().vec();
+  if (n > 0) shape.push_back(n);
+  if (buf.sizes() != shape || buf.dtype() != o.dtype() ||
+      buf.device() != o.device())
+    buf.set_(torch::empty(shape, o));
+}
+
 void MoistMixtureImpl::reset() {
   TORCH_CHECK(options->thermo(), "[MoistMixture] thermo pointer is null");
   pthermo = kintera::ThermoYImpl::create(options->thermo(), this);
@@ -54,8 +66,10 @@ void MoistMixtureImpl::_cons2prim(torch::Tensor cons, torch::Tensor& prim) {
   auto ie = _cons2prim_layout(cons, prim);
   int ny = nspecies();
 
-  ivol.set_(pthermo->compute("DY->V", {prim[IDN], prim.narrow(0, ICY, ny)}));
-  temp.set_(pthermo->compute("VU->T", {ivol, ie}));
+  fit(ivol, prim[IDN], ny + 1, prim.options());
+  pthermo->compute_into("DY->V", {prim[IDN], prim.narrow(0, ICY, ny)}, ivol);
+  fit(temp, ie, 0, ie.options());
+  pthermo->compute_into("VU->T", {ivol, ie}, temp);
   prim[IPR] = pthermo->compute("VT->P", {ivol, temp});
 
   apply_primitive_limiter_(prim);
@@ -155,8 +169,10 @@ void MoistMixtureImpl::_mark_cache(torch::Tensor const& prim) {
 void MoistMixtureImpl::_ensure_cache(torch::Tensor const& prim) {
   if (_cache_matches(prim)) return;
   int ny = nspecies();
-  ivol.set_(pthermo->compute("DY->V", {prim[IDN], prim.narrow(0, ICY, ny)}));
-  temp.set_(pthermo->compute("PV->T", {prim[IPR], ivol}));
+  fit(ivol, prim[IDN], ny + 1, prim.options());
+  pthermo->compute_into("DY->V", {prim[IDN], prim.narrow(0, ICY, ny)}, ivol);
+  fit(temp, prim[IPR], 0, ivol.options());
+  pthermo->compute_into("PV->T", {prim[IPR], ivol}, temp);
   _mark_cache(prim);
 }
 
