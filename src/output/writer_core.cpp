@@ -69,7 +69,7 @@ std::vector<std::string> Field::names() const {
 void Frame::to_host() {
   for (auto& f : fields) {
     auto t = f.data.to(torch::kCPU, torch::kFloat64, false, true).contiguous();
-    std::vector<int64_t> d4(4, 1);  // [nx4, nx3, nx2, nx1], as AthenaArray
+    std::vector<int64_t> d4(4, 1);  // [nx4, nx3, nx2, nx1], left-padded
     for (int i = 0; i < t.dim(); ++i) d4[4 - t.dim() + i] = t.size(i);
     f.data = t.view(d4);
   }
