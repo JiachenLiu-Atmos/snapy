@@ -149,6 +149,11 @@ std::map<std::string, torch::Tensor> StageExecutor::save_list(
     auto pthermo = std::dynamic_pointer_cast<kintera::ThermoYImpl>(*mt);
     if (pthermo && pthermo->failures().defined())
       list["thermo.failures"] = pthermo->failures();
+    // K4 (K.rst 3.4): the active-set buffers too, so a warm-up leaves them
+    if (pthermo && pthermo->nactive.defined()) {
+      list["thermo.reaction_set"] = pthermo->reaction_set;
+      list["thermo.nactive"] = pthermo->nactive;
+    }
   }
   return list;
 }
