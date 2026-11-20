@@ -3,6 +3,7 @@
 
 #include <snap/coord/coordinate.hpp>
 #include <snap/hydro/flux_register.hpp>
+#include <snap/hydro/sweep.hpp>
 #include <snap/hydro/x1_mass_covariance.hpp>
 #include <snap/mesh/precision_policy.hpp>
 
@@ -93,11 +94,7 @@ torch::Tensor WellBalancedX1::forward(torch::Tensor wx1,
   auto wtmp = recon.forward(
       policy->fp32() ? policy->cast(Quantity::kFlux, wx1) : wx1, DIM1,
       /*floor=*/false);
-  if (recon.floored.defined()) {
-    monitor.count("face_floor.rho", recon.floored[0]);
-    monitor.count("face_floor.p", recon.floored[1]);
-    monitor.count("face_floor.species", recon.floored[2]);
-  }
+  post_face_floors(recon, monitor);
 
   wx1[IPR].copy_(pressure);
   wx1[IDN].copy_(density);

@@ -19,6 +19,7 @@
 #include "gravity_work_radial.hpp"
 #include "hydro.hpp"
 #include "hydro_dispatch.hpp"
+#include "sweep.hpp"
 #include "x1_mass_covariance.hpp"
 
 namespace snap {
@@ -412,45 +413,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
                dx.narrow(0, 0, n).view(shape));
     return out;
   };
-  auto solve = [&](torch::Tensor lr, int dim, torch::Tensor flux,
-                   torch::Tensor face_pressure, torch::Tensor& background,
-                   torch::Tensor central = torch::Tensor()) {
-    // the solve's events (C5): hllc's clamped contact pressure, roe's LLF
-    auto post_events = [&] {
-      if (!priemann->events.defined()) return;
-      freg.monitor().count("riemann.pstar_clamp", priemann->events[0]);
-      freg.monitor().count("riemann.llf", priemann->events[1]);
-    };
-    if (!split_flux) {
-      priemann->forward(lr[ILT], lr[IRT], dim, flux, face_pressure, central);
-      post_events();
-      return;
-    }
-    TORCH_CHECK(!central.defined(),
-                "riemann.central needs the total-state solve");
-    if (!background.defined()) {
-      // Horizontal (or gravity-free) sweeps: the shared face gauge need not
-      // be hydrostatic. Its full gradient is retained in the momentum source.
-      // A static gauge keeps physical pressure increments in the Riemann
-      // flux instead of moving them into a difference of large backgrounds.
-      int axis = dim - 1;
-      auto p0 = perturb.pressure0;
-      int n = p0.size(axis);
-      auto below =
-          torch::cat({p0.narrow(axis, 0, 1), p0.narrow(axis, 0, n - 1)}, axis);
-      background = 0.5 * (p0 + below);
-      lr = lr.clone();
-      lr[ILT][IPR] -= background;
-      lr[IRT][IPR] -= background;
-    }
-    if (fp32()) lr = lr.to(torch::kFloat32);
-    priemann->forward_perturbations(lr[ILT], lr[IRT], dim, flux, background,
-                                    face_pressure);
-    post_events();
-    // Public face pressure and all implicit/energy consumers keep TOTALS.
-    if (face_pressure.defined() && face_pressure.numel())
-      face_pressure += background;
-  };
   int ny = u.size(0) - ICY;
   // the settling part of the x1 species flux, for the positivity carry: the
   // species rows of sedimentation's own P1 buffer (R2)
@@ -464,71 +426,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
 
   // FaceFloor (C.rst 3.7): the faces a floor changed go to the monitor
   auto& monitor = freg.monitor();
-  auto post_floors = [&](Reconstruct const& recon) {
-    if (!recon->floored.defined()) return;
-    monitor.count("face_floor.rho", recon->floored[0]);
-    monitor.count("face_floor.p", recon->floored[1]);
-    monitor.count("face_floor.species", recon->floored[2]);
-  };
-  auto reconstruct_sweep = [&](int dim, torch::Tensor& background) {
-    auto recon = dim == DIM1 ? precon1 : precon23;
-    if (!fp32()) {
-      auto lr = recon->forward(w, dim);
-      post_floors(recon);
-      return lr;
-    }
-    auto gauge = perturb.pressure0.mean(dim - 1, true);
-    auto input = w.to(torch::kFloat32);
-    input[IPR].copy_((perturb.pressure0 - gauge) + perturb.pressure_delta);
-    auto lr = recon->forward(input, dim, false);
-    post_floors(recon);
-    // FaceFloor on the FP32 split path: the total face states this path
-    // floors itself, on the faces the reconstruction computes
-    auto count_below = [&](torch::Tensor const& x, double floor, int axis) {
-      int ng = recon->pinterp1->stencils() / 2 + 1;
-      int64_t n = x.size(axis);
-      int64_t il = ng, iu = n - ng;
-      return (x < floor).narrow(axis, il, std::min<int64_t>(iu + 2, n) - il);
-    };
-    // Horizontal Cartesian sweeps need FP64 only for pressure cancellation.
-    // Covariance consumers still require total face states; retain their path.
-    bool active_horizontal = (dim == DIM2 && !options->disable_flux_x2()) ||
-                             (dim == DIM3 && !options->disable_flux_x3());
-    if (active_horizontal && !flux_covariance()) {
-      int axis = dim - 1;
-      auto p0 = perturb.pressure0;
-      int n = p0.size(axis);
-      auto below =
-          torch::cat({p0.narrow(axis, 0, 1), p0.narrow(axis, 0, n - 1)}, axis);
-      background = 0.5 * (p0 + below);
-      auto pressure = lr.select(1, IPR).to(torch::kFloat64);
-      pressure += gauge;
-      monitor.count(
-          "face_floor.p",
-          count_below(pressure, peos->options->pressure_floor(), dim));
-      pressure.clamp_min_(peos->options->pressure_floor());
-      pressure -= background;
-      lr.select(1, IPR).copy_(pressure);
-      monitor.count(
-          "face_floor.rho",
-          count_below(lr.select(1, IDN), peos->options->density_floor(), dim));
-      lr.select(1, IDN).clamp_min_(peos->options->density_floor());
-      return lr;
-    }
-    lr = lr.to(torch::kFloat64);
-    for (int side : {ILT, IRT}) {
-      lr[side][IPR] += gauge;
-      monitor.count(
-          "face_floor.p",
-          count_below(lr[side][IPR], peos->options->pressure_floor(), dim - 1));
-      monitor.count(
-          "face_floor.rho",
-          count_below(lr[side][IDN], peos->options->density_floor(), dim - 1));
-      lr[side][IPR].clamp_min_(peos->options->pressure_floor());
-      lr[side][IDN].clamp_min_(peos->options->density_floor());
-    }
-    return lr;
-  };
+  // the split path's background and increments for the face sweeps
+  IdealMoistPerturbations const* split = split_flux ? &perturb : nullptr;
   //// ------------ (2) Calculate dimension 1 flux ------------ ////
   if (u.size(DIM1) > 1) {
     // Hydrostatic wall revision is a PHYSICAL-boundary operation: it copies
@@ -624,10 +523,11 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       wtmp = wb.forward(wx1, ref, *precon1, monitor);
     } else {
       if (pmb->policy.fp32()) {
-        wtmp = reconstruct_sweep(DIM1, pressure_base1);
+        wtmp = reconstruct_faces(*this, {DIM1, 0, options->disable_flux_x1()},
+                                 w, split, pressure_base1);
       } else {
         wtmp = precon1->forward(wx1, DIM1);
-        post_floors(precon1);
+        post_face_floors(*precon1, monitor);
       }
       if (grav1) {
         if (phys_x1inner) _revise_x1inner_lr(wtmp[ILT], wtmp[IRT]);
@@ -658,8 +558,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       auto face_pressure1 = options->eos()->type() == "shallow-water"
                                 ? torch::Tensor()
                                 : _face_pressure1;
-      solve(wlr1, DIM1, freg.slot(1, "riemann"), face_pressure1,
-            pressure_base1);
+      riemann_solve(*this, wlr1, DIM1, freg.slot(1, "riemann"), face_pressure1,
+                    pressure_base1, split);
       freg.post_slot(1, "riemann");
       if (gw_cell) {
         bflux1 = _flux1[IDN].clone();
@@ -797,9 +697,11 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   sync_opts.cross_panel_only(true).interpolate(false).type(kPrimitive);
   std::vector<CommWorkPtr> works2, works3;
   Variables send_vars2, send_vars3;
+  FaceDir const dir2{DIM2, 0x7730, options->disable_flux_x2()};
+  FaceDir const dir3{DIM3, 0x7734, options->disable_flux_x3()};
 
   if (u.size(DIM2) > 1) {
-    wtmp2 = reconstruct_sweep(DIM2, pressure_base2);
+    wtmp2 = reconstruct_faces(*this, dir2, w, split, pressure_base2);
 
     // sync left/right states across faces for cubed sphere layout
     if (playout->options->type() == "cubed-sphere") {
@@ -811,7 +713,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
 
   //// ------------ (3.B) Calculate dimension 3 LR states ------------ ////
   if (u.size(DIM3) > 1) {
-    wtmp3 = reconstruct_sweep(DIM3, pressure_base3);
+    wtmp3 = reconstruct_faces(*this, dir3, w, split, pressure_base3);
 
     // sync left/right states across faces for cubed sphere layout
     if (playout->options->type() == "cubed-sphere") {
@@ -880,75 +782,44 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     if (ny > 0) d.narrow(-1, 1, d.size(-1) - 2).copy_(dcov[ny + 1]);
     return d;
   };
-  if (u.size(DIM2) > 1) {
-    auto wlr2 =
-        has_solid ? pmb->pib->forward(wtmp2, DIM2, other.at("solid")) : wtmp2;
-    if (!options->disable_flux_x2()) {
-      // #289: built from the face states BEFORE the solver may project them
-      // into the face-local frame, added to the flux after
-      torch::Tensor cwl, cwr;
-      if (flux_covariance()) {
-        std::tie(cwl, cwr) = x1_seam_rows(wlr2[ILT], wlr2[IRT], 0x7730);
-      }
-      auto dcov = flux_covariance() ? _flux_covariance(cwl, cwr, DIM2)
-                                    : torch::Tensor();
-      // the passive scalars' rows are built from the same face states
-      // (scalar_flux_covariance), taken before the solver may project them
-      if (dcov.defined() && has_scalars) {
-        _cov_wl[0] = cwl.clone();
-        _cov_wr[0] = cwr.clone();
-        _cov_dry[0] = cov_dry(dcov, cwl);
-      }
-      // riemann.central@2, kept for A until the next stage (R-2, C5)
-      solve(wlr2, DIM2, freg.slot(2, "riemann"), torch::Tensor(),
-            pressure_base2,
-            c2 ? freg.part_slot(2, "riemann.central") : torch::Tensor());
-      freg.post_slot(2, "riemann");
-      if (dcov.defined()) add_cov(_flux2, dcov);
-      cov2 = dcov.defined();
-      if (options->verbose()) {
-        auto end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> elapsed = end - start;
-        SINFO(Hydro) << "Flux-x2 time (s): " << elapsed.count() << "\n";
-        start = std::chrono::high_resolution_clock::now();
-      }
+  // the x2 / x3 sweep after reconstruction (solve_faces); #289: the
+  // covariance is built from the face states BEFORE the solver may project
+  // them into the face-local frame (its before_solve hook), added to the flux
+  // after. On the x3 faces it is taken along x1 too, because x1 is the
+  // stratified direction whichever horizontal face it crosses
+  auto sweep = [&](FaceDir const& dir, torch::Tensor const& faces,
+                   torch::Tensor& background, torch::Tensor& flux, int k) {
+    torch::Tensor dcov;
+    FaceHook covariance;
+    if (flux_covariance()) {
+      covariance = [&](torch::Tensor const& wlr, int dim) {
+        auto [cwl, cwr] = x1_seam_rows(wlr[ILT], wlr[IRT], dir.seam_tag);
+        dcov = _flux_covariance(cwl, cwr, dim);
+        // the passive scalars' rows are built from the same face states
+        // (scalar_flux_covariance), taken before the solver may project them
+        if (dcov.defined() && has_scalars) {
+          _cov_wl[k] = cwl.clone();
+          _cov_wr[k] = cwr.clone();
+          _cov_dry[k] = cov_dry(dcov, cwl);
+        }
+      };
     }
-  }
+    solve_faces(*this, dir, faces, other, split, background, c2, covariance);
+    if (dir.disabled) return false;
+    if (dcov.defined()) add_cov(flux, dcov);
+    if (options->verbose()) {
+      auto end = std::chrono::high_resolution_clock::now();
+      std::chrono::duration<double> elapsed = end - start;
+      SINFO(Hydro) << "Flux-x" << 4 - dir.dim
+                   << " time (s): " << elapsed.count() << "\n";
+      start = std::chrono::high_resolution_clock::now();
+    }
+    return dcov.defined();
+  };
+  if (u.size(DIM2) > 1) cov2 = sweep(dir2, wtmp2, pressure_base2, _flux2, 0);
 
   //// ------------ (4.B) Calculate dimension 3 flux ------------ ////
-  if (u.size(DIM3) > 1) {
-    auto wlr3 =
-        has_solid ? pmb->pib->forward(wtmp3, DIM3, other.at("solid")) : wtmp3;
-    if (!options->disable_flux_x3()) {
-      // #289: the same term on the x3 faces -- the covariance is taken along
-      // x1 there too, because x1 is the stratified direction whichever
-      // horizontal face it crosses
-      torch::Tensor cwl, cwr;
-      if (flux_covariance()) {
-        std::tie(cwl, cwr) = x1_seam_rows(wlr3[ILT], wlr3[IRT], 0x7734);
-      }
-      auto dcov = flux_covariance() ? _flux_covariance(cwl, cwr, DIM3)
-                                    : torch::Tensor();
-      if (dcov.defined() && has_scalars) {
-        _cov_wl[1] = cwl.clone();
-        _cov_wr[1] = cwr.clone();
-        _cov_dry[1] = cov_dry(dcov, cwl);
-      }
-      // riemann.central@3, kept for A until the next stage (R-2, C5)
-      solve(wlr3, DIM3, freg.slot(3, "riemann"), torch::Tensor(),
-            pressure_base3,
-            c2 ? freg.part_slot(3, "riemann.central") : torch::Tensor());
-      freg.post_slot(3, "riemann");
-      if (dcov.defined()) add_cov(_flux3, dcov);
-      cov3 = dcov.defined();
-      if (options->verbose()) {
-        auto end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> elapsed = end - start;
-        SINFO(Hydro) << "Flux-x3 time (s): " << elapsed.count() << "\n";
-        start = std::chrono::high_resolution_clock::now();
-      }
-    }
-  }
+  if (u.size(DIM3) > 1) cov3 = sweep(dir3, wtmp3, pressure_base3, _flux3, 1);
 
   //// ------- (4.C) Tracer flux positivity limiter (flux_positivity.hpp) ----
   ///////
