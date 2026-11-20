@@ -215,20 +215,4 @@ static inline void logical_loc2(int rx, int ry, int px, int py, int *lx,
     *ly = 1;
 }
 
-/* Boolean: is this tile on any edge? */
-//! \brief Check if tile is on any edge
-//!
-//! \param[in] lx Logical X location from logical_loc2
-//! \param[in] ly Logical Y location from logical_loc2
-//! \return Non-zero if on edge, zero if interior
-static inline int is_edge_loc(int lx, int ly) { return (lx != 0 || ly != 0); }
-
-/* Boolean: is this tile specifically a corner? */
-//! \brief Check if tile is on a corner
-//!
-//! \param[in] lx Logical X location from logical_loc2
-//! \param[in] ly Logical Y location from logical_loc2
-//! \return Non-zero if on corner, zero otherwise
-static inline int is_corner_loc(int lx, int ly) { return (lx != 0 && ly != 0); }
-
 }  // namespace snap

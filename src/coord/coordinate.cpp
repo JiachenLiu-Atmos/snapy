@@ -468,31 +468,6 @@ torch::Tensor CoordinateImpl::block_faces_(double gmin, double gmax, int gnx,
   return all.narrow(0, ix, nx + 2 * nghost + 1).clone();
 }
 
-void CoordinateImpl::reset_coordinates(std::array<MeshGenerator, 3> meshgens) {
-  auto const& op = options;
-
-  if (meshgens[0] != nullptr) {
-    int nx1f = x1f.size(0);
-    auto rx = compute_logical_position(
-        torch::linspace(0, nx1f, nx1f, torch::kFloat64), nx1f, true);
-    x1f.copy_(meshgens[0](rx, op->x1min(), op->x1max()));
-  }
-
-  if (meshgens[1] != nullptr) {
-    int nx2f = x2f.size(0);
-    auto rx = compute_logical_position(
-        torch::linspace(0, nx2f, nx2f, torch::kFloat64), nx2f, true);
-    x2f.copy_(meshgens[1](rx, op->x2min(), op->x2max()));
-  }
-
-  if (meshgens[2] != nullptr) {
-    int nx3f = x3f.size(0);
-    auto rx = compute_logical_position(
-        torch::linspace(0, nx3f, nx3f, torch::kFloat64), nx3f, true);
-    x3f.copy_(meshgens[2](rx, op->x3min(), op->x3max()));
-  }
-}
-
 void CoordinateImpl::print(std::ostream& stream) const {
   stream << "x1f = [";
   for (int i = 0; i < x1f.size(0); ++i) {
@@ -682,25 +657,6 @@ torch::Tensor CoordinateImpl::radial_face_centroid_shift_(
                (12. * rbar * (twelve_r2 + h2)).clamp_min(1.e-300);
   // degenerate face (an x1 ghost reaching r <= 0): no meaningful centroid
   return torch::where(rbar > 0.5 * h, shift, torch::zeros_like(h));
-}
-
-torch::Tensor CoordinateImpl::find_cell_index(
-    torch::Tensor const& coords) const {
-  torch::Tensor index = torch::zeros_like(coords, torch::dtype(torch::kInt64));
-
-  // x1dir
-  index.slice(1, 0, 1) = torch::searchsorted(x1f, coords.slice(1, 0, 1));
-
-  // x2dir
-  if (coords.size(1) > 1) {
-    index.slice(1, 1, 2) = torch::searchsorted(x2f, coords.slice(1, 1, 2));
-  }
-
-  // x3dir
-  if (coords.size(1) > 2) {
-    index.slice(1, 2, 3) = torch::searchsorted(x3f, coords.slice(1, 2, 3));
-  }
-  return index;
 }
 
 torch::Tensor CoordinateImpl::divergence(torch::Tensor flux1,
