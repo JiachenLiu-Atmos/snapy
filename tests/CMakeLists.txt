@@ -443,6 +443,7 @@ snapy_add_python_test(test_fp32_science TIMEOUT 300 LABELS "python;hydro;fp32-sc
 # no cuda label: its setup checks run on CPU builds too; the capture part
 # skips without a CUDA device
 snapy_add_python_test(test_stage_executor_capture TIMEOUT 300 LABELS "python;hydro;fp32-science")
+snapy_add_python_test(test_sk3_capture_moist TIMEOUT 600 LABELS "python;hydro;eos;fp32-science")
 snapy_add_python_test(test_fp32_restart TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-restart")
 snapy_add_python_test(test_fp32_policy TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
 snapy_add_python_test(test_fp32_implicit TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")

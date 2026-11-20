@@ -1,3 +1,6 @@
+// C/C++
+#include <optional>
+
 // base
 #include <configure.h>
 
@@ -9,6 +12,9 @@
 #include <c10/cuda/CUDAStream.h>
 #endif
 
+// kintera
+#include <kintera/thermo/thermo.hpp>
+
 // snap
 #include "meshblock.hpp"
 #include "stage_executor.hpp"
@@ -19,7 +25,7 @@ bool GraphKey::operator==(GraphKey const& other) const {
   return device_index == other.device_index && names == other.names &&
          layout == other.layout && store_generation == other.store_generation &&
          config_generation == other.config_generation && stage == other.stage &&
-         dt == other.dt;
+         dt == other.dt && thermo_epoch == other.thermo_epoch;
 }
 
 struct StageExecutor::Captured {
@@ -55,10 +61,6 @@ std::vector<std::string> StageExecutor::capture_reasons(
     why.push_back("the state is not on a CUDA device");
   if (op->coord()->type() != "cartesian")
     why.push_back("geometry is " + op->coord()->type() + ", not cartesian");
-  if (_block->phydro->peos->nvar() != 5)
-    why.push_back("more than one species (dry only)");
-  if (hydro->eos()->thermo() && !hydro->eos()->thermo()->reactions().empty())
-    why.push_back("reactions are set");
   if (hydro->eos()->limiter()) why.push_back("the EOS limiter is on");
   if (hydro->eos()->type() != "ideal-moist")
     why.push_back("equation of state is " + hydro->eos()->type() +
@@ -99,6 +101,8 @@ GraphKey StageExecutor::make_key(Variables const& vars, double dt,
   key.config_generation = _config_generation;
   key.stage = stage;
   key.dt = dt;
+  if (auto pthermo = thermo_of())
+    key.thermo_epoch = kintera::alloc_epoch(*pthermo);
   return key;
 }
 
@@ -116,18 +120,22 @@ std::map<std::string, torch::Tensor> StageExecutor::save_list(
   for (auto const& [name, t] : state.registered())
     if (t.defined()) list["storage." + name] = t;
   // K2 (K.rst 3.2): the ThermoY failure counter, so a warm-up leaves no count
-  auto modules = _block->named_modules();
-  if (auto mt = modules.find("hydro.eos.thermo")) {
-    auto pthermo = std::dynamic_pointer_cast<kintera::ThermoYImpl>(*mt);
-    if (pthermo && pthermo->failures().defined())
+  if (auto pthermo = thermo_of()) {
+    if (pthermo->failures().defined())
       list["thermo.failures"] = pthermo->failures();
     // K4 (K.rst 3.4): the active-set buffers too, so a warm-up leaves them
-    if (pthermo && pthermo->nactive.defined()) {
+    if (pthermo->nactive.defined()) {
       list["thermo.reaction_set"] = pthermo->reaction_set;
       list["thermo.nactive"] = pthermo->nactive;
     }
   }
   return list;
+}
+
+std::shared_ptr<kintera::ThermoYImpl> StageExecutor::thermo_of() const {
+  auto modules = _block->named_modules();
+  auto mt = modules.find("hydro.eos.thermo");
+  return mt ? std::dynamic_pointer_cast<kintera::ThermoYImpl>(*mt) : nullptr;
 }
 
 void StageExecutor::run_stage(Variables& vars, double dt, int stage) {
@@ -168,6 +176,11 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
   auto current = at::cuda::getCurrentCUDAStream(device);
   auto side = at::cuda::getStreamFromPool(false, device);
 
+  // K.rst 3.5, 7: the thermo is prepared before the warm-up (below, with the
+  // warm-up's one-time uploads: prepare() builds the table, so the
+  // no-table-build scope opens right after it); from then on no kintera
+  // table is built inside the warm-up or the capture (a missing one throws)
+  std::optional<kintera::NoTableBuild> no_table_build;
   auto handles = save_list(vars);
   std::map<std::string, torch::Tensor> saved;
   for (auto const& [name, t] : handles) saved[name] = t.clone();
@@ -188,6 +201,8 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
     warn.set_sync_debug_mode(c10::cuda::SyncDebugMode::L_DISABLED);
     c10::cuda::CUDAStreamGuard guard(side);
     try {
+      _block->prepare_thermo(vars.at("hydro_u"));  // its table upload syncs
+      no_table_build.emplace();
       for (int i = 0; i < 3; ++i) run_eager(vars, dt, stage);
     } catch (...) {
       warn.set_sync_debug_mode(mode);
