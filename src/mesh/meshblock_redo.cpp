@@ -63,6 +63,10 @@ int MeshBlockImpl::apply_redo(Variables &vars, int causes) {
     _state.adopt(vars);
     _state.restore();
     for (auto &s : phydro->sources.splits()) s->restore_split(vars["hydro_u"]);
+    // K4 (K.rst 3.4): the retry starts from the attempt's initial active set
+    if (auto pthermo = thermo())
+      if (_active_set0.second.defined())
+        pthermo->restore_active_set(_active_set0);
     phydro->peos->forward(vars["hydro_u"], vars["hydro_w"]);
     if (vars.count("scalar_s")) {
       set_scalar_primitive(vars, vars["scalar_s"], vars["hydro_u"], *phydro);
