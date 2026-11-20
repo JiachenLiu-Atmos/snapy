@@ -245,6 +245,10 @@ void HydroImpl::reset() {
   for (auto name : {"face_floor.rho", "face_floor.p", "face_floor.species",
                     "riemann.pstar_clamp", "riemann.llf"})
     req.counters.push_back(name);
+  // K's names (K.rst 3.2): the ThermoY counter's rows 1-2, posted once per
+  // step by MeshBlock after the saturation adjustment (K2)
+  req.counters.push_back("thermo.temp_solve");
+  req.counters.push_back("thermo.pres_solve");
   req.minima = {"ef.pos_min"};
   req.retry = {"ef.floor_patch", "ef.nan", "ef.vapor_fail", "ef.heat_capacity"};
   // conserve-axial-momentum full: A's riemann.central on the x2/x3 faces

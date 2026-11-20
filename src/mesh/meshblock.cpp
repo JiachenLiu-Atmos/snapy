@@ -28,6 +28,13 @@
 
 namespace snap {
 
+// the EOS's kintera ThermoY (hydro.eos.thermo), or null
+static std::shared_ptr<kintera::ThermoYImpl> thermo_of(MeshBlockImpl &block) {
+  auto modules = block.named_modules();
+  auto mt = modules.find("hydro.eos.thermo");
+  return mt ? std::dynamic_pointer_cast<kintera::ThermoYImpl>(*mt) : nullptr;
+}
+
 static std::mutex meshblock_mutex;
 
 void MeshBlockImpl::to(torch::Device device, torch::Dtype dtype,
@@ -758,7 +765,9 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
       phydro->picorr->reset_solve_failure();
     }
     phydro->peos->reset_limiter_marks(hydro_u);
-    saturation_failures();  // a failure counted before the step is not its own
+    // K2 (K.rst 3.2): the device counter is zeroed in place, no host read;
+    // a failure counted before the step is not its own
+    if (auto pthermo = thermo_of(*this)) pthermo->reset_failures();
     if (phydro->peos->vapor_failures().defined())
       phydro->peos->vapor_failures().zero_();  // nor is a vapor failure
   }
@@ -991,6 +1000,12 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
                      /*warm_start=*/true);
 
     hydro_u.narrow(0, ICY, ny) = yfrac * rho;
+    // K2 (K.rst 3.2): rows 1-2 of the counter, the step's temperature and
+    // pressure solves that did not converge, posted once per step; they are
+    // not retry causes. Row 0 is consumed by local_redo_flag_tensor.
+    auto const &fails = pthermo->failures();
+    freg.monitor().count("thermo.temp_solve", fails[1]);
+    freg.monitor().count("thermo.pres_solve", fails[2]);
     if (options->verbose()) {
       auto end = std::chrono::high_resolution_clock::now();
       std::chrono::duration<double> elapsed = end - start;
@@ -1556,15 +1571,13 @@ torch::Tensor MeshBlockImpl::local_redo_flag_tensor(Variables const &vars) {
   auto const &m = phydro->peos->limiter_marks();
   auto marks = m.defined() ? m.to(opts) : torch::zeros({2}, opts);
 
-  // drains kintera's count exactly once, as saturation_failures() does
+  // K2 (K.rst 3.2): retry cause 4 is row 0 of the device counter, consumed
+  // in place (rows 1-2 stay for the step-end post); no host read here
   auto sat = zero;
-  auto modules = named_modules();
-  auto mt = modules.find("hydro.eos.thermo");
-  auto pthermo =
-      mt ? std::dynamic_pointer_cast<kintera::ThermoYImpl>(*mt) : nullptr;
-  if (pthermo && pthermo->nfail_.defined()) {
-    sat = (pthermo->nfail_ > 0).to(opts).reshape({});
-    pthermo->nfail_ = torch::Tensor();
+  if (auto pthermo = thermo_of(*this)) {
+    auto flag = torch::zeros({1}, opts);
+    pthermo->consume_failures(flag);
+    sat = flag.reshape({});
   }
 
   // the VIC failure latch, read in the one copy below
