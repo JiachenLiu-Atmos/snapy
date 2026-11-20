@@ -1,6 +1,7 @@
 // C/C++
 #include <algorithm>
 #include <limits>
+#include <type_traits>
 
 // yaml
 #include <yaml-cpp/yaml.h>
@@ -43,6 +44,26 @@ torch::Tensor float_anomaly_floor(torch::Tensor const& floor,
   auto up = torch::nextafter(
       bound, torch::full_like(bound, std::numeric_limits<float>::infinity()));
   return torch::where(bound.to(torch::kFloat64) + ref < floor, up, bound);
+}
+
+// The one floor encoder for a conserved row (V3 EF D5). Totals: the row is
+// clamped at floor (a number or a tensor). Anomalies (ref defined): at
+// floor - ref, in FP32 storage the upward-rounded float_anomaly_floor, so the
+// total the row reconstructs is not below floor. Inactive cells keep their
+// bits as they are.
+template <typename Floor>
+void floor_row_(torch::Tensor row, Floor const& floor, torch::Tensor const& ref,
+                bool float_anomaly) {
+  if (!ref.defined()) {
+    row.clamp_min_(floor);
+    return;
+  }
+  torch::Tensor f;
+  if constexpr (std::is_arithmetic_v<Floor>)
+    f = floor * torch::ones_like(ref);
+  else
+    f = floor;
+  row.clamp_min_(float_anomaly ? float_anomaly_floor(f, ref) : f - ref);
 }
 
 }  // namespace
@@ -202,6 +223,40 @@ torch::Tensor EquationOfStateImpl::compute(
               "Please use this method in a derived class.");
 }*/
 
+bool EquationOfStateImpl::convert_(std::string const& ab,
+                                   std::vector<torch::Tensor> const& args,
+                                   torch::Tensor* out) {
+  if (ab == "W->U") {
+    auto w = args[0];
+    auto u = args.size() > 1 ? args[1] : torch::empty_like(w);
+    _prim2cons(w, u);
+    *out = u;
+  } else if (ab == "U->W") {
+    auto u = args[0];
+    auto w = args.size() > 1 ? args[1] : torch::empty_like(u);
+    _cons2prim(u, w);
+    *out = w;
+  } else {
+    return false;
+  }
+  return true;
+}
+
+void EquationOfStateImpl::_prim2cons(torch::Tensor, torch::Tensor&) {
+  TORCH_CHECK(false, "[EquationOfState] _prim2cons() is not implemented.");
+}
+
+void EquationOfStateImpl::_cons2prim(torch::Tensor, torch::Tensor&) {
+  TORCH_CHECK(false, "[EquationOfState] _cons2prim() is not implemented.");
+}
+
+void EquationOfStateImpl::_mom_from_vel_(torch::Tensor const& prim,
+                                         torch::Tensor& cons) const {
+  auto out = cons.narrow(0, IVX, 3);
+  torch::mul_out(out, prim.narrow(0, IVX, 3), prim[IDN]);
+  coord_vec_lower_(out, phydro->pmb->pcoord->cosine_cell_kj);
+}
+
 torch::Tensor EquationOfStateImpl::forward(torch::Tensor cons,
                                            torch::optional<torch::Tensor> out) {
   auto prim = out.value_or(torch::empty_like(cons));
@@ -232,23 +287,18 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
   };
   // every call marks a repaired interior, so MeshBlock::check_redo redoes it
   auto interior = pmb->part({0, 0, 0}, PartOptions().exterior(false));
-  bool mark = limiter_marks_.defined();
+  auto& status = ef_status();
+  bool mark = status.marks_armed();
   auto nan = torch::isnan(cons);
-  if (mark) push_mark_(1, nan.index(interior).any());
+  if (mark) status.mark(1, nan.index(interior).any());
   cons.masked_fill_(nan, 0.);
   auto dens_energy = [&] {  // density only where the EOS has no energy row
     auto u = cons.index(interior);
     return nvar() > IPR ? torch::stack({u[IDN], u[IPR]}) : u[IDN].clone();
   };
   auto before = mark ? dens_energy() : torch::Tensor();
-  if (anom) {
-    auto floor = options->density_floor() * torch::ones_like(ref[0]);
-    auto bound =
-        float_anomaly ? float_anomaly_floor(floor, ref[0]) : floor - ref[0];
-    cons[IDN].copy_(torch::maximum(cons[IDN], bound));
-  } else {
-    cons[IDN].clamp_min_(options->density_floor());
-  }
+  floor_row_(cons[IDN], options->density_floor(),
+             anom ? ref[0] : torch::Tensor(), float_anomaly);
 
   // for (int i = ICY; i < ICY + nvapor; ++i)
   //   cons.index(interior)[i] = pull_neighbors3(cons.index(interior)[i]);
@@ -278,16 +328,10 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
       cons_t[IDN].add_(ref[0]);
     }
     auto min_ie = compute("UT->I", {cons_t, min_temp});
-    if (anom) {
-      auto floor = ke + min_ie;
-      auto bound =
-          float_anomaly ? float_anomaly_floor(floor, ref[1]) : floor - ref[1];
-      cons[IPR].clamp_min_(bound);
-    } else {
-      cons[IPR].clamp_min_(ke + min_ie);
-    }
+    floor_row_(cons[IPR], ke + min_ie, anom ? ref[1] : torch::Tensor(),
+               float_anomaly);
   }
-  if (mark) push_mark_(0, dens_energy().ne(before).any());
+  if (mark) status.mark(0, dens_energy().ne(before).any());
 
   if (options->thermo() && ny > 0) {
     auto nghost = pcoord->options->nghost();
@@ -355,13 +399,11 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
                       .build();
       // deferred: the count waits for check_redo (on CUDA, on the device)
       bool defer = require_success && defer_vapor_check_;
-      if (defer && (!vapor_failures_.defined() ||
-                    vapor_failures_.device() != cons.device()))
-        vapor_failures_ = torch::zeros({}, cons.options().dtype(torch::kInt));
-      int err = at::native::call_fix_vapor(
-          cons.device().type(), iter, require_success,
-          defer ? vapor_failures_ : torch::Tensor());
-      if (defer && err > 0) vapor_failures_ += err;  // the CPU returns it
+      auto sink = defer ? status.flag(EfStatus::kVaporFail, cons, torch::kInt)
+                        : torch::Tensor();
+      int err = at::native::call_fix_vapor(cons.device().type(), iter,
+                                           require_success, sink);
+      if (defer && err > 0) sink += err;  // the CPU returns it
       TORCH_CHECK(!require_success || defer || err == 0,
                   "[EquationOfState] apply_conserved_limiter_: "
                   "Failed to fix vapor mass fractions.");
@@ -386,30 +428,31 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
       auto rho = dry_total(cons).unsqueeze(0).index(interior)[0] +
                  species_before.sum(0);
       auto tol = species_repair_mark(cons.scalar_type()) * rho.abs();
-      push_mark_(0, (species_before < -tol).any());
+      status.mark(0, (species_before < -tol).any());
     }
   }
 }
 
 void EquationOfStateImpl::apply_primitive_limiter_(torch::Tensor const& prim) {
   if (!options->limiter()) return;  // no limiter
+  auto& status = ef_status();
   auto nan = torch::isnan(prim);
-  if (limiter_marks_.defined()) {  // floors on a prim are floor_hit's to judge
+  if (status.marks_armed()) {  // floors on a prim are floor_hit's to judge
     auto interior = phydro->pmb->part({0, 0, 0}, PartOptions().exterior(false));
-    push_mark_(1, nan.index(interior).any());
+    status.mark(1, nan.index(interior).any());
   }
   prim.masked_fill_(nan, 0.);
   prim[IDN].clamp_min_(options->density_floor());
 
   if (options->thermo()) {
     int ny = thermo_species_rows(options->thermo());
-    if (limiter_marks_.defined()) {  // floor_hit sees no species row
+    if (status.marks_armed()) {  // floor_hit sees no species row
       auto interior =
           phydro->pmb->part({0, 0, 0}, PartOptions().exterior(false));
       // mass fractions: the same round-off bound as the conserved repair
-      push_mark_(0, (prim.index(interior).narrow(0, ICY, ny) <
-                     -positivity_roundoff(prim.scalar_type()))
-                        .any());
+      status.mark(0, (prim.index(interior).narrow(0, ICY, ny) <
+                      -positivity_roundoff(prim.scalar_type()))
+                         .any());
     }
     prim.narrow(0, ICY, ny).clamp_min_(0.);
   }
@@ -417,10 +460,10 @@ void EquationOfStateImpl::apply_primitive_limiter_(torch::Tensor const& prim) {
   prim[IPR].clamp_min_(options->pressure_floor());
 }
 
-void EquationOfStateImpl::reset_limiter_marks(torch::Tensor const& like) {
-  limiter_marks_ = torch::zeros({2}, like.options().dtype(torch::kBool));
-  pending_marks_[0].clear();
-  pending_marks_[1].clear();
+EfStatus& EquationOfStateImpl::ef_status() const {
+  if (phydro && phydro->pmb && phydro->pmb->pefs) return *phydro->pmb->pefs;
+  if (!own_status_) own_status_ = std::make_shared<EfStatus>();
+  return *own_status_;
 }
 
 EquationOfState EquationOfStateImpl::create(EquationOfStateOptions const& opts,

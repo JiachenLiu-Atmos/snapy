@@ -6,6 +6,8 @@
 #include <torch/torch.h>
 
 // snap
+#include <snap/utils/on_host.hpp>
+
 #include "interp_impl.h"
 #include "recon_dispatch.hpp"
 
@@ -79,84 +81,6 @@ void call_weno5_cpu(at::TensorIterator& iter, torch::Tensor coeff, int dim,
   call_interp_cpu<Weno5Line>(iter, coeff, dim, scale);
 }
 
-template <int N>
-void call_poly_mps(at::TensorIterator& iter, torch::Tensor coeff, int dim) {
-  auto out = iter.output();
-  auto w = iter.input();
-  torch::matmul_out(out, w.unfold(dim, N, 1), coeff);
-}
-
-void call_weno3_mps(at::TensorIterator& iter, torch::Tensor coeff, int dim,
-                    bool scale) {
-  auto result = iter.output();
-  auto w = iter.input();
-
-  auto c1 = coeff[0];
-  auto c2 = coeff[1];
-  auto c3 = coeff[2];
-  auto c4 = coeff[3];
-
-  auto wu = w.unfold(dim, 3, 1);
-  torch::Tensor wscale;
-  if (scale) {
-    wscale = wu.abs().mean(-1).clamp_min(1.e-30);  // 0 maps to 0, as on CPU
-    wu = wu / wscale.unsqueeze(-1);
-  }
-
-  auto alpha1 = 2. / 3. / (wu.matmul(c3).square() + 1e-6).square();
-  auto alpha2 = 1. / 3. / (wu.matmul(c4).square() + 1e-6).square();
-
-  torch::add_out(result, alpha1 * wu.matmul(c1), alpha2 * wu.matmul(c2));
-  result /= alpha1 + alpha2;
-
-  if (scale) {
-    result.mul_(wscale);
-  }
-}
-
-void call_weno5_mps(at::TensorIterator& iter, torch::Tensor coeff, int dim,
-                    bool scale) {
-  auto result = iter.output();
-  auto w = iter.input();
-
-  auto c1 = coeff[0];
-  auto c2 = coeff[1];
-  auto c3 = coeff[2];
-  auto c4 = coeff[3];
-  auto c5 = coeff[4];
-  auto c6 = coeff[5];
-  auto c7 = coeff[6];
-  auto c8 = coeff[7];
-  auto c9 = coeff[8];
-
-  auto wu = w.unfold(dim, 5, 1);
-  torch::Tensor wscale;
-  if (scale) {
-    wscale = wu.abs().mean(-1).clamp_min(1.e-30);  // 0 maps to 0, as on CPU
-    wu = wu / wscale.unsqueeze(-1);
-  }
-
-  auto beta1 =
-      13. / 12. * wu.matmul(c4).square() + 1. / 4. * wu.matmul(c5).square();
-  auto beta2 =
-      13. / 12. * wu.matmul(c6).square() + 1. / 4. * wu.matmul(c7).square();
-  auto beta3 =
-      13. / 12. * wu.matmul(c8).square() + 1. / 4. * wu.matmul(c9).square();
-
-  auto alpha1 = 0.3 / (beta1 + 1e-6).square();
-  auto alpha2 = 0.6 / (beta2 + 1e-6).square();
-  auto alpha3 = 0.1 / (beta3 + 1e-6).square();
-
-  torch::div_out(
-      result,
-      alpha1 * wu.matmul(c1) + alpha2 * wu.matmul(c2) + alpha3 * wu.matmul(c3),
-      alpha1 + alpha2 + alpha3);
-
-  if (scale) {
-    result.mul_(wscale);
-  }
-}
-
 }  // namespace snap
 
 namespace at::native {
@@ -171,9 +95,9 @@ REGISTER_ALL_CPU_DISPATCH(call_poly5, &snap::call_poly_cpu<5>);
 REGISTER_ALL_CPU_DISPATCH(call_weno3, &snap::call_weno3_cpu);
 REGISTER_ALL_CPU_DISPATCH(call_weno5, &snap::call_weno5_cpu);
 
-REGISTER_MPS_DISPATCH(call_poly3, &snap::call_poly_mps<3>);
-REGISTER_MPS_DISPATCH(call_poly5, &snap::call_poly_mps<5>);
-REGISTER_MPS_DISPATCH(call_weno3, &snap::call_weno3_mps);
-REGISTER_MPS_DISPATCH(call_weno5, &snap::call_weno5_mps);
+REGISTER_MPS_DISPATCH(call_poly3, &snap::OnHost<&snap::call_poly_cpu<3>>::run);
+REGISTER_MPS_DISPATCH(call_poly5, &snap::OnHost<&snap::call_poly_cpu<5>>::run);
+REGISTER_MPS_DISPATCH(call_weno3, &snap::OnHost<&snap::call_weno3_cpu>::run);
+REGISTER_MPS_DISPATCH(call_weno5, &snap::OnHost<&snap::call_weno5_cpu>::run);
 
 }  // namespace at::native

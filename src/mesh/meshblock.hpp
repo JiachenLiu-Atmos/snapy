@@ -20,8 +20,11 @@
 #include <snap/bc/bc_func.hpp>
 #include <snap/bc/internal_boundary.hpp>
 #include <snap/coord/coordinate.hpp>
+#include <snap/eos/ef_status.hpp>
 #include <snap/hydro/hydro.hpp>
 #include <snap/layout/layout.hpp>
+#include <snap/mesh/precision_policy.hpp>
+#include <snap/mesh/state_store.hpp>
 #include <snap/scalar/scalar.hpp>
 
 // arg
@@ -73,6 +76,12 @@ struct MeshBlockOptionsImpl {
   //! verbose
   ADD_ARG(bool, verbose) = false;
 
+  //! integration.execution: eager (default) or cuda-graph; with
+  //! integration.execution-strict a case that cannot be captured is refused
+  //! (V3 X3; both names provisional, DESIGN.rst "pending Cheng's naming")
+  ADD_ARG(std::string, execution) = "eager";
+  ADD_ARG(bool, execution_strict) = false;
+
   //! output
   ADD_ARG(std::string, basename) = "";
   ADD_ARG(std::string, output_dir) = ".";
@@ -116,7 +125,11 @@ struct PartOptions {
   ADD_ARG(int, ndim) = 4;
 };
 
+class StageExecutor;
+
 class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
+  friend class StageExecutor;
+
  public:
   //! options with which this `MeshBlock` was constructed
   MeshBlockOptions options;
@@ -146,6 +159,17 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   Hydro phydro = nullptr;
   Scalar pscalar = nullptr;
 
+  //! dtypes per quantity, built in reset() from dynamics.precision
+  PrecisionPolicy policy;
+
+  //! counts the state store's address changes (reset, to, restart, adopt)
+  int state_generation() const { return _state.generation(); }
+
+  //! the block's EOS/floor/positivity status: limiter marks, vapor-repair
+  //! failures, heat-capacity latch and the positivity meters (V3 EF D4).
+  //! Created before hydro and scalar, which register their meters in it.
+  std::shared_ptr<EfStatus> pefs;
+
   Layout get_layout() const { return _playout; }
 
   //! Constructor to initialize the layers
@@ -158,6 +182,7 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   void to(torch::Device device, torch::Dtype dtype,
           bool non_blocking = false) override;
   void to(torch::Dtype dtype, bool non_blocking = false) override;
+  void to(torch::Device device, bool non_blocking = false) override;
 
   //! \brief return an index tensor for part of the meshblock
   /*!
@@ -200,19 +225,14 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   void forward(Variables& vars, double dt, int stage);
   void advance_local(Variables& vars, double dt, int stage);
 
+  //! the stage executor's counters: captures, replays, eager stages, graphs
+  std::map<std::string, int64_t> execution_report() const;
+  //! an option or prescribed-mask change a captured stage depends on
+  void bump_config_generation();
+
   //! build the anomaly reference (hydro.ref) from the initial hydro_w;
   //! called by finalize_initialization and by a restart without one
   void build_hydro_reference(Variables& vars);
-
-  //! FP32 storage emulation (utils/fp32_storage.hpp, SNAP_FP32_STORAGE):
-  //! round the stored state (hydro_u rows from SNAP_FP32_STORAGE_ROWS, and
-  //! every scalar_s row) through float32 when the emulation is on. Called by
-  //! Mesh/MeshBlock::forward after a stage whose output is due, and from
-  //! Python after host-side updates (initialization, kinetics). Returns
-  //! whether it rounded.
-  bool round_storage(Variables& vars) const;
-  //! round_storage when `stage` is due under the configured mode
-  bool round_storage_after_stage(Variables& vars, int stage) const;
 
   //! gravity-work-fixer: this block's {E+PE defect D, mass M} (CPU, double),
   //! and the step-end fix from the global sums
@@ -321,9 +341,15 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! distribution layout
   Layout _playout;
 
-  //! stage registers
-  torch::Tensor _hydro_u0;
-  torch::Tensor _scalar_s0;
+  //! hydro_u, scalar_s, scalar_r and the RK backups in fixed storage
+  StateStore _state;
+
+  //! registers the flux register's tensors in _state (a moved one bumps
+  //! the store generation)
+  void register_flux_storage();
+
+  //! runs each stage of forward() eagerly or as a captured graph (X3)
+  std::shared_ptr<StageExecutor> _executor;
 };
 
 TORCH_MODULE(MeshBlock);

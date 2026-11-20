@@ -33,7 +33,8 @@ ImplicitOptions ImplicitOptionsImpl::from_yaml(const std::string& filename,
   // pyharp's integrator reads this block too, so its keys are listed by name
   check_keys(intg, "integration",
              {"implicit-scheme", "implicit-advection-cfl", "shear-cfl",
-              "implicit-precision", "implicit-fallback-fp64"},
+              "implicit-precision", "implicit-fallback-fp64", "execution",
+              "execution-strict"},
              "pyharp",
              {"type", "cfl", "tlim", "nlim", "ncycle_out", "verbose"});
   auto op =
@@ -260,42 +261,12 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
 
   // the geometry below depends on the grid only
   bool no_solid = !solid.defined();
-  {
-    GeoKey key;
-    key.f1 = pcoord->x1f.unsafeGetTensorImpl();
-    key.f2 = pcoord->x2f.unsafeGetTensorImpl();
-    key.f3 = pcoord->x3f.unsafeGetTensorImpl();
-    key.v1 = pcoord->x1f._version();
-    key.v2 = pcoord->x2f._version();
-    key.v3 = pcoord->x3f._version();
-    key.dev = w.device();
-    key.st = w.scalar_type();
-    key.shape = gamma.sizes().vec();
-    key.grav1 = phydro->options->grav()->grav1();
-    if (!(_g_key == key) || !_g_area.defined()) {
-      _g_area = pcoord->face_area1().to(w.options()).contiguous();
-      _g_volume = pcoord->cell_volume().to(w.options()).contiguous();
-      int nc1g = w.size(-1);
-      _g_work_lo = .5 * _g_area.narrow(-1, 0, nc1g) *
-                   (pcoord->x1v - pcoord->x1f.narrow(0, 0, nc1g)) / _g_volume;
-      _g_work_hi = .5 * _g_area.narrow(-1, 1, nc1g) *
-                   (pcoord->x1f.narrow(0, 1, nc1g) - pcoord->x1v) / _g_volume;
-      _g_work_lo = _g_work_lo.to(w.options()).unsqueeze(0).contiguous();
-      _g_work_hi = _g_work_hi.to(w.options()).unsqueeze(0).contiguous();
-      _g_mask0 = torch::zeros_like(gamma);
-      int isg = pcoord->il(), ieg = pcoord->iu() + 1;
-      double g1 = key.grav1;
-      _g_phi = -g1 * pcoord->x1v.slice(0, isg, ieg);
-      auto zg = pcoord->x1v.slice(0, isg, ieg);
-      _g_dp_lo = -g1 * (pcoord->x1f.slice(0, isg, ieg) - zg);
-      _g_dp_hi = -g1 * (pcoord->x1f.slice(0, isg + 1, ieg + 1) - zg);
-      _g_key = key;
-    }
-  }
-  auto mask = solid.defined() ? solid.to(w.options()).contiguous() : _g_mask0;
+  _gw.update(*pcoord, w, gamma, phydro->options->grav()->grav1());
+  auto mask =
+      solid.defined() ? solid.to(w.options()).contiguous() : _gw.mask0();
 
-  auto area = _g_area;
-  auto volume = _g_volume;
+  auto area = _gw.area();
+  auto volume = _gw.volume();
   int nc1 = w.size(-1);
 
   //// -------- Solve block-tridiagonal matrix --------- ////
@@ -317,8 +288,8 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
         .add_input(_c)
         .add_input(_delta)
         .add_owned_input(mask.unsqueeze(0).index(interior))
-        .add_owned_input(_g_work_lo.index(interior))
-        .add_owned_input(_g_work_hi.index(interior));
+        .add_owned_input(_gw.face_lo().index(interior))
+        .add_owned_input(_gw.face_hi().index(interior));
     return cfg;
   };
   auto iter = vic_config().build();
@@ -330,8 +301,6 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   // gravity-work: face books the metric-weighted work in the energy row
   bool face_work = phydro->face_work_in_operator();
   int adir = face_work ? kVicFaceWork : 0;
-  if (face_work && pcoord->options->type() == "cartesian")
-    adir |= kVicCartesianFaceWork;
   bool diffusive_work =
       grav1 != 0. && phydro->options->grav()->gravity_work() == "cell";
   if (diffusive_work) adir |= kVicDiffusiveCell;
@@ -353,14 +322,7 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   // the full corrected-PE operator: tridiagonal part plus the two wall
   // third points of the exact 3-point slope (no lumping)
   auto rx_tri = [&](torch::Tensor const& q) {  // q: [nx3, nx2, nx1]
-    auto s = rx_mid * q;
-    s.narrow(-1, 1, nx1 - 1) +=
-        rx_lo.narrow(-1, 1, nx1 - 1) * q.narrow(-1, 0, nx1 - 1);
-    s.narrow(-1, 0, nx1 - 1) +=
-        rx_hi.narrow(-1, 0, nx1 - 1) * q.narrow(-1, 1, nx1 - 1);
-    s.select(-1, 0) += rx_t0 * q.select(-1, 2);
-    s.select(-1, nx1 - 1) += rx_t1 * q.select(-1, nx1 - 3);
-    return no_solid ? s : rx_fluid * s;  // 1 * s == s
+    return _gw.apply_rows(q, no_solid ? torch::Tensor() : rx_fluid, nx1);
   };
   auto couple_radial_exact = [&]() {
     if (!radial_exact || nx1 < 3) return;
@@ -368,40 +330,18 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     auto measure = x1_measure(pcoord->options->type());
     // the rows depend on the grid and gravity only: build them once (#291)
     X1GridKey key(pcoord->x1f, pcoord->x1v, is, ie, is, ie, grav1, measure);
-    if (!(_rx_key == key) || _rx_mid.scalar_type() != w.scalar_type() ||
-        _rx_mid.device() != w.device()) {
-      // the stencil and work factors of corrected_pe_work, which the
-      // post-solve term below reads from the same cache. The slope is
-      // one-sided only at the column's two physical walls: an implicit scheme
-      // refuses an x1 split (HydroImpl::_apply_implicit_correction), so a VIC
-      // block has no internal x1 seam and this per-block slope is the
-      // one-block slope
-      auto const& f = corrected_pe_factors(key, &_rx_work);
-      auto band = [&](int off) { return f.slope.band(off).to(w.options()); };
-      auto gv = f.gvar.to(w.options());
-      rx_mid = gv * band(0);
-      // gnomonic-equiangle: x1v is not the r^2 centroid, and the work carries
-      // g1 (r_c - x1v) drho as well (sec 12), a diagonal term
-      if (f.goff.defined()) rx_mid += f.goff.to(w.options());
-      rx_lo = torch::zeros_like(rx_mid);
-      rx_hi = torch::zeros_like(rx_mid);
-      rx_lo.narrow(0, 1, nx1 - 1).copy_(band(-1).narrow(0, 1, nx1 - 1));
-      rx_hi.narrow(0, 0, nx1 - 1).copy_(band(1).narrow(0, 0, nx1 - 1));
-      rx_lo *= gv;
-      rx_hi *= gv;
-      _rx_key = key;
-      _rx_lo = rx_lo;
-      _rx_mid = rx_mid;
-      _rx_hi = rx_hi;
-      // the one-sided wall slopes' third points
-      _rx_t0 = gv[0] * band(2)[0];
-      _rx_t1 = gv[nx1 - 1] * band(-2)[nx1 - 1];
-    }
-    rx_lo = _rx_lo;
-    rx_mid = _rx_mid;
-    rx_hi = _rx_hi;
-    rx_t0 = _rx_t0;
-    rx_t1 = _rx_t1;
+    // the stencil and work factors of corrected_pe_work, which the
+    // post-solve remainder reads from the same object. The slope is
+    // one-sided only at the column's two physical walls: an implicit scheme
+    // refuses an x1 split (HydroImpl::_apply_implicit_correction), so a VIC
+    // block has no internal x1 seam and this per-block slope is the
+    // one-block slope
+    _gw.update_rows(key, w, nx1);
+    rx_lo = _gw.k_lo();
+    rx_mid = _gw.k_mid();
+    rx_hi = _gw.k_hi();
+    rx_t0 = _gw.k_t0();
+    rx_t1 = _gw.k_t1();
     if (!no_solid) rx_fluid = (mask.index(in3) == 0).to(w.options());
     // row IPR, column 0 (the total mass) of each cell's blocks; Eigen stores
     // them column-major
@@ -424,14 +364,20 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     du[IPR].index(in3).sub_(rx_tri(rx_mass0));
   };
 
-  bool full = (options->scheme() >> 3) & 1;
-  if (full) {
-    at::native::vic_assemble_full(du.device().type(), iter, dt, grav1, adir);
-  } else {
-    // Match the full-VIC pipeline: assemble coefficients, run the column
-    // solve + reductions, then apply the per-cell redistribution map.
-    at::native::vic_assemble_partial(du.device().type(), iter, dt, grav1, adir);
-  }
+  // assemble the coefficients, run the column solve, then apply the
+  // per-cell redistribution map: one vic_stage call each
+  auto stage = [&](VicStage s, int dir, bool woodbury = false) {
+    VicParams prm;
+    prm.stage = s;
+    prm.n = options->size();
+    prm.woodbury = woodbury;
+    prm.dt = dt;
+    prm.grav = grav1;
+    prm.dir = dir;
+    return prm;
+  };
+  at::native::vic_stage(du.device().type(), iter,
+                        stage(VicStage::assemble, adir));
   couple_radial_exact();
   // Woodbury: the wall third points (E row of cells 0 and n-1, mass column of
   // cells 2 and n-3) are a rank-2 update U V^T of the block-tridiagonal T:
@@ -439,20 +385,14 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   // T per column solves y and both columns of Z (they depend on T only)
   bool woodbury = radial_exact && nx1 >= 3;
   if (!woodbury) {
-    if (full)
-      at::native::vic_solve_full(du.device().type(), iter, dt, grav1, 0);
-    else
-      at::native::vic_solve_partial(du.device().type(), iter, dt, grav1, 0);
+    at::native::vic_stage(du.device().type(), iter, stage(VicStage::solve, 0));
   } else {
     int m = options->size(), nx2 = pcoord->options->nx2(),
         nx3 = pcoord->options->nx3();
     auto z0 = torch::empty_like(_delta), z1 = torch::empty_like(_delta);
     auto it = vic_config().add_input(z0).add_input(z1).build();
-    if (full)
-      at::native::vic_solve_woodbury_full(du.device().type(), it, dt, grav1, 0);
-    else
-      at::native::vic_solve_woodbury_partial(du.device().type(), it, dt, grav1,
-                                             0);
+    at::native::vic_stage(du.device().type(), it,
+                          stage(VicStage::solve, 0, /*woodbury=*/true));
     auto y = _delta.view({nx3, nx2, nx1, m});
     z0 = z0.view({nx3, nx2, nx1, m}), z1 = z1.view({nx3, nx2, nx1, m});
     auto k0 = -rx_t0 / dt, k1 = -rx_t1 / dt;
@@ -486,11 +426,8 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     auto bad_columns = torch::logical_not(torch::isfinite(_delta).all(-1));
     if (bad_columns.any().item<bool>()) return reject(bad_columns);
   }
-  if ((options->scheme() >> 3) & 1)
-    at::native::vic_redistribute_full(du.device().type(), iter, dt, grav1, 0);
-  else
-    at::native::vic_redistribute_partial(du.device().type(), iter, dt, grav1,
-                                         0);
+  at::native::vic_stage(du.device().type(), iter,
+                        stage(VicStage::redistribute, 0));
 
   // only the availability clamp breaks sum_ch MASS*VOL == M(i) - M(i+1);
   // the meters are committed below, unless the stage fails
@@ -519,79 +456,14 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   auto dry_next =
       torch::maximum(_dry_clamp_step, _mass_corr[IPR].max().detach());
 
-  if (face_work || diffusive_work) {
-    int is = pcoord->il(), ie = pcoord->iu() + 1;
-    auto in3 =
-        phydro->pmb->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
-    auto volume = _g_volume.index(in3);  // cached
-    auto requested = _mass_corr[IVX];
-    auto moved = _mass_corr[IVZ] - requested;
-    auto projected =
-        (requested.slice(-1, is, ie) - requested.slice(-1, is + 1, ie + 1))
-            .slice(-2, pcoord->jl(), pcoord->ju() + 1)
-            .slice(-3, pcoord->kl(), pcoord->ku() + 1) /
-        volume;
-    auto raw_mass = _delta
-                        .view({pcoord->options->nx3(), pcoord->options->nx2(),
-                               pcoord->options->nx1(), options->size()})
-                        .select(-1, 0);
-    auto explicit_mass = _du0[IDN].clone();
-    if (w.size(0) > ICY)
-      explicit_mass += _du0.narrow(0, ICY, w.size(0) - ICY).sum(0);
-    auto phi = _g_phi;  // cached grid-only potentials
-    auto projection_work =
-        phi * (raw_mass - explicit_mass.index(in3) - projected);
-    auto dp_lo = _g_dp_lo;
-    auto dp_hi = _g_dp_hi;
-    auto clamp_work = -(dp_hi * moved.slice(-1, is + 1, ie + 1) -
-                        dp_lo * moved.slice(-1, is, ie))
-                           .slice(-2, pcoord->jl(), pcoord->ju() + 1)
-                           .slice(-3, pcoord->kl(), pcoord->ku() + 1) /
-                      volume;
-    if (no_solid)  // where(true, x, 0) == x
-      du[IPR].index(in3).add_(projection_work + clamp_work);
-    else
-      du[IPR].index(in3).add_(
-          torch::where(mask.index(in3) == 0, projection_work + clamp_work, 0.));
-  }
-
   /// (3) De-project from local orthonormal frame
   w[IVZ] /= sin_theta;
   w[IVY] -= w[IVZ] * cos_theta;
   pcoord->flux2global1_(du);
 
-  // gravity-work: face: the matrix books the face form for the
-  // mass this solve moved and the corrected potential energy's remainder
-  // (derivation sec 7) for its raw density change, with the exact 3-point
-  // slope s (tridiagonal part in the blocks, the two wall third points by
-  // Woodbury); add the rest, so the remainder is g1 sigma^2 s[du - du0] and
-  // E + P closes over the explicit and implicit parts
-  if (radial_exact) {
-    int is = pcoord->il(), ie = pcoord->iu() + 1;
-    auto moved = du[IDN] - _du0[IDN];
-    if (du.size(0) > ICY)
-      moved += (du.narrow(0, ICY, du.size(0) - ICY) -
-                _du0.narrow(0, ICY, du.size(0) - ICY))
-                   .sum(0);
-    // the whole column (no x1 split under an implicit scheme, see above), so
-    // the slope is one-sided only at the two walls
-    auto work = corrected_pe_work(
-        moved.slice(-1, is, ie), pcoord->x1f, pcoord->x1v, is, ie, grav1,
-        x1_measure(pcoord->options->type()), &_rx_work);
-    if (rx_mass0.defined()) {
-      int nx2 = pcoord->options->nx2(), nx3 = pcoord->options->nx3();
-      auto raw = _delta.view({nx3, nx2, nx1, options->size()}).select(-1, 0);
-      work.slice(-2, pcoord->jl(), pcoord->ju() + 1)
-          .slice(-3, pcoord->kl(), pcoord->ku() + 1)
-          .sub_(rx_tri(raw - rx_mass0));
-    }
-    // solid cells get none: their slope stencil reads fluid neighbours
-    if (no_solid)
-      du[IPR].slice(-1, is, ie) += work;
-    else
-      du[IPR].slice(-1, is, ie) +=
-          torch::where(mask.slice(-1, is, ie) == 0, work, 0.);
-  }
+  // the post-solve gravity-work remainder, one call (V3 I-3)
+  book_remainder_(du, w.size(0), mask, no_solid, face_work, diffusive_work,
+                  radial_exact, grav1, rx_mass0, rx_fluid, nx1);
 
   _corr.copy_(du);
   _corr.sub_(_du0);
@@ -622,6 +494,87 @@ std::shared_ptr<ImplicitHydroImpl> ImplicitHydroImpl::create(
   TORCH_CHECK(opts != nullptr, "[ImplicitHydro] Options pointer is nullptr");
 
   return p->register_module(name, ImplicitHydro(opts, p));
+}
+
+void ImplicitHydroImpl::book_remainder_(
+    torch::Tensor du, int wsize, torch::Tensor const& mask, bool no_solid,
+    bool face_work, bool diffusive_work, bool radial_exact, double grav1,
+    torch::Tensor const& rx_mass0, torch::Tensor const& rx_fluid, int nx1) {
+  auto pcoord = phydro->pmb->pcoord;
+  // du[IPR] is a scalar row: the frame de-projection before this call
+  // (flux2global1_) leaves it as it was, so the order of the two terms below
+  // is the order they had when the first was booked before it
+
+  // the projection's and the availability clamp's work, from the face masses
+  // the solve requested and moved
+  if (face_work || diffusive_work) {
+    int is = pcoord->il(), ie = pcoord->iu() + 1;
+    auto in3 =
+        phydro->pmb->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
+    auto volume = _gw.volume().index(in3);  // cached
+    auto requested = _mass_corr[IVX];
+    auto moved = _mass_corr[IVZ] - requested;
+    auto projected =
+        (requested.slice(-1, is, ie) - requested.slice(-1, is + 1, ie + 1))
+            .slice(-2, pcoord->jl(), pcoord->ju() + 1)
+            .slice(-3, pcoord->kl(), pcoord->ku() + 1) /
+        volume;
+    auto raw_mass = _delta
+                        .view({pcoord->options->nx3(), pcoord->options->nx2(),
+                               pcoord->options->nx1(), options->size()})
+                        .select(-1, 0);
+    auto explicit_mass = _du0[IDN].clone();
+    if (wsize > ICY) explicit_mass += _du0.narrow(0, ICY, wsize - ICY).sum(0);
+    auto phi = _gw.phi();  // cached grid-only potentials
+    auto projection_work =
+        phi * (raw_mass - explicit_mass.index(in3) - projected);
+    auto dp_lo = _gw.dp_lo();
+    auto dp_hi = _gw.dp_hi();
+    auto clamp_work = -(dp_hi * moved.slice(-1, is + 1, ie + 1) -
+                        dp_lo * moved.slice(-1, is, ie))
+                           .slice(-2, pcoord->jl(), pcoord->ju() + 1)
+                           .slice(-3, pcoord->kl(), pcoord->ku() + 1) /
+                      volume;
+    if (no_solid)  // where(true, x, 0) == x
+      du[IPR].index(in3).add_(projection_work + clamp_work);
+    else
+      du[IPR].index(in3).add_(
+          torch::where(mask.index(in3) == 0, projection_work + clamp_work, 0.));
+  }
+
+  // gravity-work: face: the matrix books the face form for the
+  // mass this solve moved and the corrected potential energy's remainder
+  // (derivation sec 7) for its raw density change, with the exact 3-point
+  // slope s (tridiagonal part in the blocks, the two wall third points by
+  // Woodbury); add the rest, so the remainder is g1 sigma^2 s[du - du0] and
+  // E + P closes over the explicit and implicit parts
+  if (radial_exact) {
+    int is = pcoord->il(), ie = pcoord->iu() + 1;
+    auto moved = du[IDN] - _du0[IDN];
+    if (du.size(0) > ICY)
+      moved += (du.narrow(0, ICY, du.size(0) - ICY) -
+                _du0.narrow(0, ICY, du.size(0) - ICY))
+                   .sum(0);
+    // the whole column (no x1 split under an implicit scheme, see above), so
+    // the slope is one-sided only at the two walls
+    auto work = corrected_pe_work(
+        moved.slice(-1, is, ie), pcoord->x1f, pcoord->x1v, is, ie, grav1,
+        x1_measure(pcoord->options->type()), _gw.pe_factors());
+    if (rx_mass0.defined()) {
+      int nx2 = pcoord->options->nx2(), nx3 = pcoord->options->nx3();
+      auto raw = _delta.view({nx3, nx2, nx1, options->size()}).select(-1, 0);
+      work.slice(-2, pcoord->jl(), pcoord->ju() + 1)
+          .slice(-3, pcoord->kl(), pcoord->ku() + 1)
+          .sub_(_gw.apply_rows(raw - rx_mass0,
+                               no_solid ? torch::Tensor() : rx_fluid, nx1));
+    }
+    // solid cells get none: their slope stencil reads fluid neighbours
+    if (no_solid)
+      du[IPR].slice(-1, is, ie) += work;
+    else
+      du[IPR].slice(-1, is, ie) +=
+          torch::where(mask.slice(-1, is, ie) == 0, work, 0.);
+  }
 }
 
 }  // namespace snap

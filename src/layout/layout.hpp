@@ -41,6 +41,9 @@ inline std::string get_env(const char* name, const std::string& def) {
   return v ? std::string(v) : def;
 }
 
+//! backend when BACKEND is unset: ucx on Linux with UCX, else gloo
+std::string default_backend();
+
 //! get global rank from environment variable
 inline int get_rank() { return std::stoi(get_env("RANK", "0")); }
 

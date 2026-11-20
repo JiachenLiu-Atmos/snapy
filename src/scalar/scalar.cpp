@@ -70,8 +70,10 @@ void ScalarImpl::reset() {
                     : torch::Tensor());
   _div = register_buffer(
       "D", torch::zeros({nvar(), nc3, nc2, nc1}, torch::kFloat64));
-  _positivity_hits =
-      register_buffer("positivity_hits", torch::zeros({1}, torch::kInt64));
+  // the census is a slot of the block's EfStatus, registered as this buffer
+  register_buffer("positivity_hits",
+                  pmb->pefs->bind(EfStatus::kScalarPosHits,
+                                  torch::zeros({1}, torch::kInt64)));
 }
 
 torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
@@ -201,7 +203,8 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
     if (_flux3.defined()) h3 = (g3 = b * mf(DIM3) - _flux3).clone();
 
     auto theta = flux_positivity_theta(b * rho - u, g1, g2, g3, pcoord, dt);
-    _positivity_hits += (theta.index(cells) < 1.).sum();
+    pmb->pefs->slot(EfStatus::kScalarPosHits) +=
+        (theta.index(cells) < 1.).sum();
     flux_positivity_scale_(sync_theta(theta), g1, g2, g3, pcoord);
 
     // Add the CHANGE, never recompute F_s = b*F_mass - g. The two are equal in
@@ -235,7 +238,8 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
       auto phi = flux_positivity_share(u / rho);
       theta = flux_positivity_relax(theta, td, phi);
     }
-    _positivity_hits += (theta.index(cells) < 1.).sum();
+    pmb->pefs->slot(EfStatus::kScalarPosHits) +=
+        (theta.index(cells) < 1.).sum();
     flux_positivity_scale_(sync_theta(theta), _flux1, _flux2, _flux3, pcoord);
   }
 

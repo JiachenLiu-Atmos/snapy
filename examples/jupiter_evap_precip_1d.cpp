@@ -19,8 +19,9 @@
 #include <kintera/thermo/thermo.hpp>
 
 // snap
-#include <snap/input/command_line.hpp>
 #include <snap/mesh/meshblock.hpp>
+
+#include "command_line.hpp"
 
 using namespace snap;
 

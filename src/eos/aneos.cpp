@@ -11,16 +11,9 @@ void ANEOSImpl::reset() {
 
 torch::Tensor ANEOSImpl::compute(std::string ab,
                                  std::vector<torch::Tensor> const &args) {
-  if (ab == "W->U") {
-    auto w = args[0];
-    auto u = args.size() > 1 ? args[1] : torch::empty_like(w);
-    _prim2cons(w, u);
-    return u;
-  } else if (ab == "U->W") {
-    auto u = args[0];
-    auto w = args.size() > 1 ? args[1] : torch::empty_like(u);
-    _cons2prim(u, w);
-    return w;
+  torch::Tensor out;
+  if (convert_(ab, args, &out)) {
+    return out;
   } else if (ab == "W->I") {
     auto w = args[0];
     return _prim2intEng(w);

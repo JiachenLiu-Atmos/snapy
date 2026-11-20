@@ -29,15 +29,6 @@
 
 namespace snap {
 
-namespace {
-
-int random_master_port() {
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<int> dist(29500, 29600);
-  return dist(gen);
-}
-
 std::string default_backend() {
 #ifdef USE_UCX
   struct utsname system_info;
@@ -47,6 +38,15 @@ std::string default_backend() {
 #else
   return "gloo";
 #endif
+}
+
+namespace {
+
+int random_master_port() {
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<int> dist(29500, 29600);
+  return dist(gen);
 }
 
 struct LocalExchangeKey {

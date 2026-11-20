@@ -24,8 +24,8 @@
 
 // snap
 #include <snap/mesh/mesh.hpp>
+#include <snap/mesh/signal_handler.hpp>
 #include <snap/utils/log.hpp>
-#include <snap/utils/signal_handler.hpp>
 
 #include "cycle_diagnostics.hpp"
 
@@ -350,12 +350,14 @@ double MeshImpl::max_time_step(MeshVariables const& vars) {
 void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
   TORCH_CHECK(vars.size() == blocks.size(),
               "Mesh::forward expects one Variables map per local MeshBlock");
+  // the blocks of a Mesh run eager in V3 X3 (N-block graphs come with X4)
+  for (auto& b : blocks)
+    TORCH_CHECK(!b->options->execution_strict(),
+                "integration/execution-strict: a Mesh runs its blocks eagerly "
+                "(CUDA graphs cover a single MeshBlock only)");
 
   if (blocks.size() == 1) {
     blocks[0]->advance_local(vars[0], dt, stage);
-    // FP32 storage emulation: the stored stage output, before the exchange
-    // copies it into the neighbours' ghosts
-    blocks[0]->round_storage_after_stage(vars[0], stage);
     blocks[0]->exchange_ghost_zones(vars[0]);
     return;
   }
@@ -400,9 +402,6 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
           v.count("scalar_s") ? v.at("scalar_s") : torch::Tensor());
     });
   }
-  // FP32 storage emulation: after the deferred fixer, before the exchange
-  run_block_jobs(
-      [&](size_t i) { blocks[i]->round_storage_after_stage(vars[i], stage); });
   run_block_jobs([&](size_t i) { blocks[i]->exchange_ghost_zones(vars[i]); });
 }
 

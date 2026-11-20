@@ -31,16 +31,8 @@ double MoistEOSImpl::species_cv_ref(int n) const {
 bool MoistEOSImpl::compute_common_(std::string const& ab,
                                    std::vector<torch::Tensor> const& args,
                                    torch::Tensor* out) {
-  if (ab == "W->U") {
-    auto w = args[0];
-    auto u = args.size() > 1 ? args[1] : torch::empty_like(w);
-    _prim2cons(w, u);
-    *out = u;
-  } else if (ab == "U->W") {
-    auto u = args[0];
-    auto w = args.size() > 1 ? args[1] : torch::empty_like(u);
-    _cons2prim(u, w);
-    *out = w;
+  if (convert_(ab, args, out)) {
+    return true;
   } else if (ab == "W->I") {
     *out = _prim2intEng(args[0]);
   } else if (ab == "W->T") {
@@ -59,7 +51,6 @@ bool MoistEOSImpl::compute_common_(std::string const& ab,
 
 void MoistEOSImpl::_prim2cons(torch::Tensor prim, torch::Tensor& cons) {
   apply_primitive_limiter_(prim);
-  auto pcoord = phydro->pmb->pcoord;
 
   int ny = nspecies();
 
@@ -72,10 +63,7 @@ void MoistEOSImpl::_prim2cons(torch::Tensor prim, torch::Tensor& cons) {
   torch::mul_out(out, prim.narrow(0, ICY, ny), prim[IDN]);
 
   // vel -> mom
-  out = cons.narrow(0, IVX, 3);
-  torch::mul_out(out, prim.narrow(0, IVX, 3), prim[IDN]);
-
-  coord_vec_lower_(out, pcoord->cosine_cell_kj);
+  _mom_from_vel_(prim, cons);
 
   // KE
   auto ke = 0.5 * (prim.narrow(0, IVX, 3) * cons.narrow(0, IVX, 3)).sum(0);

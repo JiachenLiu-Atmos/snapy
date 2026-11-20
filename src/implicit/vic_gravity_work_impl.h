@@ -12,10 +12,9 @@ namespace snap {
 //! once for both VIC matrices (partial 3x3, full 5x5). e is the energy row, m
 //! the x1 momentum column, am / ap the mass rows of |A| at the lower / upper
 //! face.
-//!   face_work && cartesian_face: the face work of the linearised mass flux
-//!     with midpoint face potentials;
-//!   face_work: the same with lower / upper, the face-to-centre potential
-//!     weights of the mass update;
+//!   face_work: the face work of the linearised mass flux with lower / upper,
+//!     the face-to-centre potential weights of the mass update, which are
+//!     GravityWork's face weights (0.25 each on a uniform Cartesian grid);
 //!   diffusive_cell: the work of the Roe mass diffusion only (the cell work
 //!     stays in Phi).
 //! lower and upper are taken by value: as local copies, the CUDA build
@@ -25,16 +24,8 @@ DISPATCH_MACRO void vic_gravity_work_rows(
     Eigen::Matrix<T, N, N>& a, Eigen::Matrix<T, N, N>& b,
     Eigen::Matrix<T, N, N>& c, Eigen::Matrix<T, 1, N> const& am,
     Eigen::Matrix<T, 1, N> const& ap, int e, int m, double grav, bool face_work,
-    bool diffusive_cell, bool cartesian_face, T lower, T upper) {
-  if (face_work && cartesian_face) {
-    Eigen::Matrix<T, 1, N> em;
-    em.setZero();
-    em(m) = 1.;
-    a(e, m) += grav;
-    a.row(e) -= 0.5 * grav * (em + 0.5 * (ap - am));
-    b.row(e) -= 0.5 * grav * (0.5 * em + 0.5 * am);
-    c.row(e) -= 0.5 * grav * (0.5 * em - 0.5 * ap);
-  } else if (face_work || diffusive_cell) {
+    bool diffusive_cell, T lower, T upper) {
+  if (face_work || diffusive_cell) {
     // The same face-to-centre potential weights as the mass update.
     a.row(e) -= grav * (upper * ap - lower * am);
     b.row(e) -= grav * lower * am;

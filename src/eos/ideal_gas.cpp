@@ -29,16 +29,9 @@ torch::Tensor IdealGasImpl::specific_heat_cv(torch::Tensor prim,
 
 torch::Tensor IdealGasImpl::compute(std::string ab,
                                     std::vector<torch::Tensor> const &args) {
-  if (ab == "W->U") {
-    auto w = args[0];
-    auto u = args.size() > 1 ? args[1] : torch::empty_like(w);
-    _prim2cons(w, u);
-    return u;
-  } else if (ab == "U->W") {
-    auto u = args[0];
-    auto w = args.size() > 1 ? args[1] : torch::empty_like(u);
-    _cons2prim(u, w);
-    return w;
+  torch::Tensor out;
+  if (convert_(ab, args, &out)) {
+    return out;
   } else if (ab == "W->I") {
     auto w = args[0];
     return _prim2intEng(w);
@@ -66,16 +59,12 @@ torch::Tensor IdealGasImpl::compute(std::string ab,
 
 void IdealGasImpl::_prim2cons(torch::Tensor prim, torch::Tensor &cons) {
   apply_primitive_limiter_(prim);
-  auto pcoord = phydro->pmb->pcoord;
 
   // den -> den
   cons[IDN] = prim[IDN];
 
   // vel -> mom
-  auto out = cons.narrow(0, IVX, 3);
-  torch::mul_out(out, prim.narrow(0, IVX, 3), prim[IDN]);
-
-  coord_vec_lower_(out, pcoord->cosine_cell_kj);
+  _mom_from_vel_(prim, cons);
 
   // KE
   auto ke = 0.5 * (prim.narrow(0, IVX, 3) * cons.narrow(0, IVX, 3)).sum(0);

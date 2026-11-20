@@ -58,6 +58,7 @@ def case(scheme, steps, sediment=True):
             )
             diagnostics = {
                 "hydro.P1",
+                "hydro.monitor_minima",
                 "hydro.positivity_min",
                 "hydro.lim_cut",
                 "hydro.lim_flux",

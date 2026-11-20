@@ -28,8 +28,6 @@ template <int N>
 void check_energy_row(int flag = snap::kVicFaceWork, bool curved = false,
                       bool centroid = false) {
   using Block = Eigen::Matrix<double, N, N>;
-  if (flag == snap::kVicFaceWork && !curved)
-    flag |= snap::kVicCartesianFaceWork;
   double w[15] = {1.,  .8,   .6,   .12,  .09, .15, .07, .07,
                   .07, -.03, -.03, -.03, 2.,  1.7, 1.4};
   double gamma[3] = {1.4, 1.4, 1.4};

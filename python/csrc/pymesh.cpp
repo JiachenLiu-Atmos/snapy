@@ -236,16 +236,6 @@ void bind_mesh(py::module& m) {
       .def("exchange_ghost_zones", &snap::MeshBlockImpl::exchange_ghost_zones,
            py::arg("vars"))
       .def(
-          "round_storage",
-          [](snap::MeshBlockImpl& self, snap::Variables vars) {
-            return self.round_storage(vars);
-          },
-          py::arg("vars"),
-          R"doc(FP32 storage emulation (SNAP_FP32_STORAGE): round the stored
-state in place through float32 if the emulation is on. Call after host-side
-updates of hydro_u (initialization, kinetics) and before check_redo. Returns
-True if it rounded.)doc")
-      .def(
           "total_u",
           [](snap::MeshBlockImpl& self, py::object arg) {
             torch::Tensor u = py::isinstance<py::dict>(arg)
@@ -280,6 +270,9 @@ in totals (a new tensor): the inverse of total_u.)doc")
       .def("print_cycle_info", &snap::MeshBlockImpl::print_cycle_info)
       .def("finalize", &snap::MeshBlockImpl::finalize)
       .def("check_redo", &snap::MeshBlockImpl::check_redo)
+      .def("execution_report", &snap::MeshBlockImpl::execution_report)
+      .def("bump_config_generation",
+           &snap::MeshBlockImpl::bump_config_generation)
       .def("get_outputs",
            [](snap::MeshBlockImpl& self) { return self.output_types; })
       .def(
@@ -328,19 +321,6 @@ in totals (a new tensor): the inverse of total_u.)doc")
            py::call_guard<py::gil_scoped_release>())
       .def("set_user_stage_forcings", &snap::MeshImpl::set_user_stage_forcings,
            py::arg("filenames"))
-      .def(
-          "round_storage",
-          [](snap::MeshImpl& self, snap::MeshVariables vars) {
-            TORCH_CHECK(vars.size() == self.blocks.size(),
-                        "Mesh.round_storage expects one dict per local block");
-            bool any = false;
-            for (size_t i = 0; i < vars.size(); ++i)
-              any = self.blocks[i]->round_storage(vars[i]) || any;
-            return any;
-          },
-          py::arg("vars"),
-          R"doc(FP32 storage emulation (SNAP_FP32_STORAGE) on every local
-block; see MeshBlock.round_storage.)doc")
       .def("make_outputs", &snap::MeshImpl::make_outputs, py::arg("vars"),
            py::arg("current_time"), py::arg("final_write") = false)
       .def("print_cycle_info", &snap::MeshImpl::print_cycle_info,

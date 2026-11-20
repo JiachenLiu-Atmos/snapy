@@ -17,14 +17,14 @@
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/implicit/implicit_dispatch.hpp>
 #include <snap/input/read_restart_file.hpp>
+#include <snap/mesh/signal_handler.hpp>
 #include <snap/output/output_formats.hpp>
 #include <snap/output/restart_metadata.hpp>
-#include <snap/utils/fp32_storage.hpp>
 #include <snap/utils/log.hpp>
-#include <snap/utils/signal_handler.hpp>
 
 #include "cycle_diagnostics.hpp"
 #include "meshblock.hpp"
+#include "stage_executor.hpp"
 
 namespace snap {
 
@@ -32,13 +32,23 @@ static std::mutex meshblock_mutex;
 
 void MeshBlockImpl::to(torch::Device device, torch::Dtype dtype,
                        bool non_blocking) {
-  if (phydro && phydro->fp32())
+  if (policy.fp32())
     torch::nn::Module::to(device, non_blocking);
   else
     torch::nn::Module::to(device, dtype, non_blocking);
+  _state.reallocate();  // like the moved u0 and s0
+  if (_executor) _executor->invalidate();
 }
 void MeshBlockImpl::to(torch::Dtype dtype, bool non_blocking) {
-  if (!phydro || !phydro->fp32()) torch::nn::Module::to(dtype, non_blocking);
+  if (policy.fp32()) return;
+  torch::nn::Module::to(dtype, non_blocking);
+  _state.reallocate();
+  if (_executor) _executor->invalidate();
+}
+void MeshBlockImpl::to(torch::Device device, bool non_blocking) {
+  torch::nn::Module::to(device, non_blocking);
+  _state.reallocate();
+  if (_executor) _executor->invalidate();
 }
 
 static void set_scalar_primitive(Variables &vars, torch::Tensor const &scalar_s,
@@ -268,7 +278,9 @@ void MeshBlockImpl::reset() {
   }
 
   //// -------- (6) set up hydro model -------- ////
+  pefs = std::make_shared<EfStatus>();
   phydro = HydroImpl::create(options->hydro(), this);
+  policy = PrecisionPolicy(phydro->options->precision());
   if (options->verbose()) {
     SINFO(MeshBlock) << "using hydro type: " << phydro->peos->options->type()
                      << std::endl;
@@ -301,20 +313,27 @@ void MeshBlockImpl::reset() {
   int nc3 = options->coord()->nc3();
   auto peos = phydro->peos;
 
-  //// ---------- (9) set up hydro buffer ------ ////
+  //// ------- (9) set up the state store and its RK backups ------ ////
   TORCH_CHECK(phydro->peos->nvar() > 0, "Hydro model must have nvar > 0.");
-  _hydro_u0 = register_buffer(
-      "u0",
-      torch::zeros({phydro->peos->nvar(), nc3, nc2, nc1}, torch::kFloat64));
+  _state.reset(policy, phydro->peos->nvar(), pscalar->nvar(), nc3, nc2, nc1);
+  register_buffer("u0", _state.u0());
+  register_buffer("s0", _state.s0());
+  register_flux_storage();
 
-  //// ------- (10) set up scalar buffer ------- ////
-  _scalar_s0 = register_buffer(
-      "s0", torch::zeros({pscalar->nvar(), nc3, nc2, nc1}, torch::kFloat64));
+  //// ------- (10) stage executor (eager unless cuda-graph) ------- ////
+  TORCH_CHECK(
+      options->execution() == "eager" || options->execution() == "cuda-graph",
+      "integration/execution must be eager or cuda-graph, got '",
+      options->execution(), "'");
+  TORCH_CHECK(!(options->execution() == "eager" && options->execution_strict()),
+              "integration/execution-strict needs execution: cuda-graph "
+              "(eager is never refused)");
+  _executor = std::make_shared<StageExecutor>(this);
 
   if (options->verbose()) {
     SINFO(MeshBlock) << "setting up buffer with shapes:" << std::endl
-                     << "* hydro_u0: " << _hydro_u0.sizes() << std::endl
-                     << "* scalar_s0: " << _scalar_s0.sizes() << std::endl;
+                     << "* hydro_u0: " << _state.u0().sizes() << std::endl
+                     << "* scalar_s0: " << _state.s0().sizes() << std::endl;
   }
 }
 
@@ -445,7 +464,8 @@ void MeshBlockImpl::initialize_local(Variables &vars) {
 
   TORCH_CHECK(vars.count("hydro_w"),
               "initialize: hydro_w is required for hydro model.");
-  if (phydro->fp32()) vars["hydro_w"] = vars.at("hydro_w").to(torch::kFloat64);
+  if (policy.fp32())
+    vars["hydro_w"] = policy.cast(Quantity::kPrimitive, vars.at("hydro_w"));
   hydro_w = vars.at("hydro_w");
 
   TORCH_CHECK(hydro_w.sizes() ==
@@ -531,10 +551,11 @@ void MeshBlockImpl::finalize_initialization(Variables &vars) {
   }
   // from here on hydro_u holds rows {IDN, IPR} as anomalies
   if (phydro->has_reference()) phydro->sub_reference_(vars.at("hydro_u"));
-  if (phydro->fp32()) {
-    vars["hydro_u"] = vars.at("hydro_u").to(torch::kFloat32);
+  if (policy.fp32()) {
+    vars["hydro_u"] = policy.store(Quantity::kHydroState, vars.at("hydro_u"));
     if (vars.count("scalar_s"))
-      vars["scalar_s"] = vars.at("scalar_s").to(torch::kFloat32);
+      vars["scalar_s"] =
+          policy.store(Quantity::kScalarState, vars.at("scalar_s"));
   }
 
   //// ------------- (8) Fill solid boundaries -------------- ////
@@ -613,32 +634,33 @@ void MeshBlockImpl::forward(Variables &vars, double dt, int stage) {
   // host-side operator-split source terms applied between forward calls
   // (e.g. condensation on hydro_u) are then synced before use, removing a
   // one-signed seam bias on the cubed sphere.
-  exchange_ghost_zones(vars);
-  advance_local(vars, dt, stage);
-  round_storage_after_stage(vars, stage);
+  _executor->run_stage(vars, dt, stage);  // exchange_ghost_zones, then
+                                          // advance_local, or their graph
 }
 
-bool MeshBlockImpl::round_storage(Variables &vars) const {
-  auto const &cfg = fp32_storage_config();
-  if (cfg.mode == Fp32StorageConfig::kOff) return false;
-  auto hydro_u = vars.at("hydro_u");
-  round_through_fp32_(hydro_u,
-                      resolve_fp32_storage_rows(cfg.rows, hydro_u.size(0)));
-  if (vars.count("scalar_s") && vars.at("scalar_s").defined() &&
-      vars.at("scalar_s").numel() > 0) {
-    auto scalar_s = vars.at("scalar_s");
-    round_through_fp32_(scalar_s, {});
-    set_scalar_primitive(vars, scalar_s, hydro_u, *phydro);
+std::map<std::string, int64_t> MeshBlockImpl::execution_report() const {
+  return _executor->report();
+}
+
+void MeshBlockImpl::bump_config_generation() {
+  _executor->bump_config_generation();
+}
+
+void MeshBlockImpl::register_flux_storage() {
+  auto &freg = phydro->flux_register();
+  for (int d = 1; d <= 3; ++d) {
+    auto name = std::to_string(d);
+    if (freg.total(d).defined())
+      _state.register_storage("freg.total" + name, freg.total(d));
+    if (freg.has_step_field(d))
+      _state.register_storage("freg.step" + name, freg.step_field(d));
   }
-  return true;
-}
-
-bool MeshBlockImpl::round_storage_after_stage(Variables &vars,
-                                              int stage) const {
-  auto const &cfg = fp32_storage_config();
-  if (!fp32_storage_due(cfg, stage, static_cast<int>(pintg->stages.size())))
-    return false;
-  return round_storage(vars);
+  auto &mon = freg.monitor();
+  for (auto [name, t] :
+       {std::pair<char const *, torch::Tensor>{"freg.counters", mon.counters},
+        {"freg.minima", mon.minima},
+        {"freg.retry_flags", mon.retry_flags}})
+    if (t.defined()) _state.register_storage(name, t);
 }
 
 void MeshBlockImpl::exchange(Variables &vars, SyncOptions const &opts) const {
@@ -703,7 +725,9 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   // Publish the stage: the vertical implicit correction is nonlinear in dt and
   // must weight dt INSIDE the solve, so it needs to know which stage it is in.
   phydro->rk_stage = stage;
+  auto &freg = phydro->flux_register();
 
+  _state.adopt(vars);  // a rebound hydro_u/scalar_s is copied in
   auto hydro_u = vars.at("hydro_u");
   auto scalar_s =
       vars.count("scalar_s") ? vars.at("scalar_s") : torch::Tensor();
@@ -711,14 +735,14 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   auto start = std::chrono::high_resolution_clock::now();
   // -------- (1) save initial state --------
   if (stage == 0) {
+    // the register's step sums and monitor start the step (R.rst 3.4)
+    freg.begin_step();
     if (phydro->pdiffusion && phydro->pdiffusion->options->implicit_radial()) {
       phydro->pdiffusion->begin_step(hydro_u, dt);
       apply_boundaries(vars, hydro_u, scalar_s);
       exchange_ghost_zones(vars);
     }
-    if (_hydro_u0.scalar_type() != hydro_u.scalar_type())
-      _hydro_u0.set_data(torch::empty_like(hydro_u));
-    _hydro_u0.copy_(hydro_u);
+    _state.backup();
     if (auto moist = dynamic_cast<IdealMoistImpl *>(phydro->peos.get()))
       moist->clear_heat_capacity_failure();
     // the fixer buffers are only written under the
@@ -736,13 +760,9 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
     saturation_failures();  // a failure counted before the step is not its own
     if (phydro->peos->vapor_failures().defined())
       phydro->peos->vapor_failures().zero_();  // nor is a vapor failure
-
-    if (pscalar->nvar() > 0) {
-      if (_scalar_s0.scalar_type() != scalar_s.scalar_type())
-        _scalar_s0.set_data(torch::empty_like(scalar_s));
-      _scalar_s0.copy_(scalar_s);
-    }
   }
+
+  freg.begin_stage(stage, pintg->stages[stage]);
 
   // -------- (2) set containers for future results --------
   torch::Tensor fut_hydro_du, fut_scalar_ds;
@@ -753,13 +773,13 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   auto carry_dry_source = [&](torch::Tensor const &dry,
                               torch::Tensor const &scalar_base) {
     if (!dry.defined() || !vars.count("scalar_r")) return;
-    auto rho_base = pintg->forward(stage, _hydro_u0[IDN], hydro_u[IDN],
+    auto rho_base = pintg->forward(stage, _state.u0()[IDN], hydro_u[IDN],
                                    fut_hydro_du[IDN] - dry);
     // anomaly storage: the stage weights of the two states sum to one, so
     // the total is the combined anomaly plus the reference
     if (phydro->has_reference())
       rho_base = rho_base + phydro->u_ref_like(hydro_u)[0];
-    auto s_base = pintg->forward(stage, _scalar_s0, scalar_s, scalar_base);
+    auto s_base = pintg->forward(stage, _state.s0(), scalar_s, scalar_base);
     auto remove_r =
         torch::where(rho_base.unsqueeze(0) == 0., vars.at("scalar_r"),
                      s_base / rho_base.unsqueeze(0));
@@ -897,9 +917,11 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
     }
   }
 
+  // the stage total is final: S_d <- w1 S_d + w2 dt T_d
+  freg.end_stage(dt);
+
   // -------- (4) multi-stage averaging --------
-  hydro_u.set_(pintg->forward(stage, _hydro_u0, hydro_u, fut_hydro_du)
-                   .to(hydro_u.options()));
+  pintg->forward(stage, _state.u0(), hydro_u, fut_hydro_du, hydro_u);
   if (stage + 1 == static_cast<int>(pintg->stages.size()) &&
       phydro->pdiffusion && phydro->pdiffusion->options->implicit_radial())
     phydro->pdiffusion->finish_step(hydro_u, dt);
@@ -918,8 +940,7 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   }
 
   if (pscalar->nvar() > 0) {
-    scalar_s.set_(pintg->forward(stage, _scalar_s0, scalar_s, fut_scalar_ds)
-                      .to(scalar_s.options()));
+    pintg->forward(stage, _state.s0(), scalar_s, fut_scalar_ds, scalar_s);
     set_scalar_primitive(vars, scalar_s, hydro_u, *phydro);
     if (options->verbose()) {
       auto end = std::chrono::high_resolution_clock::now();
@@ -1376,9 +1397,9 @@ int MeshBlockImpl::finalize(Variables const &vars, double time) {
       (tstop > _time_start ? static_cast<double>(tstop - _time_start) : 1.0) /
       static_cast<double>(CLOCKS_PER_SEC);
 
-  std::vector<at::Tensor> cells = {
-      torch::tensor({_hydro_u0.size(1) * _hydro_u0.size(2) * _hydro_u0.size(3)},
-                    torch::dtype(torch::kInt64))};
+  std::vector<at::Tensor> cells = {torch::tensor(
+      {_state.u0().size(1) * _state.u0().size(2) * _state.u0().size(3)},
+      torch::dtype(torch::kInt64))};
 
   c10d::ReduceOptions opsum;
   opsum.reduceOp = c10d::ReduceOp::SUM;
@@ -1475,12 +1496,13 @@ int MeshBlockImpl::apply_redo(Variables &vars, int causes) {
 
     // reset variables (the fixer's -D goes with them: drop its count)
     phydro->drop_gravity_work_fix();
-    vars["hydro_u"].copy_(_hydro_u0);
+    phydro->flux_register().rollback();  // the census keeps accepted steps
+    _state.adopt(vars);
+    _state.restore();
     if (phydro->pdiffusion && phydro->pdiffusion->options->implicit_radial())
       phydro->pdiffusion->restore_step(vars["hydro_u"]);
     phydro->peos->forward(vars["hydro_u"], vars["hydro_w"]);
     if (vars.count("scalar_s")) {
-      vars["scalar_s"].copy_(_scalar_s0);
       set_scalar_primitive(vars, vars["scalar_s"], vars["hydro_u"], *phydro);
     }
 
@@ -1795,11 +1817,11 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
   }
 
   if (phydro->options->perturbation_flux()) {
-    auto dtype = phydro->fp32() ? torch::kFloat32 : torch::kFloat64;
-    vars["hydro_u"] = vars.at("hydro_u").to(dtype);
+    vars["hydro_u"] = policy.store(Quantity::kHydroState, vars.at("hydro_u"));
     vars["hydro_w"] = vars.at("hydro_w").to(torch::kFloat64);
     if (vars.count("scalar_s"))
-      vars["scalar_s"] = vars.at("scalar_s").to(dtype);
+      vars["scalar_s"] =
+          policy.store(Quantity::kScalarState, vars.at("scalar_s"));
   }
   if (has_radiating_boundary()) {
     TORCH_CHECK(
@@ -1829,6 +1851,9 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
                          *phydro);
   }
 
+  // a restart is a new state: new storage, adopted at the next step
+  _state.reallocate();
+  _executor->invalidate();
   return current_time;
 }
 

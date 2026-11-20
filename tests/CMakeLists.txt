@@ -5,10 +5,11 @@
 enable_testing()
 
 setup_test(test_eos)
-setup_test(test_fp32_storage)
 # ideal-gas refuses a moist card; AthenaArray keeps float32 values
 setup_test(test_eos_io_core)
 setup_test(test_split_reference)
+setup_test(test_precision_policy)
+setup_test(test_state_store)
 set_tests_properties(test_split_reference.${buildl} PROPERTIES LABELS "fp32-foundations;fp32-dynamics;hydro")
 setup_test(test_pressure_scan_x1)
 set_tests_properties(test_pressure_scan_x1.${buildl} PROPERTIES
@@ -58,6 +59,16 @@ setup_test(test_flux_positivity_carry)
 # dynamics/flux-covariance false
 setup_test(test_yaml_keys)
 
+# gate G-3 (lane O): the option tables against the pin's members, defaults and
+# parsers, on every in-tree deck; and the checked-in stub blocks against them
+setup_test(test_options_table)
+target_compile_definitions(test_options_table.${buildl}
+                           PRIVATE SNAPY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+add_test(
+  NAME test_options_pyi
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/gen_options.py
+          --check-pyi --root ${CMAKE_SOURCE_DIR} ${SNAP_OPTION_TABLES})
+
 # Reads the example decks from the source tree; it needs no build and no snapy import.
 add_test(
   NAME test_example_species_composition
@@ -93,6 +104,7 @@ set_tests_properties(test_hydro_ref_x1_stretched_cuda.${buildl}
 setup_test(test_uranus_cycle1_abort)
 setup_test(test_pref_local_seam)
 setup_test(test_gravity_work_cache_to)
+setup_test(test_gravity_work_rows)
 setup_test(test_x1_seam_split)
 # one arm per entry: its environment, its one test, which must run and pass (a
 # skip or an empty filter prints "PASSED ] 0 tests" and fails the entry)
@@ -193,6 +205,7 @@ setup_test(test_parentless_cloud)
 setup_test(test_fix_vapor_volume)
 setup_test(test_fix_vapor_deficit)
 setup_test(test_check_redo_vapor_deficit)
+setup_test(test_flux_register)
 setup_test(test_species_face_clamp)
 setup_test(test_parentless_cloud_nb1)
 setup_test(test_vapor_column_nb1)
@@ -355,8 +368,7 @@ snapy_add_python_test(test_shear_cfl TIMEOUT 60 LABELS "python;hydro;implicit")
 snapy_add_python_test(test_check_redo_floor TIMEOUT 60 LABELS "python;mesh;redo")
 snapy_add_python_test(test_check_redo_saturation TIMEOUT 60 LABELS "python;mesh;redo;eos")
 snapy_add_python_test(test_eos_temp2inteng TIMEOUT 60 LABELS "python;eos")
-# fp32 roadmap Step 1a: anomaly storage of hydro_u, and the Step 0 fp32
-# storage emulation hook (SNAP_FP32_STORAGE)
+# fp32 roadmap Step 1a: anomaly storage of hydro_u
 snapy_add_python_test(test_anomaly_storage TIMEOUT 600 LABELS "python;eos;anomaly")
 # the base arm is the unlimited scheme and must go negative; with the face-flux
 # covariance on (the default, #289) the donor limiter runs in every arm
@@ -416,9 +428,9 @@ snapy_add_python_test(test_fp32_split SCRIPT test_perturbation_flux_split.py
 snapy_add_python_test(test_fp32_compute TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
 snapy_add_python_test(test_fp32_horizontal_sweep TIMEOUT 120 LABELS "python;hydro;fp32-foundations;fp32-compute")
 snapy_add_python_test(test_fp32_science TIMEOUT 300 LABELS "python;hydro;fp32-science")
-if(CUDAToolkit_FOUND)
-  snapy_add_python_test(test_straka_cuda_graph TIMEOUT 300 LABELS "python;cuda;hydro;fp32-science")
-endif()
+# no cuda label: its setup checks run on CPU builds too; the capture part
+# skips without a CUDA device
+snapy_add_python_test(test_stage_executor_capture TIMEOUT 300 LABELS "python;hydro;fp32-science")
 snapy_add_python_test(test_fp32_restart TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-restart")
 snapy_add_python_test(test_fp32_policy TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
 snapy_add_python_test(test_fp32_implicit TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
@@ -813,7 +825,7 @@ endif()
 # Reproducible gate for the FP32 foundations. This does not replace the coupled
 # Jupiter/production-GPU acceptance runs in V3_ROADMAP.md.
 foreach(_t IN ITEMS
-    test_eos test_coordinate test_fp32_storage test_balance_column
+    test_eos test_coordinate test_balance_column
     test_balance_column_x1_centroid
     test_hydro_ref_x1 test_hydro_ref_x1_rf_wall test_gravity_work_cache_to
     test_implicit_face_work_jacobian test_riemann test_stretched_x1_ref

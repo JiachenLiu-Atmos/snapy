@@ -6,6 +6,7 @@
 #include <ATen/native/cpu/Loops.h>
 #include <torch/torch.h>
 
+#include <snap/utils/on_host.hpp>
 #include <type_traits>
 
 #include "interp_impl.h"
@@ -87,18 +88,6 @@ void call_poly5_nu_cpu(at::TensorIterator& iter, torch::Tensor coeff, int dim) {
       });
 }
 
-void call_weno5_nu_mps(at::TensorIterator&, torch::Tensor, int, bool) {
-  TORCH_CHECK(false,
-              "[weno5_nu] a stretched x1 grid is not supported on the MPS "
-              "backend in stage 1 of snapy#280; use CPU or CUDA");
-}
-
-void call_poly5_nu_mps(at::TensorIterator&, torch::Tensor, int) {
-  TORCH_CHECK(false,
-              "[poly5_nu] a stretched x1 grid is not supported on the MPS "
-              "backend in stage 1 of snapy#280; use CPU or CUDA");
-}
-
 }  // namespace snap
 
 namespace at::native {
@@ -109,7 +98,9 @@ DEFINE_DISPATCH(call_weno5_nu);
 REGISTER_ALL_CPU_DISPATCH(call_poly5_nu, &snap::call_poly5_nu_cpu);
 REGISTER_ALL_CPU_DISPATCH(call_weno5_nu, &snap::call_weno5_nu_cpu);
 
-REGISTER_MPS_DISPATCH(call_poly5_nu, &snap::call_poly5_nu_mps);
-REGISTER_MPS_DISPATCH(call_weno5_nu, &snap::call_weno5_nu_mps);
+REGISTER_MPS_DISPATCH(call_poly5_nu,
+                      &snap::OnHost<&snap::call_poly5_nu_cpu>::run);
+REGISTER_MPS_DISPATCH(call_weno5_nu,
+                      &snap::OnHost<&snap::call_weno5_nu_cpu>::run);
 
 }  // namespace at::native

@@ -15,6 +15,8 @@
 // arg
 #include <snap/add_arg.h>
 
+#include "ef_status.hpp"
+
 namespace snap {
 
 struct EquationOfStateOptionsImpl {
@@ -172,25 +174,22 @@ class EquationOfStateImpl {
   virtual void apply_primitive_limiter_(torch::Tensor const& prim);
 
   //! \brief Zero the step's limiter marks on the device of \p like.
-  void reset_limiter_marks(torch::Tensor const& like);
+  void reset_limiter_marks(torch::Tensor const& like) {
+    ef_status().reset_marks(like);
+  }
 
   //! [0]: a limiter call floored an interior density or energy; [1]: it found
   //! an interior NaN. Undefined (nothing marked) before the first reset.
-  //! A side channel: the limiter calls set the marks as a side effect; the
+  //! A side channel: the limiter calls OR them in place as a side effect; the
   //! MeshBlock resets them at stage 0 and after a redo decision, and reads them
-  //! in check_redo (MeshBlock and Mesh).
-  // the calls queue their 0-d any() results and the
-  // read folds them, one stack + any + or per row instead of one or per call
+  //! in check_redo (MeshBlock and Mesh). Slot kMarks of the block's EfStatus.
   torch::Tensor const& limiter_marks() const {
-    for (int i = 0; i < 2; ++i) {
-      if (pending_marks_[i].empty()) continue;
-      if (limiter_marks_.defined())
-        limiter_marks_[i].logical_or_(torch::stack(pending_marks_[i]).any());
-      pending_marks_[i].clear();
-    }
-    return limiter_marks_;
+    return ef_status().slot(EfStatus::kMarks);
   }
-  void push_mark_(int i, torch::Tensor t) { pending_marks_[i].push_back(t); }
+
+  //! the block's EfStatus (MeshBlockImpl::pefs); an EOS without a block
+  //! keeps its own
+  EfStatus& ef_status() const;
 
   //! While on (a MeshBlock stage, and check_redo's conversion), the vapor
   //! repair adds its failures to vapor_failures() instead of raising (on CUDA,
@@ -198,15 +197,31 @@ class EquationOfStateImpl {
   //! and zeroes it, and stage 0 zeroes it. Off (any other call), a failure
   //! raises at once.
   void defer_vapor_check(bool on) { defer_vapor_check_ = on; }
-  //! this instance's deferred failure count (0-d int32), undefined until used
-  torch::Tensor const& vapor_failures() const { return vapor_failures_; }
+  //! the block's deferred failure count (0-d int32), undefined until used
+  torch::Tensor const& vapor_failures() const {
+    return ef_status().slot(EfStatus::kVaporFail);
+  }
+
+ protected:
+  //! "W->U" and "U->W", the same for every type: args {w[, u]} / {u[, w]},
+  //! the output allocated like the input when not given. True, with *out
+  //! set, if ab is one of the two.
+  bool convert_(std::string const& ab, std::vector<torch::Tensor> const& args,
+                torch::Tensor* out);
+
+  //! \brief Convert primitive variables to conserved variables.
+  virtual void _prim2cons(torch::Tensor prim, torch::Tensor& cons);
+  //! \brief Convert conserved variables to primitive variables.
+  virtual void _cons2prim(torch::Tensor cons, torch::Tensor& prim);
+
+  //! the momentum rows of cons from prim: density times velocity, lowered by
+  //! the coordinate metric
+  void _mom_from_vel_(torch::Tensor const& prim, torch::Tensor& cons) const;
 
  private:
   bool defer_vapor_check_ = false;
-  torch::Tensor vapor_failures_;
   // not a buffer: stage forcings get named_buffers()
-  torch::Tensor limiter_marks_;
-  mutable std::vector<torch::Tensor> pending_marks_[2];
+  mutable std::shared_ptr<EfStatus> own_status_;
 
   //! Parent vapor slots and normalized stoichiometric mass fractions by cloud.
   std::vector<std::vector<std::pair<int, double>>> cloud_parent_cache_;

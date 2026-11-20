@@ -39,11 +39,12 @@ class IdealMoistImpl final : public torch::nn::Cloneable<IdealMoistImpl>,
   //! MeshBlock::check_redo; direct calls retain immediate exceptions.
   IdealMoistPerturbations perturbations(torch::Tensor const& stored,
                                         bool defer_check = false) const;
+  //! the latch, slot kHeatCapacity of the block's EfStatus
   torch::Tensor const& heat_capacity_failure() const {
-    return heat_capacity_failure_;
+    return ef_status().slot(EfStatus::kHeatCapacity);
   }
   void clear_heat_capacity_failure() {
-    if (heat_capacity_failure_.defined()) heat_capacity_failure_.zero_();
+    ef_status().clear(EfStatus::kHeatCapacity);
   }
 
   /*torch::Tensor get_buffer(std::string var) const override {
@@ -73,7 +74,6 @@ class IdealMoistImpl final : public torch::nn::Cloneable<IdealMoistImpl>,
  private:
   // Private work, not restart state or dtype-converted module buffers.
   mutable torch::Tensor split_cv_, split_offset_, split_gas_;
-  mutable torch::Tensor heat_capacity_failure_;
   mutable std::vector<double> split_mu_, split_cref_, split_uref_;
   mutable int split_ngas_ = -1, split_ncloud_ = -1;
   //! \brief Convert conserved variables to primitive variables.

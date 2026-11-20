@@ -15,7 +15,7 @@
 #include "device_testing.hpp"
 
 namespace snap {
-void call_hllc_mps(at::TensorIterator&, int);
+void call_hllc_cpu(at::TensorIterator&, int);
 }
 
 // kintera
@@ -27,6 +27,7 @@ void call_hllc_mps(at::TensorIterator&, int);
 #include <snap/eos/equation_of_state.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/riemann/riemann_solver.hpp>
+#include <snap/utils/on_host.hpp>
 
 enum {
   DIM1 = 3,
@@ -448,7 +449,7 @@ TEST(HLLCFloat, shocks_rarefactions_and_boosts_match_double) {
   }
 }
 
-TEST_P(DeviceTest, hllc_pressure_split_dispatch_and_tensor_backend) {
+TEST_P(DeviceTest, hllc_pressure_split_dispatch_and_on_host) {
   auto opts = MeshBlockOptionsImpl::from_yaml("test_eos_temp2inteng.yaml");
   opts->hydro()->riemann()->type() = "hllc";
   auto block = MeshBlock(opts);
@@ -476,14 +477,15 @@ TEST_P(DeviceTest, hllc_pressure_split_dispatch_and_tensor_backend) {
   EXPECT_TRUE(
       torch::allclose(flux[ICY + 1], 0.02 * mixture_flux, 2.e-6, 1.e-12));
 
-  // Exercise the tensor fallback on CPU too, independent of MPS availability.
-  auto tensor_flux = torch::zeros_like(flux);
-  auto tensor_dp = torch::empty_like(dp);
+  // MPS runs the CPU kernel through OnHost; run that here on every device.
+  // On CPU it is the dispatched kernel itself, so the result is bitwise.
+  auto host_flux = torch::zeros_like(flux);
+  auto host_dp = torch::empty_like(dp);
   auto iter = at::TensorIteratorConfig()
                   .resize_outputs(false)
                   .declare_static_shape(flux.sizes(), /*squash_dims=*/0)
-                  .add_output(tensor_flux)
-                  .add_owned_output(tensor_dp.unsqueeze(0))
+                  .add_output(host_flux)
+                  .add_owned_output(host_dp.unsqueeze(0))
                   .add_input(wl)
                   .add_input(wr)
                   .add_input(solver->elr)
@@ -491,9 +493,14 @@ TEST_P(DeviceTest, hllc_pressure_split_dispatch_and_tensor_backend) {
                   .add_input(solver->clr)
                   .add_owned_input(p0.unsqueeze(0))
                   .build();
-  snap::call_hllc_mps(iter, DIM1);
-  EXPECT_TRUE(torch::allclose(tensor_flux, flux, 2.e-5, 1.e-6));
-  EXPECT_TRUE(torch::allclose(tensor_dp, dp, 2.e-5, 1.e-7));
+  snap::OnHost<&snap::call_hllc_cpu>::run(iter, DIM1);
+  if (device.is_cpu()) {
+    EXPECT_TRUE(torch::equal(host_flux, flux));
+    EXPECT_TRUE(torch::equal(host_dp, dp));
+  } else {
+    EXPECT_TRUE(torch::allclose(host_flux, flux, 2.e-5, 1.e-6));
+    EXPECT_TRUE(torch::allclose(host_dp, dp, 2.e-5, 1.e-7));
+  }
 
   auto total_l = wl.clone(), total_r = wr.clone();
   total_l[IPR] += p0;
