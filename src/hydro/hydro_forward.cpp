@@ -980,37 +980,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   // x1 mass-flux w (step 8): the Coriolis rows that read rho w wait for the
   // stage's final x1 mass transfer, so Coriolis sees w = 0 here
   auto ptype = pmb->pcoord->options->type();
-  bool mass_w = peos->options->type() != "shallow-water" &&
-                pmb->pcoord->options->nc1() > 1 &&
-                (ptype == "gnomonic-equiangle" ||
-                 (ptype == "spherical-polar" && options->coriolis()));
-  auto& mw = _mass_w;
-  if (mass_w) {
-    auto pc = pmb->pcoord;
-    auto shape = w[IDN].sizes().vec();
-    if (!(mw.x1f.defined() && mw.x1f.is_same(pc->x1f) &&
-          mw.ver == pc->x1f._version() && mw.wc1.device() == w.device() &&
-          mw.wc1.scalar_type() == w.scalar_type() &&
-          mw.wc1[IDN].sizes() == c10::IntArrayRef(shape))) {
-      int is = pc->il(), ie = pc->iu() + 1;
-      auto r = pc->x1v.slice(0, is, ie);
-      mw.x1f = pc->x1f;
-      mw.ver = pc->x1f._version();
-      mw.area = pc->face_area1();
-      auto den = 2. * r * pc->cell_volume().slice(-1, is, ie);
-      mw.lo = (r.square() - pc->x1f.slice(0, is, ie).square()) / den;
-      mw.hi = (pc->x1f.slice(0, is + 1, ie + 1).square() - r.square()) / den;
-      mw.phi = torch::empty_like(w[IDN]);
-      // only rows IDN..IVZ are read by the Coriolis forcings
-      mw.wc1 =
-          torch::zeros({IVZ + 1, shape[0], shape[1], shape[2]}, w.options());
-      mw.wc2 = torch::zeros_like(mw.wc1);
-      mw.wc2[IDN].fill_(1.);
-    }
-    // Coriolis sees w = 0 here; rows IDN, IVY, IVZ are w's, row IVX stays 0
-    mw.wc1[IDN].copy_(w[IDN]);
-    mw.wc1.narrow(0, IVY, 2).copy_(w.narrow(0, IVY, 2));
-  }
+  bool mass_w = px1m->applies();
+  auto wc1 = mass_w ? px1m->before_solve(w) : torch::Tensor();
   paam->arm(ny);  // exact: the torque of F_d, in this Coriolis call only
   auto forcing_du = du;
   if (fp32()) {
@@ -1031,7 +1002,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
                          perturb.density_delta.to(w.options()));
   else if (pgrav)
     pgrav->forward(forcing_du, w, temp, dt);
-  StageState stage{w, temp, dt, mass_w ? mw.wc1 : torch::Tensor()};
+  StageState stage{w, temp, dt, wc1};
   for (auto const& r : sources.runs(SourcePhase::pre_implicit))
     sources.run(r, forcing_du, stage);
   if (fp32()) {
@@ -1219,38 +1190,17 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
 
   //// ------------ (8) x1 mass-flux w in Coriolis and metric sources -------
   // -2 Omega w cos(lat) and -u w / r take rho w from the stage's final x1
-  // face mass transfers Phi (explicit flux + implicit transfer), split as
-  //   m1 = [Phi_lo (r^2 - r_lo^2) + Phi_hi (r_hi^2 - r^2)] / (2 r V dt),
-  // so a column's Coriolis torque equals the planetary angular momentum
-  // its x1 transfers move, and a wall face that moves no mass exerts none
-  // (the cell-centre w of a wall cell moves no mass but did exert a torque)
+  // face mass transfers: lane A's m1 (X1Momentum), built once here and read
+  // by the post_implicit Coriolis and coord's x1 metric source
   if (mass_w) {
     auto pc = pmb->pcoord;
-    int is = pc->il(), ie = pc->iu() + 1;
-    // phi: mass transfer rate through face i (below i), explicit flux plus
-    // the implicit transfer per unit time
-    auto& phi = mw.phi;
-    // V3 I-4: A_f total(1) on the mass rows; total(1) holds the solve's
-    // posts by now (G-R11), so no separate mc / dt term
-    if (_flux1.defined() && !options->disable_flux_x1()) {
-      // no species rows: the dry flux is the whole mass flux
-      auto f1 =
-          ny > 0 ? _flux1[IDN] + _flux1.narrow(0, ICY, ny).sum(0) : _flux1[IDN];
-      torch::mul_out(phi, mw.area.narrow(-1, 0, f1.size(-1)), f1);
-    } else {  // the x1 flux is off: the solve posts nothing (hydro.cpp)
-      phi.zero_();
-      auto mc = implicit_mass_correction();
-      if (mc.defined() && mc.numel() > 0) phi.add_(mc[IVZ], 1. / dt);
-    }
-    // m1 lives in row IVX of the Coriolis input wc2 = (1, m1, 0, 0), x1
-    // ghosts stay 0: only the rows driven by rho w are added here, the
-    // w-free rows went in before the implicit solve
-    auto m1 = mw.wc2[IVX];
-    auto m1i = m1.slice(-1, is, ie);
-    torch::mul_out(m1i, phi.slice(-1, is, ie), mw.lo);
-    m1i.addcmul_(phi.slice(-1, is + 1, ie + 1), mw.hi);
+    auto const& wc2 = px1m->after_solve(
+        _flux1.defined() && !options->disable_flux_x1() ? _flux1
+                                                        : torch::Tensor(),
+        ny, implicit_mass_correction(), dt);
+    auto m1 = px1m->m1();
     for (auto const& r : sources.runs(SourcePhase::post_implicit))
-      sources.run(r, du, {w, temp, dt, mw.wc2});
+      sources.run(r, du, {w, temp, dt, wc2});
     if (!aam) {
       pc->x1_mass_source_(du, w, m1, dt);
     } else {
