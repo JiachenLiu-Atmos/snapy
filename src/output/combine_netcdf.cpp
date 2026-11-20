@@ -1,7 +1,5 @@
 // C/C++ headers
 #include <cstdio>
-#include <cstring>
-#include <iostream>
 #include <sstream>  // stringstream
 #include <stdexcept>
 
@@ -12,8 +10,6 @@
 #include <snap/mesh/meshblock.hpp>
 
 #include "writer_core.hpp"
-
-int mppnccombine(int argc, char* argv[]);
 
 namespace snap {
 
@@ -61,18 +57,7 @@ void combine_netcdf_blocks(MeshBlockImpl* pmb, OutputOptionsImpl const& op,
     if (files.size() == 1) {
       err = std::rename(files.front().c_str(), outfile.c_str());
     } else {
-      int argc = 3 + files.size();
-      char** argv = new char*[argc];
-      for (int i = 0; i < argc; ++i) argv[i] = new char[2048];
-      snprintf(argv[0], 2048, "%s", "CombineBlocks");
-      snprintf(argv[1], 2048, "%s", "-r");
-      snprintf(argv[2], 2048, "%s", outfile.c_str());
-      for (int i = 3; i < argc; ++i)
-        snprintf(argv[i], 2048, "%s", files[i - 3].c_str());
-
-      err = mppnccombine(argc, argv);
-      for (int i = 0; i < argc; ++i) delete[] argv[i];
-      delete[] argv;
+      err = combine_parts(outfile, files);
     }
     if (err) {
       std::stringstream msg;
