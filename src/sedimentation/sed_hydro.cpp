@@ -31,6 +31,7 @@ void SedHydroImpl::reset() {
   settling = register_buffer("settling", torch::empty({0}, torch::kFloat64));
   hydro_ids = register_buffer(
       "hydro_ids", torch::tensor(options->hydro_ids(), torch::kLong));
+  args_ = SedKernelArgs();  // rebuilt from the new buffers on first use
 }
 
 torch::Tensor SedHydroImpl::forward(torch::Tensor wr,
@@ -64,8 +65,15 @@ torch::Tensor SedHydroImpl::forward(torch::Tensor wr,
 
 SedKernelArgs& SedHydroImpl::kernel_args(torch::Tensor const& like) {
   auto& a = args_;
-  if (a.radius.defined() && a.radius.device() == like.device() &&
-      a.radius.scalar_type() == like.scalar_type())
+  // a cached tensor can be the module buffer itself (.to on its own dtype and
+  // device) and move with the block, while a view of it does not: check all
+  auto here = [&](torch::Tensor const& t, torch::Dtype dtype) {
+    return t.defined() && t.device() == like.device() &&
+           t.scalar_type() == dtype;
+  };
+  auto dt = like.scalar_type();
+  if (here(a.radius, dt) && here(a.density, dt) && here(a.const_vsed, dt) &&
+      here(a.cosine_cell_kj, dt) && here(a.hydro_ids, torch::kLong))
     return a;
   auto o = like.options();
   a.radius = psedvel->radius.to(o).contiguous();

@@ -114,6 +114,23 @@ TEST(sedimentation, settling_energy_is_the_eos_species_energy) {
         << "face " << i;
 }
 
+// SedKernelArgs is cached on first use: a move of the block after a forward
+// must rebuild all of it. On CPU FP64 the particle tensors are the module's
+// buffers themselves and move with them; cosine_cell_kj is a view and does not
+TEST(sedimentation, kernel_args_follow_a_move_after_a_forward) {
+  auto options = MeshBlockOptionsImpl::from_yaml(kCard);
+  auto gravity = ConstGravityOptionsImpl::create();
+  gravity->grav1(-1.);
+  options->hydro()->grav() = gravity;
+  auto block = std::make_shared<MeshBlockImpl>(options);
+  auto w = make_primitive(block);
+  auto f64 = block->phydro->psed->forward(w);
+  block->to(torch::kFloat32);
+  torch::Tensor f32;
+  ASSERT_NO_THROW(f32 = block->phydro->psed->forward(w.to(torch::kFloat32)));
+  EXPECT_TRUE(torch::allclose(f32.to(torch::kFloat64), f64, 1.e-6, 1.e-6));
+}
+
 // sedimentation reads grav1 in forward(); without const-gravity that was a null
 // dereference on the first step, so the card is refused at setup instead
 TEST(sedimentation, refuses_a_card_without_const_gravity) {
