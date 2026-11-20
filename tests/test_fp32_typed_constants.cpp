@@ -218,12 +218,14 @@ TEST(Fp32TypedConstants, weno_double_is_unchanged) {
 
 namespace {
 
-// LMARS with ny = 0 along IVX (dim 3), every constant typed T
+// LMARS with ny = 0 along IVX (dim 3), every constant typed T. The kinetic
+// terms are inline products, the expression shape of lmars_impl's SQR macro,
+// so a compiler that contracts one into FMAs contracts the other the same way
 template <typename T>
 void ref_lmars(T* f, T const* l, T const* r, T hl, T hr, T gl, T gr) {
   T const h = static_cast<T>(0.5);
-  hl += h * (sq(l[1]) + sq(l[2]) + sq(l[3])) + l[4] / l[0];
-  hr += h * (sq(r[1]) + sq(r[2]) + sq(r[3])) + r[4] / r[0];
+  hl += h * (l[1] * l[1] + l[2] * l[2] + l[3] * l[3]) + l[4] / l[0];
+  hr += h * (r[1] * r[1] + r[2] * r[2] + r[3] * r[3]) + r[4] / r[0];
   T rhobar = h * (l[0] + r[0]);
   T gbar = h * (gl + gr);
   T cbar = std::sqrt(h * gbar * (l[4] + r[4]) / rhobar);

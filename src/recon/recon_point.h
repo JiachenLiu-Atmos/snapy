@@ -97,10 +97,10 @@ DISPATCH_MACRO inline T weno3_point(T const* src, int stride, T const* c,
 }
 
 //! WENO5: c = three candidate rows, six smoothness rows (5 each), then the
-//! three linear weights d. Nu: c is one face's row of a per-face x1 table;
-//! otherwise the uniform table, whose d is .3, .6, .1 (V3 C9: the uniform rows
-//! read d too, so the weights are in the table's dtype)
-template <typename T, bool Nu = false>
+//! three linear weights d. c is one face's row of a per-face x1 table or the
+//! uniform table, whose d is .3, .6, .1 (V3 C9: both read d, so the weights
+//! are in the table's dtype)
+template <typename T>
 DISPATCH_MACRO inline T weno5_point(T const* src, int stride, T const* c,
                                     bool scale) {
   T const* c1 = c;
@@ -159,7 +159,7 @@ DISPATCH_MACRO inline T recon_point(T const* src, int stride, T const* row,
     return weno3_point(src, stride, row, scale);
   } else {
     static_assert(S == Scheme::weno5, "dc, plm and ppm are tensor code");
-    return weno5_point<T, Nu>(src, stride, row, scale);
+    return weno5_point<T>(src, stride, row, scale);
   }
 }
 
