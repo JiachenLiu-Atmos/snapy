@@ -35,6 +35,14 @@ struct GraphKey {
   bool operator!=(GraphKey const& other) const { return !(*this == other); }
 };
 
+//! the capability matrix (X.rst section 10) for one block as configured:
+//! numerical support is the eager row, graph support is separate
+struct Capability {
+  bool eager_fp64 = false, eager_fp32 = false;  // this block's precision
+  bool graph_fp64 = false, graph_fp32 = false;  // and whether it can capture
+  std::vector<std::string> eager_reasons;       // why its stages run eager
+};
+
 //! V3 lane X, X3: a bare MeshBlock's stages run eagerly (default, reference)
 //! or as CUDA graphs when capture_reasons() is empty; strict refuses the rest.
 class StageExecutor {
@@ -46,6 +54,8 @@ class StageExecutor {
 
   //! why this case cannot be captured; empty: it can
   std::vector<std::string> capture_reasons(Variables const& vars) const;
+  //! V3 X7: this block's row of the capability matrix (G7)
+  Capability capability(Variables const& vars) const;
 
   void invalidate();  // drops every graph
   void bump_config_generation() { ++_config_generation; }

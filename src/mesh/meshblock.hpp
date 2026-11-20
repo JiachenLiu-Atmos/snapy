@@ -25,6 +25,7 @@
 #include <snap/layout/exchange.hpp>
 #include <snap/layout/layout.hpp>
 #include <snap/mesh/precision_policy.hpp>
+#include <snap/mesh/stage_executor.hpp>
 #include <snap/mesh/state_store.hpp>
 #include <snap/scalar/scalar.hpp>
 
@@ -217,6 +218,8 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
 
   //! the stage executor's counters: captures, replays, eager stages, graphs
   std::map<std::string, int64_t> execution_report() const;
+  //! this block's row of the capability matrix for vars (V3 X7)
+  Capability execution_capability(Variables const& vars) const;
   //! an option or prescribed-mask change a captured stage depends on
   void bump_config_generation();
 

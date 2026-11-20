@@ -420,6 +420,10 @@ std::map<std::string, int64_t> MeshBlockImpl::execution_report() const {
   return _executor->report();
 }
 
+Capability MeshBlockImpl::execution_capability(Variables const &vars) const {
+  return _executor->capability(vars);
+}
+
 void MeshBlockImpl::bump_config_generation() {
   _executor->bump_config_generation();
 }

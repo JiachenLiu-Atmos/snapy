@@ -99,6 +99,18 @@ std::vector<std::string> StageExecutor::capture_reasons(
   return why;
 }
 
+Capability StageExecutor::capability(Variables const& vars) const {
+  Capability c;
+  bool fp32 = _block->policy.fp32();
+  c.eager_fp64 = !fp32;  // every case runs eager in its precision
+  c.eager_fp32 = fp32;
+  c.eager_reasons = capture_reasons(vars);
+  bool graph = c.eager_reasons.empty();
+  c.graph_fp64 = graph && !fp32;
+  c.graph_fp32 = graph && fp32;
+  return c;
+}
+
 GraphKey StageExecutor::make_key(Variables const& vars, double dt,
                                  int stage) const {
   GraphKey key;

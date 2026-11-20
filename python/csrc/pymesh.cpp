@@ -271,6 +271,19 @@ in totals (a new tensor): the inverse of total_u.)doc")
       .def("finalize", &snap::MeshBlockImpl::finalize)
       .def("check_redo", &snap::MeshBlockImpl::check_redo)
       .def("execution_report", &snap::MeshBlockImpl::execution_report)
+      .def(
+          "execution_capability",
+          [](snap::MeshBlockImpl const& self, snap::Variables const& vars) {
+            auto c = self.execution_capability(vars);
+            py::dict d;
+            d["eager_fp64"] = c.eager_fp64;
+            d["eager_fp32"] = c.eager_fp32;
+            d["graph_fp64"] = c.graph_fp64;
+            d["graph_fp32"] = c.graph_fp32;
+            d["eager_reasons"] = c.eager_reasons;
+            return d;
+          },
+          py::arg("vars"))
       .def("bump_config_generation",
            &snap::MeshBlockImpl::bump_config_generation)
       .def("get_outputs",

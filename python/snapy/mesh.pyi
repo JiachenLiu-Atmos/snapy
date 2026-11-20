@@ -163,6 +163,11 @@ class MeshBlock:
     def execution_report(self) -> dict[str, int]:
         """Stage executor counters: captures, replays, eager, graphs."""
         ...
+    def execution_capability(self, vars: Variables) -> dict:
+        """This block's row of the capability matrix: eager_fp64/eager_fp32
+        (its precision), graph_fp64/graph_fp32 (it can run as CUDA graphs) and
+        eager_reasons (why its stages run eager)."""
+        ...
     def bump_config_generation(self) -> None:
         """Recapture every CUDA graph at the next stage."""
         ...
