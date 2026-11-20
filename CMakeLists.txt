@@ -115,7 +115,9 @@ find_package(Harp REQUIRED)
 # >= 2.6.3: explicit same-call rate constants for the kinetics Jacobian at
 # zero solid abundance, used by run_hydro and jupiter_evap_precip_1d
 # >= 2.6.9: constant-cv perturbation pressure helper (kintera #155).
-find_package(Kintera 2.6.9 REQUIRED)
+# >= 2.6.11: ThermoY compute_into for VU->T and PV->T (kintera #157), written
+# into moist-mixture's fixed ivol/temp (EF-8)
+find_package(Kintera 2.6.11 REQUIRED)
 #include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/kintera.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/fmt.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/gtest.cmake)
