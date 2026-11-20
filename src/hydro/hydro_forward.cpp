@@ -685,13 +685,10 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   }
 
   //// ------------ (3.A) Calculate dimension 2 LR states ------------ ////
-  // conserve-axial-momentum: full (#357): the Coriolis call also gets the
-  // solver's dissipative x2/x3 mass flux M - M_central; the solve writes
-  // M_central = 1/2 (F(wL) + F(wR)), riemann.central, in the kernel (C5)
-  bool const c2 = axial_coriolis_form();
-  TORCH_CHECK(
-      !c2 || (!split_flux && !fp32()),
-      "conserve-axial-momentum full needs FP64 and no perturbation-flux");
+  // conserve-axial-momentum: exact: lane A reads the solver's dissipative
+  // x2/x3 mass flux M - M_central; the solve writes M_central = 1/2 (F(wL) +
+  // F(wR)), riemann.central, in the kernel (C5)
+  bool const c2 = paam->mode() == AxialMode::exact;
   torch::Tensor wtmp2, wtmp3;
   SyncOptions sync_opts;
   sync_opts.cross_panel_only(true).interpolate(false).type(kPrimitive);
@@ -956,12 +953,12 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   // momentum rows from the same face fluxes, so it telescopes across faces
   bool aam = axial_flux_form();
   if (aam) {
-    pmb->pcoord->conserve_axial_momentum_(
-        _div,
-        options->disable_flux_x1() || u.size(DIM1) == 1 ? torch::Tensor()
-                                                        : _flux1,
-        options->disable_flux_x2() ? torch::Tensor() : _flux2,
-        options->disable_flux_x3() ? torch::Tensor() : _flux3);
+    paam->flux_form(_div,
+                    options->disable_flux_x1() || u.size(DIM1) == 1
+                        ? torch::Tensor()
+                        : _flux1,
+                    options->disable_flux_x2() ? torch::Tensor() : _flux2,
+                    options->disable_flux_x3() ? torch::Tensor() : _flux3);
   }
   if (options->verbose()) {
     auto end = std::chrono::high_resolution_clock::now();
@@ -1014,18 +1011,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     mw.wc1[IDN].copy_(w[IDN]);
     mw.wc1.narrow(0, IVY, 2).copy_(w.narrow(0, IVY, 2));
   }
-  if (c2) {
-    // full: the x2/x3 faces only; x1 stays in cell form
-    _aam_mass_flux = {
-        torch::Tensor(),
-        options->disable_flux_x2() || !freg.keeps(2, "riemann.central")
-            ? torch::Tensor()
-            : _flux2 - freg.kept(2, "riemann.central"),
-        options->disable_flux_x3() || !freg.keeps(3, "riemann.central")
-            ? torch::Tensor()
-            : _flux3 - freg.kept(3, "riemann.central")};
-    _aam_mass_ny = ny;
-  }
+  paam->arm(ny);  // exact: the torque of F_d, in this Coriolis call only
   auto forcing_du = du;
   if (fp32()) {
     // Stage-local contents in reusable storage. Keep accumulation in FP64 and
@@ -1052,8 +1038,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     _forcing_cast.copy_(forcing_du);
     du += _forcing_cast;
   }
-  // once per stage: the step-8 Coriolis call must not apply the torque again
-  _aam_mass_flux = {};
+  paam->disarm();  // the step-8 Coriolis call must not apply it again
   if (split_flux) {
     auto force = torch::zeros_like(du);
     if (!options->disable_flux_x1() && pressure_base1.defined()) {
@@ -1278,8 +1263,8 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       // The component orthogonal to K keeps -m1 v / r.
       auto src = torch::zeros_like(du);
       pc->x1_mass_source_(src, w, m1, dt);
-      pc->axial_x1_source_(src[IVY], src[IVZ],
-                           picorr ? picorr->correction() : torch::Tensor());
+      paam->x1_source(src[IVY], src[IVZ],
+                      picorr ? picorr->correction() : torch::Tensor());
       du.narrow(0, IVY, 2) += src.narrow(0, IVY, 2);
     }
   } else if (ptype == "gnomonic-equiangle") {
@@ -1288,7 +1273,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     auto src = torch::zeros_like(du);
     pmb->pcoord->x1_mass_source_(src, w, w[IDN] * w[IVX], dt);
     // conserve-axial-momentum: no K component, as in the branch above
-    if (aam) pmb->pcoord->axial_x1_source_(src[IVY], src[IVZ], torch::Tensor());
+    if (aam) paam->x1_source(src[IVY], src[IVZ], torch::Tensor());
     du.index(interior) += src.index(interior);
   }
 

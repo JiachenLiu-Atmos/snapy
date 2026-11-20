@@ -177,6 +177,10 @@ class MeshBlock:
         """Totals of the stored hydro_u (a new tensor); rows IDN and IPR get
         the fp64 reference added under anomaly storage."""
         ...
+    def axial_closure(self, on: bool) -> None:
+        """Test hook: with False, conserve-axial-momentum: exact runs without
+        its closure (the flux-form Coriolis torque only)."""
+        ...
     def stored_u(self, u_total: torch.Tensor) -> torch.Tensor:
         """The stored representation of a full-block state given in totals."""
         ...

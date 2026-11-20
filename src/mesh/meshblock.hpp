@@ -227,9 +227,10 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! called by finalize_initialization and by a restart without one
   void build_hydro_reference(Variables& vars);
 
-  //! conserve-axial-momentum-closure: this block's {R, I} of the stage
-  //! (device, FP64; zeros if off), and the stage's solid-body increment from
-  //! the global sums, applied in the global phase (forward, Mesh::forward)
+  //! conserve-axial-momentum exact: this block's {R, I} of the stage
+  //! (device, FP64; zeros if off) and the stage's solid-body increment from
+  //! the global sums (lane A's AxialClosureFixer), applied in the global
+  //! phase (forward, Mesh::forward)
   torch::Tensor axial_closure_sums() const;
   void apply_axial_closure(Variables& vars, double dt, int stage,
                            torch::Tensor const& global);

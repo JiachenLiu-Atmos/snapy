@@ -125,15 +125,15 @@ class HydroOptions:
 
     @overload
     def conserve_axial_momentum(self) -> str:
-        """dynamics/conserve-axial-momentum: off (default), transport or full.
+        """dynamics/conserve-axial-momentum: off (default), transport or exact.
         Axial angular momentum (AAM) in flux form on the gnomonic-equiangle
         grid: the component of each cell's flux divergence and x1 metric
         source along the rotation about the omega1 axis is the divergence of
         face AAM fluxes, so transport changes the global AAM only through
-        physical boundary faces (see GnomonicEquiangle). It needs no
-        Coriolis force or one of type xyz about omega1, and does nothing on
-        other grids (Hydro::axial_flux_form). The Coriolis force stays in
-        cell form, which does no work. The relative AAM is exact without
+        physical boundary faces (see AxialMomentum). It needs no Coriolis
+        force or one of type xyz about omega1, and does nothing on other
+        grids (Hydro::axial_flux_form). The Coriolis force stays in cell
+        form, which does no work. The relative AAM is exact without
         rotation. With rotation the Coriolis exchange with the planetary AAM
         is left open. Measured in 3D with one jet, for Omega / (u / a) of
         0.5 to 1: the drift is 110 to 290 times smaller than off at C8 and
@@ -142,47 +142,33 @@ class HydroOptions:
         cancel in part. In 2D shallow water (Williamson 2, C16) the gain
         with rotation is small: 1.7 times at a ratio of 1, 1.1 at 12.
         Shallow-water noise decays as with off (what is left after 4000
-        steps is within x1.4 of off up to 4 Omega). full (#357): transport
-        plus a Coriolis torque in flux form on the solver's dissipative
-        x2/x3 mass flux M - M_central (M_central = 1/2 (F(wL, wL) + F(wR,
-        wR)) from the same face states), added along the rotation to the
-        cell-form force. It reduces the open Coriolis exchange but is NOT
-        exact: the residual V (K . F_cell - rate(M_central)) remains. The x1
-        faces are not part of this torque: in 3D the x1 exchange is already
-        closed by the Coriolis rows that take rho w from the stage's x1 mass
-        transfers (Hydro::forward step 8); with coriolis/traditional: true
-        those rows are absent and the x1 exchange stays open, as the
-        equations leave it. It needs geometry/cells/interp_order: 4 (cubic
-        panel-edge ghosts). Measured: shallow-water Williamson 2 at the
-        Earth's rate, C16, 200 steps, drift 29.8 times below off (transport
-        1.1); the 3D arms of the test at Omega = 5e-6, 2000 steps, 217-589
-        times below off (transport 119-143); on the test's rest deck (C16 4
-        Omega, 4000 steps) it keeps 12.3 times the kinetic energy of
-        transport (both decay); noisy jet, u0 = 38.6 / k, 8000 steps,
-        KE_full / KE_off: C16 k = 1..4 1.065 / 1.100 / 1.090 / 1.066 (full's
-        own KE growing for k >= 2), C32 k = 2 / 3 / 4 1.005 / 1.005 / 1.012
-        (k = 4 run to 16000 steps, no trend). Cost: 1.14-1.30 times the wall
-        time of off at C16, 1.32-1.48 at C32 (2 extra Riemann calls per
-        x2/x3 direction). Not yet run in a GCM configuration. Deck key
+        steps is within x1.4 of off up to 4 Omega). exact (#357, #365; it
+        replaces full and the conserve-axial-momentum-closure key):
+        transport plus a Coriolis torque in flux form on the solver's
+        dissipative x2/x3 mass flux M - M_central (M_central = 1/2 (F(wL) +
+        F(wR)), the kept riemann.central of the same solve), added along the
+        rotation to the cell-form force, plus its closure: per RK stage the
+        residual R = sum V (K . F_cell - rate(M_central)) is removed as one
+        solid-body increment d(rho u_east) = -rho s R dt / I, I = sum V rho
+        s^2, s = r cos(lat), with R and I summed over all blocks (one
+        allreduce). Physical torques (drag, sponges, forcings) are not part
+        of R and are kept. The x1 faces are not part of the torque: in 3D
+        the x1 exchange is already closed by the Coriolis rows that take rho
+        w from the stage's x1 mass transfers (Hydro::forward step 8); with
+        coriolis/traditional: true those rows are absent. It needs
+        geometry/cells/interp_order: 4 (cubic panel-edge ghosts), FP64
+        without perturbation-flux, a riemann-solver type that writes
+        riemann.central (hllc, lmars, roe or shallow-roe) and no
+        forcing/diffusion nu_iso. Measured: the absolute AAM of the test's
+        3D arms and of Williamson 2 at Omega and 4 Omega drifts at most
+        1e-12 relative; without the closure (the old full) Williamson 2 at
+        the Earth's rate, C16, 200 steps, drifts 29.8 times below off
+        (transport 1.1). Not yet run in a GCM configuration. Deck key
         `dynamics/conserve-axial-momentum`."""
         ...
 
     @overload
     def conserve_axial_momentum(self, value: str) -> "HydroOptions": ...
-
-    @overload
-    def conserve_axial_momentum_closure(self) -> bool:
-        """dynamics/conserve-axial-momentum-closure (needs full; default
-        false): per RK stage, the residual full leaves, R = sum V (K .
-        F_cell - rate(M_central)), is removed as one solid-body increment
-        d(rho u_east) = -rho s R dt / I, I = sum V rho s^2, s = r cos(lat),
-        with R and I summed over all blocks (one allreduce). Physical
-        torques (drag, sponges, forcings) are not part of R and are kept.
-        Deck key `dynamics/conserve-axial-momentum-closure`."""
-        ...
-
-    @overload
-    def conserve_axial_momentum_closure(self, value: bool) -> "HydroOptions": ...
 
     # END generated by tools/gen_options.py: hydro
 

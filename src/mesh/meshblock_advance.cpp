@@ -93,7 +93,7 @@ void MeshBlockImpl::forward(Variables &vars, double dt, int stage) {
   _executor->run_stage(vars, dt, stage);  // exchange_ghost_zones, then
                                           // advance_local, or their graph
   // the global phase of a bare block, as Mesh::forward runs it over its blocks
-  if (phydro->options->conserve_axial_momentum_closure()) {
+  if (phydro->paam->closes()) {
     apply_axial_closure(vars, dt, stage,
                         global_phase_sum({axial_closure_sums()}, *_playout));
     apply_boundaries(
@@ -325,29 +325,11 @@ torch::Tensor MeshBlockImpl::axial_closure_sums() const {
 
 void MeshBlockImpl::apply_axial_closure(Variables &vars, double dt, int stage,
                                         torch::Tensor const &global) {
-  // d(rho u_east) = -rho s R dt / I with this stage's weight, along K.
-  // R and I stay on the device (X4): a mask replaces the host branch.
-  auto pg = dynamic_cast<GnomonicEquiangleImpl const *>(pcoord.get());
-  auto rho = phydro->axial_closure_rho();
-  phydro->axial_closure_rho() = torch::Tensor();
-  phydro->axial_closure_sums() = torch::Tensor();
-  if (!pg || !rho.defined()) return;
-  auto hydro_u = vars.at("hydro_u");
-  auto g = global.to(hydro_u.device(),
-                     hydro_u.is_mps() ? torch::kFloat32 : torch::kFloat64);
-  auto R = g[0], I = g[1];
-  auto ok = (I > 0.).logical_and(torch::isfinite(R));
-  auto in = part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
-  auto kj = std::vector<torch::indexing::TensorIndex>{in[0], in[1]};
-  auto r = pg->x1v.index({in[2]});
-  auto omega = -pintg->stages[stage].wght2() * dt * R / I;
-  auto z2 = torch::zeros_like(hydro_u[IVY]),
-       z3 = torch::zeros_like(hydro_u[IVZ]);
-  pg->axial_rate_to_rows_(z2, z3, omega * rho * r * r * pg->aam_kk_c.index(kj));
-  for (auto [row, z] : {std::pair<int, torch::Tensor>{IVY, z2}, {IVZ, z3}}) {
-    auto u = hydro_u[row];
-    u.copy_(torch::where(ok, u + z, u));
-  }
+  // lane A's fixer (A.rst 3.3), with this stage's weight; R and I stay on
+  // the device (X4): a mask replaces the host branch
+  AxialClosureFixer(phydro->paam.get())
+      .apply(vars.at("hydro_u"), global, dt, pintg->stages[stage].wght2(),
+             phydro->flux_register());
 }
 
 }  // namespace snap

@@ -356,7 +356,7 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
   // one reduction, then each block's solid-body increment
   auto root = blocks.front();
   // the global phase (X4): the blocks' device partials, one reduction
-  if (root->phydro->options->conserve_axial_momentum_closure()) {
+  if (root->phydro->paam->closes()) {
     std::vector<torch::Tensor> partials;
     for (auto& b : blocks) partials.push_back(b->axial_closure_sums());
     auto global = global_phase_sum(partials, *root->get_layout());
