@@ -73,21 +73,25 @@ void InterpImpl::reset() {
       cp = register_buffer("cp", cm.flip({0}));
       x1_reset_tables(*this, cm_x1, cp_x1, kPoly5NuCoeff);
       break;
-    case Scheme::weno5:
-      cm = register_buffer("cm",
-                           torch::tensor({{-1. / 6., 5. / 6., 1. / 3., 0., 0.},
-                                          {0., 1. / 3., 5. / 6., -1. / 6., 0.},
-                                          {0., 0., 11. / 6., -7. / 6., 1. / 3.},
-                                          {1., -2., 1., 0., 0.},
-                                          {1., -4., 3., 0., 0.},
-                                          {0., 1., -2., 1., 0.},
-                                          {0., -1., 0., 1., 0.},
-                                          {0., 0., 1., -2., 1.},
-                                          {0., 0., 3., -4., 1.}},
-                                         torch::kFloat64));
-      cp = register_buffer("cp", cm.flip({1}));
+    case Scheme::weno5: {
+      // nine stencil rows, then the linear weights d (V3 C9: the uniform
+      // table holds d like a per-face row, so FP32 reads them in FP32)
+      auto rows = torch::tensor({{-1. / 6., 5. / 6., 1. / 3., 0., 0.},
+                                 {0., 1. / 3., 5. / 6., -1. / 6., 0.},
+                                 {0., 0., 11. / 6., -7. / 6., 1. / 3.},
+                                 {1., -2., 1., 0., 0.},
+                                 {1., -4., 3., 0., 0.},
+                                 {0., 1., -2., 1., 0.},
+                                 {0., -1., 0., 1., 0.},
+                                 {0., 0., 1., -2., 1.},
+                                 {0., 0., 3., -4., 1.}},
+                                torch::kFloat64);
+      auto d = torch::tensor({.3, .6, .1}, torch::kFloat64);
+      cm = register_buffer("cm", torch::cat({rows.flatten(), d}));
+      cp = register_buffer("cp", torch::cat({rows.flip({1}).flatten(), d}));
       x1_reset_tables(*this, cm_x1, cp_x1, kWeno5NuCoeff);
       break;
+    }
     default:
       break;
   }

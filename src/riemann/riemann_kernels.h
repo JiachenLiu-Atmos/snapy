@@ -196,27 +196,28 @@ void DISPATCH_MACRO lmars_impl(T* flx, T* wl, T* wr, T hl, T hr, T gammal,
   T wli[5] = {WL(IDN), WL(ivx), WL(ivy), WL(ivz), WL(IPR)};
   T wri[5] = {WR(IDN), WR(ivx), WR(ivy), WR(ivz), WR(IPR)};
 
-  // Enthalpies
-  hl += 0.5 * (SQR(wli[IVX]) + SQR(wli[IVY]) + SQR(wli[IVZ])) +
+  // Enthalpies. Typed constants (V3 C9) keep a float instantiation on FP32
+  // arithmetic throughout; FP64 is unchanged.
+  hl += T(0.5) * (SQR(wli[IVX]) + SQR(wli[IVY]) + SQR(wli[IVZ])) +
         wli[IPR] / wli[IDN];
-  hr += 0.5 * (SQR(wri[IVX]) + SQR(wri[IVY]) + SQR(wri[IVZ])) +
+  hr += T(0.5) * (SQR(wri[IVX]) + SQR(wri[IVY]) + SQR(wri[IVZ])) +
         wri[IPR] / wri[IDN];
 
   // Average density, average sound speed, pressure, velocity
-  auto rhobar = 0.5 * (wli[IDN] + wri[IDN]);
-  auto gamma_bar = 0.5 * (gammal + gammar);
-  auto cbar = sqrt(0.5 * gamma_bar * (wli[IPR] + wri[IPR]) / rhobar);
+  T rhobar = T(0.5) * (wli[IDN] + wri[IDN]);
+  T gamma_bar = T(0.5) * (gammal + gammar);
+  T cbar = std::sqrt(T(0.5) * gamma_bar * (wli[IPR] + wri[IPR]) / rhobar);
 
-  auto pbar = 0.5 * (wli[IPR] + wri[IPR]) +
-              0.5 * (rhobar * cbar) * (wli[IVX] - wri[IVX]);
+  T pbar = T(0.5) * (wli[IPR] + wri[IPR]) +
+           T(0.5) * (rhobar * cbar) * (wli[IVX] - wri[IVX]);
   if (face_pressure != nullptr) *face_pressure = pbar;
 
-  auto ubar = 0.5 * (wli[IVX] + wri[IVX]) +
-              0.5 / (rhobar * cbar) * (wli[IPR] - wri[IPR]);
+  T ubar = T(0.5) * (wli[IVX] + wri[IVX]) +
+           T(0.5) / (rhobar * cbar) * (wli[IPR] - wri[IPR]);
 
   // Compute fluxes depending on the sign of ubar
-  T rd = 1.0;
-  if (ubar > 0.0) {
+  T rd = T(1.0);
+  if (ubar > T(0)) {
     // Left side flux
     for (int n = 0; n < ny; n++) {
       rd -= WL(ICY + n);
