@@ -16,8 +16,6 @@
 #include <snap/mesh/mesh_functions.hpp>
 #include <snap/utils/tensor_cast_cache.hpp>
 
-#include "coordgen.hpp"
-
 // arg
 #include <snap/add_arg.h>
 
@@ -211,7 +209,6 @@ class CoordinateImpl {
   }
 
   void print(std::ostream& stream) const;
-  virtual void reset_coordinates(std::array<MeshGenerator, 3> meshgens);
 
   //! This block's slice of the global face array for one axis.
   static torch::Tensor block_faces_(double gmin, double gmax, int gnx, int nx,
@@ -324,13 +321,6 @@ class CoordinateImpl {
   static torch::Tensor radial_face_centroid_shift_(torch::Tensor const& x1f,
                                                    int nc1);
 
-  virtual torch::Tensor find_cell_index(torch::Tensor const& coords) const;
-
-  virtual std::array<double, 3> vec_from_cartesian(
-      std::array<double, 3> vec) const {
-    return {vec[0], vec[1], vec[2]};
-  }
-
   virtual void interp_ghost(torch::Tensor var,
                             std::tuple<int, int, int> const&) const {}
 
@@ -409,8 +399,6 @@ class CartesianImpl : public torch::nn::Cloneable<CartesianImpl>,
     stream << "Cartesian coordinate:" << std::endl;
     print(stream);
   }
-
-  void reset_coordinates(std::array<MeshGenerator, 3> meshgens) override;
 };
 TORCH_MODULE(Cartesian);
 

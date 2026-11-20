@@ -8,7 +8,6 @@
 // snap
 #include "coord_dispatch.hpp"
 #include "coord_utils_impl.h"
-#include "cubed_sphere_utils_impl.h"
 
 namespace snap {
 void call_coord_vec_lower_cpu(at::TensorIterator& iter) {

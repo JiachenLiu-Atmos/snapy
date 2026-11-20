@@ -44,35 +44,4 @@ void CartesianImpl::reset() {
   register_buffer("x2f", x2f);
   register_buffer("x3f", x3f);
 }
-
-void CartesianImpl::reset_coordinates(std::array<MeshGenerator, 3> meshgens) {
-  CoordinateImpl::reset_coordinates(meshgens);
-
-  // dimension 1
-  dx1f.copy_(x1f.slice(0, 1, options->nc1() + 1) -
-             x1f.slice(0, 0, options->nc1()));
-  x1v.copy_(0.5 * (x1f.slice(0, 0, options->nc1()) +
-                   x1f.slice(0, 1, options->nc1() + 1)));
-  dx1v.slice(0, 1, options->nc1())
-      .copy_(x1v.slice(0, 1, options->nc1()) -
-             x1v.slice(0, 0, options->nc1() - 1));
-
-  // dimension 2
-  dx2f.copy_(x2f.slice(0, 1, options->nc2() + 1) -
-             x2f.slice(0, 0, options->nc2()));
-  x2v.copy_(0.5 * (x2f.slice(0, 0, options->nc2()) +
-                   x2f.slice(0, 1, options->nc2() + 1)));
-  dx2v.slice(0, 1, options->nc2())
-      .copy_(x2v.slice(0, 1, options->nc2()) -
-             x2v.slice(0, 0, options->nc2() - 1));
-
-  // dimension 3
-  dx3f.copy_(x3f.slice(0, 1, options->nc3() + 1) -
-             x3f.slice(0, 0, options->nc3()));
-  x3v.copy_(0.5 * (x3f.slice(0, 0, options->nc3()) +
-                   x3f.slice(0, 1, options->nc3() + 1)));
-  dx3v.slice(0, 1, options->nc3())
-      .copy_(x3v.slice(0, 1, options->nc3()) -
-             x3v.slice(0, 0, options->nc3() - 1));
-}
 }  // namespace snap
