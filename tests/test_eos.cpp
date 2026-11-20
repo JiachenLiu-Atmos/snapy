@@ -17,6 +17,7 @@
 
 #include <cmath>
 #include <snap/eos/ideal_moist.hpp>
+#include <snap/eos/moist_mixture.hpp>
 #include <snap/mesh/meshblock.hpp>
 
 // tests
@@ -85,6 +86,25 @@ TEST(eos_limiter, repairs_bottom_cell_from_above) {
   EXPECT_NEAR(4.4e-11 - vapor[1], 1.7e-21, 1.e-25);
   EXPECT_DOUBLE_EQ(vapor[2], 1.0e-11);
   EXPECT_DOUBLE_EQ(vapor[3], 1.0e-11);
+}
+
+// EF-8 (EF.rst section 6): a float32 column sums in float64 inside the kernel,
+// so its repair is the float64 repair of the same values, rounded once per
+// cell. Float32 sums give 57 of these 64 cells a different value.
+TEST(eos_limiter, float32_column_sums_in_float64) {
+  int n = 64;
+  std::vector<float> v(n), major(n, 1.f), vol32(n);
+  for (int i = 0; i < n; ++i) {
+    v[i] = 1.f / (3.f + i);
+    vol32[i] = 1.f + 0.01f * i;
+  }
+  v[n - 1] = -1.5f;  // the top cell, covered by the cells below it
+  std::vector<double> v64(v.begin(), v.end()), major64(n, 1.),
+      vol64(vol32.begin(), vol32.end());
+
+  ASSERT_EQ(fix_vapor_impl(v.data(), major.data(), vol32.data(), n), 0);
+  ASSERT_EQ(fix_vapor_impl(v64.data(), major64.data(), vol64.data(), n), 0);
+  for (int i = 0; i < n; ++i) EXPECT_EQ(v[i], float(v64[i])) << "cell " << i;
 }
 
 // a column in net deficit is unrepairable: report it, leave it untouched
@@ -165,6 +185,49 @@ TEST_P(DeviceTest, moist_mixture) {
   auto temp_reference = peos->compute("W->T", {prim.clone()});
   EXPECT_FALSE(torch::allclose(temp_before, temp_after, 1.E-6, 1.E-6));
   EXPECT_TRUE(torch::allclose(temp_after, temp_reference, 1.E-6, 1.E-6));
+}
+
+// EF-8 (G2, Z-K2): moist-mixture writes ivol and temp in place with kintera's
+// compute_into, so a captured stage keeps reading the storage it was captured
+// with. Each refresh keeps the buffers' storage and gives what compute() does.
+TEST_P(DeviceTest, moist_mixture_writes_its_cache_in_place) {
+  auto block = make_block("moist-mixture");
+  block->to(device, dtype);
+  auto peos = block->phydro->peos;
+  auto pmix = std::dynamic_pointer_cast<MoistMixtureImpl>(peos);
+  ASSERT_TRUE(pmix);
+
+  auto pc = block->pcoord->options;
+  auto cons = torch::empty({peos->nvar(), pc->nc3(), pc->nc2(), pc->nc1()},
+                           torch::device(device).dtype(dtype));
+  cons.uniform_(0., 1.);
+  cons[IDN].add_(1.);
+  cons[IPR].mul_(1.e5).add_(1.e5);
+  cons[IPR] += 0.5 * cons.narrow(0, IVX, 3).pow(2).sum(0) / cons[IDN];
+
+  auto prim = peos->forward(cons);
+  void const* ivol0 = pmix->ivol.data_ptr();
+  void const* temp0 = pmix->temp.data_ptr();
+  for (int pass = 0; pass < 2; ++pass) {
+    if (pass == 0) {
+      cons[IPR].mul_(1.1);
+      prim = peos->forward(cons);  // _cons2prim: VU->T
+    } else {
+      prim = prim.clone();
+      prim[IPR].mul_(1.25);
+      peos->compute("W->T", {prim});  // _ensure_cache: PV->T
+    }
+    EXPECT_EQ(pmix->ivol.data_ptr(), ivol0) << "pass " << pass;
+    EXPECT_EQ(pmix->temp.data_ptr(), temp0) << "pass " << pass;
+    int ny = peos->nvar() - 5;
+    auto ivol =
+        pmix->pthermo->compute("DY->V", {prim[IDN], prim.narrow(0, ICY, ny)});
+    EXPECT_TRUE(torch::equal(pmix->ivol, ivol)) << "pass " << pass;
+    if (pass == 1) {
+      auto temp = pmix->pthermo->compute("PV->T", {prim[IPR], ivol});
+      EXPECT_TRUE(torch::equal(pmix->temp, temp));
+    }
+  }
 }
 
 // Repeating a public W->T call must build a fresh backward graph.

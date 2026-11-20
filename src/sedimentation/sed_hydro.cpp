@@ -59,8 +59,13 @@ torch::Tensor SedHydroImpl::forward(torch::Tensor wr,
   auto temp = phydro->peos->compute("W->T", {wr}).to(wr.options()).contiguous();
   auto en = phydro->peos->compute("W->E", {wr}).to(wr.options()).contiguous();
   auto& a = kernel_args(wr);
-  vsed.set_data(torch::empty(
-      {hydro_ids.size(0), wr.size(1), wr.size(2), wr.size(3)}, wr.options()));
+  // fixed storage, the kernel writes it in place; sized (eager) once per shape
+  std::vector<int64_t> vs{hydro_ids.size(0), wr.size(1), wr.size(2),
+                          wr.size(3)};
+  if (vsed.sizes() != vs || vsed.dtype() != wr.dtype() ||
+      vsed.device() != wr.device())
+    vsed.set_data(torch::empty(vs, wr.options()));
+  vsed.zero_();  // the kernel adds into it
   TORCH_CHECK(flux.is_contiguous(), "[SedHydro] the flux must be contiguous");
   sedimentation_flux(wr, temp, en, flux, vsed, a.cosine_cell_kj, a.radius,
                      a.density, a.const_vsed, a.hydro_ids, p);

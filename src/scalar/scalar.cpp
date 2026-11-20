@@ -75,6 +75,15 @@ void ScalarImpl::reset() {
                                   torch::zeros({1}, torch::kInt64)));
 }
 
+// fixed storage, written in place; sized again (eager) only when the solve's
+// shape, dtype or device changes, as set_data did on every stage before EF-8
+static void put(torch::Tensor& buf, torch::Tensor const& value) {
+  if (buf.sizes() != value.sizes() || buf.dtype() != value.dtype() ||
+      buf.device() != value.device())
+    buf.set_data(torch::empty_like(value));
+  buf.copy_(value);
+}
+
 torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
                                   Variables const& other) {
   enum { DIM1 = 3, DIM2 = 2, DIM3 = 1 };
@@ -105,7 +114,7 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
   torch::Tensor rlr[3], mass[3] = {row(1), row(2), row(3)};
   if (_flux1.defined()) {
     rlr[0] = face_r(DIM1);
-    _flux1.set_data(priemann->forward(rlr[0][ILT], rlr[0][IRT], DIM1, mass[0]));
+    put(_flux1, priemann->forward(rlr[0][ILT], rlr[0][IRT], DIM1, mass[0]));
   }
 
   // cubed sphere: DIRECTION-SUFFIXED keys, as the hydro's, resolve the L/R
@@ -137,14 +146,14 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
     if (!flux[d]->defined()) continue;
     auto dcov = ph->scalar_flux_covariance(rlr[d][ILT], rlr[d][IRT], 3 - d);
     if (!dcov.defined()) {
-      flux[d]->set_data(
+      put(*flux[d],
           priemann->forward(rlr[d][ILT], rlr[d][IRT], 3 - d, mass[d]));
       continue;
     }
     cov = true;
     auto vel = mass[d] - ph->flux_covariance_dry(3 - d);
-    flux[d]->set_data(priemann->forward(rlr[d][ILT], rlr[d][IRT], 3 - d, vel) +
-                      dcov);
+    put(*flux[d],
+        priemann->forward(rlr[d][ILT], rlr[d][IRT], 3 - d, vel) + dcov);
   }
 
   auto cells = pmb->part({0, 0, 0}, PartOptions().exterior(false));
@@ -184,7 +193,7 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
         .apply(freg, in, "scalar", "scalar.positivity.withhold");
   }
 
-  _div.set_data(pcoord->divergence(_flux1, _flux2, _flux3));
+  put(_div, pcoord->divergence(_flux1, _flux2, _flux3));
   auto ds = torch::zeros_like(_div);
   ds.index(cells) = -dt * _div.index(cells);
   return ds;

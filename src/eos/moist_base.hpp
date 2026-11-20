@@ -47,6 +47,11 @@ class MoistEOSImpl : public EquationOfStateImpl {
   //! make gammad and weight consistent with the dry species of the card
   void sync_dry_options_();
 
+  //! species_weight / species_cv_ref on the host, per inv_mu dtype (EF-8)
+  void host_weights_() const;
+  mutable std::vector<double> host_weight_, host_cv_ref_;
+  mutable c10::ScalarType host_dtype_ = c10::ScalarType::Undefined;
+
   //! the conversions every moist type routes the same way; true if handled
   bool compute_common_(std::string const& ab,
                        std::vector<torch::Tensor> const& args,
