@@ -137,7 +137,9 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
       phydro->picorr->reset_solve_failure();
     }
     phydro->peos->reset_limiter_marks(hydro_u);
-    saturation_failures();  // a failure counted before the step is not its own
+    // K2 (K.rst 3.2): the device counter is zeroed in place, no host read;
+    // a failure counted before the step is not its own
+    if (auto pthermo = thermo()) pthermo->reset_failures();
     if (phydro->peos->vapor_failures().defined())
       phydro->peos->vapor_failures().zero_();  // nor is a vapor failure
   }
@@ -312,6 +314,12 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
                      /*warm_start=*/true);
 
     hydro_u.narrow(0, ICY, ny) = yfrac * rho;
+    // K2 (K.rst 3.2): rows 1-2 of the counter, the step's temperature and
+    // pressure solves that did not converge, posted once per step; they are
+    // not retry causes. Row 0 is consumed by local_redo_flag_tensor.
+    auto const &fails = pthermo->failures();
+    freg.monitor().count("thermo.temp_solve", fails[1]);
+    freg.monitor().count("thermo.pres_solve", fails[2]);
   }
 
   // Physical ghosts must include the final-stage species adjustment.
