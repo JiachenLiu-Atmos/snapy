@@ -22,6 +22,7 @@ struct Case {  // gw: cell (+ fixer) or face; per: periodic x2/x3; vsed: rain
   char const* graft = nullptr;
   double x1top = 0.;
   int nstep = 20;
+  char const* aam = "transport";  // conserve-axial-momentum with rain (G7s)
 };
 double const C = 4., kEps = 2.220446049250313e-16, g = 10.;
 bool const kMp = getenv("SNAP_BUDGET_MP") != nullptr;  // E2: three ranks
@@ -40,7 +41,9 @@ std::string card(Case const& c) {  // the in-tree deck, closed and small
   d["dynamics"]["conversion-order"] = c.key;
   bool cubed = d["geometry"]["type"].as<std::string>() == "gnomonic-equiangle";
   if (cubed && c.vsed != 0.)  // the AAM in flux form (#314), gated below
-    d["dynamics"]["conserve-axial-momentum"] = "transport";
+    d["dynamics"]["conserve-axial-momentum"] = c.aam;
+  if (std::string(c.aam) == "exact")  // cubic panel-edge ghosts
+    cells["interp_order"] = 4;
   if (c.graft) {  // the graft deck's species and microphysics on this grid
     auto gd = YAML::LoadFile(c.graft);
     d["species"] = gd["species"], d["reactions"] = gd["reactions"];
@@ -203,24 +206,27 @@ TEST_P(Budget, closes_to_round_off) {
 char const *A = "test_gravity_energy.yaml", *B = "test_species_face_clamp.yaml",
            *Cs = "test_fix_vapor_volume.yaml",
            *D = "test_cubed_sphere_cell_volume.yaml";
-Case const kDecks[] = {{"a_cell_s0", A, "cell", 0},
-                       {"a_cell_s1", A, "cell", 1},
-                       {"a_cell_s9", A, "cell", 9},
-                       {"a_face_s0", A, "face", 0},
-                       {"a_face_s1", A, "face", 1, true},
-                       {"a_face_s9", A, "face", 9},
-                       {"a_per", A, "face", 0, true},
-                       {"b_moist_slab", B, "face", 0, true, true},
-                       {"b_sat", B, "face", 0, true, false, 0., 0.03},
-                       {"b_key4", B, "face", 0, true, false, 0., 0.01, 4},
-                       {"c_face_s0", Cs, "face", 0, false, false, -0.5},
-                       {"c_face_s9", Cs, "face", 9},
-                       {"c_cell_s9", Cs, "cell", 9},
-                       {"d_cubed", D, "face", 0},
-                       {"d_cubed_s9", D, "face", 9},
-                       {"e2_mp", A, "face", 0, true},
-                       // settling rain, s9: the carry at a panel seam
-                       {"d_sed", D, "face", 9, 0, 0, -.5, .01, 2, Cs, 2e4, 5}};
+Case const kDecks[] = {
+    {"a_cell_s0", A, "cell", 0},
+    {"a_cell_s1", A, "cell", 1},
+    {"a_cell_s9", A, "cell", 9},
+    {"a_face_s0", A, "face", 0},
+    {"a_face_s1", A, "face", 1, true},
+    {"a_face_s9", A, "face", 9},
+    {"a_per", A, "face", 0, true},
+    {"b_moist_slab", B, "face", 0, true, true},
+    {"b_sat", B, "face", 0, true, false, 0., 0.03},
+    {"b_key4", B, "face", 0, true, false, 0., 0.01, 4},
+    {"c_face_s0", Cs, "face", 0, false, false, -0.5},
+    {"c_face_s9", Cs, "face", 9},
+    {"c_cell_s9", Cs, "cell", 9},
+    {"d_cubed", D, "face", 0},
+    {"d_cubed_s9", D, "face", 9},
+    {"e2_mp", A, "face", 0, true},
+    // settling rain, s9: the carry at a panel seam
+    {"d_sed", D, "face", 9, 0, 0, -.5, .01, 2, Cs, 2e4, 5},
+    // lane A's G7s: the same under exact (A.rst 5.3)
+    {"d_sed_exact", D, "face", 9, 0, 0, -.5, .01, 2, Cs, 2e4, 5, "exact"}};
 INSTANTIATE_TEST_SUITE_P(Decks, Budget, testing::ValuesIn(kDecks),
                          [](auto const& p) {
                            return std::string(p.param.name);

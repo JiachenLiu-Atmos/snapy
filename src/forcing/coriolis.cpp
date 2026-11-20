@@ -7,7 +7,6 @@
 #include <snap/coord/coord_utils.hpp>
 #include <snap/coord/coordinate.hpp>
 #include <snap/coord/cubed_sphere_utils.hpp>
-#include <snap/coord/gnomonic_equiangle.hpp>
 #include <snap/hydro/hydro.hpp>
 #include <snap/input/check_keys.hpp>
 #include <snap/layout/cubed_sphere_layout.hpp>
@@ -25,14 +24,8 @@ CoriolisOptions CoriolisOptionsImpl::from_yaml(YAML::Node const &forcing) {
 
 CoriolisImpl::CoriolisImpl(CoriolisOptions op, HydroImpl const *p)
     : SourceModule(std::move(op), p) {
-  // conserve-axial-momentum-closure copies its sums to the host (7.1)
-  decl_ = {"coriolis",
-           SourcePhase::pre_implicit,
-           false,
-           SourceKind::physical,
-           kMomentum,
-           SourceRegion::interior,
-           !phydro->options->conserve_axial_momentum_closure()};
+  decl_ = {"coriolis", SourcePhase::pre_implicit, false, SourceKind::physical,
+           kMomentum,  SourceRegion::interior,    true};
   reset();
 }
 
@@ -151,44 +144,10 @@ void CoriolisImpl::add(torch::Tensor du, StageState const &s) {
     force[VEL3] = 2. * (o2 * m1 - o1 * m2);
 
     cs_apply_velocity_transform_(force, spherical_to_covariant);
-    // conserve-axial-momentum: full (#357): along the rotation, the flux-form
-    // torque of the dissipative x2/x3 mass flux M - M_central Hydro stored for
-    // this call, on top of the cell-form force (once per stage: Hydro clears
-    // the fluxes after the first Coriolis call)
-    auto const &mf = phydro->axial_mass_fluxes();
-    if (phydro->axial_coriolis_form() && (mf[1].defined() || mf[2].defined())) {
-      auto pg = dynamic_cast<GnomonicEquiangleImpl const *>(
-          phydro->pmb->pcoord.get());
-      TORCH_CHECK(pg, "conserve-axial-momentum: full needs gnomonic-equiangle");
-      auto target = pg->axial_coriolis_rate(mf[1], mf[2], options->omega1(),
-                                            phydro->axial_mass_species());
-      auto z2 = torch::zeros_like(force[VEL2]),
-           z3 = torch::zeros_like(force[VEL3]);
-      if (phydro->options->conserve_axial_momentum_closure()) {
-        // R = sum V (K . F_cell - rate(M_central)), rate(M_central) = rate(M)
-        // - rate(M - M_central); I = sum V rho s^2 (interior, this block)
-        auto in =
-            phydro->pmb->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
-        auto kj = std::vector<torch::indexing::TensorIndex>{in[0], in[1]};
-        auto r = pg->x1v.index({in[2]}), kk = pg->aam_kk_c.index(kj);
-        auto vol = pg->cell_volume().index(in), rho = w[IDN].index(in);
-        auto kf = r * (pg->aam_k_c[VEL2].index(kj) * force[VEL2].index(in) +
-                       pg->aam_k_c[VEL3].index(kj) * force[VEL3].index(in));
-        auto rate_c = pg->axial_coriolis_rate(
-                          mf[1].defined() ? phydro->flux2() : torch::Tensor(),
-                          mf[2].defined() ? phydro->flux3() : torch::Tensor(),
-                          options->omega1(), phydro->axial_mass_species()) -
-                      target;
-        phydro->axial_closure_sums() =
-            torch::stack(
-                {(vol * (kf - rate_c)).sum(), (vol * rho * r * r * kk).sum()})
-                .to(torch::kCPU, torch::kFloat64);
-        phydro->axial_closure_rho() = rho.clone();
-      }
-      pg->axial_rate_to_rows_(z2, z3, target);  // K . z = target, along K
-      force[VEL2] += z2;
-      force[VEL3] += z3;
-    }
+    // conserve-axial-momentum: exact: along the rotation, the flux-form
+    // torque of the dissipative x2/x3 mass flux, on top of the cell-form
+    // force (pre_implicit only: Hydro arms it once per stage)
+    if (phydro->paam) phydro->paam->add_torque(force, w, options->omega1());
     if (traditional) {
       du.narrow(0, IVY, 2) += dt * force.narrow(0, VEL2, 2);
     } else {

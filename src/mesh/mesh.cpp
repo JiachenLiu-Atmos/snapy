@@ -369,7 +369,7 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
   // conserve-axial-momentum-closure: R and I summed over the local blocks,
   // one reduction, then each block's solid-body increment
   auto root = blocks.front();
-  if (root->phydro->options->conserve_axial_momentum_closure()) {
+  if (root->phydro->paam->closes()) {
     auto sums = torch::zeros({2}, torch::kFloat64);
     for (auto& b : blocks) sums += b->axial_closure_sums();
     std::vector<at::Tensor> reduce = {sums};

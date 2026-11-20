@@ -216,6 +216,7 @@ setup_test(test_cloud_parent_slots)
 setup_test(test_two_cards_species)
 setup_test(test_forcing)
 setup_test(test_source_registry)
+setup_test(test_axial_momentum)
 setup_test(test_conservation_budget)
 add_test(NAME test_conservation_budget_cuda.${buildl}
          COMMAND test_conservation_budget.${buildl})

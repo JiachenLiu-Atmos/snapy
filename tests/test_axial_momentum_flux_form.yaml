@@ -1,5 +1,5 @@
 # Six cubed-sphere panels in one process (#314): axial angular momentum of an unforced, undamped
-# solid-body wind with dynamics/conserve-axial-momentum off, transport or full. Dry ideal gas on a shell,
+# solid-body wind with dynamics/conserve-axial-momentum off, transport or exact. Dry ideal gas on a shell,
 # constant gravity, closed x1 walls, no Coriolis, no sponge. The test switches the option and the
 # initial wind per arm.
 reference-state: {Tref: 300., Pref: 1.e5}
