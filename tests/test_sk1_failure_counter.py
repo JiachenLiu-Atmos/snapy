@@ -12,11 +12,14 @@ max-iter 1, so the last stage's saturation adjustment leaves cells unadjusted.
   2. The two solver counters: the register's monitor carries
      thermo.temp_solve and thermo.pres_solve (two more counters than the
      parent's twelve), equal to rows 1-2 of the ThermoY counter after the
-     step. RED before S-K1: the monitor has twelve counters.
+     step; counts planted in those rows before the last stage (this deck's
+     solves converge, so the rows would otherwise be zero) reach the
+     monitor. RED before S-K1: the monitor has twelve counters.
   3. The reset list: a failure counted between steps is cleared at stage 0;
-     on CUDA that reset runs under torch.cuda.set_sync_debug_mode("error"),
-     so it must not read the host. RED before S-K1: stage 0 drained the count
-     through take_saturation_adjustment_failures() (a host read).
+     on CUDA that stage 0 (of a block that has already stepped once) runs
+     under torch.cuda.set_sync_debug_mode("error"), so the reset must not
+     read the host. RED before S-K1: stage 0 drained the count through
+     take_saturation_adjustment_failures() (a host read).
 
   python test_sk1_failure_counter.py [--device cuda]
 """
@@ -73,10 +76,21 @@ def arm_monitor(device, yaml_file):
         failures.append("monitor has %d counters, expected %d (thermo.temp_solve, thermo.pres_solve added)"
                         % (c.numel(), PARENT_COUNTERS + 2))
         return failures
-    base.step(block, block_vars)
+    # the solves converge on this deck, so plant counts in rows 1-2 after
+    # stage 0's reset and before the last stage posts them to the monitor
+    dt = block.max_time_step(block_vars)
+    nstage = len(block.intg.stages)
+    for stage in range(nstage - 1):
+        block.forward(block_vars, dt, stage)
+    counter = thermo.failures()
+    counter[1] += 5
+    counter[2] += 7
+    block.forward(block_vars, dt, nstage - 1)
     f = thermo.failures().cpu()
     c = monitor_counters(block).cpu()
     print("monitor counters", c.tolist(), "thermo rows 1-2", f[1:].tolist())
+    if f[1].item() != 5 or f[2].item() != 7:
+        failures.append("rows 1-2 planted as [5, 7] read %s after the last stage" % f[1:].tolist())
     if c[TEMP_SOLVE].item() != f[1].item() or c[PRES_SOLVE].item() != f[2].item():
         failures.append("monitor thermo.temp_solve/pres_solve %s != counter rows 1-2 %s"
                         % ([c[TEMP_SOLVE].item(), c[PRES_SOLVE].item()], f[1:].tolist()))
@@ -88,6 +102,7 @@ def arm_reset(device, yaml_file):
     block = base.make_block(device, yaml_file, 1)
     block_vars = base.initialize(block, cell=False)
     thermo = base.modules(block)[1]
+    base.step(block, block_vars)  # a block's first eager stage syncs once; this one is past it
     # a failed adjustment between steps, as test_check_redo_saturation's between_steps_arm
     _, temp, rho, y = base.fields(block)
     sl = block.part((0, 0, 0), False)[1:]
@@ -109,7 +124,13 @@ def arm_reset(device, yaml_file):
                         % (nbad, before))
         return failures
     dt = block.max_time_step(block_vars)
-    block.forward(block_vars, dt, 0)  # stage 0: the reset list
+    if device == "cuda":  # the reset list must not read the host
+        torch.cuda.set_sync_debug_mode("error")
+    try:
+        block.forward(block_vars, dt, 0)  # stage 0: the reset list
+    finally:
+        if device == "cuda":
+            torch.cuda.set_sync_debug_mode("default")
     after = thermo.failures().cpu().tolist()
     print("after stage 0: counter", after)
     if after != [0, 0, 0]:
