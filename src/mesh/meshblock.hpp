@@ -344,6 +344,11 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   clock_t _time_start;
   int _cycle_start = 0;
 
+  //! K4 (K.rst 3.4): the ThermoY active set at the step's start, taken at
+  //! stage 0 of each attempt and restored on a retry, so a retry repeats
+  //! the first attempt (reaction_set, nactive buffers of the interior shape)
+  std::pair<torch::Tensor, torch::Tensor> _active_set0;
+
   //! distribution layout
   Layout _playout;
 
