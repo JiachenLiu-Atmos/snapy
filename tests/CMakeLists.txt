@@ -447,6 +447,7 @@ snapy_add_python_test(test_fp32_science TIMEOUT 300 LABELS "python;hydro;fp32-sc
 # skips without a CUDA device
 snapy_add_python_test(test_stage_executor_capture TIMEOUT 300 LABELS "python;hydro;fp32-science")
 snapy_add_python_test(test_execution_capability TIMEOUT 120 LABELS "python;hydro")
+snapy_add_python_test(test_sk3_capture_moist TIMEOUT 600 LABELS "python;hydro;eos;fp32-science")
 snapy_add_python_test(test_fp32_restart TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-restart")
 snapy_add_python_test(test_fp32_policy TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
 snapy_add_python_test(test_fp32_implicit TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
