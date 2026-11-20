@@ -39,6 +39,8 @@ void HydroImpl::reset() {
 
   //// ---- (1) set up equation-of-state model ---- ////
   peos = EquationOfStateImpl::create(options->eos(), this);
+  // x1 mass-flux w (#355's gate): needs the EOS type and the grid
+  px1m = std::make_shared<X1Momentum>(this);
   if (options->verbose()) {
     SINFO(Hydro) << "EOS type: " << peos->options->type() << "\n";
   }
