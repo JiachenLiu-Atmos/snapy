@@ -432,6 +432,7 @@ void MeshBlockImpl::prepare_thermo(torch::Tensor const &hydro_u) {
   // table their interior shape, device and dtype before the first adjustment
   // or a capture (K.rst 3.3, 3.5); an unprepared module throws in a capture
   auto sub3 = part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
+  // index() with slices is a view: the interior's shape without a copy
   auto shape = hydro_u[0].index(sub3).sizes().vec();
   // the EOS computes in the state's dtype; the adjustment takes total_u(),
   // FP64 for an FP32 anomaly state (HydroImpl::total_u). The module's own
