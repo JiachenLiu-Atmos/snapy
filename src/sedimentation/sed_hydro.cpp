@@ -36,7 +36,8 @@ void SedHydroImpl::reset() {
 
 torch::Tensor SedHydroImpl::forward(torch::Tensor wr,
                                     torch::optional<torch::Tensor> out) {
-  auto flux = out.value_or(torch::zeros_like(wr));
+  // contiguous, whatever wr's strides (zeros_like keeps a dense layout)
+  auto flux = out.value_or(torch::zeros(wr.sizes(), wr.options()));
   if (!settles()) return flux;
 
   // the one kernel (D8) for every EOS: temperature and species energy from it

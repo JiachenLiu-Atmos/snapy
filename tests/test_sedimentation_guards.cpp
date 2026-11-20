@@ -131,6 +131,26 @@ TEST(sedimentation, kernel_args_follow_a_move_after_a_forward) {
   EXPECT_TRUE(torch::allclose(f32.to(torch::kFloat64), f64, 1.e-6, 1.e-6));
 }
 
+// a dense but non-contiguous input (x1-major storage) is made contiguous,
+// and so is the flux forward returns when no out is given
+TEST(sedimentation, a_permuted_input_settles_like_a_contiguous_one) {
+  auto options = MeshBlockOptionsImpl::from_yaml(kCard);
+  auto gravity = ConstGravityOptionsImpl::create();
+  gravity->grav1(-1.);
+  options->hydro()->grav() = gravity;
+  auto block = std::make_shared<MeshBlockImpl>(options);
+  auto w = make_primitive(block);
+  auto wp =
+      torch::empty({w.size(3), w.size(0), w.size(1), w.size(2)}, w.options())
+          .permute({1, 2, 3, 0});
+  wp.copy_(w);
+  ASSERT_FALSE(wp.is_contiguous());
+  auto ref = block->phydro->psed->forward(w);
+  torch::Tensor flux;
+  ASSERT_NO_THROW(flux = block->phydro->psed->forward(wp));
+  EXPECT_TRUE(torch::equal(flux, ref));
+}
+
 // sedimentation reads grav1 in forward(); without const-gravity that was a null
 // dereference on the first step, so the card is refused at setup instead
 TEST(sedimentation, refuses_a_card_without_const_gravity) {
