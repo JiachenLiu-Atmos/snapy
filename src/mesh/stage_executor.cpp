@@ -143,6 +143,13 @@ std::map<std::string, torch::Tensor> StageExecutor::save_list(
   if (state.s0().numel() > 0) list["s0"] = state.s0();
   for (auto const& [name, t] : state.registered())
     if (t.defined()) list["storage." + name] = t;
+  // K2 (K.rst 3.2): the ThermoY failure counter, so a warm-up leaves no count
+  auto modules = _block->named_modules();
+  if (auto mt = modules.find("hydro.eos.thermo")) {
+    auto pthermo = std::dynamic_pointer_cast<kintera::ThermoYImpl>(*mt);
+    if (pthermo && pthermo->failures().defined())
+      list["thermo.failures"] = pthermo->failures();
+  }
   return list;
 }
 

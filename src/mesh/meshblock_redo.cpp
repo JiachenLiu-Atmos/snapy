@@ -118,12 +118,13 @@ torch::Tensor MeshBlockImpl::local_redo_flag_tensor(Variables const &vars) {
   auto const &m = phydro->peos->limiter_marks();
   auto marks = m.defined() ? m.to(opts) : torch::zeros({2}, opts);
 
-  // drains kintera's count exactly once, as saturation_failures() does
+  // K2 (K.rst 3.2): retry cause 4 is row 0 of the device counter, consumed
+  // in place (rows 1-2 stay for the step-end post); no host read here
   auto sat = zero;
-  auto pthermo = thermo();
-  if (pthermo && pthermo->nfail_.defined()) {
-    sat = (pthermo->nfail_ > 0).to(opts).reshape({});
-    pthermo->nfail_ = torch::Tensor();
+  if (auto pthermo = thermo()) {
+    auto flag = torch::zeros({1}, opts);
+    pthermo->consume_failures(flag);
+    sat = flag.reshape({});
   }
 
   // the VIC failure latch, read in the one copy below

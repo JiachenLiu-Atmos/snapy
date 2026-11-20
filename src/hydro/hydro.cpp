@@ -205,6 +205,10 @@ void HydroImpl::reset() {
   // V3 I-6: the retried columns (R.rst 4.5), last, so the counters above
   // keep their indices
   req.counters.push_back("implicit.fp64_columns");
+  // K's names (K.rst 3.2): the ThermoY counter's rows 1-2, posted once per
+  // step by MeshBlock after the saturation adjustment (K2)
+  req.counters.push_back("thermo.temp_solve");
+  req.counters.push_back("thermo.pres_solve");
   req.minima = {"ef.pos_min"};
   // V3 I-5: lane I's cause (R.rst 4.5); X maps it to its cause bit 5
   req.retry = {"ef.floor_patch", "ef.nan", "ef.vapor_fail", "ef.heat_capacity",

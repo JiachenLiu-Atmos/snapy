@@ -378,6 +378,8 @@ snapy_add_python_test(test_implicit_options_type TIMEOUT 60 LABELS "python;impli
 snapy_add_python_test(test_shear_cfl TIMEOUT 60 LABELS "python;hydro;implicit")
 snapy_add_python_test(test_check_redo_floor TIMEOUT 60 LABELS "python;mesh;redo")
 snapy_add_python_test(test_check_redo_saturation TIMEOUT 60 LABELS "python;mesh;redo;eos")
+# lane K, S-K1: the ThermoY failure counter in the reset list and the retry stack
+snapy_add_python_test(test_sk1_failure_counter TIMEOUT 120 LABELS "python;mesh;redo;eos")
 snapy_add_python_test(test_eos_temp2inteng TIMEOUT 60 LABELS "python;eos")
 # fp32 roadmap Step 1a: anomaly storage of hydro_u
 snapy_add_python_test(test_anomaly_storage TIMEOUT 600 LABELS "python;eos;anomaly")
@@ -492,6 +494,9 @@ if(CUDA)
   snapy_add_python_test(test_check_redo_saturation_cuda
     SCRIPT test_check_redo_saturation.py ARGS --device cuda
     TIMEOUT 60 LABELS "python;mesh;redo;eos;cuda")
+  snapy_add_python_test(test_sk1_failure_counter_cuda
+    SCRIPT test_sk1_failure_counter.py ARGS --device cuda
+    TIMEOUT 60 LABELS "python;mesh;redo;eos;cuda")
   snapy_add_python_test(test_conversion_order_cuda SCRIPT test_conversion_order.py
     ARGS --device cuda TIMEOUT 600 LABELS "python;hydro;cuda")
   snapy_add_python_test(test_flux_positivity_cubedsphere_cuda
@@ -537,6 +542,7 @@ if(CUDA)
     test_fix_vapor_reports_failure_cuda_python
     test_fix_vapor_stale_count_cuda_python
     test_check_redo_saturation_cuda_python
+    test_sk1_failure_counter_cuda_python
     test_flux_positivity_cubedsphere_cuda_python
     test_flux_positivity_cubedsphere_moist_cuda_python
     test_vic_moist_device_python
