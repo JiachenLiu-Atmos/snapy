@@ -266,6 +266,14 @@ in totals (a new tensor): the inverse of total_u.)doc")
             return self.phydro->has_reference();
           },
           "True when hydro_u rows IDN and IPR are stored as anomalies")
+      .def(
+          "axial_closure",
+          [](snap::MeshBlockImpl& self, bool on) {
+            self.phydro->paam->closure = on;
+          },
+          py::arg("on"),
+          R"doc(Test hook: with False, conserve-axial-momentum: exact runs
+without its closure (the flux-form Coriolis torque only).)doc")
       .def("get_layout", &snap::MeshBlockImpl::get_layout)
       .def("print_cycle_info", &snap::MeshBlockImpl::print_cycle_info)
       .def("finalize", &snap::MeshBlockImpl::finalize)

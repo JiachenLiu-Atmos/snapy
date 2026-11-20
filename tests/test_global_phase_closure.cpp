@@ -1,6 +1,6 @@
 // V3 lane X, X4: the axial closure's partial sums stay on the device.
 // Six cubed-sphere panels in one process (test_axial_momentum_flux_form.yaml)
-// with full AAM, Coriolis and conserve-axial-momentum-closure. After the
+// with exact AAM (which includes the closure) and Coriolis. After the
 // blocks' advance_local with the closure deferred (as Mesh::forward does), the
 // block's partial {R, I} must be FP64 on the state's CUDA device: the global
 // phase sums and applies it there (no host copy, no host read). The six
@@ -35,8 +35,7 @@ using namespace snap;
 TEST(GlobalPhase, axial_closure_partial_sums_stay_on_the_device) {
   if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
   auto cfg = YAML::LoadFile("test_axial_momentum_flux_form.yaml");
-  cfg["dynamics"]["conserve-axial-momentum"] = "full";
-  cfg["dynamics"]["conserve-axial-momentum-closure"] = true;
+  cfg["dynamics"]["conserve-axial-momentum"] = "exact";  // with its closure
   cfg["geometry"]["cells"]["interp_order"] = 4;
   cfg["forcing"]["coriolis"]["type"] = "xyz";
   cfg["forcing"]["coriolis"]["omega1"] = 5.e-6;

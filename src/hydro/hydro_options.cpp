@@ -128,7 +128,6 @@ HydroOptions HydroOptionsImpl::clone() const {
   op->perturbation_flux() = perturbation_flux();
   op->precision() = precision();
   op->conserve_axial_momentum() = conserve_axial_momentum();
-  op->conserve_axial_momentum_closure() = conserve_axial_momentum_closure();
   if (grav()) op->grav() = grav()->clone();
   if (coriolis()) op->coriolis() = coriolis()->clone();
   if (diffusion()) op->diffusion() = diffusion()->clone();

@@ -19,17 +19,20 @@ computed here from the coordinate buffers, independently of the option's own ari
   (c) a longer run of the perturbed jet with transport stays finite with bounded |v| / c_s;
   (k) full on the shallow-water Williamson 2 flow at the Earth's rate (C16, NGAIN steps): the
       absolute AAM drift, max over the steps, must be GAIN times below off (transport is ~1.1);
-  (l) with conserve-axial-momentum-closure on top of full the absolute AAM of (f)-(h) and of
-      Williamson 2 at Omega and 4 Omega drifts at most TOL; with the key false the run is full's;
+  (l) with exact the absolute AAM of (f)-(h) and of Williamson 2 at Omega and 4 Omega drifts at
+      most TOL;
   (d) the key is off by default, and a Cartesian block, where it does nothing, builds with it on;
-      full is refused without geometry/cells/interp_order: 4;
+      exact is refused without geometry/cells/interp_order: 4, with a riemann-solver type that
+      has no riemann.central, with perturbation-flux and with a viscosity; the word full and the
+      key conserve-axial-momentum-closure are refused, the first naming exact;
   (e) an odd grid with a cell on the axis;
   (f)-(h) with a Coriolis force, which stays in cell form, the exchange with the planetary AAM
       is left open and the absolute AAM (relative plus planetary) is not exact. At slow rotation,
       Omega = the wind's rotation rate, transport must drift at least GAIN times less than off:
       explicit, the traditional approximation on a shallow shell, and the vertically implicit
-      solve with a vertical wind, dry and with a vapor species. full (cubic panel-edge ghosts, the
-      flux-form torque on the dissipative x2/x3 mass flux) must also drift GAIN times less than
+      solve with a vertical wind, dry and with a vapor species. full, which here and in (k) is
+      exact without its closure (MeshBlock.axial_closure(False), a test hook; cubic panel-edge
+      ghosts, the flux-form torque on the dissipative x2/x3 mass flux), must also drift GAIN times less than
       off and no more than transport. At the deck's Omega, 14 times the wind's rate, the two errors
       of off cancel in part and the drifts are reported only;
   (i) 2D shallow water, the steady zonal flow of Williamson et al. (1992) test 2: exact without
@@ -72,7 +75,7 @@ MOIST_REACTIONS = [
 P0, RHO0 = 1.0e5, 0.1  # bottom pressure and density; RT = P0 / RHO0
 
 
-def build(cfg, device):
+def build(cfg, device, closure=True):
     from snapy import Mesh, MeshOptions
 
     nx = cfg["geometry"]["cells"]["nx2"]
@@ -89,6 +92,8 @@ def build(cfg, device):
     blocks = list(mesh.blocks)
     for block in blocks:
         block.to(torch.device(device))
+        if not closure:  # exact without its closure: the old full
+            block.axial_closure(False)
     return mesh, blocks
 
 
@@ -209,7 +214,7 @@ def sw_config(mode, omega=None):
                      "bounds": dict(x1min=6371000.0, x1max=6371001.0, **edge),
                      "cells": {"nx1": 1, "nx2": 16, "nx3": 16, "nghost": 3}},
         "distribute": {"layout": "cubed-sphere", "nb2": 1, "nb3": 1, "blocks_per_process": 6, "verbose": False},
-        "dynamics": {"conserve-axial-momentum": mode,
+        "dynamics": {"conserve-axial-momentum": "exact" if mode == "full" else mode,
                      "equation-of-state": {"type": "shallow-water"},
                      "reconstruct": {"vertical": {"type": "weno5", "scale": False, "shock": False},
                                      "horizontal": {"type": "weno5", "scale": False, "shock": False}},
@@ -329,7 +334,7 @@ def main(argv=None):
     ap.add_argument("--ngain", type=int, default=200)
     ap.add_argument("--gain-mode", default="full", choices=("full", "transport"),
                     help="arm (k): the mode held to GAIN times below off (transport must fail)")
-    ap.add_argument("--closure-off", action="store_true", help="arm (l) without the closure (must fail)")
+    ap.add_argument("--closure-off", action="store_true", help="arm (l): exact without its closure, by the test hook (must fail)")
     ap.add_argument("--yaml", default=str(Path(__file__).resolve().parent / "test_axial_momentum_flux_form.yaml"))
     args = ap.parse_args(argv)
     if args.device == "cuda" and (os.environ.get("SNAPY_BUILD_CUDA", "1") == "0" or not torch.cuda.is_available()):
@@ -343,7 +348,7 @@ def main(argv=None):
 
     def config(mode):
         cfg = yaml.safe_load(yaml.safe_dump(base))
-        cfg["dynamics"]["conserve-axial-momentum"] = mode
+        cfg["dynamics"]["conserve-axial-momentum"] = "exact" if mode == "full" else mode
         return cfg
 
     def solid_body(lon, lat, rc):
@@ -449,7 +454,7 @@ def main(argv=None):
                 if mode == "full":
                     cfg["geometry"]["cells"]["interp_order"] = 4
                 edit(cfg)
-                mesh, blocks = build(cfg, args.device)
+                mesh, blocks = build(cfg, args.device, closure=mode != "full")
                 _, _, d[mode], _, _ = run(mesh, blocks, initial_state(cfg, blocks, jet, True, om, **state),
                                           args.nstep, om)
                 del mesh, blocks
@@ -553,7 +558,7 @@ def main(argv=None):
         cfg = sw_config(mode, SW_OMEGA)
         if mode == "full":
             cfg["geometry"]["cells"]["interp_order"] = 4
-        mesh, blocks = build(cfg, args.device)
+        mesh, blocks = build(cfg, args.device, closure=mode != "full")
         d[mode], _ = run_sw(mesh, blocks, sw_state(blocks, SW_OMEGA), args.ngain, SW_OMEGA)
         del mesh, blocks
         gc.collect()
@@ -564,44 +569,34 @@ def main(argv=None):
         failures.append("Williamson 2 at the Earth's rate: the drift with %s, %.3e, is not %g times below off, %.3e"
                         % (m, d[m], GAIN, d["off"]))
 
-    # (l) conserve-axial-momentum-closure removes the residual full leaves: the absolute AAM of arms
-    #     (f)-(h) at both rates and of Williamson 2 at Omega and 4 Omega (u0 / 4) drifts at most TOL;
-    #     with the key false the run is bitwise that of full
+    # (l) exact: the closure removes the residual the torque leaves, so the absolute AAM of arms
+    #     (f)-(h) at both rates and of Williamson 2 at Omega and 4 Omega (u0 / 4) drifts at most TOL
     close = not args.closure_off
 
-    def with_full(cfg, key=None):
+    def with_order4(cfg):
         cfg["geometry"]["cells"]["interp_order"] = 4
-        if key is not None:
-            cfg["dynamics"]["conserve-axial-momentum-closure"] = key
         return cfg
 
-    worst, last = 0.0, {}
+    worst = 0.0
     for tag, edit, state in (("f", lambda cfg: None, {}), ("g", traditional, {}), ("h", implicit, {"w_up": W_UP})):
         for label, om, _ in RATES:
-            ref = tag == "f" and om == W_SB  # also full with the key false and unset, compared below
-            for key in ((close, False, None) if close else (False, None)) if ref else (close,):
-                cfg = config("full")
-                cfg["forcing"]["coriolis"] = {"type": "xyz", "omega1": om}
-                edit(cfg)
-                mesh, blocks = build(with_full(cfg, key), args.device)
-                mv, _, drift, _, _ = run(mesh, blocks, initial_state(cfg, blocks, jet, True, om, **state), args.nstep, om)
-                if ref:
-                    last[key] = [v["hydro_u"].clone() for v in mv]
-                if key is close:
-                    worst = max(worst, drift)
-                    print("(l) %s, %s, closure %s: max |dL| / |L| = %.3e" % (tag, label, close, drift))
-                del mesh, blocks, mv
-    if not all(torch.equal(x, y) for x, y in zip(last[False], last[None])):
-        failures.append("conserve-axial-momentum-closure: false is not bitwise full")
+            cfg = config("exact")
+            cfg["forcing"]["coriolis"] = {"type": "xyz", "omega1": om}
+            edit(cfg)
+            mesh, blocks = build(with_order4(cfg), args.device, closure=close)
+            _, _, drift, _, _ = run(mesh, blocks, initial_state(cfg, blocks, jet, True, om, **state), args.nstep, om)
+            worst = max(worst, drift)
+            print("(l) %s, %s, closure %s: max |dL| / |L| = %.3e" % (tag, label, close, drift))
+            del mesh, blocks
     for mult in (1.0, 4.0):
-        mesh, blocks = build(with_full(sw_config("full", mult * SW_OMEGA), close), args.device)
+        mesh, blocks = build(with_order4(sw_config("exact", mult * SW_OMEGA)), args.device, closure=close)
         drift, _ = run_sw(mesh, blocks, sw_state(blocks, mult * SW_OMEGA, SW_U0 / mult), args.nstep, mult * SW_OMEGA)
         worst = max(worst, drift)
         print("(l) Williamson 2, %g Omega, closure %s: max |dL| / |L| = %.3e" % (mult, close, drift))
         del mesh, blocks
     gc.collect()
     if not worst <= TOL:
-        failures.append("conserve-axial-momentum-closure: the absolute AAM drifts %.3e > %.0e" % (worst, TOL))
+        failures.append("conserve-axial-momentum: exact: the absolute AAM drifts %.3e > %.0e" % (worst, TOL))
 
     # (d) off by default, and no effect where it is not defined: a Cartesian block builds with it on
     cfg = config("transport")
@@ -624,16 +619,35 @@ def main(argv=None):
         failures.append("conserve-axial-momentum: a Cartesian block does not build: " + str(exc)[:200])
     finally:
         os.unlink(tmp)
-    # full needs the cubic panel-edge ghosts
-    cfg = config("full")
-    try:
-        build(cfg, args.device)
-        failures.append("conserve-axial-momentum: full builds without interp_order: 4")
-    except Exception as exc:  # noqa: BLE001
-        if "interp_order: 4" not in str(exc):
-            failures.append("conserve-axial-momentum: full without interp_order 4: " + str(exc)[:200])
-        else:
-            print("(d) full without interp_order: 4 is refused")
+    # exact's refusals at reset (A.rst 3.2, 10.3), each naming its reason
+    def refused(what, edit, needle):
+        cfg = config("exact")
+        cfg["forcing"]["coriolis"] = {"type": "xyz", "omega1": W_SB}
+        cfg["geometry"]["cells"]["interp_order"] = 4
+        edit(cfg)
+        try:
+            build(cfg, args.device)
+            failures.append("conserve-axial-momentum: %s builds" % what)
+        except Exception as exc:  # noqa: BLE001
+            if needle not in str(exc):
+                failures.append("conserve-axial-momentum: %s: %s" % (what, str(exc)[:300]))
+            else:
+                print("(d) %s is refused" % what)
+
+    refused("exact without interp_order: 4", lambda cfg: cfg["geometry"]["cells"].pop("interp_order"),
+            "interp_order: 4")
+    refused("the word full", lambda cfg: cfg["dynamics"].update({"conserve-axial-momentum": "full"}),
+            "exact replaces full")
+    refused("the closure key", lambda cfg: cfg["dynamics"].update({"conserve-axial-momentum-closure": True}),
+            "conserve-axial-momentum-closure")
+    for kind in ("upwind", "plume-roe"):
+        refused("exact with riemann-solver type " + kind,
+                lambda cfg, kind=kind: cfg["dynamics"]["riemann-solver"].update(type=kind),
+                "riemann-solver type '%s' does not provide" % kind)
+    refused("exact with perturbation-flux", lambda cfg: cfg["dynamics"].update({"perturbation-flux": True}),
+            "needs FP64 and no perturbation-flux")
+    refused("exact with a viscosity", lambda cfg: cfg["forcing"].update({"diffusion": {"nu_iso": 1.0}}),
+            "nu_iso > 0")
 
     if failures:
         print("FAIL:\n  " + "\n  ".join(failures))
