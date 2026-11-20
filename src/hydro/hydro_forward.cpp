@@ -1206,7 +1206,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     }
     // face work in the operator: the solve also sees the explicit face
     // correction, so the energy it inverts is the face-form energy
-    if (gravity_energy_correction.defined() && face_work_in_operator()) {
+    if (gravity_energy_correction.defined()) {
       int is = pmb->pcoord->il();
       int ie = pmb->pcoord->iu() + 1;
       du[IPR].slice(-1, is, ie) += gravity_energy_correction;

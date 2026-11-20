@@ -53,11 +53,3 @@ DECLARE_DISPATCH(vic_stage_fn, vic_stage);
 DECLARE_DISPATCH(donor_cap_fn, donor_cap);
 
 }  // namespace at::native
-
-namespace snap {
-
-//! vic_assemble_*: added to dir, the energy row books the face gravity work of
-//! the linearised x1 mass flux instead of the cell work
-constexpr int kVicFaceWork = 16;
-
-}  // namespace snap

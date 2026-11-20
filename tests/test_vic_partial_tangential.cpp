@@ -111,15 +111,16 @@ void check(int flag, int i) {
 
 }  // namespace
 
+// V3 I-8 (I-8.tests): the face work is always assembled, so the arm without
+// it (kVicFaceWork off with gravity on) is gone
 TEST(vic_partial_tangential, equals_the_reduced_full_matrix) {
-  for (int flag : {0, int(snap::kVicFaceWork)})
-    for (int i = is; i <= ie; ++i) check(flag, i);
+  for (int i = is; i <= ie; ++i) check(0, i);
 }
 
 TEST(vic_partial_tangential, a_wind_free_column_is_unchanged_bitwise) {
   Column col(0.);
   double dt = .5, grav = -9.8;
-  int flag = snap::kVicFaceWork;
+  int flag = 0;
   for (int i = is; i <= ie; ++i) {
     M3 a0[3], b0[3], c0[3], a1[3], b1[3], c1[3];
     V3 corr[3];

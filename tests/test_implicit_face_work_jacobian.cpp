@@ -25,7 +25,7 @@ Matrix roe_diffusion(double* left, double* right) {
 }
 
 template <int N>
-void check_energy_row(int flag = snap::kVicFaceWork, bool curved = false,
+void check_energy_row(int flag = 0, bool curved = false,
                       bool centroid = false) {
   using Block = Eigen::Matrix<double, N, N>;
   double w[15] = {1.,  .8,   .6,   .12,  .09, .15, .07, .07,
@@ -121,11 +121,9 @@ TEST(implicit_face_work, partial_energy_row_matches_frozen_roe_flux) {
 }
 
 TEST(implicit_face_work, full_face_work_uses_curved_face_metrics) {
-  for (bool centroid : {false, true})
-    check_energy_row<5>(snap::kVicFaceWork, true, centroid);
+  for (bool centroid : {false, true}) check_energy_row<5>(0, true, centroid);
 }
 
 TEST(implicit_face_work, partial_face_work_uses_curved_face_metrics) {
-  for (bool centroid : {false, true})
-    check_energy_row<3>(snap::kVicFaceWork, true, centroid);
+  for (bool centroid : {false, true}) check_energy_row<3>(0, true, centroid);
 }

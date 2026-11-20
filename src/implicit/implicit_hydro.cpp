@@ -122,6 +122,12 @@ void ImplicitHydroImpl::reset() {
   TORCH_CHECK(phydro, "[ImplicitHydro] Parent Hydro is null");
   TORCH_CHECK(options, "[ImplicitHydro] options is null");
   options->type();  // throws on an unsupported scheme
+  // V3 I-8 (I-8.scheme0): scheme 0 has no module. From YAML, implicit-scheme:
+  // 0 creates none (ImplicitOptionsImpl::from_yaml returns nullptr)
+  TORCH_CHECK(options->scheme() != 0,
+              "[ImplicitHydro] implicit-scheme 0 has no module (V3 I-8): "
+              "leave the hydro icorr options unset, or write implicit-scheme: "
+              "0 in YAML, for no implicit correction");
   _fp64_fallbacks =
       register_buffer("fp64_fallbacks", torch::zeros({}, torch::kInt64));
   _a = register_buffer("a", torch::empty({0}, torch::kFloat64));
@@ -256,17 +262,6 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
     torch::Tensor du, torch::Tensor w, torch::Tensor gamma, double dt,
     torch::Tensor solid, FluxRegister* reg, double post_dt,
     torch::Tensor const& retry) {
-  if (options->scheme() == 0) {  // null operation
-    if (_corr.sizes() != du.sizes() ||
-        _corr.scalar_type() != du.scalar_type() ||
-        _corr.device() != du.device()) {
-      _corr.set_data(torch::zeros_like(du));
-    } else {
-      _corr.zero_();
-    }
-    return _corr;
-  }
-
   TORCH_CHECK(phydro->options->grav(),
               "[ImplicitHydro] forcing does not have const-gravity");
 
@@ -360,9 +355,8 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
   // sum to grav1); scaling by non_hydrostatic() drops the gravity coupling
   // and destabilizes the solve at dt >> dt_acoustic whenever nh < 1.
   auto grav1 = phydro->options->grav()->grav1();
-  // gravity-work: face books the metric-weighted work in the energy row
-  bool face_work = phydro->face_work_in_operator();
-  int adir = face_work ? kVicFaceWork : 0;
+  // the energy row books the metric-weighted face work, always (V3 I-8: no
+  // kVicFaceWork switch; with grav1 = 0 its rows add zeros)
 
   // gravity-work: face: the energy row also carries the corrected
   // potential energy's work g1 sigma^2 s[drho] of the mass this solve moves
@@ -435,8 +429,7 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
     prm.dir = dir;
     return prm;
   };
-  at::native::vic_stage(du.device().type(), iter,
-                        stage(VicStage::assemble, adir));
+  at::native::vic_stage(du.device().type(), iter, stage(VicStage::assemble, 0));
   couple_radial_exact();
   // Woodbury: the wall third points (E row of cells 0 and n-1, mass column of
   // cells 2 and n-3) are a rank-2 update U V^T of the block-tridiagonal T:
@@ -505,8 +498,8 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
         reg->kept(1, "vic.mass_total")[IDN].to(_mass_corr.options()) * kdt;
     energy_solved = du[IPR].clone();  // vic.cell: without the remainder
   }
-  book_remainder_(du, w.size(0), mask, no_solid, face_work, radial_exact, grav1,
-                  rx_mass0, rx_fluid, nx1, moved_total);
+  book_remainder_(du, w.size(0), mask, no_solid, radial_exact, grav1, rx_mass0,
+                  rx_fluid, nx1, moved_total);
 
   _corr.copy_(du);
   _corr.sub_(_du0);
@@ -667,21 +660,18 @@ std::shared_ptr<ImplicitHydroImpl> ImplicitHydroImpl::create(
   return p->register_module(name, ImplicitHydro(opts, p));
 }
 
-void ImplicitHydroImpl::book_remainder_(torch::Tensor du, int wsize,
-                                        torch::Tensor const& mask,
-                                        bool no_solid, bool face_work,
-                                        bool radial_exact, double grav1,
-                                        torch::Tensor const& rx_mass0,
-                                        torch::Tensor const& rx_fluid, int nx1,
-                                        torch::Tensor const& moved_total) {
+void ImplicitHydroImpl::book_remainder_(
+    torch::Tensor du, int wsize, torch::Tensor const& mask, bool no_solid,
+    bool radial_exact, double grav1, torch::Tensor const& rx_mass0,
+    torch::Tensor const& rx_fluid, int nx1, torch::Tensor const& moved_total) {
   auto pcoord = phydro->pmb->pcoord;
   // du[IPR] is a scalar row: the frame de-projection before this call
   // (flux2global1_) leaves it as it was, so the order of the two terms below
   // is the order they had when the first was booked before it
 
   // the projection's and the availability clamp's work, from the face masses
-  // the solve requested and moved
-  if (face_work) {
+  // the solve requested and moved (always, V3 I-8)
+  {
     int is = pcoord->il(), ie = pcoord->iu() + 1;
     auto in3 =
         phydro->pmb->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));

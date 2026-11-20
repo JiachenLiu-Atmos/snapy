@@ -495,3 +495,59 @@ TEST(lu_failure, fp64_retry_solves_the_failed_column_only) {
 TEST(lu_failure, fp64_retry_that_fails_again_fails_the_step) {
   fp64_retry_case(true);
 }
+
+// V3 I-8 (I-8.scheme0, I-8.tests): implicit scheme 0 has no module. A scheme-0
+// module built from code is refused at construction, with a message that
+// names the YAML spelling; implicit-scheme: 0 in YAML still means no implicit
+// module.
+TEST(lu_failure, a_scheme_zero_module_is_refused) {
+  using namespace snap;
+  auto deck = [](int scheme) {
+    auto node = YAML::Load(R"(
+geometry:
+  type: cartesian
+  cells: {nx1: 8, nx2: 4, nx3: 1, nghost: 3}
+  bounds: {x1min: 0, x1max: 8, x2min: 0, x2max: 4, x3min: 0, x3max: 1}
+dynamics:
+  equation-of-state: {type: ideal-gas, gammad: 1.4, weight: 0.029}
+  reconstruct:
+    vertical: {type: plm}
+    horizontal: {type: plm}
+  riemann-solver: {type: lmars}
+forcing:
+  const-gravity: {grav1: -1}
+integration: {type: rk3, implicit-scheme: 9, cfl: 0.5}
+boundary-condition:
+  external: {x1-inner: reflecting, x1-outer: reflecting,
+             x2-inner: periodic, x2-outer: periodic,
+             x3-inner: periodic, x3-outer: periodic}
+)");
+    node["integration"]["implicit-scheme"] = scheme;
+    std::string path = "test-lu-scheme0-" + std::to_string(scheme) + ".yaml";
+    {
+      std::ofstream card(path);
+      card << node;
+    }
+    auto opts = MeshBlockOptionsImpl::from_yaml(path);
+    std::remove(path.c_str());
+    return opts;
+  };
+  // from YAML: no module, the block builds and runs explicit
+  auto none = deck(0);
+  EXPECT_FALSE(none->hydro()->icorr());
+  auto explicit_block = MeshBlock(none);
+  EXPECT_FALSE(explicit_block->phydro->picorr);
+  // from code: a scheme-0 module is refused when the block is built
+  auto opts = deck(9);
+  ASSERT_TRUE(opts->hydro()->icorr());
+  opts->hydro()->icorr()->scheme(0);
+  std::string msg;
+  try {
+    auto block = MeshBlock(opts);
+  } catch (c10::Error const &e) {
+    msg = e.what_without_backtrace();
+  }
+  EXPECT_NE(msg.find("implicit-scheme 0 has no module"), std::string::npos)
+      << "no refusal; got: '" << msg << "'";
+  EXPECT_NE(msg.find("implicit-scheme: 0 in YAML"), std::string::npos) << msg;
+}

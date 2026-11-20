@@ -191,9 +191,6 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! x1 face f (0 inner, 1 outer) of this block is a physical, non-periodic
   //! boundary (a wall whatever installed it, or an open boundary)
   bool is_x1_wall(int f) const;
-  //! gravity-work: face with an implicit scheme: the implicit
-  //! operator books the face work of the mass it moves (#283)
-  bool face_work_in_operator() const;
   //! add the O(dx1^2) covariance term to the x2/x3 face fluxes (#289)?
   //! dynamics/flux-covariance, on by default
   bool flux_covariance() const { return options->flux_covariance(); }

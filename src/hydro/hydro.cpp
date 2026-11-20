@@ -357,12 +357,6 @@ std::pair<int, int> HydroImpl::x1_neighbors() const {
   return Exchange(pmb).x1_neighbors();
 }
 
-bool HydroImpl::face_work_in_operator() const {
-  auto g = options->grav();
-  return g && g->grav1() != 0. && g->gravity_work() == "face" && picorr &&
-         picorr->options->scheme() != 0;
-}
-
 double HydroImpl::max_time_step(torch::Tensor w, torch::Tensor solid) const {
   auto sub3 = pmb->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
 
@@ -515,8 +509,7 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
   // from rhs64 and wi64, and no host read decides it; the other columns keep
   // their FP32 solution
   torch::Tensor retry;
-  if (solve_float && options->icorr()->fallback_fp64() &&
-      options->icorr()->scheme() != 0) {
+  if (solve_float && options->icorr()->fallback_fp64()) {
     retry = picorr->stage_failed();
     picorr->forward_masked(rhs64, wi64, gamma_for(wi64), dt, solid, reg,
                            post_dt, retry);
