@@ -425,4 +425,30 @@ std::shared_ptr<kintera::ThermoYImpl> MeshBlockImpl::thermo() const {
   return m ? std::dynamic_pointer_cast<kintera::ThermoYImpl>(*m) : nullptr;
 }
 
+void MeshBlockImpl::prepare_thermo(torch::Tensor const &hydro_u) {
+  auto pthermo = thermo();
+  if (!pthermo) return;
+  // prepare() (idempotent) gives the counter, the active-set buffers and the
+  // table their interior shape, device and dtype before the first adjustment
+  // or a capture (K.rst 3.3, 3.5); an unprepared module throws in a capture
+  auto sub3 = part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
+  auto shape = hydro_u[0].index(sub3).sizes().vec();
+  // the EOS computes in the state's dtype; the adjustment takes total_u(),
+  // FP64 for an FP32 anomaly state (HydroImpl::total_u). The module's own
+  // table is the adjustment's (prepare), so no call inside a capture swaps
+  // it (alloc_epoch(m) stays put, K.rst 3.3); the state's table only has to
+  // exist in kintera's store before the capture (tables_for)
+  auto dtype = hydro_u.scalar_type();
+  auto totals = dtype == torch::kFloat32 && phydro->has_reference()
+                    ? torch::kFloat64
+                    : dtype;
+  if (totals != dtype)
+    kintera::tables_for(pthermo->options, torch::empty({0}, hydro_u.options()));
+  pthermo->prepare(hydro_u.device(), totals, shape);
+  if (!_active_set0.second.defined() ||
+      _active_set0.second.device() != hydro_u.device() ||
+      !_active_set0.second.sizes().equals(shape))
+    _active_set0 = pthermo->make_active_set_storage();
+}
+
 }  // namespace snap

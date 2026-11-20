@@ -130,19 +130,10 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
       exchange_ghost_zones(vars);
     }
     _state.backup();
-    if (auto pthermo = thermo()) {
-      // K4 (K.rst 3.4, 3.5): after the u0 backup, the active set of this
-      // attempt's start; prepare() (idempotent) gives the buffers their
-      // interior shape before the first adjustment has run
-      auto sub3 = part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
-      auto shape = hydro_u[0].index(sub3).sizes().vec();
-      pthermo->prepare(hydro_u.device(), hydro_u.scalar_type(), shape);
-      if (!_active_set0.second.defined() ||
-          _active_set0.second.device() != hydro_u.device() ||
-          !_active_set0.second.sizes().equals(shape))
-        _active_set0 = pthermo->make_active_set_storage();
-      pthermo->snapshot_active_set(_active_set0);
-    }
+    // K4 (K.rst 3.4, 3.5): after the u0 backup, the active set of this
+    // attempt's start
+    prepare_thermo(hydro_u);
+    if (auto pthermo = thermo()) pthermo->snapshot_active_set(_active_set0);
     if (auto moist = dynamic_cast<IdealMoistImpl *>(phydro->peos.get()))
       moist->clear_heat_capacity_failure();
     if (phydro->picorr) {

@@ -308,6 +308,9 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! stage 0 of each attempt and restored on a retry, so a retry repeats
   //! the first attempt (reaction_set, nactive buffers of the interior shape)
   std::pair<torch::Tensor, torch::Tensor> _active_set0;
+  //! K.rst 3.5: the ThermoY prepared for the interior shape (idempotent) and
+  //! _active_set0 made for it; at stage 0 and before a graph warm-up
+  void prepare_thermo(torch::Tensor const& hydro_u);
 
   //! distribution layout
   Layout _playout;
