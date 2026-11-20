@@ -1,6 +1,6 @@
 // combine_parts: joins the per-block netcdf files snapy writes into one file,
 // the `-r <outfile> <parts...>` form of mppnccombine and nothing else
-// (O.rst 10.1). Not called by runs yet: G-2 compares the two first (O6a).
+// (O.rst 10.1); combine_netcdf_blocks calls it.
 
 // C/C++
 #include <sys/stat.h>
