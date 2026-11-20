@@ -226,11 +226,10 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
 
   //! conserve-axial-momentum-closure: this block's {R, I} of the stage
   //! (device, FP64; zeros if off), and the stage's solid-body increment from
-  //! the global sums; a Mesh with several local blocks defers it
+  //! the global sums, applied in the global phase (forward, Mesh::forward)
   torch::Tensor axial_closure_sums() const;
   void apply_axial_closure(Variables& vars, double dt, int stage,
                            torch::Tensor const& global);
-  bool defer_axial_closure = false;
   void exchange(Variables& vars, SyncOptions const& opts) const;
 
   //! Serialize state into MeshBlock-owned buffers without launching comms yet.

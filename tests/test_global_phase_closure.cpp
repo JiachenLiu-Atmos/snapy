@@ -1,7 +1,7 @@
 // V3 lane X, X4: the axial closure's partial sums stay on the device.
 // Six cubed-sphere panels in one process (test_axial_momentum_flux_form.yaml)
 // with full AAM, Coriolis and conserve-axial-momentum-closure. After the
-// blocks' advance_local with the closure deferred (as Mesh::forward does), the
+// blocks' advance_local (the closure is left to the global phase), the
 // block's partial {R, I} must be FP64 on the state's CUDA device: the global
 // phase sums and applies it there (no host copy, no host read). The six
 // blocks run the stage together, as Mesh::forward runs them. CUDA only.
@@ -85,11 +85,10 @@ TEST(GlobalPhase, axial_closure_partial_sums_stay_on_the_device) {
   mesh->initialize(vars);
   double dt = mesh->max_time_step(vars);
 
-  // the blocks' stages together (they exchange seams inside a stage), the
-  // closure deferred to the global phase, which is not run here
+  // the blocks' stages together (they exchange seams inside a stage); the
+  // global phase, which applies the closure, is not run here
   std::vector<std::thread> threads;
   for (size_t b = 0; b < mesh->blocks.size(); ++b) {
-    mesh->blocks[b]->defer_axial_closure = true;
     threads.emplace_back(
         [&, b] { mesh->blocks[b]->advance_local(vars[b], dt, 0); });
   }

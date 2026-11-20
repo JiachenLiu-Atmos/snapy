@@ -92,6 +92,14 @@ void MeshBlockImpl::forward(Variables &vars, double dt, int stage) {
   // one-signed seam bias on the cubed sphere.
   _executor->run_stage(vars, dt, stage);  // exchange_ghost_zones, then
                                           // advance_local, or their graph
+  // the global phase of a bare block, as Mesh::forward runs it over its blocks
+  if (phydro->options->conserve_axial_momentum_closure()) {
+    apply_axial_closure(vars, dt, stage,
+                        global_phase_sum({axial_closure_sums()}, *_playout));
+    apply_boundaries(
+        vars, vars.at("hydro_u"),
+        vars.count("scalar_s") ? vars.at("scalar_s") : torch::Tensor());
+  }
 }
 
 void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
@@ -303,12 +311,6 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
 
     hydro_u.narrow(0, ICY, ny) = yfrac * rho;
   }
-
-  // the global phase of a bare block (a Mesh runs it over its blocks)
-  if (phydro->options->conserve_axial_momentum_closure() &&
-      !defer_axial_closure)
-    apply_axial_closure(vars, dt, stage,
-                        global_phase_sum({axial_closure_sums()}, *_playout));
 
   // Physical ghosts must include the final-stage species adjustment.
   apply_boundaries(vars, hydro_u, scalar_s);

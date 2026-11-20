@@ -350,13 +350,6 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
                 "integration/execution-strict: a Mesh runs its blocks eagerly "
                 "(CUDA graphs cover a single MeshBlock only)");
 
-  if (blocks.size() == 1) {
-    blocks[0]->advance_local(vars[0], dt, stage);
-    blocks[0]->exchange_ghost_zones(vars[0]);
-    return;
-  }
-
-  for (auto& b : blocks) b->defer_axial_closure = true;
   run_block_jobs(
       [&](size_t i) { blocks[i]->advance_local(vars[i], dt, stage); });
   // conserve-axial-momentum-closure: R and I summed over the local blocks,
