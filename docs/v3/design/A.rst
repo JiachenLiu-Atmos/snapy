@@ -1025,8 +1025,8 @@ G8    diffusion suite                                 ``test_diffusion_cubed_sph
 G9    viscous torque booked as physical               new arm: ``exact`` with ``nu_iso > 0``, W2 C16   1e-12 rel  3
 G9b   register route vs Cartesian-channel             solid-body rotation (zero strain) and uniform    1e-12 rel  3
       divergence of the viscous momentum (H9)         shear, C16, one stage; plan only
-G10   FP32 + perturbation-flux AAM drift vs FP64      arms (f)-(h), (k), (l) in FP32 with              drift      4
-                                                      perturbation-flux                                ≤ 1e-12
+G10   FP32 + perturbation-flux AAM drift vs FP64;     arms (f)-(h) and the 3D arms of (l) in FP32      drift      4
+      not runnable until G5 passes                    with perturbation-flux                           ≤ 1e-12
 ====  ==============================================  ===============================================  =========  =====
 
 **G10's metric (H15, plan only).**
@@ -1036,6 +1036,16 @@ reconciled in FP64, and lane A reads only the FP64 ``K_f`` master, never the
 compute-dtype cast views (6.1). Hypothesis H15: FP32 seam rotation rounds at
 about 1e-7 per stage, which could put 1e-12 out of reach for ``transport``;
 G10 then reports ``transport`` and holds only ``exact`` to 1e-12.
+
+**G10's arms and when it runs (ruling A-ph4, kickoff thread 1795248311).**
+G10 is not runnable until G5 passes. At snapy ``409a6148`` anomaly storage
+and perturbation-flux are Cartesian only and perturbation-flux needs FP64
+compute (``hydro.cpp:145-149``, ``hydro_forward.cpp:340-342``), so no G10
+deck can be built there. Arm (k) and the shallow-water arms of (l)
+(Williamson 2 at 1 Ω and 4 Ω) are dropped from G10 for good: perturbation-flux
+needs anomaly storage, which is ideal-moist only (``hydro.cpp:152-154`` and
+``:138-141`` there), so those decks have no perturbation-flux run. G10 keeps
+arms (f)-(h) and the 3D arms of (l) (Ω = 5e-6 and 7e-5).
 
 **EF-3 rule for G4** (appendix B, item 3). G4 is bitwise against a reference
 that contains every change merged before lane A's phase-2 PR. If lane EF's
@@ -1109,9 +1119,10 @@ rotation data                               FP64              lane A reads the F
 Three things lift today's refusal (``hydro_forward.cpp:993-995``) together:
 
 1. a consistent central part, which the header gives as totals under
-   perturbation flux (R.rst:958-961);
+   perturbation flux (R.rst:1096-1099 at ``9c711ba3``, resolution-matrix
+   row 32, "A's total vs anomaly": totals);
 2. FP64 accumulation of the rate and of R and I;
-3. gate G10.
+3. gate G10, which is not runnable until G5 passes (5.3).
 
 Until G10 passes, ``exact`` refuses FP32 and perturbation-flux at reset.
 
