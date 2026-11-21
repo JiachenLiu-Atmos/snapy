@@ -79,6 +79,9 @@ std::vector<std::string> StageExecutor::capture_reasons(
       !_block->user_stage_forcings.empty())
     why.push_back("forcing is not const-gravity alone");
   if (vars.count("solid")) why.push_back("a solid mask is set");
+  // S-K4: the chemistry step runs inside the last stage; whether kintera's
+  // kinetics path captures is not verified, so a block with one runs eagerly
+  if (_block->_chemistry) why.push_back("a chemistry step is registered");
   return why;
 }
 

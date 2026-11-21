@@ -223,10 +223,8 @@ int main(int argc, char** argv) {
     current_time = block->initialize(vars, cli->restart_filename);
   }
 
-  auto peos = block->phydro->peos;
   // the chemistry step runs inside the block's step (V3 S-K4)
   block->set_chemistry(*kintera::KineticsOptionsImpl::from_yaml(infile));
-  int ny = static_cast<int>(thermo_y->options->species().size()) - 1;
 
   while (!block->pintg->stop(block->cycle, current_time)) {
     auto dt = block->max_time_step(vars);

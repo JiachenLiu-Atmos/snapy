@@ -56,9 +56,13 @@ def config(precision):
     return cfg
 
 
-def make(precision, device, register):
+def make(precision, device, register, execution=None):
+    cfg = config(precision)
+    if execution:  # the executor's strict refusal is tested below
+        cfg["integration"]["execution"] = execution
+        cfg["integration"]["execution-strict"] = True
     with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
-        yaml.safe_dump(config(precision), f)
+        yaml.safe_dump(cfg, f)
         path = f.name
     try:
         options = MeshBlockOptions.from_yaml(path)
@@ -147,6 +151,17 @@ def main():
         changed = int((av["hydro_u"][kICY:] != bvv["hydro_u"][kICY:]).sum()) if failures else 0
         print("%s: %d steps, registered step equals the pin's %s" % (
             precision, args.steps, "bitwise" if not failures else "NOT (%d species cells differ)" % changed))
+    # a registered chemistry step is a capture reason: the strict cuda-graph
+    # executor refuses the block before its first launch and names it
+    c, cv, _, _ = make("float64", device, True, execution="cuda-graph")
+    try:
+        c.forward(cv, 0.1, 0)
+        failures.append("strict cuda-graph with a chemistry step was not refused")
+    except RuntimeError as e:
+        if "a chemistry step is registered" not in str(e):
+            failures.append("refusal does not name the chemistry step: %s" % str(e).splitlines()[0])
+        else:
+            print("strict cuda-graph: refused, 'a chemistry step is registered'")
     for f in failures:
         print("FAIL:", f)
     print("PASSED" if not failures else "FAILED (%d)" % len(failures))
