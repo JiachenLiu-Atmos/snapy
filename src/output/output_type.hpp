@@ -41,7 +41,7 @@ struct OutputOptionsImpl {
   //! global grid: per axis not both slice and sum, every slice in [min, max),
   //! strictly increasing; std::invalid_argument otherwise. MeshBlockImpl runs
   //! them for every output, read from a deck or built in code.
-  void check_domain(CoordinateOptionsImpl const& co) const;
+  void check_domain(CoordinateOptionsImpl const &co) const;
 
   // the option rows and report(), generated from src/options/output.yaml by
   // tools/gen_options.py

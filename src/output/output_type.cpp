@@ -51,7 +51,7 @@ OutputOptions OutputOptionsImpl::from_yaml(YAML::Node const &node, int fid) {
   return options;
 }
 
-void OutputOptionsImpl::check_domain(CoordinateOptionsImpl const& co) const {
+void OutputOptionsImpl::check_domain(CoordinateOptionsImpl const &co) const {
   check_output_domain(*this, co);
 }
 
