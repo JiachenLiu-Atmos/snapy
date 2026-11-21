@@ -217,6 +217,7 @@ void FluxRegister::begin_step() {
     else
       _step[d].zero_();
   }
+  _rec = _direct = {};  // the step's split posts start again
   _in_stage = false;
   for (auto const& t : _total)
     if (t.defined() && _monitor._step_amount.defined()) {
@@ -399,12 +400,39 @@ void FluxRegister::end_stage(double dt) {
   for (int d = 0; d < 3; ++d) {
     if (!_step[d].defined()) continue;
     // in FP64 (FP32 on MPS), whatever the flux dtype: S <- w1 S + w2 dt T
-    _step[d].mul_(_w1).add_(_total[d].to(_step[d].scalar_type()), _w2 * dt);
+    if (!_direct[d].defined()) {
+      _step[d].mul_(_w1).add_(_total[d].to(_step[d].scalar_type()), _w2 * dt);
+      continue;
+    }
+    // a split post this step: the recursion alone, then S = rec + direct
+    _rec[d].mul_(_w1).add_(_total[d].to(_rec[d].scalar_type()), _w2 * dt);
+    torch::add_out(_step[d], _rec[d], _direct[d]);
   }
   _monitor.end_stage(_w1, _w2 * dt);
   _in_stage = false;
 }
 
 void FluxRegister::rollback() { begin_step(); }
+
+void FluxRegister::post_split(int dim, std::string const& name,
+                              torch::Tensor const& flux, double weight,
+                              double dt) {
+  TORCH_CHECK(dim >= 1 && dim <= 3 && _step[dim - 1].defined(),
+              "[FluxRegister] post_split '", name, "' needs the step field ",
+              dim, " (request it, then begin_step)");
+  TORCH_CHECK(!_in_stage, "[FluxRegister] post_split '", name,
+              "' inside a stage; it belongs before stage 0 or after the "
+              "last end_stage");
+  int d = dim - 1;
+  TORCH_CHECK(flux.sizes() == _total[d].sizes(), "[FluxRegister] post_split '",
+              name, "' flux ", flux.sizes(), " is not shaped like total(", dim,
+              ") ", _total[d].sizes());
+  if (!_direct[d].defined()) {  // S_d so far is the recursion alone
+    _rec[d] = _step[d].clone();
+    _direct[d] = torch::zeros_like(_step[d]);
+  }
+  _direct[d].add_(flux.to(_direct[d].scalar_type()), weight * dt);
+  torch::add_out(_step[d], _rec[d], _direct[d]);
+}
 
 }  // namespace snap
