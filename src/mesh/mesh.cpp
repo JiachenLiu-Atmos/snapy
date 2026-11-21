@@ -371,17 +371,23 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
     });
   }
   // S-K4 (K.rst 3.5): the chemistry step, last in the global phase, before
-  // the final exchange
+  // the final exchange. The blocks run it one after another, not on the
+  // worker pool: kintera's LogSVPFunc keeps one process-global _op that
+  // Evaporation::forward reassigns on every call (kintera log_svp.cpp:52-58,
+  // 2.6.11), so two blocks' kinetics on two threads race on that shared_ptr
+  // (a double free; K.rst 3.6's no-shared-state assumption does not hold).
+  // Sequential until kintera makes it per instance; the results are the
+  // same, each block's step reads only its own state.
   if (stage == static_cast<int>(root->pintg->stages.size()) - 1)
-    run_block_jobs([&](size_t i) {
+    for (size_t i = 0; i < blocks.size(); ++i) {
       auto chem = blocks[i]->chemistry();
-      if (!chem) return;
+      if (!chem) continue;
       chem->forward(*blocks[i], vars[i], dt);
       auto& v = vars[i];
       blocks[i]->apply_boundaries(
           v, v.at("hydro_u"),
           v.count("scalar_s") ? v.at("scalar_s") : torch::Tensor());
-    });
+    }
   run_block_jobs([&](size_t i) { blocks[i]->exchange_ghost_zones(vars[i]); });
 }
 
