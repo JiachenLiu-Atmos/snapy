@@ -10,6 +10,7 @@
 #include <vector>
 
 // snap
+#include <snap/chemistry/chemistry_source.hpp>
 #include <snap/coord/coord_utils.hpp>
 #include <snap/coord/gnomonic_equiangle.hpp>
 #include <snap/eos/ideal_moist.hpp>
@@ -35,6 +36,13 @@ std::shared_ptr<kintera::ThermoYImpl> MeshBlockImpl::thermo_y() const {
 }
 
 static std::mutex meshblock_mutex;
+
+void MeshBlockImpl::set_chemistry(kintera::KineticsOptionsImpl reactions) {
+  auto pthermo = thermo_y();
+  TORCH_CHECK(pthermo, "MeshBlock::set_chemistry needs an EOS with a thermo");
+  _chemistry =
+      std::make_shared<ChemistrySource>(std::move(reactions), pthermo->options);
+}
 
 void MeshBlockImpl::prepare_thermo(torch::Tensor const &hydro_u) {
   auto pthermo = thermo_y();
@@ -1068,6 +1076,11 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
     }
     apply_gravity_work_fixer(vars, reduce[0]);
   }
+
+  // S-K4 (K.rst 3.5): the chemistry step, the last op of the last stage of a
+  // bare block (a Mesh runs it over its blocks before its final exchange)
+  if (stage == pintg->stages.size() - 1 && _chemistry && !defer_chemistry)
+    _chemistry->forward(*this, vars, dt);
 
   apply_boundaries(vars, hydro_u, scalar_s);
 }

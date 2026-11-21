@@ -23,6 +23,7 @@
 #include <yaml-cpp/yaml.h>
 
 // snap
+#include <snap/chemistry/chemistry_source.hpp>
 #include <snap/mesh/mesh.hpp>
 #include <snap/mesh/signal_handler.hpp>
 #include <snap/utils/log.hpp>
@@ -364,6 +365,7 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
 
   for (auto& b : blocks) b->defer_gravity_work_fixer = true;
   for (auto& b : blocks) b->defer_axial_closure = true;
+  for (auto& b : blocks) b->defer_chemistry = true;
   run_block_jobs(
       [&](size_t i) { blocks[i]->advance_local(vars[i], dt, stage); });
   // conserve-axial-momentum-closure: R and I summed over the local blocks,
@@ -402,7 +404,23 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
           v.count("scalar_s") ? v.at("scalar_s") : torch::Tensor());
     });
   }
+  // S-K4 (K.rst 3.5): the chemistry step, last in the global phase, before
+  // the final exchange
+  if (stage == static_cast<int>(root->pintg->stages.size()) - 1)
+    run_block_jobs([&](size_t i) {
+      auto chem = blocks[i]->chemistry();
+      if (!chem) return;
+      chem->forward(*blocks[i], vars[i], dt);
+      auto& v = vars[i];
+      blocks[i]->apply_boundaries(
+          v, v.at("hydro_u"),
+          v.count("scalar_s") ? v.at("scalar_s") : torch::Tensor());
+    });
   run_block_jobs([&](size_t i) { blocks[i]->exchange_ghost_zones(vars[i]); });
+}
+
+void MeshImpl::set_chemistry(kintera::KineticsOptionsImpl reactions) {
+  for (auto& b : blocks) b->set_chemistry(reactions);  // one after another
 }
 
 void MeshImpl::set_user_stage_forcings(

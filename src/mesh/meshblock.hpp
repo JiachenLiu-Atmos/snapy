@@ -33,7 +33,8 @@
 
 namespace kintera {
 class ThermoYImpl;
-}
+struct KineticsOptionsImpl;
+}  // namespace kintera
 
 namespace snap {
 
@@ -136,6 +137,7 @@ struct PartOptions {
 };
 
 class StageExecutor;
+class ChemistrySource;
 
 class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   friend class StageExecutor;
@@ -234,6 +236,16 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
    */
   void forward(Variables& vars, double dt, int stage);
   void advance_local(Variables& vars, double dt, int stage);
+
+  //! V3 S-K4 (K.rst 3.6): the chemistry step after the last stage, from a
+  //! by-value copy of the reaction options; one adapter for this block,
+  //! built on the calling thread. A Mesh registers its blocks through
+  //! Mesh::set_chemistry, which defers each block's run to its global phase.
+  void set_chemistry(kintera::KineticsOptionsImpl reactions);
+  ChemistrySource* chemistry() const { return _chemistry.get(); }
+  bool defer_chemistry = false;
+  //! the EOS's kintera ThermoY (hydro.eos.thermo), or null
+  std::shared_ptr<kintera::ThermoYImpl> thermo_y() const;
 
   //! the stage executor's counters: captures, replays, eager stages, graphs
   std::map<std::string, int64_t> execution_report() const;
@@ -352,11 +364,11 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! stage 0 of each attempt and restored on a retry, so a retry repeats
   //! the first attempt (reaction_set, nactive buffers of the interior shape)
   std::pair<torch::Tensor, torch::Tensor> _active_set0;
+  //! S-K4: this block's chemistry adapter (null: none registered)
+  std::shared_ptr<ChemistrySource> _chemistry;
   //! K.rst 3.5: the ThermoY prepared for the interior shape (idempotent) and
   //! _active_set0 made for it; at stage 0 and before a graph warm-up
   void prepare_thermo(torch::Tensor const& hydro_u);
-  //! the EOS's kintera ThermoY (hydro.eos.thermo), or null
-  std::shared_ptr<kintera::ThermoYImpl> thermo_y() const;
 
   //! distribution layout
   Layout _playout;
