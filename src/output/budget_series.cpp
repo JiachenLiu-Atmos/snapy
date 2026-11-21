@@ -221,10 +221,11 @@ void BudgetOutput::save_carry(MeshBlockImpl const* pmb, Variables const& vars,
   write_budget_carry(_consumer.carry(*pmb, vars, fires_now), out);
 }
 
-void BudgetOutput::load_carry(Variables const& data) {
+void BudgetOutput::load_carry(MeshBlockImpl const* pmb, Variables const& data) {
   auto carry = read_budget_carry(data, _rows);
   if (!carry.defined()) return;  // a new interval at the first observe
-  _consumer.resume(carry);
+  // the device the restored state moves to (_init_from_restart)
+  _consumer.resume(carry, torch::Device(pmb->options->device_str()));
   _resumed = true;
 }
 

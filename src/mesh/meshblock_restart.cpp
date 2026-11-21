@@ -123,7 +123,7 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
     }
   }
 
-  for (auto &output_type : output_types) output_type->load_carry(data);
+  for (auto &output_type : output_types) output_type->load_carry(this, data);
 
   bool rebuild_scalar_r =
       pscalar->nvar() > 0 && data.count("scalar_s") && data.count("hydro_u");

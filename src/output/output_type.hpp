@@ -98,7 +98,7 @@ class OutputType {
                        double dt) {}
   virtual void save_carry(MeshBlockImpl const *pmb, Variables const &vars,
                           bool fires_now, Variables &out) const {}
-  virtual void load_carry(Variables const &data) {}
+  virtual void load_carry(MeshBlockImpl const *pmb, Variables const &data) {}
 
  protected:
   bool shouldOutputPrimitive(
