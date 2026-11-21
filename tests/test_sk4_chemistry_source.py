@@ -112,6 +112,10 @@ def pin_chemistry(block, bv, kin, tx, dt):
     delta = kt.evolve_implicit(rate, kin.buffer("stoich"), jac, dt)
     assert delta.dtype == torch.float64 and jac.dtype == torch.float64
     bv["hydro_u"][kICY:] += (delta / ty.buffer("inv_mu")[1:]).permute(3, 0, 1, 2)
+    # the registered step applies the boundaries after its chemistry; the pin
+    # does the same, so the ghost cells are derived from the owned cells on
+    # both sides (on arm64 a ghost cell's own chemistry differs by 1 ulp)
+    block.apply_boundaries(bv, bv["hydro_u"], bv.get("scalar_s"))
 
 
 def main():
