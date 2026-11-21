@@ -10,8 +10,10 @@ set_chemistry.
 RULINGS S-K4.fp32_seam: on this base the FP32 arm is an expected failure.
 Two blocks and one block differ at the x2 seam from step 1 in FP32 with the
 chemistry off as well (the base's S step 4 rounds a seam sum by block
-position; the FP64 arm is bitwise). The mark is strict: the arm fails if it
-passes, so the base fix (a W4 step) removes this mark as its GREEN.
+position). The FP64 arm is unchanged by this mark: bitwise for 100 steps on
+x86 CPU and the H100 here, while on arm64 it differs from step 28 on this
+base, as it did on the old base. The mark is strict: the FP32 arm fails if
+it passes, so the base fix (a W4 step) removes this mark as its GREEN.
 
   python test_sk4_mesh_chemistry.py [--device cuda] [--steps 3]
 """
