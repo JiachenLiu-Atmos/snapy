@@ -83,6 +83,9 @@ int MeshBlockImpl::apply_redo(Variables &vars, int causes) {
 
   // good to go
   pintg->current_redo = 0;
+  // O's consumers read the accepted step (O.rst 3.2)
+  for (auto &output_type : output_types)
+    output_type->observe(this, vars, step_dt);
   return 0;
 }
 

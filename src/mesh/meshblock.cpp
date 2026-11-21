@@ -13,11 +13,13 @@
 // snap
 #include <snap/coord/coord_utils.hpp>
 #include <snap/coord/gnomonic_equiangle.hpp>
+#include <snap/diagnostics/budget.hpp>
 #include <snap/eos/ideal_moist.hpp>
 #include <snap/hydro/flux_positivity.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/implicit/implicit_dispatch.hpp>
 #include <snap/mesh/signal_handler.hpp>
+#include <snap/output/budget_series.hpp>
 #include <snap/output/restart.hpp>
 #include <snap/output/restart_metadata.hpp>
 #include <snap/output/writer_core.hpp>
@@ -150,6 +152,8 @@ void MeshBlockImpl::reset() {
       output_types.push_back(std::make_shared<RestartOutput>(out_op));
     } else if (out_op->file_type() == "netcdf") {
       output_types.push_back(std::make_shared<GriddedWriter>(out_op));
+    } else if (out_op->file_type() == "budget") {
+      output_types.push_back(std::make_shared<BudgetOutput>(out_op));
     } else if (out_op->file_type() == "pnetcdf") {
 #ifdef PNETCDFOUTPUT
       output_types.push_back(std::make_shared<GriddedWriter>(out_op));
@@ -200,6 +204,7 @@ void MeshBlockImpl::reset() {
   _state.reset(policy, phydro->peos->nvar(), pscalar->nvar(), nc3, nc2, nc1);
   register_buffer("u0", _state.u0());
   register_buffer("s0", _state.s0());
+  for (auto &output_type : output_types) output_type->bind(this);
   register_flux_storage();
 
   //// ------- (10) stage executor (eager unless cuda-graph) ------- ////

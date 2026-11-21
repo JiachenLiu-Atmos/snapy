@@ -36,6 +36,7 @@ file(GLOB src_files
     #*.cpp
     bc/*.cpp
     coord/*.cpp
+    diagnostics/*.cpp
     eos/*.cpp
     eos/aneos/*.cpp
     hydro/*.cpp

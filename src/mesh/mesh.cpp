@@ -23,6 +23,7 @@
 #include <yaml-cpp/yaml.h>
 
 // snap
+#include <snap/diagnostics/budget.hpp>
 #include <snap/mesh/mesh.hpp>
 #include <snap/mesh/signal_handler.hpp>
 #include <snap/utils/log.hpp>
@@ -349,6 +350,8 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
     TORCH_CHECK(!b->options->execution_strict(),
                 "integration/execution-strict: a Mesh runs its blocks eagerly "
                 "(CUDA graphs cover a single MeshBlock only)");
+  if (stage == 0)
+    for (auto& b : blocks) b->step_dt = dt;
 
   run_block_jobs(
       [&](size_t i) { blocks[i]->advance_local(vars[i], dt, stage); });
@@ -417,9 +420,8 @@ void MeshImpl::print_cycle_info(MeshVariables const& vars, double time,
   std::vector<std::pair<MeshBlockImpl const*, Variables const*>> local;
   for (size_t i = 0; i < blocks.size(); ++i)
     local.emplace_back(blocks[i].get(), &vars[i]);
-  print_cycle_diagnostics(local, time, dt,
-                          std::numeric_limits<double>::max_digits10 - 3,
-                          " energy=");
+  print_cycle_line(local, time, dt,
+                   std::numeric_limits<double>::max_digits10 - 3, " energy=");
 }
 
 int MeshImpl::check_redo(MeshVariables& vars) {

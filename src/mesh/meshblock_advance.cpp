@@ -90,6 +90,7 @@ void MeshBlockImpl::forward(Variables &vars, double dt, int stage) {
   // host-side operator-split source terms applied between forward calls
   // (e.g. condensation on hydro_u) are then synced before use, removing a
   // one-signed seam bias on the cubed sphere.
+  if (stage == 0) step_dt = dt;
   _executor->run_stage(vars, dt, stage);  // exchange_ghost_zones, then
                                           // advance_local, or their graph
   // the global phase of a bare block, as Mesh::forward runs it over its blocks

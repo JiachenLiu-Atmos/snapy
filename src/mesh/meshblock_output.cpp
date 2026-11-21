@@ -13,6 +13,7 @@
 // snap
 #include <snap/coord/coord_utils.hpp>
 #include <snap/coord/gnomonic_equiangle.hpp>
+#include <snap/diagnostics/budget.hpp>
 #include <snap/eos/ideal_moist.hpp>
 #include <snap/hydro/flux_positivity.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
@@ -160,9 +161,8 @@ void print_cycle_diagnostics(
 
 void MeshBlockImpl::print_cycle_info(Variables const &vars, double time,
                                      double dt) const {
-  print_cycle_diagnostics({{this, &vars}}, time, dt,
-                          std::numeric_limits<double>::max_digits10 - 4,
-                          " ie=");
+  print_cycle_line({{this, &vars}}, time, dt,
+                   std::numeric_limits<double>::max_digits10 - 4, " ie=");
 }
 
 int MeshBlockImpl::finalize(Variables const &vars, double time) {

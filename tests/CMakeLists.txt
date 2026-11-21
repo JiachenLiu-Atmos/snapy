@@ -177,6 +177,8 @@ target_compile_definitions(test_combine_parts.${buildl}
 setup_test(test_restart_bundle)
 target_compile_definitions(test_restart_bundle.${buildl}
                            PRIVATE SNAPY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+# lane O, O8 budget part: the budget consumer and G-4's BudgetCarry cases
+setup_test(test_budget)
 setup_test(test_user_output)
 setup_test(test_process_group)
 setup_test(test_diffusion)
