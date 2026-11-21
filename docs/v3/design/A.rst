@@ -133,7 +133,9 @@ The posting order lane A relies on is the ``RegisterPhase`` order (R:14-22):
 sweep (riemann, sedimentation, covariance) < reconcile < limit (EF's carry P3,
 then scale P2) < divergence < pre_implicit < implicit < post_implicit <
 after_combine. The step frame is ``begin_step`` < ``post_split`` < stages <
-``after_combine`` (R:6).
+``after_combine`` (R:6). **Proposed (phase 3, for ruling):** lane A's
+cubed-sphere ``diffusion`` energy post is the first entry of ``divergence``,
+after ``limit`` and before the divergence is taken (3.7).
 
 Lane I's names: ``vic.mass_total`` (kept, R.rst:165-167), and the posts
 ``vic.mass_dry``, ``vic.mass_species`` and ``vic.momentum_t[2]``.
@@ -655,6 +657,29 @@ Its part is an FP64 monitor amount only (R.rst:452-454).
     ``DiffusionSource`` until gate G9b (5.3) shows the register route matches
     it.
   * This keeps phase 3 correct whichever way H13 turns out.
+* **Phase slot of the energy post (proposed, for ruling).** The cubed-sphere
+  ``diffusion`` energy post goes in ``RegisterPhase::divergence``, as its
+  first entry: after ``limit`` and before ``du = −dt div(total)``. Reasons:
+
+  * not in ``sweep`` or ``reconcile``: EF's ``scale`` multiplies every hydro
+    row of ``total(d)``, the energy row too (``flux_positivity.cpp:230,
+    244`` at R-6 ``a70aa4ed``), so a heat flux posted earlier would be
+    withheld wherever the mass flux is limited, which is not diffusion's
+    physics; and its seam faces are already single-valued from its own
+    face-slab exchange (S-3/M6), so R's ``reconcile`` has nothing to do;
+  * after EF's carry, which reads only the species rows, so the carry is
+    unchanged either way;
+  * before the divergence, so the heat flux enters the one divergence of
+    ``total(d)`` (A-r1 reads only the momentum rows for the flux form, so
+    the AAM is unchanged);
+  * not in ``pre_implicit``, where diffusion runs today
+    (``diffusion.cpp:383``): there the divergence (``hydro_forward.cpp:966``
+    at ``a70aa4ed``) has already been taken, so a ``total(d)`` post would
+    not reach this stage's ``du``.
+
+  The move changes ``du[IPR]`` at round-off (one divergence of the summed
+  flux in place of two); G8's own tolerance applies. The viscous momentum
+  stays a ``pre_implicit`` ``DiffusionSource`` until G9b.
 * **Radial conduction:** each half step posts its x1 heat flux with
   ``reg.post_split(1, "diffusion.radial", flux, 0.5, dt)`` (R:80-81).
 * **Radial failure: abort, settled (Cheng's decision, 1.5).** The pin's host
