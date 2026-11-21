@@ -359,6 +359,12 @@ std::array<Tensor, 3> DiffusionImpl::cubed_sphere_fluxes(Tensor w,
   return flux;
 }
 
+std::array<Tensor, 3> DiffusionImpl::face_fluxes(Tensor w, Tensor temp) {
+  check_profiles();
+  profiles_on(w);
+  return cubed_sphere_fluxes(w, temp);
+}
+
 void DiffusionImpl::post_fluxes(FluxRegister &reg, StageState const &s) {
   posted_ = {};
   auto c = phydro->pmb->pcoord;

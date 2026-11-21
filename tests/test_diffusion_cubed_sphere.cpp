@@ -787,3 +787,119 @@ TEST(CubedSphereDiffusion, radial_halves_post_their_heat_flux) {
   reg.begin_step();
   EXPECT_EQ(reg.step_field(1).abs().max().item<double>(), 0.);
 }
+
+// G9b (A.rst 5.3, H9/H13): the register route for the viscous momentum, each
+// face's Cartesian traction in that face's covariant components and then the
+// area-weighted divergence (what R's total and coord's divergence would do),
+// against today's Cartesian-channel divergence made covariant at the cell.
+// Solid-body rotation (zero strain) and uniform shear, C16, one stage; the
+// difference is relative to the largest face term max |A_f F_f| / V.
+namespace {
+std::array<double, 4> g9b_route_difference(int kind) {
+  auto mesh = make_mesh(16);
+  auto s = states(mesh, kind == 5 ? 0 : kind);
+  if (kind == 5)  // uniform shear: v = (y / 10, 0, 0) in Cartesian
+    for (size_t i = 0; i < s.size(); ++i) {
+      auto b = mesh->blocks[i];
+      auto c = b->pcoord;
+      int panel =
+          std::get<2>(b->get_layout()->loc_of(b->options->layout()->rank()));
+      auto v = s[i].w.narrow(0, IVX, 3);
+      v.zero_();
+      v[0].copy_(s[i].x[1] / 10.);
+      cs_cart_to_contra_(v, c->x2v.view({1, -1, 1}), c->x3v.view({-1, 1, 1}),
+                         panel);
+    }
+  std::vector<std::future<std::array<torch::Tensor, 3>>> tasks;
+  for (size_t i = 0; i < s.size(); ++i)
+    tasks.push_back(std::async(std::launch::async, [&, i] {
+      return mesh->blocks[i]->phydro->pdiffusion->face_fluxes(s[i].w, s[i].t);
+    }));
+  double diff = 0., scale = 0., cmax = 0., rmax = 0.;
+  // interior away from the x1 walls, where the wall traction is set apart
+  for (size_t i = 0; i < s.size(); ++i) {
+    auto flux = tasks[i].get();
+    auto b = mesh->blocks[i];
+    auto c = b->pcoord;
+    int panel =
+        std::get<2>(b->get_layout()->loc_of(b->options->layout()->rank()));
+    int n2 = c->options->nc2(), n3 = c->options->nc3();
+    auto sl = interior(b);
+    // today: Cartesian channels, then covariant at the cell
+    auto cart = -c->divergence(flux[0], flux[1], flux[2]);
+    auto mc = cart.narrow(0, IVX, 3);
+    cs_cart_to_contra_(mc, c->x2v.view({1, -1, 1}), c->x3v.view({-1, 1, 1}),
+                       panel);
+    coord_vec_lower_(mc, c->cosine_cell_kj);
+    // the register route: covariant at each face, then the divergence
+    std::array<torch::Tensor, 3> reg;
+    std::array<torch::Tensor, 3> a = {c->x2v.view({1, -1, 1}),
+                                      c->x2f.narrow(0, 0, n2).view({1, -1, 1}),
+                                      c->x2v.view({1, -1, 1})};
+    std::array<torch::Tensor, 3> bb = {
+        c->x3v.view({-1, 1, 1}), c->x3v.view({-1, 1, 1}),
+        c->x3f.narrow(0, 0, n3).view({-1, 1, 1})};
+    std::array<torch::Tensor, 3> cs = {c->cosine_cell_kj,
+                                       c->cosine_face2_kj.narrow(1, 0, n2),
+                                       c->cosine_face3_kj.narrow(0, 0, n3)};
+    for (int d = 0; d < 3; ++d) {
+      reg[d] = flux[d].clone();
+      auto m = reg[d].narrow(0, IVX, 3);
+      cs_cart_to_contra_(m, a[d], bb[d], panel);
+      coord_vec_lower_(m, cs[d]);
+    }
+    auto route = -c->divergence(reg[0], reg[1], reg[2]);
+    auto mr = route.narrow(0, IVX, 3);
+    diff = std::max(diff,
+                    (mr - mc)
+                        .index({torch::indexing::Slice(), sl[0], sl[1], sl[2]})
+                        .abs()
+                        .max()
+                        .item<double>());
+    auto deep = std::vector<torch::indexing::TensorIndex>{
+        torch::indexing::Slice(), sl[0], sl[1],
+        torch::indexing::Slice(c->il() + 1, c->iu())};
+    cmax = std::max(cmax, mc.index(deep).abs().max().item<double>());
+    rmax = std::max(rmax, mr.index(deep).abs().max().item<double>());
+    std::array<torch::Tensor, 3> area = {c->face_area1(), c->face_area2(),
+                                         c->face_area3()};
+    auto vmin = c->cell_volume().index(sl).min().item<double>();
+    for (int d = 0; d < 3; ++d) {
+      auto f = flux[d].narrow(0, IVX, 3).abs().amax(0);
+      auto A = area[d]
+                   .narrow(0, 0, f.size(0))
+                   .narrow(1, 0, f.size(1))
+                   .narrow(2, 0, f.size(2));
+      scale = std::max(scale, (A * f).max().item<double>() / vmin);
+    }
+  }
+  return {diff, scale, cmax, rmax};
+}
+}  // namespace
+
+// G9b's verdict: on solid-body rotation both routes vanish to rounding; on
+// uniform shear the register route, which has no viscous metric term (hydro's
+// metric source covers p and rho v v only), misses the Cartesian divergence by
+// far more than 1e-12. So the viscous momentum keeps its Cartesian-channel
+// divergence (A.rst 3.7 and the H9 sensitivity in 9.2); a viscous metric
+// source on the register route would flip the second expectation.
+TEST(CubedSphereDiffusion, g9b_register_route_vs_cartesian_channel) {
+  torch::set_num_threads(1);
+  std::array<std::array<double, 4>, 2> got;
+  int at = 0;
+  for (int kind : {3, 5}) {
+    auto [diff, scale, cmax, rmax] = g9b_route_difference(kind);
+    std::printf(
+        "G9b %s: max|register route - Cartesian channel| %.3e, face-term "
+        "scale %.3e, relative %.3e; off the x1 walls max|Cartesian| %.3e "
+        "max|register| %.3e\n",
+        kind == 3 ? "solid-body rotation" : "uniform shear", diff, scale,
+        scale > 0. ? diff / scale : 0., cmax, rmax);
+    got[at++] = {diff, scale, cmax, rmax};
+  }
+  auto const &rot = got[0];
+  auto const &shear = got[1];
+  EXPECT_LE(rot[0], 1.e-12 * shear[1]);    // both routes vanish
+  EXPECT_LE(shear[2], 1.e-2 * shear[3]);   // the Cartesian one nearly vanishes
+  EXPECT_GT(shear[0], 1.e-12 * shear[1]);  // the register route does not
+}
