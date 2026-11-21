@@ -51,6 +51,10 @@ OutputOptions OutputOptionsImpl::from_yaml(YAML::Node const &node, int fid) {
   return options;
 }
 
+void OutputOptionsImpl::check_domain(CoordinateOptionsImpl const &co) const {
+  check_output_domain(*this, co);
+}
+
 OutputType::OutputType() : options(OutputOptionsImpl::create()) {}
 OutputType::OutputType(OutputOptions const &options_) : options(options_) {}
 OutputType::~OutputType() = default;

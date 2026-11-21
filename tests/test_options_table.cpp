@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -184,6 +185,52 @@ TEST(options_table, output_checks) {
   EXPECT_THROW(
       OutputOptionsImpl::from_yaml(YAML::Load("{type: netcdf, dtt: 1}"), 2),
       c10::Error);
+}
+
+// O8 item sv: output.yaml's `domain` checks against the global grid, with the
+// messages and the order of the deleted MeshBlockImpl::validate_slice.
+TEST(options_table, output_domain_checks) {
+  auto co = CoordinateOptionsImpl::create();
+  co->global_x1min(0.).global_x1max(10.);
+  co->global_x2min(-1.).global_x2max(1.);
+  co->global_x3min(0.).global_x3max(1.);
+  auto error = [&](OutputOptions const& o) -> std::string {
+    try {
+      o->check_domain(*co);
+    } catch (std::invalid_argument const& e) {
+      return e.what();
+    }
+    return "";
+  };
+  auto x1 = [](std::vector<double> v) {
+    auto o = OutputOptionsImpl::create();
+    o->file_type("netcdf").x1_slice(v);
+    return o;
+  };
+  auto out = OutputOptionsImpl::create();
+  EXPECT_EQ(error(out), "");
+  EXPECT_EQ(error(x1({0., 2.5, 9.999})), "");
+  EXPECT_EQ(error(x1({10.})), "Slice out of mesh bounds: x1");  // [min, max)
+  EXPECT_EQ(error(x1({-0.5})), "Slice out of mesh bounds: x1");
+  EXPECT_EQ(error(x1({std::numeric_limits<double>::quiet_NaN()})),
+            "Slice out of mesh bounds: x1");
+  EXPECT_EQ(error(x1({2., 1.})), "Slices must be strictly increasing: x1");
+  EXPECT_EQ(error(x1({1., 1.})), "Slices must be strictly increasing: x1");
+  // element by element: the first bad element decides the message
+  EXPECT_EQ(error(x1({5., 3., 50.})), "Slices must be strictly increasing: x1");
+  EXPECT_EQ(error(x1({50., 3.})), "Slice out of mesh bounds: x1");
+  // built in code, so from_yaml's sum check never ran
+  out = OutputOptionsImpl::create();
+  out->x2_slice({0.}).output_sumx2(true);
+  EXPECT_EQ(error(out), "Cannot request both slice and sum along x2");
+  // axis order x1, x2, x3; within an axis the sum check first
+  out = OutputOptionsImpl::create();
+  out->x3_slice({5.}).x2_slice({0.5, 0.}).output_sumx2(true);
+  EXPECT_EQ(error(out), "Cannot request both slice and sum along x2");
+  out->output_sumx2(false);
+  EXPECT_EQ(error(out), "Slices must be strictly increasing: x2");
+  out->x2_slice({0.});
+  EXPECT_EQ(error(out), "Slice out of mesh bounds: x3");
 }
 
 // Lane S's three parsers against the generated rows, deck by deck.

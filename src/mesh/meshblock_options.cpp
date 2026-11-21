@@ -77,7 +77,7 @@ MeshBlockOptions MeshBlockOptionsImpl::from_yaml(std::string input_file,
 
   // ------------- coordinate ------------- //
   op->coord() = CoordinateOptionsImpl::from_yaml(input_file);
-  // output slices are checked once, by MeshBlock (validate_slice)
+  // output slices are checked once, by MeshBlock (check_domain)
   if (verbose) op->coord()->report(SINFO(MeshBlockOptions));
 
   // --------- internal boundary ---------- //
