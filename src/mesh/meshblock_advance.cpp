@@ -116,7 +116,7 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
     // survive into the step
     freg.begin_step();
     auto splits = phydro->sources.splits();
-    for (auto &s : splits) s->begin_split(hydro_u, dt);
+    for (auto &s : splits) s->begin_split(hydro_u, dt, freg);
     if (!splits.empty()) {
       apply_boundaries(vars, hydro_u, scalar_s);
       exchange_ghost_zones(vars);
@@ -262,7 +262,7 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   // -------- (4) multi-stage averaging --------
   pintg->forward(stage, _state.u0(), hydro_u, fut_hydro_du, hydro_u);
   if (stage + 1 == static_cast<int>(pintg->stages.size()))
-    for (auto &s : phydro->sources.splits()) s->finish_split(hydro_u, dt);
+    for (auto &s : phydro->sources.splits()) s->finish_split(hydro_u, dt, freg);
   // skipped dry and scalar-free before the last stage: next U->W applies it
   if (hydro_u.size(0) > ICY || pscalar->nvar() > 0 ||
       stage + 1 == static_cast<int>(pintg->stages.size()))
