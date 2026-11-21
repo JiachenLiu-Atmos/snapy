@@ -122,10 +122,15 @@ class RiemannSolverImpl : public torch::nn::Cloneable<RiemannSolverImpl> {
   //! pressure; energy flux includes the total pressure. Other primitive rows
   //! retain their normal meanings. This is separate from the total-state
   //! forward contract.
+  //!
+  //! central, if defined: riemann.central as in forward. Its mass rows read
+  //! only the density, normal velocity and species rows, which are totals
+  //! here too, so it is the total-state central.
   torch::Tensor forward_perturbations(
       torch::Tensor wl, torch::Tensor wr, int dim, torch::Tensor out,
       torch::Tensor reference_pressure,
-      torch::Tensor face_pressure_delta = torch::Tensor());
+      torch::Tensor face_pressure_delta = torch::Tensor(),
+      torch::Tensor central = torch::Tensor());
 
  protected:
   FORWARD_HAS_DEFAULT_ARGS({4, torch::nn::AnyValue(torch::Tensor())},

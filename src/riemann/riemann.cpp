@@ -199,13 +199,16 @@ torch::Tensor RiemannSolverImpl::forward(torch::Tensor wl, torch::Tensor wr,
 
 torch::Tensor RiemannSolverImpl::forward_perturbations(
     torch::Tensor wl, torch::Tensor wr, int dim, torch::Tensor flx,
-    torch::Tensor reference_pressure, torch::Tensor face_pressure_delta) {
+    torch::Tensor reference_pressure, torch::Tensor face_pressure_delta,
+    torch::Tensor central) {
   TORCH_CHECK(kind == RiemannKind::hllc,
               "Riemann solver perturbations need hllc, not ", options->type());
   TORCH_CHECK(reference_pressure.defined(),
               "HLLC perturbations require a shared face pressure background");
+  TORCH_CHECK(!central.defined() || central.scalar_type() == flx.scalar_type(),
+              "riemann.central must have the flux dtype");
   return solve(wl, wr, dim, flx, face_pressure_delta, reference_pressure,
-               torch::Tensor());
+               central);
 }
 
 //! the faces of an x<dim> per-face tensor (nc3, nc2, nc1) the block owns:

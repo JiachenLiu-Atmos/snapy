@@ -23,7 +23,10 @@
 #include <snap/riemann/riemann_kernels.h>
 
 #include <snap/eos/equation_of_state.hpp>
+#include <snap/eos/ideal_moist.hpp>
 #include <snap/hydro/balance_column.hpp>
+#include <snap/hydro/hydro.hpp>
+#include <snap/hydro/sweep.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/riemann/riemann.hpp>
 #include <snap/utils/on_host.hpp>
@@ -563,6 +566,104 @@ TEST_P(DeviceTest, riemann_central_matches_the_two_extra_solves) {
       EXPECT_LE(err, tol) << type << " dim " << dim;
       EXPECT_EQ(cen.narrow(0, IVX, 4).abs().max().item<double>(), 0.)
           << type << " dim " << dim;
+    }
+  }
+}
+
+// A-ph4 (Xi's ruling, kickoff 1795248311): riemann.central on the HLLC
+// perturbation-flux path. One Cartesian ideal-moist HLLC block; the same total
+// face states go through the sweep's riemann_solve on the total path and on the
+// perturbation path (pressure rows shifted by the static face gauge built from
+// a p0 field). The central is the total-density 1/2 (F(w_L) + F(w_R)) of the
+// mass rows on both paths: it reads only the density, normal velocity and
+// species rows, which the perturbation path leaves as totals.
+TEST_P(DeviceTest, hllc_perturbation_central_matches_total_central) {
+  auto config =
+      std::regex_replace(std::string(small_ideal_moist_lmars_cloud_config),
+                         std::regex("type: lmars"), "type: hllc");
+  char fname[80] = "/tmp/tempfile.XXXXXX";
+  mkstemp(fname);
+  std::ofstream outfile(fname);
+  outfile << config;
+  outfile.close();
+  kintera::init_species_from_yaml(fname);
+  auto opts = MeshBlockOptionsImpl::from_yaml(fname);
+  auto block = MeshBlock(opts);
+  block->to(device, dtype);
+  std::remove(fname);
+
+  auto& hydro = *block->phydro;
+  ASSERT_TRUE(hydro.priemann->kind == RiemannKind::hllc);
+  ASSERT_EQ(hydro.peos->options->type(), "ideal-moist");
+  ASSERT_EQ(block->pcoord->options->type(), "cartesian");
+  auto c = block->pcoord;
+  int nvar = hydro.peos->nvar(), ny = nvar - ICY;
+  ASSERT_EQ(ny, 2);
+  auto shape = std::vector<int64_t>{nvar, c->options->nc3(), c->options->nc2(),
+                                    c->options->nc1()};
+  auto o = torch::device(device).dtype(dtype);
+  torch::manual_seed(11);
+  // a p0 field that varies along every axis, and total states near it
+  auto p0 =
+      1.e5 * (0.95 + 0.1 * torch::rand({shape[1], shape[2], shape[3]}, o));
+  auto state = [&] {
+    auto w = torch::zeros(shape, o);
+    w[IDN] = 1. + 0.1 * torch::rand_like(w[IDN]);
+    w.narrow(0, IVX, 3).copy_(20. * torch::rand_like(w.narrow(0, IVX, 3)) -
+                              10.);
+    w[IPR] = p0 * (1. + 1.e-3 * (torch::rand_like(p0) - 0.5));
+    w[ICY] = 1.5e-2 + 1.e-3 * torch::rand_like(w[ICY]);
+    w[ICY + 1] = 4.e-3 + 1.e-3 * torch::rand_like(w[ICY + 1]);
+    return w;
+  };
+  auto wl = state(), wr = state();
+  auto lr = torch::stack({wl, wr});
+  IdealMoistPerturbations perturb;
+  perturb.pressure0 = p0;
+  auto mass = [&](torch::Tensor const& f) {
+    return torch::cat({f.narrow(0, IDN, 1), f.narrow(0, ICY, ny)});
+  };
+  // tolerance: C.rst section 5 round-off, 1e-14 relative in FP64 (as in
+  // riemann_central_matches_the_two_extra_solves), 2e-6 in FP32
+  double tol = dtype == torch::kFloat64 ? 1.e-14 : 2.e-6;
+  for (int dim : {DIM1, DIM2, DIM3}) {
+    auto flux_t = torch::zeros(shape, o), cen_t = torch::zeros(shape, o);
+    auto flux_p = torch::zeros(shape, o), cen_p = torch::zeros(shape, o);
+    torch::Tensor bg_t, bg_p;
+    riemann_solve(hydro, lr.clone(), dim, flux_t, torch::Tensor(), bg_t,
+                  nullptr, cen_t);
+    riemann_solve(hydro, lr.clone(), dim, flux_p, torch::Tensor(), bg_p,
+                  &perturb, cen_p);
+    ASSERT_TRUE(bg_p.defined());
+    EXPECT_GT(bg_p.abs().min().item<double>(), 0.9e5);
+    // the total-density central from the face states themselves
+    int ivx = IPR - dim;
+    auto ml = wl[IDN] * wl[ivx], mr = wr[IDN] * wr[ivx];
+    auto rdl = 1. - wl.narrow(0, ICY, ny).sum(0);
+    auto rdr = 1. - wr.narrow(0, ICY, ny).sum(0);
+    auto ref = torch::cat(
+        {(0.5 * (ml * rdl + mr * rdr)).unsqueeze(0),
+         0.5 * (ml * wl.narrow(0, ICY, ny) + mr * wr.narrow(0, ICY, ny))});
+    auto scale = mass(cen_t).abs().max().item<double>();
+    ASSERT_GT(scale, 0.);
+    double abs_tp = (mass(cen_p) - mass(cen_t)).abs().max().item<double>();
+    double abs_pr = (mass(cen_p) - ref).abs().max().item<double>();
+    std::printf(
+        "A-ph4 central %s dim %d: max|p-t| %.3e (rel %.3e), max|p-ref| %.3e "
+        "(rel %.3e)\n",
+        torch::toString(dtype), dim, abs_tp, abs_tp / scale, abs_pr,
+        abs_pr / scale);
+    EXPECT_LE(abs_tp / scale, tol) << "dim " << dim;
+    EXPECT_LE(abs_pr / scale, tol) << "dim " << dim;
+    // the other rows are not written on either path
+    EXPECT_EQ(cen_p.narrow(0, IVX, 4).abs().max().item<double>(), 0.);
+    EXPECT_EQ(cen_t.narrow(0, IVX, 4).abs().max().item<double>(), 0.);
+    // FP64: the perturbation path solved the same faces (its mass flux
+    // agrees with the total path's to the pressure-split round-off)
+    if (dtype == torch::kFloat64) {
+      auto dflux = mass(flux_p - flux_t).abs().max();
+      EXPECT_LE((dflux / mass(flux_t).abs().max()).item<double>(), 1.e-9)
+          << "dim " << dim;
     }
   }
 }
