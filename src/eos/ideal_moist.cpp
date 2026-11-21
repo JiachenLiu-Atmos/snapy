@@ -15,6 +15,27 @@
 
 namespace snap {
 
+namespace {
+
+// sum_k y[k] * c[k] over the leading (species) axis, accumulated one species
+// at a time with elementwise ops. A sum(0) or matmul over that axis of a
+// block's strided (nvar, nc3, nc2, nc1) view rounds by memory position, so
+// identical states in different columns could come out 1 ulp apart.
+torch::Tensor species_dot(torch::Tensor const& y, torch::Tensor const& c) {
+  auto acc = y[0] * c[0];
+  for (int64_t k = 1; k < y.size(0); ++k) acc = acc + y[k] * c[k];
+  return acc;
+}
+
+// sum_k y[k] over the leading (species) axis, accumulated the same way
+torch::Tensor species_total(torch::Tensor const& y) {
+  auto acc = y[0];
+  for (int64_t k = 1; k < y.size(0); ++k) acc = acc + y[k];
+  return acc;
+}
+
+}  // namespace
+
 void IdealMoistImpl::reset() {
   split_cv_ = split_offset_ = split_gas_ = torch::Tensor();
   ef_status().slot(EfStatus::kHeatCapacity) = torch::Tensor();
@@ -240,12 +261,9 @@ torch::Tensor IdealMoistImpl::_prim2intEng(torch::Tensor prim) {
   auto ie = prim[IPR] * f_sig(yfrac) / f_eps(yfrac) / (gammad - 1);
 
   // add the internal energy offset
-  auto yd = 1. - yfrac.sum(0);
+  auto yd = 1. - species_total(yfrac);
   ie += prim[IDN] * yd * u0[0];
-  std::vector<int64_t> vec(yfrac.dim(), 1);
-  vec[0] = -1;
-  ie += prim[IDN] *
-        (yfrac * u0.narrow(0, 1, ny).to(yfrac.options()).view(vec)).sum(0);
+  ie += prim[IDN] * species_dot(yfrac, u0.narrow(0, 1, ny).to(yfrac.options()));
   return ie;
 }
 
@@ -299,13 +317,15 @@ torch::Tensor IdealMoistImpl::_temp2intEng(torch::Tensor cons,
   auto cvd = pthermo->options->cref_R()[0] * Rd;
   auto cvy = (cv_ratio_m1 + 1.) * cvd;
 
-  std::vector<int64_t> vec(cons.dim(), 1);
-  vec[0] = -1;
-
   // Heat capacity per unit volume. The DRY channel carries cvd and dominates
   // a mostly-dry column, so leaving it out is not a small error.
-  auto rho_cv =
-      cons[IDN] * cvd + (cons.narrow(0, ICY, ny) * cvy.view(vec)).sum(0);
+  // (in the promoted type of cons and cvy, as the broadcast product was)
+  auto rho_cv = cons[IDN] * cvd;
+  if (ny > 0) {
+    auto dtype = torch::promote_types(cons.scalar_type(), cvy.scalar_type());
+    auto ys = cons.narrow(0, ICY, ny).to(dtype);
+    rho_cv = rho_cv + species_dot(ys, cvy.to(ys.device(), dtype));
+  }
 
   // u0 is ADDED to the thermal energy, never scaled by temperature: the
   // offset _prim2intEng adds and _cons2prim subtracts, so "UT->I" at a state's
@@ -323,13 +343,11 @@ torch::Tensor IdealMoistImpl::f_eps(torch::Tensor const& yfrac) const {
     return torch::ones(vec, yfrac.options());
   }
 
-  // an explicit multiply-and-sum over the species axis: a matmul on this
-  // strided view rounds by memory position (identical inputs, 1 ulp apart)
-  std::vector<int64_t> vec(yfrac.dim(), 1);
-  vec[0] = -1;
+  // an explicit accumulation over the species axis (see species_dot): the
+  // vapours weigh inv_mu_ratio_m1, the clouds -1
   auto mu = inv_mu_ratio_m1.narrow(0, 0, nvapor).to(yfrac.options());
-  return 1. + (yfrac.narrow(0, 0, nvapor) * mu.view(vec)).sum(0) -
-         yfrac.narrow(0, nvapor, ncloud).sum(0);
+  auto c = torch::cat({mu, -torch::ones({ncloud}, mu.options())});
+  return 1. + species_dot(yfrac.narrow(0, 0, nvapor + ncloud), c);
 }
 
 torch::Tensor IdealMoistImpl::f_sig(torch::Tensor const& yfrac) const {
@@ -341,11 +359,9 @@ torch::Tensor IdealMoistImpl::f_sig(torch::Tensor const& yfrac) const {
     return torch::ones(vec, yfrac.options());
   }
 
-  // the same explicit species sum as f_eps, so the result does not depend on
-  // where the element sits in memory
-  std::vector<int64_t> vec(yfrac.dim(), 1);
-  vec[0] = -1;
-  return 1. + (yfrac * cv_ratio_m1.to(yfrac.options()).view(vec)).sum(0);
+  // the same explicit accumulation as f_eps, so the result does not depend
+  // on where the element sits in memory
+  return 1. + species_dot(yfrac, cv_ratio_m1.to(yfrac.options()));
 }
 
 }  // namespace snap
