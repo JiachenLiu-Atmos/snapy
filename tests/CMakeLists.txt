@@ -392,6 +392,8 @@ snapy_add_python_test(test_sk2_active_set TIMEOUT 180 LABELS "python;mesh;redo;e
 snapy_add_python_test(test_sk4_chemistry_source TIMEOUT 600 LABELS "python;mesh;eos;kinetics")
 snapy_add_python_test(test_sk4_mesh_chemistry TIMEOUT 600 LABELS "python;mesh;eos;kinetics")
 snapy_add_python_test(test_eos_temp2inteng TIMEOUT 60 LABELS "python;eos")
+# EF-13: the ideal-moist species sums give bitwise-equal x2 columns
+snapy_add_python_test(test_eos_species_sum_layout TIMEOUT 120 LABELS "python;eos")
 # fp32 roadmap Step 1a: anomaly storage of hydro_u
 snapy_add_python_test(test_anomaly_storage TIMEOUT 600 LABELS "python;eos;anomaly")
 # the base arm is the unlimited scheme and must go negative; with the face-flux
