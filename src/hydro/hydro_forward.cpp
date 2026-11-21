@@ -916,6 +916,10 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       freg.keep(d, "mass.dry.limited", freg.total(d)[IDN]);
 
   //// ------------ (5) Calculate flux divergence ------------ ////
+  // divergence starts with the sources' face-flux posts (ruling
+  // A-ph3.diffusion_phase): after limit, so EF's scale never sees them, and
+  // before the divergence of the totals below
+  sources.post_fluxes(freg, {w, torch::Tensor(), dt});
   // #289: the normal-momentum face flux carries p* = p - delta d_1 p (its
   // centroid part), so the geometric pressure source must see the same p*, or
   // a hydrostatic rest state is no longer balanced (derivation 4A.3.2). Only

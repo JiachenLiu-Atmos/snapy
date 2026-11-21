@@ -11,15 +11,28 @@ void DiffusionImpl::begin_split(torch::Tensor u, double dt) {
 void DiffusionImpl::finish_split(torch::Tensor u, double dt) {
   radial_conduction_step(u, 0.5 * dt);
 }
+// ruling A-ph3.radial_step_field: Hydro requested the x1 step field when
+// radial conduction is on, so the post is unguarded
+void DiffusionImpl::begin_split(torch::Tensor u, double dt, FluxRegister& reg) {
+  split_initial_ = u.clone();
+  auto flux = radial_conduction_step(u, 0.5 * dt);
+  if (flux.defined()) reg.post_split(1, "diffusion.radial", flux, 0.5, dt);
+}
+void DiffusionImpl::finish_split(torch::Tensor u, double dt,
+                                 FluxRegister& reg) {
+  auto flux = radial_conduction_step(u, 0.5 * dt);
+  if (flux.defined()) reg.post_split(1, "diffusion.radial", flux, 0.5, dt);
+}
 void DiffusionImpl::restore_split(torch::Tensor u) const {
   TORCH_CHECK(split_initial_.defined(),
               "[Diffusion] No split-step state to restore.");
   u.copy_(split_initial_);
 }
 
-void DiffusionImpl::radial_conduction_step(torch::Tensor u, double dt) {
+torch::Tensor DiffusionImpl::radial_conduction_step(torch::Tensor u,
+                                                    double dt) {
   if (!options->implicit_radial() || options->kappa_iso() == 0. || dt == 0.)
-    return;
+    return torch::Tensor();
   TORCH_CHECK(std::isfinite(dt) && dt > 0.,
               "[Diffusion] Invalid radial step dt.");
   check_profiles();
@@ -99,5 +112,39 @@ void DiffusionImpl::radial_conduction_step(torch::Tensor u, double dt) {
               "[Diffusion] Radial SDIRK step produced nonpositive/nonfinite "
               "temperature; reduce dt.");
   u[IPR].index(sl).add_(capacity * (next - temp));
+  // the step's x1 heat flux density (A.rst 3.7). Per unit solid angle the
+  // step moves dt [(1 - gamma) Q(first) + gamma Q(next)] up through face f,
+  // Q_f = conductance_f (T below - T above), a wall's T_w outside; a face
+  // of area A_f and solid angle Omega = V / (mass / capacity) then carries
+  // F_f = Omega Q_f / A_f, so -dt div(F) is the increment above
+  auto q = [&](torch::Tensor const& t) {
+    auto out = torch::zeros_like(conductance);
+    out.narrow(-1, 1, n - 1)
+        .copy_(conductance.narrow(-1, 1, n - 1) *
+               (t.narrow(-1, 0, n - 1) - t.narrow(-1, 1, n - 1)));
+    out.select(-1, 0).copy_(conductance.select(-1, 0) *
+                            (options->temperature_inner() - t.select(-1, 0)));
+    out.select(-1, n).copy_(
+        conductance.select(-1, n) *
+        (t.select(-1, n - 1) - options->temperature_outer()));
+    return out;
+  };
+  auto qbar = (1. - gamma) * q(first) + gamma * q(next);
+  auto vol = c->cell_volume().to(u.options()).index(sl);
+  auto omega = (vol * capacity / mass).narrow(-1, 0, 1);
+  int ks = c->kl(), ke = c->ku() + 1, js = c->jl(), je = c->ju() + 1;
+  auto area = c->face_area1()
+                  .to(u.options())
+                  .slice(0, ks, ke)
+                  .slice(1, js, je)
+                  .slice(2, start, start + n + 1);
+  auto flux =
+      torch::zeros({u.size(0), u.size(1), u.size(2), u.size(3)}, u.options());
+  flux[IPR]
+      .slice(0, ks, ke)
+      .slice(1, js, je)
+      .slice(2, start, start + n + 1)
+      .copy_(omega * qbar / area);
+  return flux;
 }
 }  // namespace snap

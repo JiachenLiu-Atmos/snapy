@@ -691,3 +691,99 @@ TEST(CubedSphereDiffusion, cuda_mesh_split_step_matches_cpu) {
     }
   }
 }
+
+// A-ph3 (A.rst 3.7, ruling A-ph3.diffusion_phase): post_fluxes puts the
+// energy rows of the face fluxes into the register and add() keeps the
+// others. Rows IDN..IVZ of du are the same bits; the energy row, now the
+// register's divergence, differs from the old one only by rounding.
+TEST(CubedSphereDiffusion, energy_post_reproduces_the_energy_row) {
+  torch::set_num_threads(1);
+  for (int kind : {1, 4}) {  // heat (l=2 temperature), viscous work (shear)
+    auto mesh = make_mesh(6);
+    auto s = states(mesh, kind);
+    auto old = apply_diffusion(mesh, s);
+    std::vector<std::future<torch::Tensor>> tasks;
+    for (size_t i = 0; i < s.size(); ++i)
+      tasks.push_back(std::async(std::launch::async, [&, i] {
+        auto b = mesh->blocks[i];
+        auto &reg = b->phydro->flux_register();
+        for (int d = 1; d <= 3; ++d) reg.total(d).zero_();
+        b->phydro->pdiffusion->post_fluxes(reg, {s[i].w, s[i].t, 1.});
+        return b->phydro->pdiffusion->forward(torch::zeros_like(s[i].w), s[i].w,
+                                              s[i].t, 1.);
+      }));
+    double worst = 0., scale = 0.;
+    for (size_t i = 0; i < s.size(); ++i) {
+      auto du = tasks[i].get();
+      auto b = mesh->blocks[i];
+      auto &reg = b->phydro->flux_register();
+      auto sl = interior(b);
+      EXPECT_TRUE(torch::equal(du.narrow(0, 0, IPR), old[i].narrow(0, 0, IPR)));
+      EXPECT_EQ(du[IPR].abs().max().item<double>(), 0.);  // not in add()
+      auto e =
+          -b->pcoord->divergence(reg.total(1), reg.total(2), reg.total(3))[IPR];
+      worst = std::max(worst,
+                       (e - old[i][IPR]).index(sl).abs().max().item<double>());
+      scale = std::max(scale, old[i][IPR].index(sl).abs().max().item<double>());
+    }
+    ASSERT_GT(scale, 0.);
+    std::printf("A-ph3 energy row, kind %d: max|new - old| / max|old| = %.3e\n",
+                kind, worst / scale);
+    EXPECT_LE(worst, 1.e-13 * scale);
+  }
+}
+
+// ruling A-ph3.radial_step_field: radial conduction requests the x1 step
+// field and posts each half with post_split; the posted flux's divergence is
+// the energy increment of the half, wall faces included
+TEST(CubedSphereDiffusion, radial_halves_post_their_heat_flux) {
+  torch::set_num_threads(1);
+  {  // no radial conduction: nothing requested
+    auto plain_mesh = make_mesh(4);
+    auto &plain = plain_mesh->blocks[0]->phydro->flux_register();
+    plain.begin_step();  // S_d is allocated here when requested
+    EXPECT_FALSE(plain.has_step_field(1));
+  }
+  auto opts = MeshOptionsImpl::from_yaml("test_diffusion_cubed_sphere.yaml");
+  opts->block()->coord()->nx2(4).nx3(4).global_nx2(4).global_nx3(4);
+  opts->blocks_per_process(6 / get_world_size());
+  opts->block()->hydro()->diffusion()->implicit_radial(true).kappa_iso(1000.);
+  opts->block()->hydro()->diffusion()->temperature_inner(305.);
+  opts->block()->hydro()->diffusion()->temperature_outer(295.);
+  auto mesh = Mesh(opts);
+  auto b = mesh->blocks[0];
+  auto c = b->pcoord;
+  auto &reg = b->phydro->flux_register();
+  reg.begin_step();
+  ASSERT_TRUE(reg.has_step_field(1));
+  auto s = states(mesh, 2)[0];  // T = 300 + 2 / r
+  auto w = s.w.clone();
+  double rd = b->phydro->peos->species_cv_ref() *
+              (b->phydro->peos->options->gammad() - 1.);
+  w[IPR].copy_(w[IDN] * rd * s.t);
+  auto u = b->phydro->peos->compute("W->U", {w});
+  auto u0 = u.clone();
+  auto sl = interior(b);
+  int is = c->il(), ie = c->iu() + 1;
+  auto vol = c->cell_volume().index(sl);
+  auto area = c->face_area1();
+  auto check = [&](char const *half) {
+    auto S = reg.step_field(1)[IPR];
+    auto as = (area.narrow(-1, 0, S.size(-1)) * S)
+                  .index({sl[0], sl[1], torch::indexing::Slice()});
+    auto out = as.slice(-1, is + 1, ie + 1) - as.slice(-1, is, ie);
+    auto gain = vol * (u - u0)[IPR].index(sl);
+    double rel = (gain + out).abs().max().item<double>() /
+                 gain.abs().max().item<double>();
+    std::printf("A-ph3 radial %s: max|V du + div(A S)| / max|V du| = %.3e\n",
+                half, rel);
+    EXPECT_LE(rel, 1.e-12) << half;
+  };
+  reg.begin_step();
+  b->phydro->pdiffusion->begin_split(u, 0.2, reg);
+  check("first half");
+  b->phydro->pdiffusion->finish_split(u, 0.2, reg);
+  check("both halves");
+  reg.begin_step();
+  EXPECT_EQ(reg.step_field(1).abs().max().item<double>(), 0.);
+}

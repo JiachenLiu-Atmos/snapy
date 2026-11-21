@@ -166,8 +166,8 @@ void share_fluxes(MeshBlockImpl const *block, std::array<Tensor, 3> &flux,
 }
 }  // namespace
 
-Tensor DiffusionImpl::forward_cubed_sphere(Tensor du, Tensor w, Tensor temp,
-                                           double dt) {
+std::array<Tensor, 3> DiffusionImpl::cubed_sphere_fluxes(Tensor w,
+                                                         Tensor temp) {
   auto block = phydro->pmb;
   auto c = block->pcoord;
   auto op = c->options;
@@ -356,11 +356,44 @@ Tensor DiffusionImpl::forward_cubed_sphere(Tensor du, Tensor w, Tensor temp,
   field = Tensor();
   coefficients = Tensor();
   share_fluxes(block, flux, trace, normals);
+  return flux;
+}
+
+void DiffusionImpl::post_fluxes(FluxRegister &reg, StageState const &s) {
+  posted_ = {};
+  auto c = phydro->pmb->pcoord;
+  if (c->options->type() != "gnomonic-equiangle") return;
+  if (options->nu_iso() == 0. && options->kappa_iso() == 0.) return;
+  for (int d = 1; d <= 3; ++d)
+    if (!reg.total(d).defined()) return;  // add() keeps the energy rows
+  check_profiles();
+  profiles_on(s.w);
+  auto temp = s.temp.defined() ? s.temp : phydro->peos->compute("W->T", {s.w});
+  auto flux = cubed_sphere_fluxes(s.w, temp);
+  for (int d = 1; d <= 3; ++d)
+    reg.add(d, "diffusion", {IPR}, flux[d - 1].narrow(0, IPR, 1));
+  posted_ = flux;
+}
+
+Tensor DiffusionImpl::forward_cubed_sphere(Tensor du, Tensor w, Tensor temp,
+                                           double dt) {
+  auto block = phydro->pmb;
+  auto c = block->pcoord;
+  int panel = std::get<2>(
+      block->get_layout()->loc_of(block->options->layout()->rank()));
+  auto a = c->x2v.to(w.options()).view({1, -1, 1});
+  auto b = c->x3v.to(w.options()).view({-1, 1, 1});
+  // post_fluxes ran this stage: the energy rows are in the register and
+  // only the other rows enter du here (A.rst 3.7)
+  bool posted = posted_[0].defined();
+  auto flux = posted ? posted_ : cubed_sphere_fluxes(w, temp);
+  posted_ = {};
   auto tendency = -c->divergence(flux[0], flux[1], flux[2]);
   auto momentum = tendency.narrow(0, IVX, 3);
   cs_cart_to_contra_(momentum, a, b, panel);
   coord_vec_lower_(momentum, c->cosine_cell_kj.to(w.options()));
-  du.narrow(0, 0, 5).add_(dt * tendency);
+  int rows = posted ? IPR : 5;
+  du.narrow(0, 0, rows).add_(dt * tendency.narrow(0, 0, rows));
   return du;
 }
 }  // namespace snap

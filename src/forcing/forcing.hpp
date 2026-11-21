@@ -221,15 +221,33 @@ class DiffusionImpl : public SourceModule<DiffusionImpl, DiffusionOptions> {
   void reset() override;
   void add(torch::Tensor du, StageState const& s) override;
   double max_time_step(StageState const& s) const override;
-  void radial_conduction_step(torch::Tensor u, double dt);
+  //! cubed sphere: the energy row of the diffusion face fluxes goes to the
+  //! register as "diffusion" (A.rst 3.7); the momentum rows stay in add()
+  void post_fluxes(FluxRegister& reg, StageState const& s) override;
+  //! radial conduction over dt; returns its x1 face heat flux density (the
+  //! register's [nvar, faces...] layout, row IPR), undefined when off
+  torch::Tensor radial_conduction_step(torch::Tensor u, double dt);
   void begin_split(torch::Tensor u, double dt) override;
   void finish_split(torch::Tensor u, double dt) override;
+  //! the same, posting each half's x1 heat flux with
+  //! post_split(1, "diffusion.radial", flux, 0.5, dt) (A.rst 3.7)
+  void begin_split(torch::Tensor u, double dt, FluxRegister& reg) override;
+  void finish_split(torch::Tensor u, double dt, FluxRegister& reg) override;
   void restore_split(torch::Tensor u) const override;
 
  private:
   torch::Tensor forward_cubed_sphere(torch::Tensor du, torch::Tensor w,
                                      torch::Tensor temp, double dt);
+  //! the cubed-sphere face fluxes (rows IDN..IPR), seams shared
+  std::array<torch::Tensor, 3> cubed_sphere_fluxes(torch::Tensor w,
+                                                   torch::Tensor temp);
+  //! this stage's fluxes whose energy rows post_fluxes put in the register;
+  //! add() takes their other rows and clears them
+  std::array<torch::Tensor, 3> posted_;
   torch::Tensor split_initial_;
+  //! the x1 profiles in w's device and dtype, so a profile of ones changes
+  //! no bit
+  void profiles_on(torch::Tensor const& w);
   //! refuses a profile changed since reset; every entry point that reads the
   //! cached profiles (forward, max_time_step) calls it first
   void check_profiles() const;

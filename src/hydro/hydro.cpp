@@ -212,6 +212,11 @@ void HydroImpl::reset() {
   // conserve-axial-momentum exact: A's riemann.central on the x2/x3 faces
   // (R-2), kept until the next stage
   paam->request(req);
+  // ruling A-ph3.radial_step_field: radial conduction posts its split halves
+  // with post_split, which needs the x1 step field
+  if (pdiffusion && pdiffusion->options->implicit_radial() &&
+      pdiffusion->options->kappa_iso() != 0.)
+    req.step_field.push_back(1);
   // R-5: lane I's kept x1 parts, posted by the implicit solve (I-4)
   if (picorr && nc1 > 1)
     for (auto const* key :

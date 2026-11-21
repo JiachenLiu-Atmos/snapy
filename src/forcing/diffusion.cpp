@@ -537,14 +537,7 @@ void DiffusionImpl::check_profiles() const {
               "dynamic: true, set after the MeshBlock was constructed.");
 }
 
-void DiffusionImpl::add(torch::Tensor du, StageState const& s) {
-  auto w = s.w, temp = s.temp;
-  double dt = s.dt;
-  auto pmb = phydro->pmb;
-  auto coord = pmb->pcoord;
-
-  check_profiles();
-  // in the state's device and dtype, so a profile of ones changes no bit
+void DiffusionImpl::profiles_on(torch::Tensor const& w) {
   auto on_state = [&w](torch::Tensor const& scale, torch::Tensor& work) {
     if (scale.defined() && (!work.defined() || work.device() != w.device() ||
                             work.scalar_type() != w.scalar_type())) {
@@ -553,6 +546,16 @@ void DiffusionImpl::add(torch::Tensor du, StageState const& s) {
   };
   on_state(nu_scale_, nu_scale_w_);
   on_state(kappa_scale_, kappa_scale_w_);
+}
+
+void DiffusionImpl::add(torch::Tensor du, StageState const& s) {
+  auto w = s.w, temp = s.temp;
+  double dt = s.dt;
+  auto pmb = phydro->pmb;
+  auto coord = pmb->pcoord;
+
+  check_profiles();
+  profiles_on(w);
   if (coord->options->type() == "gnomonic-equiangle") {
     if (options->nu_iso() == 0. && options->kappa_iso() == 0.) return;
     forward_cubed_sphere(du, w, temp, dt);
