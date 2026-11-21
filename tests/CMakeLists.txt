@@ -383,6 +383,7 @@ snapy_add_python_test(test_sk1_failure_counter TIMEOUT 120 LABELS "python;mesh;r
 # lane K, S-K2: the active set snapshot at stage 0, restored on a retry (K-G5)
 snapy_add_python_test(test_sk2_active_set TIMEOUT 180 LABELS "python;mesh;redo;eos")
 snapy_add_python_test(test_sk4_chemistry_source TIMEOUT 600 LABELS "python;mesh;eos;kinetics")
+snapy_add_python_test(test_sk4_mesh_chemistry TIMEOUT 600 LABELS "python;mesh;eos;kinetics")
 snapy_add_python_test(test_eos_temp2inteng TIMEOUT 60 LABELS "python;eos")
 # fp32 roadmap Step 1a: anomaly storage of hydro_u
 snapy_add_python_test(test_anomaly_storage TIMEOUT 600 LABELS "python;eos;anomaly")
@@ -507,6 +508,9 @@ if(CUDA)
   snapy_add_python_test(test_sk4_chemistry_source_cuda
     SCRIPT test_sk4_chemistry_source.py ARGS --device cuda
     TIMEOUT 600 LABELS "python;mesh;eos;kinetics;cuda")
+  snapy_add_python_test(test_sk4_mesh_chemistry_cuda
+    SCRIPT test_sk4_mesh_chemistry.py ARGS --device cuda
+    TIMEOUT 600 LABELS "python;mesh;eos;kinetics;cuda")
   snapy_add_python_test(test_conversion_order_cuda SCRIPT test_conversion_order.py
     ARGS --device cuda TIMEOUT 600 LABELS "python;hydro;cuda")
   snapy_add_python_test(test_flux_positivity_cubedsphere_cuda
@@ -555,6 +559,7 @@ if(CUDA)
     test_sk1_failure_counter_cuda_python
     test_sk2_active_set_cuda_python
     test_sk4_chemistry_source_cuda_python
+    test_sk4_mesh_chemistry_cuda_python
     test_flux_positivity_cubedsphere_cuda_python
     test_flux_positivity_cubedsphere_moist_cuda_python
     test_vic_moist_device_python
