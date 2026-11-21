@@ -46,6 +46,9 @@ void RestartOutput::write_output_file(MeshBlockImpl* pmb, Variables const& vars,
     if (skip_scalar_r && name == "scalar_r") {
       continue;
     }
+    // a carry read back from an earlier restart is not state: the budget
+    // output writes its own below, a deck without one writes none
+    if (name.rfind(kBudgetCarryPrefix, 0) == 0) continue;
     if (var.defined()) {
       out_vars[name] = var.to(torch::kCPU);
     }
@@ -96,6 +99,7 @@ void RestartOutput::write_output_file(MeshBlockImpl* pmb, Variables const& vars,
   for (auto out : pmb->output_types) {
     if (out.get() == this) firing = !final_write;
     bool advance = firing && current_time >= out->next_time;
+    out->save_carry(pmb, vars, advance, out_vars);
     output_file_numbers.push_back(out->file_number + (advance ? 1 : 0));
     output_next_times.push_back(out->next_time +
                                 (advance ? out->options->dt() : 0.0));
@@ -347,6 +351,58 @@ void check_restart_metadata(Variables const& data,
                   (data.count("hydro_ref") && data.count("hydro_ref_species")),
               "restart: perturbation-flux requires the original hydro_ref "
               "and hydro_ref_species");
+}
+
+namespace {
+// the row names as one int8 tensor, newline-terminated
+torch::Tensor pack_names(std::vector<std::string> const& names) {
+  std::string all;
+  for (auto const& n : names) all += n + "\n";
+  auto t = torch::empty({static_cast<int64_t>(all.size())}, torch::kInt8);
+  std::memcpy(t.data_ptr<int8_t>(), all.data(), all.size());
+  return t;
+}
+
+std::vector<std::string> unpack_names(torch::Tensor const& t) {
+  auto c = t.to(torch::kCPU, torch::kInt8).contiguous();
+  std::string all(reinterpret_cast<char const*>(c.data_ptr<int8_t>()),
+                  c.numel());
+  std::vector<std::string> names;
+  std::istringstream in(all);
+  for (std::string n; std::getline(in, n);) names.push_back(n);
+  return names;
+}
+
+std::string carry_key(char const* field) {
+  return std::string(kBudgetCarryPrefix) + field;
+}
+}  // namespace
+
+void write_budget_carry(BudgetCarry const& carry, Variables& out) {
+  if (!carry.defined()) return;
+  out[carry_key("rows")] = pack_names(carry.rows);
+  out[carry_key("total_prev")] = carry.total_prev.to(torch::kCPU);
+  out[carry_key("pending")] = carry.pending.to(torch::kCPU);
+  out[carry_key("counter")] = carry.counter.to(torch::kCPU);
+  out[carry_key("minimum")] = carry.minimum.to(torch::kCPU);
+  out[carry_key("interval")] = torch::tensor({carry.interval}, torch::kFloat64);
+}
+
+BudgetCarry read_budget_carry(Variables const& data,
+                              std::vector<std::string> const& rows) {
+  BudgetCarry carry;
+  for (auto field :
+       {"rows", "total_prev", "pending", "counter", "minimum", "interval"})
+    if (!data.count(carry_key(field))) return carry;
+  auto saved = unpack_names(data.at(carry_key("rows")));
+  if (saved != rows) return carry;  // other rows: a new interval
+  carry.rows = saved;
+  carry.total_prev = data.at(carry_key("total_prev")).to(torch::kFloat64);
+  carry.pending = data.at(carry_key("pending")).to(torch::kFloat64);
+  carry.counter = data.at(carry_key("counter")).to(torch::kInt64);
+  carry.minimum = data.at(carry_key("minimum")).to(torch::kFloat64);
+  carry.interval = data.at(carry_key("interval")).item<double>();
+  return carry;
 }
 
 }  // namespace snap

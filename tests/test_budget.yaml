@@ -1,0 +1,46 @@
+# Fixture for tests/test_budget.cpp (V3 lane O step O8, budget part): a dry
+# ideal-gas slab, two blocks in x2 in one process, an outflow x1 so mass,
+# momentum and energy leave, reflecting x2 walls, no gravity and no source,
+# so every row closes on the boundary transfer alone. The face-flux
+# covariance is off: with it on (the default), the energy row misses ~3e-11
+# of its total per interval, a covariance energy increment that is not in
+# the register's boundary-face fluxes (lane R's to post; O8-cols, G-5).
+reference-state:
+  Tref: 0.
+  Pref: 1.e5
+
+species:
+  - name: dry
+    composition: {O: 0.42, N: 1.56, Ar: 0.01}
+    cv_R: 2.5
+
+geometry:
+  type: cartesian
+  bounds: {x1min: 0., x1max: 1600., x2min: 0., x2max: 800., x3min: 0., x3max: 1.}
+  cells: {nx1: 16, nx2: 8, nx3: 1, nghost: 3}
+
+distribute:
+  layout: slab
+  nb2: 2
+  nb3: 1
+  blocks_per_process: 2
+  verbose: false
+
+dynamics:
+  equation-of-state:
+    type: ideal-gas
+  flux-covariance: false
+
+boundary-condition:
+  external:
+    x1-inner: outflow
+    x1-outer: outflow
+    x2-inner: reflecting
+    x2-outer: reflecting
+
+integration:
+  type: rk3
+  cfl: 0.4
+  nlim: -1
+  tlim: 1.e9
+  ncycle_out: 1

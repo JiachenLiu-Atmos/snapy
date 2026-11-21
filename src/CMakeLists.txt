@@ -37,6 +37,7 @@ file(GLOB src_files
     bc/*.cpp
     chemistry/*.cpp
     coord/*.cpp
+    diagnostics/*.cpp
     eos/*.cpp
     eos/aneos/*.cpp
     hydro/*.cpp
