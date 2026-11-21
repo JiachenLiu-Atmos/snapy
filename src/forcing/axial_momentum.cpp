@@ -55,12 +55,9 @@ AxialMomentum::AxialMomentum(HydroImpl const* hydro) : hydro_(hydro) {
               "which riemann-solver type '",
               solver,
               "' does not provide; use hllc, lmars, roe or shallow-roe");
-  // the closure would remove the viscous torque until diffusion posts to the
-  // register (A.rst 3.7, D9)
-  TORCH_CHECK(!op->diffusion() || op->diffusion()->nu_iso() == 0.,
-              "dynamics/conserve-axial-momentum: exact is refused with "
-              "forcing/diffusion nu_iso > 0: its closure would remove the "
-              "viscous torque");
+  // a viscosity is allowed (phase 3, G9): the closure's R is built from the
+  // Coriolis force and the mass fluxes only, and the viscous momentum is its
+  // own booked source, so the closure removes none of the viscous torque
 }
 
 void AxialMomentum::request(RegisterRequest& req) const {

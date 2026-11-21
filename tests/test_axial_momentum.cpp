@@ -14,6 +14,7 @@
 // C/C++
 #include <unistd.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -241,6 +242,92 @@ TEST(SourceShare, sponge_and_drag_torque_is_the_aam_change) {
     EXPECT_LE(std::abs(booked[name] - change[name]), 1.e-15 * std::abs(L))
         << name;
   }
+}
+
+// G9 (A.rst 5.3, phase 3): exact with a viscosity. The closure's {R, I} are
+// built from the Coriolis force and the mass fluxes only, so they are the
+// same bits with and without nu_iso: the closure removes none of the viscous
+// torque. Diffusion's booked AAM share, sum V r K . du of its own increment
+// (budgets on), is the AAM change it makes. The 3D arm deck at C16: W2 C16 is
+// shallow water with one x1 cell, where cubed-sphere diffusion does not run.
+namespace {
+torch::Tensor closure_sums(Mesh mesh, MeshVariables& vars, double dt) {
+  std::vector<std::thread> threads;
+  for (size_t b = 0; b < mesh->blocks.size(); ++b) {
+    threads.emplace_back(
+        [&, b] { mesh->blocks[b]->advance_local(vars[b], dt, 0); });
+  }
+  for (auto& t : threads) t.join();
+  auto global = torch::zeros({2}, torch::kFloat64);
+  for (auto const& block : mesh->blocks)
+    global += block->phydro->axial_closure_sums();
+  return global;
+}
+}  // namespace
+
+TEST(ViscousTorque, booked_share_is_the_aam_change) {
+  auto mesh = six_panels(16, YAML::Load("diffusion: {nu_iso: 1.e5}\n"));
+  auto vars = windy(mesh);
+  mesh->initialize(vars);
+  double dt = mesh->max_time_step(vars);
+  int nb = mesh->blocks.size();
+  std::vector<double> booked(nb, 0.), change(nb, 0.), L(nb, 0.);
+  std::vector<std::thread> threads;
+  for (int b = 0; b < nb; ++b)  // the panels together: diffusion's seams
+    threads.emplace_back([&, b] {
+      auto hydro = mesh->blocks[b]->phydro;
+      auto paam = hydro->paam;
+      auto w = vars[b].at("hydro_w"), u = vars[b].at("hydro_u");
+      StageState stage{w, hydro->peos->compute("W->T", {w}), dt};
+      L[b] = paam->aam(u[IVY], u[IVZ]).item<double>();
+      auto du = torch::zeros_like(u);
+      for (auto const& r : hydro->sources.runs(SourcePhase::pre_implicit))
+        hydro->sources.run(
+            r, du, stage, [&](std::string const& name, torch::Tensor s) {
+              if (name != "diffusion") return;
+              booked[b] += paam->aam(s[IVY], s[IVZ]).item<double>();
+              auto u1 = u + s;
+              change[b] += paam->aam(u1[IVY], u1[IVZ]).item<double>() - L[b];
+            });
+    });
+  for (auto& t : threads) t.join();
+  double B = 0., C = 0., Lt = 0.;
+  for (int b = 0; b < nb; ++b) B += booked[b], C += change[b], Lt += L[b];
+  printf(
+      "G9 C16 booked: L %.6e viscous torque booked %.15e change %.15e "
+      "|diff| / |L| %.3e |diff| / |booked| %.3e\n",
+      Lt, B, C, std::abs(B - C) / std::abs(Lt), std::abs(B - C) / std::abs(B));
+  EXPECT_NE(B, 0.);
+  EXPECT_LE(std::abs(B - C), 1.e-12 * std::abs(Lt));
+}
+
+TEST(ViscousTorque, the_closure_keeps_it) {
+  // one mesh at a time: the viscous stage first, then the plain one at the
+  // same dt
+  MeshVariables vv, pv;
+  torch::Tensor with, without;
+  double dt = 0.;
+  {
+    auto vmesh = six_panels(16, YAML::Load("diffusion: {nu_iso: 1.e5}\n"));
+    vv = windy(vmesh);
+    vmesh->initialize(vv);
+    dt = vmesh->max_time_step(vv);
+    with = closure_sums(vmesh, vv, dt);
+  }
+  {
+    auto pmesh = six_panels(16);
+    pv = windy(pmesh);
+    pmesh->initialize(pv);
+    without = closure_sums(pmesh, pv, dt);
+  }
+  printf("G9 C16 closure: R %.15e I %.15e; no viscosity R %.15e I %.15e\n",
+         with[0].item<double>(), with[1].item<double>(),
+         without[0].item<double>(), without[1].item<double>());
+  EXPECT_TRUE(torch::equal(with, without));
+  EXPECT_NE(with[0].item<double>(), 0.);
+  for (auto const* v : {&vv, &pv})
+    for (auto const& b : *v)
+      EXPECT_TRUE(torch::isfinite(b.at("hydro_u")).all().item<bool>());
 }
 
 int main(int argc, char** argv) {

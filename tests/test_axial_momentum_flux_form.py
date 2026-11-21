@@ -23,8 +23,9 @@ computed here from the coordinate buffers, independently of the option's own ari
       most TOL;
   (d) the key is off by default, and a Cartesian block, where it does nothing, builds with it on;
       exact is refused without geometry/cells/interp_order: 4, with a riemann-solver type that
-      has no riemann.central, with perturbation-flux and with a viscosity; the word full and the
-      key conserve-axial-momentum-closure are refused, the first naming exact;
+      has no riemann.central and with perturbation-flux (a viscosity is allowed since phase 3,
+      G9 in test_axial_momentum.cpp); the word full and the key conserve-axial-momentum-closure
+      are refused, the first naming exact;
   (e) an odd grid with a cell on the axis;
   (f)-(h) with a Coriolis force, which stays in cell form, the exchange with the planetary AAM
       is left open and the absolute AAM (relative plus planetary) is not exact. At slow rotation,
@@ -646,8 +647,6 @@ def main(argv=None):
                 "riemann-solver type '%s' does not provide" % kind)
     refused("exact with perturbation-flux", lambda cfg: cfg["dynamics"].update({"perturbation-flux": True}),
             "needs FP64 and no perturbation-flux")
-    refused("exact with a viscosity", lambda cfg: cfg["forcing"].update({"diffusion": {"nu_iso": 1.0}}),
-            "nu_iso > 0")
 
     if failures:
         print("FAIL:\n  " + "\n  ".join(failures))
