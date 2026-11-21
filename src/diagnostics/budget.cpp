@@ -233,12 +233,13 @@ BudgetCarry BudgetConsumer::carry(MeshBlockImpl const& block,
   return c;
 }
 
-void BudgetConsumer::resume(BudgetCarry const& carry) {
+void BudgetConsumer::resume(BudgetCarry const& carry, torch::Device device) {
   if (!carry.defined()) return;
-  _total_start = carry.total_prev.to(kF64).clone();
-  _pending = carry.pending.to(kF64).clone();
-  _counter = carry.counter.to(torch::kInt64).clone();
-  _minimum = carry.minimum.to(kF64).clone();
+  // the file's tensors are on the host; the sums live with the block's state
+  _total_start = carry.total_prev.to(device, kF64, false, true);
+  _pending = carry.pending.to(device, kF64, false, true);
+  _counter = carry.counter.to(device, torch::kInt64, false, true);
+  _minimum = carry.minimum.to(device, kF64, false, true);
   _interval = carry.interval;
   _started = true;
 }

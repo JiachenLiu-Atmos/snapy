@@ -67,8 +67,9 @@ class BudgetConsumer : public Consumer {
   //! record at this time is still to come in the same output pass
   BudgetCarry carry(MeshBlockImpl const& block, Variables const& vars,
                     bool fires_now) const;
-  //! resume the interval; a carry with other rows starts a new one
-  void resume(BudgetCarry const& carry);
+  //! resume the interval on `device`, the block's (a restart loads the carry
+  //! on the host); a carry with other rows starts a new one
+  void resume(BudgetCarry const& carry, torch::Device device);
   bool started() const { return _started; }
 
  private:

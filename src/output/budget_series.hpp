@@ -39,7 +39,7 @@ class BudgetOutput : public OutputType {
                          bool final_write) override;
   void save_carry(MeshBlockImpl const* pmb, Variables const& vars,
                   bool fires_now, Variables& out) const override;
-  void load_carry(Variables const& data) override;
+  void load_carry(MeshBlockImpl const* pmb, Variables const& data) override;
 
   BudgetConsumer const& consumer() const { return _consumer; }
   //! the domain record of the last interval (every process holds it)
