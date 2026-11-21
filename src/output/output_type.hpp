@@ -89,6 +89,17 @@ class OutputType {
                                  double time, bool flag) {}
   virtual void combine_blocks(MeshBlockImpl *pmb, bool) {}
 
+  //! the budget output's hooks (O8; nothing for the other writers): bind
+  //! once the block's modules exist, observe each accepted step of length
+  //! dt, add the BudgetCarry to a restart (fires_now: this output still
+  //! records at this time in the same pass) and resume from one
+  virtual void bind(MeshBlockImpl *pmb) {}
+  virtual void observe(MeshBlockImpl const *pmb, Variables const &vars,
+                       double dt) {}
+  virtual void save_carry(MeshBlockImpl const *pmb, Variables const &vars,
+                          bool fires_now, Variables &out) const {}
+  virtual void load_carry(MeshBlockImpl const *pmb, Variables const &data) {}
+
  protected:
   bool shouldOutputPrimitive(
       std::initializer_list<std::string> vars = {}) const;

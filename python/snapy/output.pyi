@@ -114,7 +114,8 @@ class OutputOptions:
 
     @overload
     def file_type(self) -> str:
-        """Writer: netcdf, pnetcdf or restart. Deck key `outputs[]/type`."""
+        """Writer: netcdf, pnetcdf, restart or budget (the budget time series).
+        Deck key `outputs[]/type`."""
         ...
 
     @overload

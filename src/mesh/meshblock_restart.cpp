@@ -123,6 +123,8 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
     }
   }
 
+  for (auto &output_type : output_types) output_type->load_carry(this, data);
+
   bool rebuild_scalar_r =
       pscalar->nvar() > 0 && data.count("scalar_s") && data.count("hydro_u");
 
@@ -131,9 +133,10 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
     if (rebuild_scalar_r && name == "scalar_r") {
       continue;
     }
-    // held by hydro.ref / used below, not kept in vars
-    if (name == "hydro_ref" || name == "hydro_ref_species" ||
-        name == "hydro_u_stored" || name == kHydroRestartMetadata ||
+    // held by hydro.ref / used below, or a budget carry: not kept in vars
+    if (name.rfind(kBudgetCarryPrefix, 0) == 0 || name == "hydro_ref" ||
+        name == "hydro_ref_species" || name == "hydro_u_stored" ||
+        name == kHydroRestartMetadata ||
         std::find(kHydroReferenceGrid.begin(), kHydroReferenceGrid.end(),
                   name) != kHydroReferenceGrid.end())
       continue;
