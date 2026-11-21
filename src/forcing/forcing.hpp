@@ -224,6 +224,10 @@ class DiffusionImpl : public SourceModule<DiffusionImpl, DiffusionOptions> {
   //! cubed sphere: the energy row of the diffusion face fluxes goes to the
   //! register as "diffusion" (A.rst 3.7); the momentum rows stay in add()
   void post_fluxes(FluxRegister& reg, StageState const& s) override;
+  //! the cubed-sphere face fluxes (rows IDN..IPR, momentum in Cartesian
+  //! channels, seams shared), as post_fluxes and add() build them; G9b
+  //! compares the viscous-momentum routes on them (A.rst 5.3)
+  std::array<torch::Tensor, 3> face_fluxes(torch::Tensor w, torch::Tensor temp);
   //! radial conduction over dt; returns its x1 face heat flux density (the
   //! register's [nvar, faces...] layout, row IPR), undefined when off
   torch::Tensor radial_conduction_step(torch::Tensor u, double dt);
