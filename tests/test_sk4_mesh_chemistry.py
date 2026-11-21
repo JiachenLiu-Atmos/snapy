@@ -7,12 +7,6 @@ FP32. The control: the same Mesh against a MeshBlock without chemistry
 differs, so the Mesh really ran the step. RED before S-K4: Mesh has no
 set_chemistry.
 
-RULINGS S-K4.fp32_seam: on this base the FP32 arm is an expected failure.
-Two blocks and one block differ at the x2 seam from step 1 in FP32 with the
-chemistry off as well (the base's S step 4 rounds a seam sum by block
-position; the FP64 arm is bitwise). The mark is strict: the arm fails if it
-passes, so the base fix (a W4 step) removes this mark as its GREEN.
-
   python test_sk4_mesh_chemistry.py [--device cuda] [--steps 3]
 """
 
@@ -128,17 +122,7 @@ def main():
     for precision in ("float64", "float32"):
         diffs = run(precision, device, args.steps, True)
         bad = [(s, d) for s, d in enumerate(diffs) if any(n for n, _ in d)]
-        if precision == "float32":
-            # RULINGS S-K4.fp32_seam: expected failure on this base, strict
-            if bad:
-                print("float32: two-block Mesh differs from the one-block MeshBlock, first at step %d: %s;"
-                      " expected failure on this base (RULINGS S-K4.fp32_seam: the x2 seam rounds by"
-                      " block position in FP32 since the base's S step 4, chemistry off as well)"
-                      % (bad[0][0], bad[0][1]))
-            else:
-                failures.append("float32: the two-block Mesh equals the one-block MeshBlock, so the"
-                                " S-K4.fp32_seam expected-failure mark must come out")
-        elif bad:
+        if bad:
             failures.append("%s: two-block Mesh differs from the one-block MeshBlock, first at step %d: %s"
                             % (precision, bad[0][0], bad[0][1]))
         print("%s: %d steps, Mesh.set_chemistry equals the block's registered step on the owned cells %s"
