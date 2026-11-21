@@ -3,6 +3,7 @@
 #include <configure.h>
 
 #include <algorithm>
+#include <atomic>
 #include <condition_variable>
 #include <exception>
 #include <functional>
@@ -263,9 +264,15 @@ void MeshImpl::reset() {
   base_layout->world_size(base_layout->process_world_size() *
                           options->blocks_per_process());
 
+  // this Mesh's identity in the same-process exchange state (S-L1): a new
+  // one per reset, so a rebuilt or second Mesh never takes these blocks' place
+  static std::atomic<int64_t> next_mesh_id{1};
+  int64_t mesh_id = next_mesh_id++;
+
   for (int i = 0; i < options->blocks_per_process(); ++i) {
     auto block_opts = clone_block_options(base);
     auto layout = block_opts->layout();
+    layout->mesh_id(mesh_id);
     layout->blocks_per_process(options->blocks_per_process());
     layout->world_size(layout->process_world_size() *
                        options->blocks_per_process());
