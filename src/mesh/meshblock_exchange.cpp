@@ -95,10 +95,14 @@ void MeshBlockImpl::exchange_ghost_zones(Variables &vars) {
   exchange_state(vars, "hydro_u", kConserved, "scalar_s");
 
   // Tangential exchange fills face ghosts but not corners (skip_corner).
-  // Re-apply each installed x1 function on the x2/x3 slabs exchange owns, so
-  // the corner matches the updated column. A physical tangential face already
-  // wrote that corner. Outflow is not reapplied: its background must match the
-  // full block and it needs primitives (#264).
+  // Re-apply each installed wall function on the slabs exchange owns in the
+  // other directions, so the corner matches the updated column. A physical
+  // tangential face already wrote that corner. Outflow is not reapplied: its
+  // background must match the full block and it needs primitives (#264).
+  // The x2/x3 walls are included (C8.gauge): fill_corners synthesizes a seam
+  // x wall corner from the edge strips, where an undivided block has the
+  // wall's own ghost of the column, so without this the corner, and the
+  // cells whose stencils reach it, depend on the decomposition.
   {
     int ng = pcoord->options->nghost();
     auto const &fns = options->bfuncs();
@@ -123,12 +127,14 @@ void MeshBlockImpl::exchange_ghost_zones(Variables &vars) {
       if (!field.defined() || field.numel() == 0) return;
       op.type(type);
       int nface =
-          static_cast<int>(fns.size()) < 2 ? static_cast<int>(fns.size()) : 2;
+          static_cast<int>(fns.size()) < 6 ? static_cast<int>(fns.size()) : 6;
       for (int f = 0; f < nface; ++f) {
         if (!fns[f] || is_outflow(fns[f])) continue;
+        // an x2/x3 face that exchange owns (periodic, cubed-sphere no-op)
+        if (f >= 2 && !physical(f)) continue;
         int spatial = 3 - f / 2;
         if (field.size(spatial) == 1) continue;
-        // a reflecting wall is row-local (each x1 row
+        // a reflecting wall is row-local (each row normal to it
         // mirrors its own interior), so when every tangential face is
         // exchange-owned one full-extent call writes the slabs' corner values
         // and rewrites the other rows with the same bits
