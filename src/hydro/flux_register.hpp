@@ -190,7 +190,8 @@ class FluxRegister {
                    double stage_weight, AmountKind kind);
   //! the parts, by "part@dim", for HydroImpl to register as buffers
   std::map<std::string, torch::Tensor>& parts() { return _parts; }
-  //! S_d = sum over stages of w2_s prod_{t>s} w1_t dt T_s, per unit area
+  //! S_d = direct + sum over stages of w2_s prod_{t>s} w1_t dt T_s, per
+  //! unit area; direct holds this step's post_split entries
   torch::Tensor step_field(int dim) const { return _step[dim - 1]; }
   bool has_step_field(int dim) const { return _step[dim - 1].defined(); }
 
@@ -199,6 +200,13 @@ class FluxRegister {
   void end_stage(double dt);
   //! X's decide_retry: zero the step fields and the monitor
   void rollback();
+  //! R.rst 3.4, outside the stages (the radial split halves: after
+  //! begin_step and before stage 0, and after the last end_stage): S_d gets
+  //! weight dt flux in its direct part, which no later w1 scales. flux is
+  //! shaped like total(dim); total(dim) is untouched. dim must have a step
+  //! field; begin_step clears the direct part.
+  void post_split(int dim, std::string const& name, torch::Tensor const& flux,
+                  double weight, double dt);
 
   RegisterMonitor& monitor() { return _monitor; }
   RegisterMonitor const& monitor() const { return _monitor; }
@@ -208,6 +216,10 @@ class FluxRegister {
 
  private:
   std::array<torch::Tensor, 3> _total, _step;
+  //! from a direction's first post_split of the step: S_d's stage recursion
+  //! and its direct part, S_d = _rec + _direct; undefined otherwise, when
+  //! S_d is the recursion itself
+  std::array<torch::Tensor, 3> _rec, _direct;
   std::array<std::string, 3> _slot;
   std::map<std::string, torch::Tensor> _parts;
   std::array<std::vector<std::string>, 3> _kept;

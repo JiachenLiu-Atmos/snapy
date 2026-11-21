@@ -754,3 +754,51 @@ TEST(FluxRegister, the_vertical_solve_posts_its_face_transfers) {
       EXPECT_EQ(kind_of("vic.momentum_t.top"), AmountKind::diagnostic);
   }
 }
+
+// R-6 follow-up (R.rst 3.4, skeleton R:79-81): a radial post_split lands in
+// a direct part of S_d that no later w1 scales. The step-start post (before
+// stage 0, after begin_step) and the step-end post (after the last
+// end_stage) both enter with their own weight; begin_step clears them.
+TEST(FluxRegister, post_split_is_never_scaled_by_a_later_w1) {
+  Seam s;
+  RegisterRequest req;
+  req.step_field = {1};
+  auto reg = s.make(req, 7);
+  auto plain = s.make(req, 7);  // the same stages without the split posts
+  auto const& stages = s.block->pintg->stages;
+  ASSERT_EQ(stages.size(), 3u);
+  double const dt = 0.37;
+  torch::manual_seed(11);
+  auto lo = torch::randn_like(reg.total(1));
+  auto hi = torch::randn_like(reg.total(1));
+
+  EXPECT_THROW(reg.post_split(2, "diffusion.radial", lo, 0.5, dt),
+               c10::Error);  // no step field for x2
+  reg.begin_step();
+  plain.begin_step();
+  reg.post_split(1, "diffusion.radial", lo, 0.5, dt);  // the step-start half
+  for (int st = 0; st < stages.size(); ++st) {
+    auto t = torch::randn_like(reg.total(1));
+    for (auto* r : {&reg, &plain}) {
+      r->begin_stage(st, stages[st]);
+      r->total(1).copy_(t);
+    }
+    EXPECT_THROW(reg.post_split(1, "diffusion.radial", hi, 0.5, dt),
+                 c10::Error);  // a split post is never inside a stage
+    reg.end_stage(dt);
+    plain.end_stage(dt);
+  }
+  reg.post_split(1, "diffusion.radial", hi, 0.5, dt);  // the step-end half
+
+  // S_d = direct + sum_s w2_s prod_{t>s} w1_t dt T_s, the recursion part
+  // computed exactly as without the posts
+  auto direct = torch::zeros_like(plain.step_field(1));
+  direct.add_(lo.to(direct.scalar_type()), 0.5 * dt);
+  direct.add_(hi.to(direct.scalar_type()), 0.5 * dt);
+  EXPECT_TRUE(torch::equal(reg.step_field(1), plain.step_field(1) + direct));
+  EXPECT_GT(direct.abs().max().item<double>(), 0.);
+
+  // a redone step starts from begin_step: the posts are gone
+  reg.begin_step();
+  EXPECT_EQ(reg.step_field(1).abs().max().item<double>(), 0.);
+}
