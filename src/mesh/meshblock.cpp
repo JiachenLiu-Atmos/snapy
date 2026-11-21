@@ -210,34 +210,7 @@ void MeshBlockImpl::reset() {
 
   //// --------- (3) set up output --------- ////
   for (auto const &out_op : options->outputs()) {
-    auto validate_slice = [](std::vector<double> const &slices, double lower,
-                             double upper, bool sum, char const *axis) {
-      if (!slices.empty() && sum) {
-        throw std::invalid_argument(std::string("Cannot request both slice and "
-                                                "sum along ") +
-                                    axis);
-      }
-      for (size_t i = 0; i < slices.size(); ++i) {
-        double slice = slices[i];
-        if (!(slice >= lower && slice < upper)) {
-          throw std::invalid_argument(
-              std::string("Slice out of mesh bounds: ") + axis);
-        }
-        if (i && slice <= slices[i - 1]) {
-          throw std::invalid_argument(
-              std::string("Slices must be strictly increasing: ") + axis);
-        }
-      }
-    };
-    validate_slice(out_op->x1_slice(), options->coord()->global_x1min(),
-                   options->coord()->global_x1max(), out_op->output_sumx1(),
-                   "x1");
-    validate_slice(out_op->x2_slice(), options->coord()->global_x2min(),
-                   options->coord()->global_x2max(), out_op->output_sumx2(),
-                   "x2");
-    validate_slice(out_op->x3_slice(), options->coord()->global_x3min(),
-                   options->coord()->global_x3max(), out_op->output_sumx3(),
-                   "x3");
+    out_op->check_domain(*options->coord());
 
     if (out_op->file_type() == "restart") {
       output_types.push_back(std::make_shared<RestartOutput>(out_op));

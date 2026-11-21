@@ -41,7 +41,33 @@ options:
   - {name: variables, key: variables, type: "list[string]", read: if_present, doc: "Variables to write."}
   - {name: combine, key: combine, type: bool, default: true, doc: "Combine the per-block files after writing."}
   - {name: verbose, key: verbose, type: bool, default: false, doc: "Verbose writer."}
+check_sets:
+  domain:
+    args: "CoordinateOptionsImpl const& co"
+    doc: >
+      The slice checks against the resolved global grid `co`, per axis: not
+      both slice and sum, every slice in [min, max), strictly increasing.
+      OutputOptionsImpl::check_domain runs them for every output, read from a
+      deck or built in code.
 checks:
-  - {after: x3_slice, throw: invalid_argument, cond: "op.x1_slice().empty() || !op.output_sumx1()", message: "Cannot request both slice and sum along x1"}
-  - {after: x3_slice, throw: invalid_argument, cond: "op.x2_slice().empty() || !op.output_sumx2()", message: "Cannot request both slice and sum along x2"}
-  - {after: x3_slice, throw: invalid_argument, cond: "op.x3_slice().empty() || !op.output_sumx3()", message: "Cannot request both slice and sum along x3"}
+  - {after: x3_slice, sets: [read, domain], throw: invalid_argument, cond: "op.x1_slice().empty() || !op.output_sumx1()", message: "Cannot request both slice and sum along x1"}
+  - sets: [domain]
+    each: x1_slice
+    throw: invalid_argument
+    rules:
+      - {cond: "s >= co.global_x1min() && s < co.global_x1max()", message: "Slice out of mesh bounds: x1"}
+      - {cond: "i == 0 || s > op.x1_slice()[i - 1]", message: "Slices must be strictly increasing: x1"}
+  - {after: x3_slice, sets: [read, domain], throw: invalid_argument, cond: "op.x2_slice().empty() || !op.output_sumx2()", message: "Cannot request both slice and sum along x2"}
+  - sets: [domain]
+    each: x2_slice
+    throw: invalid_argument
+    rules:
+      - {cond: "s >= co.global_x2min() && s < co.global_x2max()", message: "Slice out of mesh bounds: x2"}
+      - {cond: "i == 0 || s > op.x2_slice()[i - 1]", message: "Slices must be strictly increasing: x2"}
+  - {after: x3_slice, sets: [read, domain], throw: invalid_argument, cond: "op.x3_slice().empty() || !op.output_sumx3()", message: "Cannot request both slice and sum along x3"}
+  - sets: [domain]
+    each: x3_slice
+    throw: invalid_argument
+    rules:
+      - {cond: "s >= co.global_x3min() && s < co.global_x3max()", message: "Slice out of mesh bounds: x3"}
+      - {cond: "i == 0 || s > op.x3_slice()[i - 1]", message: "Slices must be strictly increasing: x3"}
