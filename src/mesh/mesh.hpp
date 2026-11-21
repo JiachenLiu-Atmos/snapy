@@ -14,6 +14,10 @@
 // arg
 #include <snap/add_arg.h>
 
+namespace kintera {
+struct KineticsOptionsImpl;
+}
+
 namespace snap {
 
 using MeshVariables = std::vector<Variables>;
@@ -52,6 +56,10 @@ class MeshImpl : public torch::nn::Cloneable<MeshImpl> {
   double initialize(MeshVariables& vars, char const* restart_file = nullptr);
   double max_time_step(MeshVariables const& vars);
   void forward(MeshVariables& vars, double dt, int stage);
+  //! V3 S-K4: one chemistry adapter per block (Mesh::blocks order, built one
+  //! after another on the calling thread), run in the last stage's global
+  //! phase before the final exchange
+  void set_chemistry(kintera::KineticsOptionsImpl reactions);
   void exchange(MeshVariables& vars, SyncOptions const& opts);
   void exchange_ghost_zones(MeshVariables& vars, int type = kConserved);
   void set_user_stage_forcings(std::vector<std::string> const& filenames);
