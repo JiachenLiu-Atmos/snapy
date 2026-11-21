@@ -62,15 +62,11 @@ def run(steps, precision="float32", restart_at=None, device=None):
     try:
         options = MeshBlockOptions.from_yaml(path)
         kin_options = kt.KineticsOptions.from_yaml(path)
-        tx_options = kt.ThermoOptions.from_yaml(path)
         block = MeshBlock(options)
-        kin = kt.Kinetics(kin_options)
-        tx = kt.ThermoX(tx_options)
+        block.set_chemistry(kin_options)  # V3 S-K4: the step runs the chemistry
     finally:
         os.unlink(path)
     block.to(device)
-    kin.to(device)
-    tx.to(device)
     eos = block.module("hydro.eos")
     ty = block.module("hydro.eos.thermo")
     w = block.module("hydro").buffer("D").clone().zero_()
@@ -89,9 +85,6 @@ def run(steps, precision="float32", restart_at=None, device=None):
     bv, _ = block.initialize({"hydro_w": w, "scalar_r": ratio})
     sl = block.part((0, 0, 0), False)
     initial = block.total_u(bv)[sl].clone()
-    inv_mu = ty.buffer("inv_mu")[1:]
-    stoich = kin.buffer("stoich")
-    assert stoich.dtype == torch.float64
     dt = 0.1
     for step in range(steps):
         if restart_at is not None and step == restart_at:
@@ -100,33 +93,14 @@ def run(steps, precision="float32", restart_at=None, device=None):
             block.make_outputs(bv, step * dt, True)
             (restart_file,) = glob.glob("*.final.restart")
             block = MeshBlock(options)
+            block.set_chemistry(kin_options)  # registered again after the rebuild
             block.to(device)
             bv, time = block.initialize_from_restart(restart_file)
             assert time == step * dt
-            eos = block.module("hydro.eos")
-            ty = block.module("hydro.eos.thermo")
-            kin = kt.Kinetics(kin_options)
-            tx = kt.ThermoX(tx_options)
-            kin.to(device)
-            tx.to(device)
-            inv_mu = ty.buffer("inv_mu")[1:]
-            stoich = kin.buffer("stoich")
+        # the chemistry step (FP64 species increment only, as the pin's
+        # examples/run_hydro.cpp boundary) runs inside the last stage (V3 S-K4)
         for stage in range(len(block.intg.stages)):
             block.forward(bv, dt, stage)
-        # Same FP64 chemistry boundary as examples/run_hydro.cpp. Apply only
-        # its species increment to the stored state, never FP32 total energy.
-        eos.compute("U'->W", [bv["hydro_u"], bv["hydro_w"]])
-        w = bv["hydro_w"]
-        t, p = eos.compute("W->T", [w]), w[kIPR]
-        x = ty.compute("Y->X", [w[kICY:]])
-        conc = tx.compute("TPX->V", [t, p, x])
-        cv = tx.compute("TV->cp", [t, conc])
-        c = conc[..., 1:]
-        rate, dc, dT, kf = kin.forward_with_rate_constants(t, p, c)
-        jac = kin.jacobian(t, c, cv, rate, dc, dT, kf)
-        delta = kt.evolve_implicit(rate, stoich, jac, dt)
-        assert delta.dtype == torch.float64 and jac.dtype == torch.float64
-        bv["hydro_u"][kICY:] += (delta / inv_mu).permute(3, 0, 1, 2)
         status = block.check_redo(bv)
         assert status == 0, (step, status)
         assert bv["hydro_u"].dtype == (torch.float32 if precision == "float32" else torch.float64)

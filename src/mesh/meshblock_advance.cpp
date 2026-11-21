@@ -11,6 +11,7 @@
 #include <vector>
 
 // snap
+#include <snap/chemistry/chemistry_source.hpp>
 #include <snap/coord/coord_utils.hpp>
 #include <snap/coord/gnomonic_equiangle.hpp>
 #include <snap/eos/ideal_moist.hpp>
@@ -323,6 +324,11 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
     freg.monitor().count("thermo.temp_solve", fails[1]);
     freg.monitor().count("thermo.pres_solve", fails[2]);
   }
+
+  // S-K4 (K.rst 3.5): the chemistry step, the last op of the last stage of a
+  // bare block (a Mesh runs it over its blocks before its final exchange)
+  if (stage == pintg->stages.size() - 1 && _chemistry && !defer_chemistry)
+    _chemistry->forward(*this, vars, dt);
 
   // Physical ghosts must include the final-stage species adjustment.
   apply_boundaries(vars, hydro_u, scalar_s);
