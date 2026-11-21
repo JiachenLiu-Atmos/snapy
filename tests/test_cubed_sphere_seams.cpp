@@ -6,8 +6,12 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <exception>
 #include <fstream>
 #include <string>
+#include <thread>
+#include <tuple>
+#include <vector>
 
 // torch
 #include <torch/torch.h>
@@ -21,6 +25,7 @@
 #include <snap/hydro/flux_register.hpp>
 #include <snap/hydro/hydro.hpp>
 #include <snap/layout/cubed_sphere_layout.hpp>
+#include <snap/layout/exchange.hpp>
 #include <snap/mesh/mesh.hpp>
 #include <snap/mesh/meshblock.hpp>
 
@@ -246,4 +251,107 @@ TEST(CubedSphereSeams, wall_mass_and_energy_flux_is_prescribed_zero) {
   }
   std::printf("max |mass or energy flux| on the x1 walls = %.3e\n", worst);
   EXPECT_EQ(worst, 0.);
+}
+
+namespace {
+
+//! run f(b) for every block of the mesh at once: a board take waits for its
+//! peer's post, so the local blocks must run concurrently (as in a step)
+template <class F>
+void on_every_block(Mesh const& mesh, F f) {
+  std::vector<std::thread> threads;
+  std::vector<std::exception_ptr> errors(mesh->blocks.size());
+  for (size_t b = 0; b < mesh->blocks.size(); ++b)
+    threads.emplace_back([&, b] {
+      try {
+        f(b);
+      } catch (...) {
+        errors[b] = std::current_exception();
+      }
+    });
+  for (auto& t : threads) t.join();
+  for (auto& e : errors)
+    if (e) std::rethrow_exception(e);
+}
+
+//! [3, N, ni] interior slab of a block-shaped [3, nc3, nc2, nc1] field on
+//! side s, at the plane `at` of its own axis: along the edge (x3 on L/R, x2 on
+//! B/T), then x1
+torch::Tensor side_slab(torch::Tensor const& t, CoordinateImpl const& c, int s,
+                        int at) {
+  int ng = c.options->nghost(), is = c.il(), ni = c.iu() + 1 - is;
+  auto p = s < 2 ? t.select(2, at) : t.select(1, at);
+  return p.narrow(1, ng, N).narrow(2, is, ni);
+}
+
+}  // namespace
+
+// S-M6: Exchange::seam_slab hands every x2/x3 side the neighbour's face slab
+// in this block's along-edge order (reversed where CS_FACE_EDGES says so),
+// and the slab is what the ghost exchange row 18 used before puts in the
+// first ghost layer on that side, bit for bit
+TEST(CubedSphereSeams, seam_slab_hands_each_side_its_neighbours_face_slab) {
+  auto mesh = make_sphere();
+  mesh->to(torch::kCPU, torch::kFloat64);
+  int nb = mesh->blocks.size();
+  std::vector<int> panel(nb), rank_to_block(nb);
+  for (int b = 0; b < nb; ++b) {
+    auto lay = mesh->blocks[b]->get_layout();
+    panel[b] = std::get<2>(lay->loc_of(lay->options->rank()));
+    rank_to_block[mesh->blocks[b]->options->layout()->rank()] = b;
+  }
+  // a field with a distinct value in every cell and channel, per block
+  std::vector<torch::Tensor> field(nb);
+  for (int b = 0; b < nb; ++b) {
+    auto c = mesh->blocks[b]->pcoord;
+    auto n = 3 * c->options->nc3() * c->options->nc2() * c->options->nc1();
+    field[b] =
+        (torch::arange(n, torch::kFloat64) + 1.e5 * (b + 1))
+            .view({3, c->options->nc3(), c->options->nc2(), c->options->nc1()});
+  }
+  // the slabs next to each side, and what seam_slab returns for them
+  std::vector<std::array<torch::Tensor, 4>> mine(nb), got(nb);
+  for (int b = 0; b < nb; ++b) {
+    auto const& c = *mesh->blocks[b]->pcoord;
+    std::array<int, 4> inner = {c.jl(), c.ju(), c.kl(), c.ku()};
+    for (int s = 0; s < 4; ++s)
+      mine[b][s] = side_slab(field[b], c, s, inner[s]).contiguous();
+  }
+  // one tag for both calls: a panel seam can pair an x2 face with an x3 face
+  on_every_block(mesh, [&](size_t b) {
+    Exchange ex(mesh->blocks[b].get());
+    std::tie(got[b][SIDE_L], got[b][SIDE_R]) =
+        ex.seam_slab(2, mine[b][SIDE_L], mine[b][SIDE_R], 0x7790, false);
+    std::tie(got[b][SIDE_B], got[b][SIDE_T]) =
+        ex.seam_slab(3, mine[b][SIDE_B], mine[b][SIDE_T], 0x7790, false);
+  });
+  // the row-18 transport before S-M6: the ghost exchange of the whole field
+  std::vector<Variables> vars(nb);
+  for (int b = 0; b < nb; ++b) vars[b]["seam_slab_check"] = field[b].clone();
+  on_every_block(mesh, [&](size_t b) {
+    mesh->blocks[b]->exchange(vars[b], SyncOptions().type(kScalar).phyid(12));
+  });
+  int wrong = 0, unlike_ghosts = 0;
+  for (int b = 0; b < nb; ++b) {
+    auto blk = mesh->blocks[b];
+    auto const& c = *blk->pcoord;
+    auto lay = blk->get_layout();
+    auto iloc = lay->loc_of(lay->options->rank());
+    std::array<int, 4> ghost = {c.jl() - 1, c.ju() + 1, c.kl() - 1, c.ku() + 1};
+    std::array<std::array<int, 2>, 4> off = {
+        {{0, -1}, {0, 1}, {-1, 0}, {1, 0}}};
+    for (int s = 0; s < 4; ++s) {
+      ASSERT_TRUE(got[b][s].defined()) << "block " << b << " side " << s;
+      int peer =
+          rank_to_block[lay->neighbor_rank(iloc, {off[s][0], off[s][1], 0})];
+      auto e = CS_FACE_EDGES[panel[b]][s];
+      auto expect = mine[peer][e.nside];
+      if (e.rev) expect = expect.flip(1);
+      wrong += !torch::equal(got[b][s], expect);
+      unlike_ghosts += !torch::equal(
+          got[b][s], side_slab(vars[b]["seam_slab_check"], c, s, ghost[s]));
+    }
+  }
+  EXPECT_EQ(wrong, 0) << "sides whose slab is not the neighbour's";
+  EXPECT_EQ(unlike_ghosts, 0) << "sides that differ from the ghost exchange";
 }

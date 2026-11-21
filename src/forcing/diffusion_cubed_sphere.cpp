@@ -4,6 +4,7 @@
 #include <cmath>
 #include <snap/coord/coord_utils.hpp>
 #include <snap/coord/cubed_sphere_utils.hpp>
+#include <snap/layout/exchange.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <vector>
 
@@ -97,8 +98,8 @@ Tensor transform(Tensor t, Stencil const &stencil, int dim) {
   }
   return result;
 }
-constexpr std::array<std::array<int, 3>, 4> offsets = {
-    {{0, -1, 0}, {0, 1, 0}, {-1, 0, 0}, {1, 0, 0}}};
+// row 18's face-slab messages carry this tag + the receiver's side (S M6)
+constexpr int kDiffusionSeamTag = 0x7760;
 
 // Exchange outward integrated flux, reconstructed trace, dynamic coefficients,
 // and centre-to-face normal distance. Cartesian channels require no rotation.
@@ -108,9 +109,6 @@ void share_fluxes(MeshBlockImpl const *block, std::array<Tensor, 3> &flux,
                   std::array<Tensor, 4> const &normals) {
   auto c = block->pcoord;
   Box lo{c->kl(), c->jl(), c->il()}, hi{c->ku() + 1, c->ju() + 1, c->iu() + 1};
-  auto packed =
-      torch::zeros({12, flux[0].size(1), flux[0].size(2), flux[0].size(3)},
-                   flux[0].options());
   std::array<Tensor, 3> area{c->face_area1(), c->face_area2(), c->face_area3()};
   std::array<Tensor, 4> outgoing;
   // Snapshot ALL original face fluxes before correcting any face. A face
@@ -121,57 +119,49 @@ void share_fluxes(MeshBlockImpl const *block, std::array<Tensor, 3> &flux,
     Box fl = lo, fh = hi;
     fl[dim] = upper ? hi[dim] : lo[dim];
     fh[dim] = fl[dim] + 1;
-    outgoing[side] = torch::cat(
-        {(upper ? 1. : -1.) * sub(flux[dir], fl, fh) * sub(area[dir], fl, fh),
-         trace[side]},
-        0);
+    // in the flux dtype, as the old 12-channel exchange buffer held them
+    outgoing[side] = torch::cat({(upper ? 1. : -1.) * sub(flux[dir], fl, fh) *
+                                     sub(area[dir], fl, fh),
+                                 trace[side]},
+                                0)
+                         .to(flux[0].scalar_type());
   }
-  Variables vars{{"diffusion_flux", packed}};
-  auto layout = block->get_layout();
-  auto loc = layout->loc_of(layout->options->rank());
-  // The exchange API indexes full block-shaped tensors. Preserve those
-  // indices and its corner/interpolation rules, but stream the four former
-  // 12-channel slices through one buffer. Scalar exchange acts independently
-  // on channels, so four completed rounds reproduce the old 48-channel round.
-  for (int sent_side = 0; sent_side < 4; ++sent_side) {
-    packed.zero_();
-    int sent_dim = sent_side < 2 ? 1 : 0;
-    Box cl = lo, ch = hi;
-    cl[sent_dim] = sent_side % 2 ? hi[sent_dim] - 1 : lo[sent_dim];
-    ch[sent_dim] = cl[sent_dim] + 1;
-    sub(packed, cl, ch).copy_(outgoing[sent_side]);
-    block->exchange(vars, SyncOptions().type(kScalar).phyid(12));
-    for (int side = 0; side < 4; ++side) {
-      auto off = std::make_tuple(offsets[side][0], offsets[side][1], 0);
-      auto peer = layout->loc_of(layout->neighbor_rank(loc, off));
-      int ps = std::get<2>(peer) == std::get<2>(loc)
-                   ? (side ^ 1)
-                   : CS_FACE_EDGES[std::get<2>(loc)][side].nside;
-      if (ps != sent_side) continue;
-      int dir = side < 2 ? 1 : 2, dim = 2 - dir;
-      bool upper = side % 2;
-      double sign = upper ? 1. : -1.;
-      Box gl = lo, gh = hi, fl = lo, fh = hi;
-      gl[dim] = upper ? hi[dim] : lo[dim] - 1;
-      gh[dim] = gl[dim] + 1;
-      fl[dim] = upper ? hi[dim] : lo[dim];
-      fh[dim] = fl[dim] + 1;
-      auto other = sub(packed, gl, gh);
-      auto own = trace[side];
-      auto f = sub(flux[dir], fl, fh);
-      f.copy_(0.5 *
-              (f - sign * other.narrow(0, 0, 5) / sub(area[dir], fl, fh)));
-      auto n = sign * normals[side];
-      auto jump = other.narrow(0, 5, 4) - own.narrow(0, 0, 4);
-      auto distance = own[6] + other[11];
-      auto mu = 0.5 * (own[4] + other[9]), k = 0.5 * (own[5] + other[10]);
-      // Symmetric interior penalty couples even piecewise-constant panels.
-      auto dv = jump.narrow(0, 1, 3);
-      auto mf = -2. * mu * (dv + n * vector_dot(n, dv) / 3.) / distance;
-      auto vf = 0.5 * (own.narrow(0, 1, 3) + other.narrow(0, 6, 3));
-      f.narrow(0, IVX, 3).add_(sign * mf);
-      f[IPR].add_(sign * (-2. * k * jump[0] / distance + vector_dot(vf, mf)));
-    }
+  // Row 18 (S.rst row M6): each side's 12 channels go to the neighbour
+  // across it as one face slab, both faces of a direction in one
+  // Exchange::seam_slab; a slab arrives in this block's along-edge order,
+  // where the ghost exchange used to put it.
+  Exchange ex(block);
+  std::array<Tensor, 4> others;
+  for (int dir = 1; dir <= 2; ++dir) {
+    int s0 = dir == 1 ? 0 : 2, axis = dir == 1 ? 2 : 1;  // the face's axis
+    auto [below, above] =
+        ex.seam_slab(dir + 1, outgoing[s0].squeeze(axis),
+                     outgoing[s0 + 1].squeeze(axis), kDiffusionSeamTag, false);
+    if (below.defined()) others[s0] = below.unsqueeze(axis);
+    if (above.defined()) others[s0 + 1] = above.unsqueeze(axis);
+  }
+  for (int side = 0; side < 4; ++side) {
+    if (!others[side].defined()) continue;
+    int dir = side < 2 ? 1 : 2, dim = 2 - dir;
+    bool upper = side % 2;
+    double sign = upper ? 1. : -1.;
+    Box fl = lo, fh = hi;
+    fl[dim] = upper ? hi[dim] : lo[dim];
+    fh[dim] = fl[dim] + 1;
+    auto const &other = others[side];
+    auto own = trace[side];
+    auto f = sub(flux[dir], fl, fh);
+    f.copy_(0.5 * (f - sign * other.narrow(0, 0, 5) / sub(area[dir], fl, fh)));
+    auto n = sign * normals[side];
+    auto jump = other.narrow(0, 5, 4) - own.narrow(0, 0, 4);
+    auto distance = own[6] + other[11];
+    auto mu = 0.5 * (own[4] + other[9]), k = 0.5 * (own[5] + other[10]);
+    // Symmetric interior penalty couples even piecewise-constant panels.
+    auto dv = jump.narrow(0, 1, 3);
+    auto mf = -2. * mu * (dv + n * vector_dot(n, dv) / 3.) / distance;
+    auto vf = 0.5 * (own.narrow(0, 1, 3) + other.narrow(0, 6, 3));
+    f.narrow(0, IVX, 3).add_(sign * mf);
+    f[IPR].add_(sign * (-2. * k * jump[0] / distance + vector_dot(vf, mf)));
   }
 }
 }  // namespace

@@ -68,6 +68,33 @@ class Exchange {
       torch::Tensor const& lower, torch::Tensor const& upper, int tag,
       bool process_only) const;
 
+  //! the x2/x3 face slabs (S step M6, S.rst row M6; row 18 and any face-slab
+  //! row): a raw copy across both faces of direction dim (2: x2, 3: x3),
+  //! panel seams and same-panel neighbours alike. lower and upper are this
+  //! block's slabs next to its lower and upper face of dim, each [C, n, ni]:
+  //! C channels, n cells along the edge (x3 on an x2 face, x2 on an x3 face,
+  //! in this block's index order), ni cells of x1. Returns the neighbours'
+  //! slabs for the same faces, {across the lower face, across the upper
+  //! face}, in the same [C, n, ni] layout and in this block's along-edge
+  //! order: a panel seam whose edge runs the other way (CS_FACE_EDGES rev)
+  //! arrives reversed along n. No sign change and no rotation; a caller that
+  //! needs them (row 16r) applies them itself. Undefined where there is no
+  //! peer. The message to a peer carries tag + the peer's side (L, R, B, T =
+  //! 0..3). A same-process peer goes through a board, a remote one through
+  //! the process group; process_only: only peers in another process.
+  //! A cubed-sphere panel seam can join an x2 face to an x3 face
+  //! (CS_FACE_EDGES: 1B-5R, 1T-3R, 3L-4T, 4B-5L), whose slab then travels in
+  //! the peer's call for the other direction: a row calls dim 2, then dim 3,
+  //! on every block, with one tag. That order completes: panels 0, 1, 2 and 4
+  //! finish their x2 call on x2 posts alone; 3 and 5 wait in it for the x3
+  //! posts of 1 and 4, made as their x3 call starts; 0 and 2 wait in their x3
+  //! call for 5 and 3.
+  std::pair<torch::Tensor, torch::Tensor> seam_slab(int dim,
+                                                    torch::Tensor const& lower,
+                                                    torch::Tensor const& upper,
+                                                    int tag,
+                                                    bool process_only) const;
+
   //! the x1 reference anchor relay down the column (row 6): the running
   //! face value from the block above; undefined when the column is not
   //! split or this block is its top
