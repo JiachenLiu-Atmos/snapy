@@ -133,7 +133,7 @@ The posting order lane A relies on is the ``RegisterPhase`` order (R:14-22):
 sweep (riemann, sedimentation, covariance) < reconcile < limit (EF's carry P3,
 then scale P2) < divergence < pre_implicit < implicit < post_implicit <
 after_combine. The step frame is ``begin_step`` < ``post_split`` < stages <
-``after_combine`` (R:6). **Proposed (phase 3, for ruling):** lane A's
+``after_combine`` (R:6). **Ruled (A-ph3.diffusion_phase):** lane A's
 cubed-sphere ``diffusion`` energy post is the first entry of ``divergence``,
 after ``limit`` and before the divergence is taken (3.7).
 
@@ -657,7 +657,7 @@ Its part is an FP64 monitor amount only (R.rst:452-454).
     ``DiffusionSource`` until gate G9b (5.3) shows the register route matches
     it.
   * This keeps phase 3 correct whichever way H13 turns out.
-* **Phase slot of the energy post (proposed, for ruling).** The cubed-sphere
+* **Phase slot of the energy post (ruling A-ph3.diffusion_phase).** The cubed-sphere
   ``diffusion`` energy post goes in ``RegisterPhase::divergence``, as its
   first entry: after ``limit`` and before ``du = −dt div(total)``. Reasons:
 
@@ -682,6 +682,9 @@ Its part is an FP64 monitor amount only (R.rst:452-454).
   stays a ``pre_implicit`` ``DiffusionSource`` until G9b.
 * **Radial conduction:** each half step posts its x1 heat flux with
   ``reg.post_split(1, "diffusion.radial", flux, 0.5, dt)`` (R:80-81).
+  **Ruling A-ph3.radial_step_field:** a deck with radial conduction requests
+  the x1 step field (``step_field`` {1}) and the post is unguarded; a deck
+  without radial conduction requests nothing for it.
 * **Radial failure: abort, settled (Cheng's decision, 1.5).** The pin's host
   check stays: finite and positive ``next`` (``diffusion_radial.cpp:97-100``).
   It runs before the increment ``u[IPR] += capacity · (next − temp)``
