@@ -3,7 +3,8 @@
 // every row on the boundary transfer of a source-free run; a restart of a
 // deck with a budget output resumes its interval from BudgetCarry; a file
 // without a carry starts a new interval at the first observe, and a deck
-// without a budget output writes none.
+// without a budget output writes none. The _cuda entry (SNAP_BUDGET_CUDA)
+// runs every case with the blocks and hydro_w on the GPU, restarts included.
 
 // C/C++
 #include <cmath>
@@ -25,14 +26,20 @@
 #include <snap/output/output_type.hpp>
 #include <snap/output/restart.hpp>
 
+#include "cuda_test_gate.hpp"
+
 using namespace snap;
 namespace fs = std::filesystem;
 
 namespace {
 
+// the _cuda entry: every block (and so every restart arm) on the GPU
+bool const kCuda = getenv("SNAP_BUDGET_CUDA") != nullptr;
+
 fs::path fresh_dir(std::string const& tag) {
   // the files one by one: remove_all resolves into libtorch's copy here
-  auto dir = fs::temp_directory_path() / ("snapy_budget_" + tag);
+  auto dir = fs::temp_directory_path() /
+             ("snapy_budget_" + tag + (kCuda ? "_cuda" : ""));
   if (fs::exists(dir))
     for (auto const& e : fs::directory_iterator(dir)) fs::remove(e.path());
   fs::create_directories(dir);
@@ -41,6 +48,7 @@ fs::path fresh_dir(std::string const& tag) {
 
 Mesh make_mesh(fs::path const& dir, bool budget, bool restart) {
   auto bo = MeshBlockOptionsImpl::from_yaml("test_budget.yaml");
+  bo->layout()->device(kCuda ? "cuda" : "cpu");
   std::vector<OutputOptions> outs;
   if (budget) {
     auto b = OutputOptionsImpl::create();
@@ -59,7 +67,9 @@ Mesh make_mesh(fs::path const& dir, bool budget, bool restart) {
   auto mo = MeshOptionsImpl::create();
   mo->block(bo);
   mo->blocks_per_process(2);
-  return Mesh(mo);
+  auto mesh = Mesh(mo);
+  mesh->to(torch::Device(bo->device_str()));  // as a driver does
+  return mesh;
 }
 
 std::shared_ptr<BudgetOutput> budget_of(Mesh const& mesh, size_t b = 0) {
@@ -83,9 +93,10 @@ Run run(Mesh mesh, int last, std::string const& restart = "",
     auto const& blk = mesh->blocks[i];
     auto co = blk->pcoord->options;
     int nvar = blk->phydro->peos->nvar();
-    auto w =
-        torch::zeros({nvar, co->nc3(), co->nc2(), co->nc1()}, torch::kFloat64);
+    // hydro_w on the block's device, as a driver hands it in
     auto x1 = blk->pcoord->x1v.to(torch::kFloat64);
+    auto w =
+        torch::zeros({nvar, co->nc3(), co->nc2(), co->nc1()}, x1.options());
     w[IDN] = (1. + 0.3 * torch::sin(2. * M_PI * x1 / 1600.)).view({1, 1, -1});
     w[IVX] = 50.;
     w[IVY] = 5.;
@@ -145,6 +156,7 @@ fs::path restart_file(fs::path const& dir, int number) {
 }  // namespace
 
 TEST(Budget, every_row_closes_on_the_boundary_transfer) {
+  if (kCuda && !snapy_cuda_test_enabled()) GTEST_SKIP() << "no CUDA";
   auto dir = fresh_dir("closure");
   auto r = run(make_mesh(dir, true, false), 12);
   ASSERT_GE(r.records.size(), 3u);
@@ -168,6 +180,7 @@ TEST(Budget, every_row_closes_on_the_boundary_transfer) {
 }
 
 TEST(Budget, a_restart_resumes_the_interval_from_its_carry) {
+  if (kCuda && !snapy_cuda_test_enabled()) GTEST_SKIP() << "no CUDA";
   auto dir = fresh_dir("carry_a");
   auto full = run(make_mesh(dir, true, true), 12);
   auto file = restart_file(dir, 1);
@@ -194,6 +207,7 @@ TEST(Budget, a_restart_resumes_the_interval_from_its_carry) {
 }
 
 TEST(Budget, a_file_without_a_carry_starts_at_the_first_observe) {
+  if (kCuda && !snapy_cuda_test_enabled()) GTEST_SKIP() << "no CUDA";
   // a deck without a budget output writes exactly the old stored set
   auto dir = fresh_dir("nocarry_a");
   run(make_mesh(dir, false, true), 12);
