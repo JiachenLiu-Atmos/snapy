@@ -103,8 +103,6 @@ void riemann_solve(HydroImpl& hydro, torch::Tensor lr, int dim,
     post_events();
     return;
   }
-  TORCH_CHECK(!central.defined(),
-              "riemann.central needs the total-state solve");
   if (!background.defined()) {
     // Horizontal (or gravity-free) sweeps: the shared face gauge need not
     // be hydrostatic. Its full gradient is retained in the momentum source.
@@ -122,7 +120,7 @@ void riemann_solve(HydroImpl& hydro, torch::Tensor lr, int dim,
   }
   if (hydro.fp32()) lr = lr.to(torch::kFloat32);
   hydro.priemann->forward_perturbations(lr[ILT], lr[IRT], dim, flux, background,
-                                        face_pressure);
+                                        face_pressure, central);
   post_events();
   // Public face pressure and all implicit/energy consumers keep TOTALS.
   if (face_pressure.defined() && face_pressure.numel())
