@@ -154,6 +154,10 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! current cycle number
   int cycle = 0;
 
+  //! the length of the step being taken, set at its stage 0; the budget
+  //! output observes it once the step is accepted
+  double step_dt = 0.;
+
   //! Exchange buffers owned by the MeshBlock so Layout stays stateless.
   mutable std::vector<std::vector<torch::Tensor>> send_bufs, recv_bufs;
   mutable std::map<std::string, ExchangeBufferSet> exchange_buffer_cache;

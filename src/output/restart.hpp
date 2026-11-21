@@ -4,6 +4,7 @@
 #include <array>
 #include <map>
 #include <string>
+#include <vector>
 
 // torch
 #include <torch/torch.h>
@@ -28,5 +29,26 @@ Variables load_restart(std::string const& path, int block_rank = get_rank());
 void check_restart_metadata(Variables const& data,
                             std::array<torch::Tensor, 3> const& grid,
                             bool perturbation_flux);
+
+//! a budget interval still open at a restart (O.rst 3.4, Xi note 10): the
+//! block's sums since its last record, FP64 (counts int64) on the CPU.
+//! Written only when a budget output is requested; a file without one starts
+//! a new interval at the first observe. The fixer sums come with O8-cols.
+struct BudgetCarry {
+  std::vector<std::string> rows;  // row names; resumed only if they match
+  torch::Tensor total_prev;       // (nrows,) totals at the interval start
+  torch::Tensor pending;          // (nrows,) boundary transfer since then
+  torch::Tensor counter;          // (ncounters,) monitor counts since then
+  torch::Tensor minimum;          // (nminima,) monitor minima since then
+  double interval = 0.;           // accepted time since then
+  bool defined() const { return total_prev.defined(); }
+};
+
+//! restart keys of the carry: kBudgetCarryPrefix + its field
+inline constexpr char kBudgetCarryPrefix[] = "budget_carry.";
+void write_budget_carry(BudgetCarry const& carry, Variables& out);
+//! undefined when the file holds none or one with other rows
+BudgetCarry read_budget_carry(Variables const& data,
+                              std::vector<std::string> const& rows);
 
 }  // namespace snap
