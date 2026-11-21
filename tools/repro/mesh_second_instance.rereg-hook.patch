@@ -1,0 +1,41 @@
+Diagnostic hook for S-L1 (mesh.second_instance), NOT a fix. Applies to 7c7743517e68 with git apply.
+SNAPY_DIAG_REREG=1: each block re-registers itself in g_local_layouts before each local exchange (A then runs GREEN).
+SNAPY_DIAG_LOG=1: prints whether the exchanging block is in the registry peer list.
+
+diff --git a/src/layout/layout.cpp b/src/layout/layout.cpp
+index 65f57ffb..70dc6894 100644
+--- a/src/layout/layout.cpp
++++ b/src/layout/layout.cpp
+@@ -3,6 +3,8 @@
+ #include <yaml-cpp/yaml.h>
+ 
+ #include <chrono>
++#include <cstdio>
++#include <cstdlib>
+ #include <condition_variable>
+ #include <exception>
+ #include <map>
+@@ -324,6 +326,10 @@ void LayoutImpl::_prepare_local_exchange(MeshBlockImpl const* pmb,
+   auto key = make_local_exchange_key(*this, opts);
+   int expected = options->blocks_per_process();
+   std::unique_lock<std::mutex> lock(g_local_exchange_mutex);
++  // DIAG (mesh.second_instance): re-register this block before each exchange
++  if (std::getenv("SNAPY_DIAG_REREG"))
++    g_local_layouts[{options->process_rank(),
++                     options->local_block_index(options->rank())}] = this;
+   auto& state = g_local_exchange_states[key];
+   int generation = state.generation;
+ 
+@@ -347,6 +353,12 @@ void LayoutImpl::_prepare_local_exchange(MeshBlockImpl const* pmb,
+   state.arrived += 1;
+   if (state.arrived == expected) {
+     auto layouts = local_layouts_for(*this);
++    if (std::getenv("SNAPY_DIAG_LOG")) {
++      bool self = false;
++      for (auto* l : layouts) self |= (l == this);
++      fprintf(stderr, "DIAG local_exchange phyid=%d caller=%p self_in_registry=%d\n",
++              opts.phyid(), (void*)this, (int)self);
++    }
+     lock.unlock();
+     std::exception_ptr error;
+ #ifdef USE_CUDA
