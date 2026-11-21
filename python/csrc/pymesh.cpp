@@ -6,6 +6,7 @@
 #include <torch/extension.h>
 
 // snap
+#include <kintera/kinetics/kinetics.hpp>
 #include <snap/mesh/mesh.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/output/writer_core.hpp>
@@ -158,7 +159,7 @@ void bind_mesh(py::module& m) {
       .ADD_OPTION(snap::MeshBlockOptions, snap::MeshOptionsImpl, block)
       .ADD_OPTION(int, snap::MeshOptionsImpl, blocks_per_process);
 
-  ADD_SNAP_MODULE(MeshBlock, MeshBlockOptions)
+  ADD_SNAP_MODULE_STEPPED(MeshBlock, MeshBlockOptions)
       .def(py::init<snap::MeshBlockOptions>(), py::arg("options"))
       .def("cycle", [](snap::MeshBlockImpl& self) { return self.cycle; })
       .def("inc_cycle",
@@ -181,6 +182,14 @@ void bind_mesh(py::module& m) {
       .def("max_time_step", &snap::MeshBlockImpl::max_time_step)
       .def("make_outputs", &snap::MeshBlockImpl::make_outputs, py::arg("vars"),
            py::arg("time"), py::arg("final_write") = false)
+      .def(
+          "set_chemistry",
+          [](snap::MeshBlockImpl& self, kintera::KineticsOptions const& r) {
+            self.set_chemistry(*r);
+          },
+          py::arg("reactions"),
+          R"doc(V3 S-K4: register the chemistry step (kintera Kinetics over the
+reaction options, copied) to run after the last stage of every step.)doc")
       .def("forward", &snap::MeshBlockImpl::forward, py::arg("vars"),
            py::arg("dt"), py::arg("stage"),
            py::call_guard<py::gil_scoped_release>())
@@ -307,7 +316,7 @@ without its closure (the flux-form Coriolis torque only).)doc")
           py::arg("vars"), py::arg("hydro"), py::arg("tracers") = py::none(),
           py::arg("primitive") = false);
 
-  ADD_SNAP_MODULE(Mesh, MeshOptions)
+  ADD_SNAP_MODULE_STEPPED(Mesh, MeshOptions)
       .def(py::init<snap::MeshOptions>(), py::arg("options"))
       .def_property_readonly("blocks",
                              [](const snap::MeshImpl& self) {
@@ -335,6 +344,14 @@ without its closure (the flux-form Coriolis torque only).)doc")
           },
           py::arg("restart_file"))
       .def("max_time_step", &snap::MeshImpl::max_time_step, py::arg("vars"))
+      .def(
+          "set_chemistry",
+          [](snap::MeshImpl& self, kintera::KineticsOptions const& r) {
+            self.set_chemistry(*r);
+          },
+          py::arg("reactions"),
+          R"doc(V3 S-K4: one chemistry adapter per block, run in the last
+stage's global phase before the final exchange.)doc")
       .def("exchange", &snap::MeshImpl::exchange, py::arg("vars"),
            py::arg("opts"), py::call_guard<py::gil_scoped_release>())
       .def("exchange_ghost_zones", &snap::MeshImpl::exchange_ghost_zones,

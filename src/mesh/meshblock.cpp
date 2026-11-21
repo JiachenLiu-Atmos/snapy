@@ -11,6 +11,7 @@
 #include <vector>
 
 // snap
+#include <snap/chemistry/chemistry_source.hpp>
 #include <snap/coord/coord_utils.hpp>
 #include <snap/coord/gnomonic_equiangle.hpp>
 #include <snap/eos/ideal_moist.hpp>
@@ -423,6 +424,13 @@ std::shared_ptr<kintera::ThermoYImpl> MeshBlockImpl::thermo() const {
   auto modules = named_modules();
   auto m = modules.find("hydro.eos.thermo");
   return m ? std::dynamic_pointer_cast<kintera::ThermoYImpl>(*m) : nullptr;
+}
+
+void MeshBlockImpl::set_chemistry(kintera::KineticsOptionsImpl reactions) {
+  auto pthermo = thermo();
+  TORCH_CHECK(pthermo, "MeshBlock::set_chemistry needs an EOS with a thermo");
+  _chemistry =
+      std::make_shared<ChemistrySource>(std::move(reactions), pthermo->options);
 }
 
 void MeshBlockImpl::prepare_thermo(torch::Tensor const &hydro_u) {

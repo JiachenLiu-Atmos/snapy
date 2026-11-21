@@ -23,6 +23,7 @@
 #include <yaml-cpp/yaml.h>
 
 // snap
+#include <snap/chemistry/chemistry_source.hpp>
 #include <snap/mesh/mesh.hpp>
 #include <snap/mesh/signal_handler.hpp>
 #include <snap/utils/log.hpp>
@@ -350,6 +351,7 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
                 "integration/execution-strict: a Mesh runs its blocks eagerly "
                 "(CUDA graphs cover a single MeshBlock only)");
 
+  for (auto& b : blocks) b->defer_chemistry = true;
   run_block_jobs(
       [&](size_t i) { blocks[i]->advance_local(vars[i], dt, stage); });
   // conserve-axial-momentum-closure: R and I summed over the local blocks,
@@ -368,7 +370,29 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
           v.count("scalar_s") ? v.at("scalar_s") : torch::Tensor());
     });
   }
+  // S-K4 (K.rst 3.5): the chemistry step, last in the global phase, before
+  // the final exchange. The blocks run it one after another, not on the
+  // worker pool: kintera's LogSVPFunc keeps one process-global _op that
+  // Evaporation::forward reassigns on every call (kintera log_svp.cpp:52-58,
+  // 2.6.11), so two blocks' kinetics on two threads race on that shared_ptr
+  // (a double free; K.rst 3.6's no-shared-state assumption does not hold).
+  // Sequential until kintera makes it per instance; the results are the
+  // same, each block's step reads only its own state.
+  if (stage == static_cast<int>(root->pintg->stages.size()) - 1)
+    for (size_t i = 0; i < blocks.size(); ++i) {
+      auto chem = blocks[i]->chemistry();
+      if (!chem) continue;
+      chem->forward(*blocks[i], vars[i], dt);
+      auto& v = vars[i];
+      blocks[i]->apply_boundaries(
+          v, v.at("hydro_u"),
+          v.count("scalar_s") ? v.at("scalar_s") : torch::Tensor());
+    }
   run_block_jobs([&](size_t i) { blocks[i]->exchange_ghost_zones(vars[i]); });
+}
+
+void MeshImpl::set_chemistry(kintera::KineticsOptionsImpl reactions) {
+  for (auto& b : blocks) b->set_chemistry(reactions);  // one after another
 }
 
 void MeshImpl::set_user_stage_forcings(
