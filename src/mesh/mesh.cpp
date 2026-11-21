@@ -28,6 +28,7 @@
 #include <snap/utils/log.hpp>
 
 #include "cycle_diagnostics.hpp"
+#include "stage_executor.hpp"
 
 namespace snap {
 
@@ -45,19 +46,24 @@ MeshBlockOptions clone_block_options(MeshBlockOptions const& src) {
 //! Every block of a Mesh exchanges the same variables; a missing or extra
 //! one would leave the same-process copy reading past a block's buffers.
 void check_same_variables(MeshVariables const& vars, char const* caller) {
+  auto keys = [](Variables const& v) {
+    std::vector<std::string> k;
+    for (auto const& [name, _] : v) k.push_back(name);
+    return k;  // sorted: a std::map's order
+  };
   for (size_t i = 1; i < vars.size(); ++i) {
-    for (auto const& [name, _] : vars[0]) {
+    auto k0 = keys(vars[0]), ki = keys(vars[i]);
+    if (k0 == ki) continue;
+    for (auto const& name : k0)
       TORCH_CHECK(vars[i].count(name), caller, ": block ", i,
                   " has no variable '", name,
                   "' (block 0 has it); every block must pass the same "
                   "variables");
-    }
-    for (auto const& [name, _] : vars[i]) {
+    for (auto const& name : ki)
       TORCH_CHECK(vars[0].count(name), caller, ": block ", i, " has variable '",
                   name,
                   "' that block 0 does not; every block must pass the same "
                   "variables");
-    }
   }
 }
 
@@ -332,19 +338,7 @@ double MeshImpl::max_time_step(MeshVariables const& vars) {
     dt_local = std::min(dt_local, blocks[i]->local_max_time_step(vars[i]));
   }
 
-  auto dt_tensor = torch::tensor({dt_local}, torch::dtype(torch::kFloat64));
-  std::vector<at::Tensor> dt_reduce = {dt_tensor};
-  c10d::AllreduceOptions op;
-  op.reduceOp = c10d::ReduceOp::MIN;
-  auto layout = blocks.front()->get_layout();
-  if (layout->has_process_group()) {
-    layout->comm->allreduce(dt_reduce, op.reduceOp);
-  }
-
-  auto dt = dt_reduce[0].item<double>();
-  auto redo = blocks.front()->pintg->current_redo;
-  auto cfl = blocks.front()->pintg->options->cfl();
-  return pow(2., -redo) * cfl * dt;
+  return blocks.front()->global_time_step(dt_local);
 }
 
 void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
@@ -356,46 +350,18 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
                 "integration/execution-strict: a Mesh runs its blocks eagerly "
                 "(CUDA graphs cover a single MeshBlock only)");
 
-  if (blocks.size() == 1) {
-    blocks[0]->advance_local(vars[0], dt, stage);
-    blocks[0]->exchange_ghost_zones(vars[0]);
-    return;
-  }
-
-  for (auto& b : blocks) b->defer_gravity_work_fixer = true;
-  for (auto& b : blocks) b->defer_axial_closure = true;
   run_block_jobs(
       [&](size_t i) { blocks[i]->advance_local(vars[i], dt, stage); });
   // conserve-axial-momentum-closure: R and I summed over the local blocks,
   // one reduction, then each block's solid-body increment
   auto root = blocks.front();
+  // the global phase (X4): the blocks' device partials, one reduction
   if (root->phydro->options->conserve_axial_momentum_closure()) {
-    auto sums = torch::zeros({2}, torch::kFloat64);
-    for (auto& b : blocks) sums += b->axial_closure_sums();
-    std::vector<at::Tensor> reduce = {sums};
-    if (root->get_layout()->has_process_group())
-      root->get_layout()->comm->allreduce(reduce, c10d::ReduceOp::SUM);
+    std::vector<torch::Tensor> partials;
+    for (auto& b : blocks) partials.push_back(b->axial_closure_sums());
+    auto global = global_phase_sum(partials, *root->get_layout());
     run_block_jobs([&](size_t i) {
-      blocks[i]->apply_axial_closure(vars[i], dt, stage, reduce[0]);
-      auto& v = vars[i];
-      blocks[i]->apply_boundaries(
-          v, v.at("hydro_u"),
-          v.count("scalar_s") ? v.at("scalar_s") : torch::Tensor());
-    });
-  }
-  // gravity-work-fixer: one sum over the local blocks, one reduction
-  if (stage == static_cast<int>(root->pintg->stages.size()) - 1 &&
-      root->phydro->gravity_work_fixer()) {
-    auto sums = torch::zeros({5}, torch::kFloat64);
-    for (size_t i = 0; i < blocks.size(); ++i)
-      sums += blocks[i]->gravity_work_fixer_sums(vars[i]);
-    std::vector<at::Tensor> reduce = {sums};
-    auto layout = root->get_layout();
-    if (layout->has_process_group()) {
-      layout->comm->allreduce(reduce, c10d::ReduceOp::SUM);
-    }
-    run_block_jobs([&](size_t i) {
-      blocks[i]->apply_gravity_work_fixer(vars[i], reduce[0]);
+      blocks[i]->apply_axial_closure(vars[i], dt, stage, global);
       auto& v = vars[i];
       blocks[i]->apply_boundaries(
           v, v.at("hydro_u"),
@@ -418,11 +384,6 @@ void MeshImpl::set_user_stage_forcings(
 void MeshImpl::exchange(MeshVariables& vars, SyncOptions const& opts) {
   TORCH_CHECK(vars.size() == blocks.size(),
               "Mesh::exchange expects one Variables map per local MeshBlock");
-
-  if (blocks.size() == 1) {
-    blocks[0]->exchange(vars[0], opts);
-    return;
-  }
 
   check_same_variables(vars, "Mesh::exchange");
   run_block_jobs([&](size_t i) { blocks[i]->exchange(vars[i], opts); });
@@ -470,25 +431,13 @@ int MeshImpl::check_redo(MeshVariables& vars) {
     return -1;
   }
 
-  // A hit in any local block rolls back every block on every process.
-  // one device-to-host read for all local blocks on a common device
-  std::array<bool, 6> flags{};
-  std::vector<torch::Tensor> local;
+  std::vector<MeshBlockImpl*> impls;
+  std::vector<Variables const*> local;
   for (size_t i = 0; i < blocks.size(); ++i) {
-    local.push_back(blocks[i]->local_redo_flag_tensor(vars[i]));
+    impls.push_back(blocks[i].get());
+    local.push_back(&vars[i]);
   }
-  bool same_device = true;
-  for (auto const& t : local)
-    same_device = same_device && t.device() == local.front().device();
-  if (same_device && !local.empty()) {
-    flags = MeshBlockImpl::read_redo_flags(torch::stack(local).amax(0));
-  } else {
-    for (auto const& t : local) {
-      auto f = MeshBlockImpl::read_redo_flags(t);
-      for (size_t j = 0; j < flags.size(); ++j) flags[j] = flags[j] || f[j];
-    }
-  }
-  int causes = blocks.front()->reduce_redo_flags(flags);
+  int causes = MeshBlockImpl::decide_retry(impls, local);
 
   int out = 0;
   for (int i = 0; i < blocks.size(); ++i) {
@@ -520,46 +469,9 @@ int MeshImpl::finalize(MeshVariables const& vars, double time) {
   }
 
   make_outputs(vars, time, /*final_write=*/true);
-
-  auto root = blocks.front();
-  int status = 0;
-  auto sig = SignalHandler::GetInstance();
-  if (sig->GetSignalFlag(SIGTERM) != 0) {
-    SINFO() << std::endl << "Terminating on Terminate signal" << std::endl;
-  } else if (sig->GetSignalFlag(SIGINT) != 0) {
-    SINFO() << std::endl << "Terminating on Interrupt signal" << std::endl;
-  } else if (sig->GetSignalFlag(SIGALRM) != 0) {
-    SINFO() << std::endl << "Terminating on wall-time limit" << std::endl;
-  } else if (root->pintg->options->nlim() >= 0 &&
-             root->cycle >= root->pintg->options->nlim()) {
-    SINFO() << std::endl << "Terminating on cycle limit" << std::endl;
-  } else if (time >= root->pintg->options->tlim()) {
-    SINFO() << std::endl << "Terminating on time limit" << std::endl;
-  } else {
-    SINFO() << std::endl << "Terminating abnormally" << std::endl;
-    status = 1;
-  }
-
-  SINFO() << "time=" << time << " cycle=" << root->cycle << std::endl;
-  SINFO() << "tlim=" << root->pintg->options->tlim()
-          << " nlim=" << root->pintg->options->nlim() << std::endl;
-
-  for (auto& block : blocks) {
-    block->send_bufs.clear();
-    block->send_bufs.shrink_to_fit();
-    block->recv_bufs.clear();
-    block->recv_bufs.shrink_to_fit();
-  }
-
-  auto layout = root->get_layout();
-  if (layout->has_process_group()) {
-    layout->comm->barrier();
-    if (layout->comm->owns_process_group()) {
-      layout->comm->shutdown();
-    }
-  }
-
-  return status;
+  std::vector<MeshBlockImpl*> impls;
+  for (auto& b : blocks) impls.push_back(b.get());
+  return MeshBlockImpl::finish_run(impls, time);
 }
 
 }  // namespace snap

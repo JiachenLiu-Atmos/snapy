@@ -7,6 +7,7 @@
 
 // snap
 #include <snap/forcing/forcing.hpp>
+#include <snap/hydro/flux_register.hpp>
 #include <snap/hydro/gravity_work.hpp>
 
 // arg
@@ -85,11 +86,29 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
   //! corrector for the implicit hydro
   torch::Tensor forward(torch::Tensor du, torch::Tensor w, torch::Tensor gamma,
                         double dt);
+  //! V3 I-4: with reg and the step's post_dt (> 0), the face transfers are
+  //! posted to reg in phase implicit (add "vic.mass_dry", "vic.mass_species",
+  //! "vic.momentum_t"; keep "vic.mass_total"; the amounts "vic.cell",
+  //! "vic.mass_clamped" and, full matrix, "vic.momentum_t.top"), each as
+  //! M_f / (A_f post_dt), and the gravity-work remainder reads the kept
+  //! "vic.mass_total" (I.rst section 4)
+  //! V3 I-6: with retry ([nc3, nc2] bool) defined, the predicated FP64
+  //! stage: only those columns are solved, every other one is left as it
+  //! came in (and posts -0)
   torch::Tensor forward_masked(torch::Tensor du, torch::Tensor w,
                                torch::Tensor gamma, double dt,
-                               torch::Tensor solid);
+                               torch::Tensor solid, FluxRegister* reg = nullptr,
+                               double post_dt = 0.,
+                               torch::Tensor const& retry = {});
 
-  void record_fp64_fallback() { _fp64_fallbacks += 1; }
+  //! I-6: the columns the last FP32 (or only) stage failed, [nc3, nc2] bool
+  //! on the device: the FP64 stage's predicate
+  torch::Tensor stage_failed() const { return _stage_failed; }
+  //! after the FP64 stage: the FP32 stage's correction where no column was
+  //! retried, the FP64 stage's where one was, in the FP32 stage's dtype
+  torch::Tensor merge_fp64(torch::Tensor const& retry);
+  //! fp64_fallbacks counts the retried columns (I.rst section 10(c))
+  void count_fp64_columns(torch::Tensor const& retry);
   torch::Tensor correction() const { return _corr; }
   torch::Tensor mass_correction() const { return _mass_corr; }
 
@@ -100,28 +119,37 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
   torch::Tensor dry_clamp_step() const { return _dry_clamp_step; }
   void reset_dry_clamp_step() { _dry_clamp_step.zero_(); }
 
-  //! Latched until the next step, including later RK stages. A failure
-  //! found after the solve is latched on the device; this reads it back.
-  bool solve_failed() const {
-    return _solve_failed || (_failed_dev.defined() && _failed_dev.item<bool>());
-  }
-  void reset_solve_failure() {
-    _solve_failed = false;
-    if (_failed_dev.defined()) _failed_dev.zero_();
-  }
+  //! V3 I-5: each column's VicStatusBit [nc3, nc2] (int32), set by the
+  //! column's kernel thread and by the result check, kept over the step's
+  //! stages until reset_status() (step start)
+  torch::Tensor col_status() const;
+  //! I-6: whether a column's last solve failed (the FP64 retry failed, or a
+  //! failure no FP64 retry followed), OR-reduced, 0-d bool, on the device
+  torch::Tensor status() const;
+  void reset_status();
+  //! on a redo only (the host already synchronised): the failed columns
+  void report_failure(std::ostream& os) const;
 
-  //! solve_failed() as a 0-d tensor (1 or 0) with `opts`, without a host read
+  //! status() read back: the FP32 fallback's host read (hydro.cpp, until I-6)
+  bool solve_failed() const { return status().item<bool>(); }
+  void reset_solve_failure() { reset_status(); }
+
+  //! status() as a 0-d tensor (1 or 0) with `opts`, without a host read: the
+  //! redo's slot 5 (meshblock.cpp) until lane X reads retry_flags
   torch::Tensor solve_failed_tensor(torch::TensorOptions const& opts) const {
-    auto flag = torch::full({}, _solve_failed ? 1. : 0., opts);
-    return _failed_dev.defined() ? torch::maximum(flag, _failed_dev.to(opts))
-                                 : flag;
+    return status().to(opts);
   }
 
  private:
   void ensure_workspace(torch::Tensor const& w);
-  bool _solve_failed = false;
   torch::Tensor _fp64_fallbacks;
-  torch::Tensor _failed_dev;  // 0-d bool: a failure found after the solve
+  torch::Tensor _status;        // [nc3, nc2] int32: the step's VicStatusBit
+  torch::Tensor _stage_status;  // [nc3, nc2] the stage's, solve dtype (kernel)
+  torch::Tensor _stage_failed;  // [nc3, nc2] bool: the FP64 stage's predicate
+  //! the FP64 stage's scratch, swapped in for that stage (I-6)
+  torch::Tensor _a64, _b64, _c64, _delta64, _du064, _corr64, _mass_corr64,
+      _stage_status64;
+  void swap_scratch_();
 
   torch::Tensor _a, _b, _c, _delta, _du0, _corr, _mass_corr, _clamp_residual,
       _dry_clamp_step;
@@ -135,10 +163,16 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
   //! energy's remainder g1 sigma^2 s[du - du0] beyond what the matrix booked;
   //! added to du[IPR] in that order
   void book_remainder_(torch::Tensor du, int wsize, torch::Tensor const& mask,
-                       bool no_solid, bool face_work, bool diffusive_work,
-                       bool radial_exact, double grav1,
+                       bool no_solid, bool radial_exact, double grav1,
                        torch::Tensor const& rx_mass0,
-                       torch::Tensor const& rx_fluid, int nx1);
+                       torch::Tensor const& rx_fluid, int nx1,
+                       torch::Tensor const& moved_total);
+  //! I-4: the posts, the kept total and the amounts, after the stage's
+  //! failure mask
+  void post_(FluxRegister& reg, torch::Tensor const& du,
+             torch::Tensor const& drop, torch::Tensor const& kdt,
+             torch::Tensor const& ptan, torch::Tensor const& energy_solved,
+             torch::Tensor const& volume, torch::Tensor const& kept_before);
 };
 TORCH_MODULE(ImplicitHydro);
 

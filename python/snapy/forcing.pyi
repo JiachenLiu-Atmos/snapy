@@ -51,7 +51,7 @@ class ConstGravityOptions:
 
     @overload
     def gravity_work(self) -> str:
-        """Get the x1 gravity-work form: "face" (default) or "cell"."""
+        """Get the x1 gravity-work form: "face" (the one form)."""
         ...
 
     @overload
@@ -61,12 +61,12 @@ class ConstGravityOptions:
 
     @overload
     def gravity_work_fixer(self) -> bool:
-        """Get whether the global E+PE fixer runs (with gravity_work "cell")."""
+        """Always false: the global E+PE fixer was removed in V3."""
         ...
 
     @overload
     def gravity_work_fixer(self, value: bool) -> "ConstGravityOptions":
-        """Set whether the global E+PE fixer runs (with gravity_work "cell")."""
+        """Only false is accepted: the global E+PE fixer was removed in V3."""
         ...
 
 class CoriolisOptions:

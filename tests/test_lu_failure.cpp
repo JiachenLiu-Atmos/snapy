@@ -6,6 +6,7 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <snap/implicit/implicit_dispatch.hpp>
 #include <snap/mesh/mesh.hpp>
 #include <snap/mesh/meshblock.hpp>
 
@@ -219,13 +220,16 @@ TEST(lu_failure, mesh_terminal_failure_restores_all_blocks) {
   using namespace snap;
   auto opts = MeshBlockOptionsImpl::from_yaml("test_mesh_multi_block.yaml");
   opts->coord()->nx1(8);
+  // the 8-cell column this test means: without it the deck's global nx1 = 1
+  // gives a 1-cell column, which only the host screen (gone in I-5) kept
+  // from reaching the post-solve code
+  opts->coord()->global_nx1(8);
   opts->coord()->nghost(3);
   opts->layout()->px(2);
   opts->layout()->py(1);
   auto gravity = ConstGravityOptionsImpl::create();
   gravity->grav1(-1.);
   gravity->gravity_work("face");
-  gravity->gravity_work_fixer(false);
   opts->hydro()->grav() = gravity;
   auto implicit = ImplicitOptionsImpl::create();
   implicit->scheme(9);
@@ -293,7 +297,6 @@ void rest_column_clamp(torch::Dtype dtype) {
   auto gravity = ConstGravityOptionsImpl::create();
   gravity->grav1(0.);
   gravity->gravity_work("face");
-  gravity->gravity_work_fixer(false);
   opts->hydro()->grav() = gravity;
   auto implicit = ImplicitOptionsImpl::create();
   implicit->scheme(9);
@@ -331,4 +334,220 @@ TEST(lu_failure, float_rest_column_finite_vicclamp) {
 }
 TEST(lu_failure, double_rest_column_finite_vicclamp) {
   rest_column_clamp(torch::kFloat64);
+}
+
+// V3 I-5: each column's status is set on the device by its own kernel
+// thread. A nonfinite gamma in one column flags that column only (input
+// screen; the sweep then rejects it), the whole block is undone with device
+// masks as before, solve_failed_tensor() is the status OR, and
+// reset_status() clears it.
+namespace {
+void column_status_case(torch::Device device) {
+  using namespace snap;
+  auto opts = MeshBlockOptionsImpl::from_yaml("test_mesh_multi_block.yaml");
+  opts->coord()->nx1(8);
+  opts->coord()->nx2(4);
+  opts->coord()->nx3(1);
+  opts->coord()->nghost(3);
+  opts->coord()->global_nx1(8);
+  opts->coord()->global_nx2(4);
+  opts->coord()->global_nx3(1);
+  opts->coord()->x2max(1.);
+  opts->coord()->x3max(1.);
+  opts->layout()->px(1);
+  opts->layout()->py(1);
+  auto gravity = ConstGravityOptionsImpl::create();
+  gravity->grav1(-9.8);
+  gravity->gravity_work("face");
+  opts->hydro()->grav() = gravity;
+  auto implicit = ImplicitOptionsImpl::create();
+  implicit->scheme(9);
+  opts->hydro()->icorr() = implicit;
+  auto block = MeshBlock(opts);
+  block->to(device, torch::kFloat64);
+  auto coord = block->pcoord;
+  auto w = torch::zeros(
+      {5, coord->options->nc3(), coord->options->nc2(), coord->options->nc1()},
+      torch::TensorOptions().dtype(torch::kFloat64).device(device));
+  w[IDN].fill_(1.);
+  w[IPR].fill_(1.e5);
+  Variables vars{{"hydro_w", w}};
+  block->initialize(vars);
+  auto &ic = block->phydro->picorr;
+  auto prim = vars.at("hydro_w").clone(), prim0 = prim.clone();
+  auto du = 1.e-3 * torch::ones_like(prim), du0 = du.clone();
+  auto gamma = torch::full_like(prim[IDN], 1.4);
+  int j = coord->jl() + 2;  // the bad column
+  gamma.select(-2, j).fill_(std::numeric_limits<double>::quiet_NaN());
+  ic->forward_masked(du, prim, gamma, 1., torch::Tensor());
+  auto st = ic->col_status().cpu();
+  ASSERT_EQ(st.scalar_type(), torch::kInt32);
+  EXPECT_EQ(st.sizes(), (std::vector<int64_t>{coord->options->nc3(),
+                                              coord->options->nc2()}));
+  EXPECT_TRUE(st[0][j].item<int>() & kVicInputNonfinite);
+  EXPECT_EQ((st != 0).sum().item<int64_t>(), 1);  // that column only
+  EXPECT_TRUE(ic->status().item<bool>());
+  EXPECT_EQ(ic->solve_failed_tensor(torch::kFloat64).item<double>(), 1.);
+  // I-6: undone per column; the other columns keep their solution
+  EXPECT_TRUE(torch::equal(du.select(-2, j), du0.select(-2, j)));
+  EXPECT_FALSE(torch::equal(du, du0));
+  EXPECT_TRUE(torch::equal(prim, prim0));  // Cartesian: the projection is exact
+  EXPECT_EQ(ic->correction().select(-2, j).abs().sum().item<double>(), 0.);
+  ic->reset_status();
+  EXPECT_FALSE(ic->status().item<bool>());
+  gamma.fill_(1.4);  // a clean solve leaves every column clear
+  ic->forward_masked(du, prim, gamma, 1., torch::Tensor());
+  EXPECT_FALSE(ic->status().item<bool>());
+  EXPECT_GT(ic->correction().abs().max().item<double>(), 0.);
+}
+}  // namespace
+
+TEST(lu_failure, column_status_flags_the_bad_column_only) {
+  column_status_case(torch::kCPU);
+}
+
+TEST(lu_failure, cuda_column_status_flags_the_bad_column_only) {
+  if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CPU build or no CUDA device";
+  column_status_case(torch::kCUDA);
+}
+
+// V3 I-6: the predicated FP64 stage. A column whose FP32 solve failed is
+// the stage's predicate (stage_failed()); the FP64 stage solves it alone and
+// leaves every other column as it came in. A retried column that succeeds is
+// not a failure of the step; one that fails again is (status(), and so
+// implicit.column and solve_failed_tensor()).
+namespace {
+void fp64_retry_case(bool fp64_fails) {
+  using namespace snap;
+  auto opts = MeshBlockOptionsImpl::from_yaml("test_mesh_multi_block.yaml");
+  opts->coord()->nx1(8);
+  opts->coord()->nx2(4);
+  opts->coord()->nx3(1);
+  opts->coord()->nghost(3);
+  opts->coord()->global_nx1(8);
+  opts->coord()->global_nx2(4);
+  opts->coord()->global_nx3(1);
+  opts->coord()->x2max(1.);
+  opts->coord()->x3max(1.);
+  opts->layout()->px(1);
+  opts->layout()->py(1);
+  auto gravity = ConstGravityOptionsImpl::create();
+  gravity->grav1(-9.8);
+  gravity->gravity_work("face");
+  opts->hydro()->grav() = gravity;
+  auto implicit = ImplicitOptionsImpl::create();
+  implicit->scheme(9);
+  opts->hydro()->icorr() = implicit;
+  auto block = MeshBlock(opts);
+  block->to(torch::kFloat64);
+  auto coord = block->pcoord;
+  auto w = torch::zeros(
+      {5, coord->options->nc3(), coord->options->nc2(), coord->options->nc1()},
+      torch::kFloat64);
+  w[IDN].fill_(1.);
+  w[IPR].fill_(1.e5);
+  Variables vars{{"hydro_w", w}};
+  block->initialize(vars);
+  auto &ic = block->phydro->picorr;
+  int j = coord->jl() + 1;
+  // the FP32 stage: one column's gamma is not finite
+  auto prim32 = vars.at("hydro_w").to(torch::kFloat32);
+  auto du32 = 1.e-3 * torch::ones_like(prim32);
+  auto gamma32 = torch::full_like(prim32[IDN], 1.4);
+  gamma32.select(-2, j).fill_(std::numeric_limits<float>::quiet_NaN());
+  ic->forward_masked(du32, prim32, gamma32, 1., torch::Tensor());
+  auto retry = ic->stage_failed();
+  ASSERT_TRUE(retry.defined());
+  EXPECT_EQ(retry.sum().item<int64_t>(), 1);
+  EXPECT_TRUE(retry[0][j].item<bool>());
+  EXPECT_TRUE(ic->status().item<bool>());  // failed, not yet retried
+  // the FP64 stage, from the FP64 inputs
+  auto prim64 = vars.at("hydro_w").clone(), prim64_0 = prim64.clone();
+  auto du64 = 1.e-3 * torch::ones_like(prim64), du64_0 = du64.clone();
+  auto gamma64 = torch::full_like(prim64[IDN], 1.4);
+  if (fp64_fails)
+    gamma64.select(-2, j).fill_(std::numeric_limits<double>::quiet_NaN());
+  ic->forward_masked(du64, prim64, gamma64, 1., torch::Tensor(), nullptr, 0.,
+                     retry);
+  // the other columns are left as they came in, bit for bit
+  auto other = retry.logical_not().unsqueeze(0).unsqueeze(-1).expand_as(du64);
+  EXPECT_TRUE(
+      torch::equal(du64.masked_select(other), du64_0.masked_select(other)));
+  EXPECT_TRUE(torch::equal(prim64, prim64_0));
+  int bits = ic->col_status()[0][j].item<int>();
+  EXPECT_TRUE(bits & kVicFp64Retried);
+  EXPECT_TRUE(bits & kVicInputNonfinite);  // from the FP32 stage
+  EXPECT_EQ(bool(bits & kVicFp64Failed), fp64_fails);
+  EXPECT_EQ(ic->status().item<bool>(), fp64_fails);
+  EXPECT_EQ(ic->solve_failed_tensor(torch::kFloat64).item<double>(),
+            fp64_fails ? 1. : 0.);
+  if (!fp64_fails)  // the retried column is solved in FP64
+    EXPECT_FALSE(torch::equal(du64.select(-2, j), du64_0.select(-2, j)));
+  else
+    EXPECT_TRUE(torch::equal(du64.select(-2, j), du64_0.select(-2, j)));
+}
+}  // namespace
+
+TEST(lu_failure, fp64_retry_solves_the_failed_column_only) {
+  fp64_retry_case(false);
+}
+
+TEST(lu_failure, fp64_retry_that_fails_again_fails_the_step) {
+  fp64_retry_case(true);
+}
+
+// V3 I-8 (I-8.scheme0, I-8.tests): implicit scheme 0 has no module. A scheme-0
+// module built from code is refused at construction, with a message that
+// names the YAML spelling; implicit-scheme: 0 in YAML still means no implicit
+// module.
+TEST(lu_failure, a_scheme_zero_module_is_refused) {
+  using namespace snap;
+  auto deck = [](int scheme) {
+    auto node = YAML::Load(R"(
+geometry:
+  type: cartesian
+  cells: {nx1: 8, nx2: 4, nx3: 1, nghost: 3}
+  bounds: {x1min: 0, x1max: 8, x2min: 0, x2max: 4, x3min: 0, x3max: 1}
+dynamics:
+  equation-of-state: {type: ideal-gas, gammad: 1.4, weight: 0.029}
+  reconstruct:
+    vertical: {type: plm}
+    horizontal: {type: plm}
+  riemann-solver: {type: lmars}
+forcing:
+  const-gravity: {grav1: -1}
+integration: {type: rk3, implicit-scheme: 9, cfl: 0.5}
+boundary-condition:
+  external: {x1-inner: reflecting, x1-outer: reflecting,
+             x2-inner: periodic, x2-outer: periodic,
+             x3-inner: periodic, x3-outer: periodic}
+)");
+    node["integration"]["implicit-scheme"] = scheme;
+    std::string path = "test-lu-scheme0-" + std::to_string(scheme) + ".yaml";
+    {
+      std::ofstream card(path);
+      card << node;
+    }
+    auto opts = MeshBlockOptionsImpl::from_yaml(path);
+    std::remove(path.c_str());
+    return opts;
+  };
+  // from YAML: no module, the block builds and runs explicit
+  auto none = deck(0);
+  EXPECT_FALSE(none->hydro()->icorr());
+  auto explicit_block = MeshBlock(none);
+  EXPECT_FALSE(explicit_block->phydro->picorr);
+  // from code: a scheme-0 module is refused when the block is built
+  auto opts = deck(9);
+  ASSERT_TRUE(opts->hydro()->icorr());
+  opts->hydro()->icorr()->scheme(0);
+  std::string msg;
+  try {
+    auto block = MeshBlock(opts);
+  } catch (c10::Error const &e) {
+    msg = e.what_without_backtrace();
+  }
+  EXPECT_NE(msg.find("implicit-scheme 0 has no module"), std::string::npos)
+      << "no refusal; got: '" << msg << "'";
+  EXPECT_NE(msg.find("implicit-scheme: 0 in YAML"), std::string::npos) << msg;
 }

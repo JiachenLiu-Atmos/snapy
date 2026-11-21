@@ -1,0 +1,12 @@
+# forcing/coriolis options (src/forcing/forcing.hpp); columns: tools/gen_options.py
+module: coriolis
+struct: CoriolisOptionsImpl
+yaml_node: forcing/coriolis
+report_title: "-- coriolis options --"
+report_order: [omega1, omega2, omega3, type, traditional]
+options:
+  - {name: type, key: type, type: string, default: xyz, values: [xyz, "123"], error: ['"CoriolisOptions: unsupported type "', "$value"], doc: "xyz (any grid) or 123 (coordinate axes; no x3 row in 2D)."}
+  - {name: omega1, key: omega1, type: double, default: 0., doc: "Rotation rate about x1 (the polar axis on the cubed sphere) [1/s]."}
+  - {name: omega2, key: omega2, type: double, default: 0., doc: "Rotation rate about x2 [1/s]."}
+  - {name: omega3, key: omega3, type: double, default: 0., doc: "Rotation rate about x3 [1/s]."}
+  - {name: traditional, key: traditional, type: bool, default: false, doc: "Drop the Coriolis terms of the vertical rotation component."}

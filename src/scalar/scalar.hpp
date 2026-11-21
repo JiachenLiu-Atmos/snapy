@@ -12,8 +12,9 @@
 
 // snap
 #include <snap/coord/coordinate.hpp>
+#include <snap/hydro/flux_register.hpp>
 #include <snap/recon/reconstruct.hpp>
-#include <snap/riemann/riemann_solver.hpp>
+#include <snap/riemann/riemann.hpp>
 
 // arg
 #include <snap/add_arg.h>
@@ -80,16 +81,7 @@ using Variables = std::map<std::string, torch::Tensor>;
 
 class ScalarImpl : public torch::nn::Cloneable<ScalarImpl> {
  public:
-  //! \brief Create and register a `Scalar` module
-  /*!
-   * This function registers the created module as a submodule
-   * of the given parent module `p`.
-   *
-   * \param[in] opts  options for creating the `Scalar` module
-   * \param[in] p     parent module for registering the created module
-   * \param[in] name  name for registering the created module
-   * \return          created `Scalar` module
-   */
+  //! Create a `Scalar` module and register it as submodule `name` of `p`
   static std::shared_ptr<ScalarImpl> create(ScalarOptions const& opts,
                                             torch::nn::Module* p,
                                             std::string const& name = "scalar");
@@ -105,6 +97,8 @@ class ScalarImpl : public torch::nn::Cloneable<ScalarImpl> {
   Reconstruct precon = nullptr;
   Reconstruct precon1 = nullptr;
   RiemannSolver priemann = nullptr;
+  //! the scalars' own flux register (R.rst 3.1); _flux1/2/3 are its totals
+  FluxRegister freg;
   torch::Tensor _flux1, _flux2, _flux3, _div;
 
   kintera::ThermoX pthermo = nullptr;

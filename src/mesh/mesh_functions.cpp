@@ -5,10 +5,6 @@
 #include "mesh_functions.hpp"
 
 namespace snap {
-torch::Tensor UniformMesh(torch::Tensor x, float xmin, float xmax) {
-  return 0.5 * (xmin + xmax) + (x * xmax - x * xmin);
-}
-
 //! \brief wrapper fn to compute float logical position for either
 //!        [0., 1.] or [-0.5, 0.5]\n
 //!        real cell ranges for meshgen functions (default/user vs. uniform)
@@ -27,8 +23,6 @@ torch::Tensor compute_logical_position(torch::Tensor index, int64_t nrange,
     auto noffset = index - (nrange) / 2;
     auto noffset_ceil =
         index - (nrange + 1) / 2;  // = noffset if nrange is even
-    // std::cout << "noffset, noffset_ceil = " << noffset << ", " <<
-    // noffset_ceil << "\n";
     //  average the (possibly) biased integer indexing
     return (noffset + noffset_ceil) / (2.0 * nrange);
   }

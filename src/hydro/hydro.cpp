@@ -15,8 +15,6 @@
 #include "gravity_work_radial.hpp"
 #include "hydro.hpp"
 #include "hydro_dispatch.hpp"
-#include "hydro_reference.hpp"
-#include "wb_ref4.hpp"
 
 namespace snap {
 HydroImpl::HydroImpl(const HydroOptions& options_, torch::nn::Module* p)
@@ -112,31 +110,20 @@ void HydroImpl::reset() {
   // gravity-work options, checked here so YAML and Python construction agree
   if (options->grav()) {
     auto const& gw = options->grav()->gravity_work();
-    TORCH_CHECK(gw == "cell" || gw == "face",
-                "const-gravity gravity-work must be cell or face, got '", gw,
-                "'");
-    // the fixer runs with gravity-work: cell only; record the effective value
-    // (a face form set from Python keeps the default true otherwise)
-    if (gw != "cell") options->grav()->gravity_work_fixer() = false;
-    TORCH_CHECK(!gravity_work_fixer() || (options->grav()->grav2() == 0. &&
-                                          options->grav()->grav3() == 0.),
-                "const-gravity gravity-work-fixer needs grav2 = grav3 = 0 (its "
-                "potential is -grav1 * x1); set it false otherwise");
-    // mass that wraps across a periodic x1 face jumps by grav1 * Lx1 in that
-    // potential, which the E+PE defect would book as a defect. The layout's
-    // x1 wrap is read from its topology: a Python bfuncs() call clears names.
+    // V3 I-7 (rulings (a), (b)): the cell form is removed; face is the one
+    // gravity-work form
+    TORCH_CHECK(gw == "face", "const-gravity gravity-work: '", gw,
+                "' is not supported: the cell form was removed (V3 I-7); use "
+                "gravity-work: face");
+    // the global gravity-work fixer is removed (V3 X5, gw1; Cheng)
+    TORCH_CHECK(!options->grav()->gravity_work_fixer(),
+                "const-gravity gravity-work-fixer was removed in V3; "
+                "set it false or drop the key");
+    // the corrected PE needs a single-valued potential; -grav1 * x1 jumps at
+    // a periodic x1 face: warn, no change. The layout's x1 wrap is read from
+    // its topology: a Python bfuncs() call clears the names.
     auto const& nm = pmb->options->bcnames();
     bool wrap = pmb->options->layout()->periodic_z();
-    for (int f : {0, 1}) {
-      TORCH_CHECK(!gravity_work_fixer() ||
-                      !(wrap || (f < static_cast<int>(nm.size()) &&
-                                 nm[f].compare(0, 8, "periodic") == 0)),
-                  "const-gravity gravity-work-fixer needs non-periodic x1 "
-                  "boundaries (its potential -grav1 * x1 jumps across a "
-                  "periodic x1 face); set it false otherwise");
-    }
-    // the corrected PE needs a single-valued potential; -grav1 * x1 jumps at
-    // a periodic x1 face (read as for the fixer above): warn, no change
     if (options->grav()->grav1() != 0. && gw == "face") {
       bool periodic_x1 = wrap;
       for (int f : {0, 1})
@@ -146,7 +133,7 @@ void HydroImpl::reset() {
         TORCH_WARN_ONCE(
             "gravity-work: face with periodic x1: -grav1*x1 jumps at the "
             "periodic face, so the corrected PE its work books is not defined "
-            "there; use x1 walls or gravity-work: cell");
+            "there; use x1 walls");
     }
     // the corrected-PE work has no form on other grids: plain face work there
     if (options->grav()->grav1() != 0. && gw == "face" && pmb && pmb->pcoord) {
@@ -226,11 +213,6 @@ void HydroImpl::reset() {
     SINFO(Hydro) << "Forcings: " << fmt::format("{}", forcing_names) << "\n";
   }
 
-  //// ---- (9) register all forcings ---- ////
-  for (auto i = 0; i < forcings.size(); i++) {
-    register_module(forcing_names[i], forcings[i].ptr());
-  }
-
   //// ---- (10) populate buffers ---- ////
   int nc1 = pmb->options->coord()->nc1();
   int nc2 = pmb->options->coord()->nc2();
@@ -240,16 +222,48 @@ void HydroImpl::reset() {
   // the flux register (R-1): F1/F2/F3 are its stage totals T_d, so every
   // producer still writes them in place; the monitor's tensors are buffers
   // too, so module moves and clones reach them
-  auto flux_dtype = fp32() ? torch::kFloat32 : torch::kFloat64;
   RegisterRequest req;
   // EF's names (EF.rst section 4, R.rst 4.5): EfStatus's slots (EF-2) move
   // to the monitor in R-1's second part; nothing writes these yet
   req.counters = {"ef.floor_patch",    "ef.nan",      "ef.vapor_fail",
                   "ef.heat_capacity",  "ef.pos_hits", "ef.pos_severe",
                   "ef.scalar_pos_hits"};
+  // C's FaceFloor counts (C.rst 3.7; names adopted in R.rst 2.6): faces a
+  // floor changed, which register counts, not flux
+  for (auto name : {"face_floor.rho", "face_floor.p", "face_floor.species",
+                    "riemann.pstar_clamp", "riemann.llf"})
+    req.counters.push_back(name);
+  // V3 I-6: the retried columns (R.rst 4.5), last, so the counters above
+  // keep their indices
+  req.counters.push_back("implicit.fp64_columns");
   req.minima = {"ef.pos_min"};
-  req.retry = {"ef.floor_patch", "ef.nan", "ef.vapor_fail", "ef.heat_capacity"};
-  freg.reset(nvar, {nc3, nc2, nc1}, {nc1 > 1, nc2 > 1, nc3 > 1}, flux_dtype,
+  // V3 I-5: lane I's cause (R.rst 4.5); X maps it to its cause bit 5
+  req.retry = {"ef.floor_patch", "ef.nan", "ef.vapor_fail", "ef.heat_capacity",
+               "implicit.column"};
+  // conserve-axial-momentum full: A's riemann.central on the x2/x3 faces
+  // (R-2), kept until the next stage
+  if (axial_coriolis_form()) {
+    if (nc2 > 1) req.keep.push_back("riemann.central@2");
+    if (nc3 > 1) req.keep.push_back("riemann.central@3");
+  }
+  // R-5: lane I's kept x1 parts, posted by the implicit solve (I-4)
+  if (picorr && nc1 > 1)
+    for (auto const* key :
+         {"vic.mass_total@1", "vic.mass_dry@1", "vic.momentum_t@1"})
+      req.keep.push_back(key);
+  // R-5: the scalars' dry-mass flux, row IDN of each total as limit ends
+  // (R.rst 4.2 EF c); hydro requests it, the Scalar module does not exist yet
+  auto sopts = pmb->options->scalar();
+  if (sopts && sopts->nvar() > 0) {
+    std::array<int, 3> nc = {nc1, nc2, nc3};
+    for (int d = 1; d <= 3; ++d)
+      if (nc[d - 1] > 1)
+        req.keep.push_back("mass.dry.limited@" + std::to_string(d));
+  }
+  // R-4's coordinate reset: replace and apply_prescribed (S step (4)) book
+  // with the face areas A_f; kFlux is float32 under precision float32, else
+  // float64, as before
+  freg.reset(pmb->pcoord.get(), PrecisionPolicy(options->precision()), nvar,
              req);
   _flux1 = register_buffer("F1", freg.totals()[0]);
   _flux2 = register_buffer("F2", freg.totals()[1]);
@@ -257,6 +271,12 @@ void HydroImpl::reset() {
   register_buffer("monitor_counters", freg.monitor().counters);
   register_buffer("monitor_minima", freg.monitor().minima);
   register_buffer("monitor_retry", freg.monitor().retry_flags);
+  for (auto& [key, part] : freg.parts()) {  // "riemann.central@2" -> K_..._2
+    std::string name = "K_" + key;
+    std::replace(name.begin(), name.end(), '.', '_');
+    std::replace(name.begin(), name.end(), '@', '_');
+    register_buffer(name, part);
+  }
   _face_pressure1 = register_buffer(
       "P1", nc1 > 1 ? torch::zeros({nc3, nc2, nc1}, torch::kFloat64)
                     : torch::Tensor());
@@ -283,13 +303,6 @@ void HydroImpl::reset() {
                                          torch::zeros({1}, torch::kFloat64)));
   register_buffer("lim_flux", status.bind(EfStatus::kLimFlux,
                                           torch::zeros({1}, torch::kFloat64)));
-  _gwfix_d = register_buffer("gwfix_d", torch::zeros({1}, torch::kFloat64));
-  _gwfix_total =
-      register_buffer("gwfix_total", torch::zeros({1}, torch::kFloat64));
-  _gwfix_pending =
-      register_buffer("gwfix_pending", torch::zeros({1}, torch::kFloat64));
-  _gwfix_wall =
-      register_buffer("gwfix_wall", torch::zeros({1}, torch::kFloat64));
 }
 
 torch::Tensor HydroImpl::positivity_hits() const {
@@ -309,10 +322,9 @@ torch::Tensor HydroImpl::lim_flux() const {
 }
 
 bool HydroImpl::is_x1_wall(int f) const {
-  auto const& nm = pmb->options->bcnames();
-  return pmb->options->is_physical_boundary(0, 0, f == 0 ? -1 : 1) &&
-         !(f < static_cast<int>(nm.size()) &&
-           nm[f].compare(0, 8, "periodic") == 0);
+  // a boundary function that is not a periodic copy (S step (2): FaceKind)
+  auto k = Exchange(pmb).kind(f);
+  return k == FaceKind::wall || k == FaceKind::outflow || k == FaceKind::custom;
 }
 
 void HydroImpl::_check_stretched_x1(torch::Tensor const& u) const {
@@ -334,12 +346,6 @@ void HydroImpl::_check_stretched_x1(torch::Tensor const& u) const {
   }
 }
 
-bool HydroImpl::gravity_work_fixer() const {
-  auto g = options->grav();
-  return g && g->grav1() != 0. && g->gravity_work() == "cell" &&
-         g->gravity_work_fixer();
-}
-
 bool HydroImpl::radial_exact_work() const {
   auto g = options->grav();
   auto const& type = pmb->pcoord->options->type();
@@ -349,12 +355,6 @@ bool HydroImpl::radial_exact_work() const {
 
 std::pair<int, int> HydroImpl::x1_neighbors() const {
   return Exchange(pmb).x1_neighbors();
-}
-
-bool HydroImpl::face_work_in_operator() const {
-  auto g = options->grav();
-  return g && g->grav1() != 0. && g->gravity_work() == "face" && picorr &&
-         picorr->options->scheme() != 0;
 }
 
 double HydroImpl::max_time_step(torch::Tensor w, torch::Tensor solid) const {
@@ -443,7 +443,7 @@ double HydroImpl::max_time_step(torch::Tensor w, torch::Tensor solid) const {
   }
 
   double dt = dt_min.min().item<double>();
-  if (pdiffusion) dt = std::min(dt, pdiffusion->max_time_step(w));
+  dt = std::min(dt, sources.max_time_step({w}));
   return dt;
 }
 
@@ -454,8 +454,13 @@ torch::Tensor HydroImpl::implicit_mass_correction() const {
 torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
                                                     torch::Tensor const& w,
                                                     double dt,
-                                                    Variables const& other) {
+                                                    Variables const& other,
+                                                    double post_dt) {
   if (!picorr) return torch::Tensor();
+  // V3 I-4: the solve posts its face transfers into total(1), which the
+  // Riemann slot rewrites each stage; with the x1 flux off nothing does, so
+  // nothing is posted and m1 keeps the solve's own transfer
+  FluxRegister* reg = options->disable_flux_x1() ? nullptr : &freg;
 
   // Implicit x1 solve has no cross-rank coupling, so nb1 > 1 would silently
   // solve each rank's own sub-column. Full column <=> both x1 faces physical.
@@ -485,7 +490,6 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
   du[IPR].sub_(peos->internal_energy_offset(du));
   auto rhs64 = solve_float ? du.clone() : torch::Tensor();
   auto wi64 = wi;
-  bool failed_before = solve_float && picorr->solve_failed();
   if (solve_float) {
     du = du.to(torch::kFloat32);
     wi = wi.to(torch::kFloat32);
@@ -498,21 +502,34 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
     return peos->compute("W->A", {state});
   };
   auto solid = other.count("solid") ? other.at("solid") : torch::Tensor();
-  auto correction = picorr->forward_masked(du, wi, gamma_for(wi), dt, solid);
-  // The existing solve rejects a whole block. Retry that same block in FP64,
-  // from its pre-solve RHS, rather than keeping partly corrected columns.
-  if (solve_float && !failed_before && options->icorr()->fallback_fp64() &&
-      picorr->solve_failed() && torch::isfinite(rhs64).all().item<bool>()) {
-    picorr->reset_solve_failure();
-    picorr->record_fp64_fallback();
-    du = rhs64;
-    correction = picorr->forward_masked(du, wi64, gamma_for(wi64), dt, solid);
+  auto correction =
+      picorr->forward_masked(du, wi, gamma_for(wi), dt, solid, reg, post_dt);
+  // V3 I-6: the predicated FP64 stage, always run with the FP32 solve and
+  // its fallback: only the columns whose FP32 solve failed are solved again,
+  // from rhs64 and wi64, and no host read decides it; the other columns keep
+  // their FP32 solution
+  torch::Tensor retry;
+  if (solve_float && options->icorr()->fallback_fp64()) {
+    retry = picorr->stage_failed();
+    picorr->forward_masked(rhs64, wi64, gamma_for(wi64), dt, solid, reg,
+                           post_dt, retry);
+    correction = picorr->merge_fp64(retry);
+    picorr->count_fp64_columns(retry);
+    freg.monitor().count("implicit.fp64_columns", retry);
   }
+  // V3 I-5: the column status OR after the whole-block FP64 fallback (until
+  // I-6 retries per column); slot 5 of the redo still reads
+  // solve_failed_tensor(), the same OR, until lane X reads retry_flags
+  freg.monitor().flag_retry("implicit.column", picorr->status());
   // Restore energy offsets in FP64, then write the increment to state dtype.
   if (boundary) {
     du = du.to(torch::kFloat64);
     correction = correction.to(torch::kFloat64);
   }
+  // the retried columns' FP64 solution (rhs64 now holds it), in place of
+  // the FP32 stage's (I-6)
+  if (retry.defined())
+    du = torch::where(retry.unsqueeze(0).unsqueeze(-1), rhs64, du);
   du[IPR].add_(peos->internal_energy_offset(du));
   correction[IPR].add_(peos->internal_energy_offset(correction));
   if (boundary) {
@@ -537,227 +554,24 @@ void HydroImpl::_revise_x1outer_lr(torch::Tensor const& wl,
   wr[IDN].narrow(-1, ie + 1, 1) = wl[IDN].narrow(-1, ie + 1, 1);
 }
 
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
-HydroImpl::_hydro_ref_x1(torch::Tensor const& w, torch::Tensor const& dw,
-                         HydroPressureSplit* split) const {
-  bool paired = split != nullptr;
+ReferenceFaces HydroImpl::_hydro_ref_x1(torch::Tensor const& w,
+                                        torch::Tensor const& dw) const {
   auto pcoord = pmb->pcoord;
-  int is = pcoord->il();
-  int iu = pcoord->iu();
-  double g = -options->grav()->grav1();  // downward magnitude (>0)
-
-  // Global x1 reference across a vertical (nb1>1) decomposition: make the
-  // hydrostatic reference continuous over the x1 process seams. The block
-  // owning x1-outer anchors at the true domain top; every block below receives
-  // the running seam-face pressure from the block above and passes on that
-  // value plus its own interior hydrostatic drop (= its bottom-face pressure).
-  // A serial top->bottom scan along the x1 block column, whether the blocks
-  // sit on other processes or on other threads of this one (#254). nb1 == 1
-  // (no x1 neighbor) => an empty anchor tells the backend to compute the
-  // local top anchor.
-  constexpr int kWbRefTag = 0x7715;
-  torch::Tensor anchor;
-  // pz==nb1: relay only across a SPLIT x1 column (else unmatched send/recv at
-  // nb1=1); below is toward x1-inner, above toward x1-outer
-  Exchange ex(pmb);
-  auto [below, above] = ex.x1_neighbors();
-  bool x1_split = below >= 0 || above >= 0;
-  if (x1_split) {
-    anchor = ex.unpack_anchor(
-        torch::empty({w.size(1), w.size(2), paired ? (fp32() ? 3 : 2) : 1},
-                     w.options()),
-        kWbRefTag);
-  }
-
-  bool stretched = pcoord->options->stretched_x1();
-  bool phys_in = pmb->options->is_physical_boundary(0, 0, -1);
-  bool phys_out = pmb->options->is_physical_boundary(0, 0, 1);
-  bool clamp = options->wb_wall_clamp();
-  if (!x1_reference_ || !x1_reference_->matches(pcoord->dx1f, iu, stretched,
-                                                phys_in, phys_out, clamp)) {
-    x1_reference_ = std::make_shared<HydroReferenceX1Operator>(
-        pcoord->dx1f, iu, stretched, phys_in, phys_out, clamp);
-  }
-  HydroReferenceX1 reference;
-  if (paired) {
-    HydroReferenceX1 pairs;
-    x1_reference_->evaluate_split(
-        w, dw, g,
-        anchor.defined() ? anchor.narrow(-1, 0, 2).unsqueeze(-2) : anchor,
-        pairs);
-    auto total = [](torch::Tensor const& p) {
-      return p.select(-1, 0) + p.select(-1, 1);
-    };
-    reference.psf_lo = total(pairs.psf_lo);
-    reference.psf_hi = total(pairs.psf_hi);
-    reference.pref = total(pairs.pref);
-    reference.dsf = total(pairs.dsf);
-    reference.dref = total(pairs.dref);
-    split->face0 = pairs.psf_lo.select(-1, 0).contiguous();
-    split->face_delta = pairs.psf_lo.select(-1, 1).contiguous();
-    split->cell0 = pairs.pref.select(-1, 0).contiguous();
-    split->cell_delta = pairs.pref.select(-1, 1).contiguous();
-    if (fp32())
-      split->gauge = anchor.defined()
-                         ? anchor.narrow(-1, 2, 1).clone()
-                         : (w[IPR] - split->cell0).narrow(-1, iu, 1).clone();
-  } else {
-    reference = HydroReferenceX1(w);
-    x1_reference_->evaluate(w, g, anchor, reference);
-  }
-  auto& psf_lo = reference.psf_lo;
-  auto& psf_hi = reference.psf_hi;
-  auto& pref = reference.pref;
-  auto& dsf = reference.dsf;
-  auto& dref = reference.dref;
-
-  // dynamics/conversion-order 4 (#289): the only fourth-order part is the
-  // face density below, the face value of the kernel's own cell dref -- that
-  // is what makes the O(dz^2) face offset vanish, whatever dref's own accuracy
-  // (wb-ref4.md section 2), and replacing dref broke the theta bound of a
-  // density current at a wall. psf is never changed, so the rest balance is
-  // the kernel's. Only the resolution flag is wanted here; the face part
-  // follows the seam exchange, so a column split along x1 gets one block's
-  // faces.
-  torch::Tensor wb4_flag;
-  if (options->conversion_order() == 4) {
-    if (!wb_ref4_ || wb_ref4_->stale(w)) {
-      bool clamp = options->wb_wall_clamp();
-      wb_ref4_ = std::make_shared<WbRef4Stencils>(
-          wb_ref4_stencils(pcoord->x1f, is, iu, clamp && phys_in,
-                           clamp && phys_out, w.options()));
-    }
-    wb4_flag = wb_ref4_flag(*wb_ref4_, psf_lo, psf_hi);
-  }
-
-  if (below >= 0) {
-    auto outgoing = psf_lo.narrow(-1, is, 1);
-    if (paired) {
-      std::vector<torch::Tensor> fields = {split->face0.narrow(-1, is, 1),
-                                           split->face_delta.narrow(-1, is, 1)};
-      if (fp32()) fields.push_back(split->gauge);
-      outgoing = torch::cat(fields, -1);
-    }
-    ex.pack_anchor(outgoing, kWbRefTag);
-  }
-
-  // Ghost-row reference exchange across x1 seams: overwrite this block's
-  // ghost rows of (pref, dref) with the NEIGHBOR'S interior rows for the same
-  // physical cells. The block-local ghost quadrature (w6e edge rows, and the
-  // [lo,hi] guard whose accept/fallback decision is stencil-dependent) does
-  // NOT reproduce the owner's interior values -- near a physical wall the
-  // mismatch reaches ~1e2 Pa (measured), which enters
-  // w' = w - ref as a spurious seam perturbation every step and makes the
-  // dynamics nb1-dependent. After this exchange the perturbation field seen
-  // by the reconstruction is identical on both sides of every seam, so the
-  // seam-face states agree and the single-valued seam flux average becomes a
-  // no-op. nb1=1: no seams, bit-unchanged. A same-process neighbor goes
-  // through a board, a remote one through the process group (#254).
-  if (x1_split) {
-    constexpr int kWbGhostTag = 0x7717;  // up; down is kWbGhostTag + 1
-    int ng = is;                         // il() == nghost
-    std::vector<torch::Tensor> fields = {pref, dref};
-    if (paired) {
-      fields.push_back(split->cell0);
-      fields.push_back(split->cell_delta);
-    }
-    ex.x1_rows(fields, ng, false, kWbGhostTag);
-  }
-
-  // conversion-order 4: the face density is the fourth-order face value of
-  // the (exchanged) cell density reference, so a split column gets the same
-  // faces as one block
-  if (wb4_flag.defined()) wb_ref4_faces(*wb_ref4_, dref, dsf, wb4_flag);
-
-  // the face density on each side of a face is the x1 reconstruction's own
-  // optimal-linear row applied to dref (cp5 = the weno5 candidates combined
-  // with their linear weights), so rho_f = R_lin(rho) + N(rho') whatever
-  // dref is. Read after the seam exchange; a face whose value leaves
-  // [min, max] of its two cells' dref keeps the face density above, which is
-  // also what any other reconstruction gets on both sides.
-  auto dsf_lr = torch::stack({dsf, dsf});
-  auto const& itype = options->recon1()->interp()->type();
-  int nc1 = dref.size(-1);
-  if ((itype == "weno5" || itype == "cp5") && nc1 >= 6) {
-    if (!dsf_lin_ || dsf_lin_->cm.device() != w.device() ||
-        dsf_lin_->cm.scalar_type() != w.scalar_type()) {
-      auto op = InterpOptionsImpl::create();
-      op->type("cp5");
-      dsf_lin_ = std::make_shared<Center5InterpImpl>(op);
-      if (precon1->pinterp1->has_x1_coeffs()) {
-        auto const& co = pcoord->options;
-        bool plain =
-            x1_centroid_exact_enabled() && co->type() == "spherical-polar";
-        auto x1f = !plain               ? pcoord->x1_row_faces(itype)
-                   : co->stretched_x1() ? pcoord->x1f
-                                        : torch::Tensor();
-        if (x1f.defined()) dsf_lin_->set_x1_coeffs(x1f);
-      }
-      dsf_lin_->to(w.device(), w.scalar_type());
-    }
-    constexpr int D1 = 3;
-    int il = 3, iu5 = nc1 - 3;
-    auto lin = torch::stack({dsf, dsf}).unsqueeze(1);
-    dsf_lin_->forward(dref.unsqueeze(0), D1,
-                      lin[IRT].slice(D1, il - 1, iu5 + 1),
-                      lin[ILT].slice(D1, il, iu5 + 2));
-    lin = lin.squeeze(1);
-    auto dl = dref.narrow(-1, 0, nc1 - 1), dr = dref.narrow(-1, 1, nc1 - 1);
-    for (int s : {(int)ILT, (int)IRT}) {
-      auto face = lin[s].narrow(-1, il - 1, iu5 + 3 - il);
-      auto lo = torch::minimum(dl, dr).narrow(-1, il - 2, iu5 + 3 - il);
-      auto hi = torch::maximum(dl, dr).narrow(-1, il - 2, iu5 + 3 - il);
-      auto d = dsf_lr[s].narrow(-1, il - 1, iu5 + 3 - il);
-      d.copy_(torch::where((face >= lo) & (face <= hi), face, d));
-    }
-    // a reflecting x1 wall face is a mirror: one face density on both sides,
-    // the mean of the two rows. Two values there give a Riemann solver whose
-    // wave speeds read the face density (hllc, roe) a nonzero contact speed,
-    // which moves mass through the wall.
-    auto const& bf = pmb->options->bfuncs();
-    bool refl[2];
-    for (int f : {0, 1}) refl[f] = is_x1_wall(f) && is_reflecting(bf[f]);
-    if (wb4_flag.defined()) {
-      // conversion-order 4: a side whose cp5 row reads a ghost keeps wb_ref4's
-      // face density (both sides on the two wall faces, the reading side on
-      // the third), all walls in one gather and one index_put on (side, face)
-      // rows built once per layout. Both sides then hold dsf at the wall face,
-      // where the mean below is that value (0.5 * (x + x) = x), so it is
-      // skipped
-      std::array<int64_t, 3> at{pcoord->il(), pcoord->iu(),
-                                refl[0] + 2 * refl[1]};
-      if (at != wb4_lr_at_ || !wb4_lr_col_.defined() ||
-          wb4_lr_col_.device() != dsf.device()) {
-        std::vector<int64_t> side, col;
-        for (int f : {0, 1}) {
-          if (!refl[f]) continue;
-          int i = f == 0 ? pcoord->il() : pcoord->iu() + 1;
-          for (int k = 0; k < 3; ++k)
-            for (int s : {(int)ILT, (int)IRT})
-              if (k < 2 || s == (f ? IRT : ILT))
-                side.push_back(s), col.push_back(i + (f ? -k : k));
-        }
-        auto lo = torch::TensorOptions().dtype(torch::kLong);
-        wb4_lr_side_ = torch::tensor(side, lo).to(dsf.device());
-        wb4_lr_col_ = torch::tensor(col, lo).to(dsf.device());
-        wb4_lr_at_ = at;
-      }
-      if (wb4_lr_col_.numel() > 0)  // no reflecting x1 wall: nothing to keep
-        dsf_lr.index_put_(
-            {wb4_lr_side_, torch::indexing::Ellipsis, wb4_lr_col_},
-            dsf.index_select(-1, wb4_lr_col_).movedim(-1, 0));
-    } else {
-      for (int f : {0, 1}) {
-        if (!refl[f]) continue;
-        int i = f == 0 ? pcoord->il() : pcoord->iu() + 1;
-        auto mean =
-            0.5 * (dsf_lr[ILT].select(-1, i) + dsf_lr[IRT].select(-1, i));
-        for (int s : {(int)ILT, (int)IRT}) dsf_lr[s].select(-1, i).copy_(mean);
-      }
-    }
-  }
-
-  return {psf_lo, pref, dsf_lr, dref};
+  X1ReferenceConfig cfg;
+  cfg.coord = pcoord.get();
+  cfg.policy = &pmb->policy;
+  cfg.phys_in = pmb->options->is_physical_boundary(0, 0, -1);
+  cfg.phys_out = pmb->options->is_physical_boundary(0, 0, 1);
+  cfg.wall_clamp = options->wb_wall_clamp();
+  auto const& bf = pmb->options->bfuncs();
+  for (int f : {0, 1})
+    cfg.reflecting[f] = is_x1_wall(f) && is_reflecting(bf[f]);
+  cfg.conversion_order = options->conversion_order();
+  cfg.interp = options->recon1()->interp()->type();
+  cfg.interp_x1_coeffs = precon1->pinterp1->has_x1_coeffs();
+  ExchangeX1Link link(pmb);
+  // downward magnitude (>0)
+  return x1_reference_.evaluate(cfg, {w, dw}, -options->grav()->grav1(), &link);
 }
 
 std::shared_ptr<HydroImpl> HydroImpl::create(HydroOptions const& opts,

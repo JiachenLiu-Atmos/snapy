@@ -16,7 +16,9 @@
 #include <snap/implicit/implicit_hydro.hpp>
 #include <snap/layout/layout.hpp>
 #include <snap/recon/reconstruct.hpp>
-#include <snap/riemann/riemann_solver.hpp>
+#include <snap/recon/x1_reference.hpp>
+#include <snap/recon/x1_rows.hpp>
+#include <snap/riemann/riemann.hpp>
 #include <snap/sedimentation/sedimentation.hpp>
 
 // arg
@@ -25,12 +27,8 @@
 namespace snap {
 
 class MeshBlockImpl;
-struct WbRef4Stencils;
-class HydroReferenceX1Operator;
+class Conversion;
 struct X1PlainMeanStencils;
-struct HydroPressureSplit {
-  torch::Tensor face0, face_delta, cell0, cell_delta, gauge;
-};
 struct X1PressureSourceStencils;
 
 struct HydroOptionsImpl {
@@ -107,8 +105,9 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
 
   SedHydro psed = nullptr;
 
-  //! forcings
-  std::vector<torch::nn::AnyModule> forcings;
+  //! forcings: gravity (lane I's) runs first, then the sources (A.rst 3.6)
+  ConstGravity pgrav = nullptr;
+  SourceRegistry sources;
   Diffusion pdiffusion = nullptr;
 
   //! Constructor to initialize the layers
@@ -189,14 +188,9 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   torch::Tensor lim_cut() const;
   torch::Tensor lim_flux() const;
 
-  //! gravity-work: cell with gravity-work-fixer on (and grav1 != 0)
-  bool gravity_work_fixer() const;
   //! x1 face f (0 inner, 1 outer) of this block is a physical, non-periodic
   //! boundary (a wall whatever installed it, or an open boundary)
   bool is_x1_wall(int f) const;
-  //! gravity-work: face with an implicit scheme: the implicit
-  //! operator books the face work of the mass it moves (#283)
-  bool face_work_in_operator() const;
   //! add the O(dx1^2) covariance term to the x2/x3 face fluxes (#289)?
   //! dynamics/flux-covariance, on by default
   bool flux_covariance() const { return options->flux_covariance(); }
@@ -206,31 +200,11 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! the x1 gravity work of the corrected potential energy is booked here
   //! (derivation curved-gravity-work-weight.md sec 7): gravity-work: face on a
   //! Cartesian, a spherical-polar or a gnomonic-equiangle grid, grav1 != 0.
-  //! E+P is then the conserved invariant: gravity_work_defect() and E+PE_d
-  //! checks measure the wrong one
+  //! E+P is then the conserved invariant: E+PE_d checks measure the wrong one
   bool radial_exact_work() const;
   //! the x1 neighbour blocks {below, above} across a split, non-periodic x1
   //! column, -1 where there is none (as the W reference relay pairs them)
   std::pair<int, int> x1_neighbors() const;
-  //! this block's E+PE defect of the dynamics in the current step (J),
-  //! accumulated over the stages with their weight in the step
-  torch::Tensor gravity_work_defect() const { return _gwfix_d; }
-  //! energy the fixer has added in this run (J, global), accepted steps only;
-  //! like the other run-to-date meters it is not carried across a restart
-  torch::Tensor gravity_work_fix() const {
-    return _gwfix_total + _gwfix_pending;
-  }
-  //! the current step's fixer energy: committed when the step is accepted
-  //! (check_redo, or the next step's start), dropped when it is redone
-  void add_gravity_work_fix(double e) { _gwfix_pending += e; }
-  void commit_gravity_work_fix() {
-    _gwfix_total += _gwfix_pending;
-    _gwfix_pending.zero_();
-  }
-  void drop_gravity_work_fix() { _gwfix_pending.zero_(); }
-  //! mass through this block's physical x1 boundary faces in the current
-  //! step (kg, summed |flux|); the fixer needs it at round-off
-  torch::Tensor gravity_work_wall_mass() const { return _gwfix_wall; }
 
   //! RK stage currently being advanced, published by
   //! MeshBlockImpl::advance_local. The vertical implicit correction needs
@@ -305,43 +279,31 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
                                  torch::Tensor const& wr, int dim) const;
 
   // Per-column hydrostatic references for the well-balanced x1
-  // reconstruction: {psf_lo (face pressure), pref (cell pressure), dsf (face
-  // density, (2, ...) = its ILT and IRT values), dref (cell density)},
-  // rebuilt from the current field on every call.
-  std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
-  _hydro_ref_x1(torch::Tensor const& w,
-                torch::Tensor const& dw = torch::Tensor(),
-                HydroPressureSplit* split = nullptr) const;
+  // reconstruction (X1Reference over this block's x1 column), rebuilt from
+  // the current field on every call; dw defined: the split path
+  ReferenceFaces _hydro_ref_x1(torch::Tensor const& w,
+                               torch::Tensor const& dw = torch::Tensor()) const;
+  //! post_dt: the step's dt, for the solve's register posts (V3 I-4)
   torch::Tensor _apply_implicit_correction(torch::Tensor& du,
                                            torch::Tensor const& w, double dt,
-                                           Variables const& other);
+                                           Variables const& other,
+                                           double post_dt = 0.);
 
  private:
   //! Register all forcing modules
   std::vector<std::string> _register_forcings_module();
 
-  mutable std::shared_ptr<HydroReferenceX1Operator> x1_reference_;
+  //! the well-balanced x1 reference and its caches
+  X1Reference x1_reference_;
 
   void _check_stretched_x1(torch::Tensor const& u) const;
-  //! conversion-order 4 face-density stencils for this block's x1 grid, built
-  //! on first use
-  mutable std::shared_ptr<WbRef4Stencils> wb_ref4_;
-  //! the x1 reconstruction's optimal-linear rows (cp5) for the face density
-  mutable std::shared_ptr<Center5InterpImpl> dsf_lin_;
-  //! key 4: (side, face) rows of the reflecting x1 walls that keep wb_ref4's
-  //! face density, and the block layout they were built for
-  mutable torch::Tensor wb4_lr_side_, wb4_lr_col_;
-  mutable std::array<int64_t, 3> wb4_lr_at_{-1, -1, -1};
   //! SNAP_X1_CENTROID_EXACT r^2 -> plain-mean stencils, built on first use
   mutable std::shared_ptr<X1PlainMeanStencils> x1pm_;
   //! and its pressure-force stencils, for the hydrostatic correction
   mutable std::shared_ptr<X1PressureSourceStencils> x1src_;
-  //! conversion-order 4 x1 weights {kp, km}, built on first use, and the x1f
-  //! (storage, version) they were built from
-  mutable torch::Tensor conv4_x1_[2];
-  mutable std::pair<void*, int64_t> conv4_x1_at_;
-  mutable torch::Tensor wall4_E_;    // reflecting-wall ghost weights, key 4
-  mutable torch::Tensor wall4_pos_;  // rows with a positivity guard, key 4
+  //! conversion order 4 (its x1 rows and wall ghosts), built on first use and
+  //! again when its X1RowsKey or the reflecting walls change
+  mutable std::shared_ptr<Conversion> conv4_;
   //! corrected-PE grid-only work factors, built on first use
   CorrectedPEFactors _pe_work;
   //! face_moment2_x1() for this block's x1 grid, built on first use. Holds
@@ -388,7 +350,6 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   //! this stage's x2 [0] / x3 [1] face states the covariance was built from
   //! and the dry-mass row it added (undefined when the switch is off)
   torch::Tensor _cov_wl[2], _cov_wr[2], _cov_dry[2];
-  torch::Tensor _gwfix_d, _gwfix_total, _gwfix_pending, _gwfix_wall;
 };
 
 TORCH_MODULE(Hydro);

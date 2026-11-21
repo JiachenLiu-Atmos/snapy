@@ -12,12 +12,12 @@
 #include <torch/torch.h>
 
 // fvm
-#include <snap/recon/interpolation.hpp>
 #include <snap/recon/reconstruct.hpp>
 
 // tests
 #include "device_testing.hpp"
 #include "interp_simple.hpp"
+#include "make_interp.hpp"
 
 using namespace snap;
 
@@ -31,7 +31,7 @@ TEST_P(DeviceTest, interp_plm) {
 }
 
 TEST_P(DeviceTest, interp_plm_torch1) {
-  PLMInterp interp;
+  auto interp = make_interp("plm");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -60,7 +60,7 @@ TEST_P(DeviceTest, interp_plm_torch1) {
 }
 
 TEST_P(DeviceTest, interp_plm_torch2) {
-  PLMInterp interp;
+  auto interp = make_interp("plm");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -113,7 +113,7 @@ TEST_P(DeviceTest, interp_plm_torch2) {
 }
 
 TEST_P(DeviceTest, interp_plm_torch3) {
-  PLMInterp interp;
+  auto interp = make_interp("plm");
   interp->to(device, dtype);
 
   for (int i = 0; i < 10; ++i) {
@@ -173,7 +173,7 @@ TEST_P(DeviceTest, interp_plm_torch3) {
 
 // Round-off-sized slopes: the old FLT_MIN-guarded denominator divided 0/0.
 TEST_P(DeviceTest, interp_plm_round_off_slopes_stay_finite) {
-  PLMInterp interp;
+  auto interp = make_interp("plm");
   interp->to(device, dtype);
 
   std::vector<std::array<double, 3>> stencils = {

@@ -1,0 +1,11 @@
+# forcing/body-heat options (src/forcing/forcing.hpp); columns: tools/gen_options.py
+module: body_heat
+struct: BodyHeatOptionsImpl
+yaml_node: forcing/body-heat
+report_title: "-- body heating options --"
+options:
+  - {name: dTdt, key: dTdt, type: double, default: 0., doc: "Heating rate [K/s]."}
+  - {name: pmin, key: pmin, type: double, default: 0., doc: "Lowest pressure heated [Pa]."}
+  - {name: pmax, key: pmax, type: double, default: 1., doc: "Highest pressure heated [Pa]."}
+checks:
+  - {cond: "op.pmin() <= op.pmax()", message: "BodyHeatOptions: pmin must not exceed pmax."}

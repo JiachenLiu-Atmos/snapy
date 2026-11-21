@@ -25,17 +25,19 @@ ConstGravityOptions ConstGravityOptionsImpl::from_yaml(
   op->non_hydrostatic() = node["non-hydrostatic"].as<double>(1.);
   TORCH_CHECK(op->non_hydrostatic() >= 0. && op->non_hydrostatic() <= 1.);
 
+  // V3 I-7 (rulings (a), (b)): face is the one gravity-work form; the cell
+  // form is removed (the global fixer went in V3 X5)
   op->gravity_work() = node["gravity-work"].as<std::string>("face");
-  TORCH_CHECK(op->gravity_work() == "cell" || op->gravity_work() == "face",
-              "forcing/const-gravity/gravity-work must be cell or face, got '",
-              op->gravity_work(), "'");
-  bool cell = op->gravity_work() == "cell";
-  op->gravity_work_fixer() = node["gravity-work-fixer"].as<bool>(cell);
-  if (op->gravity_work_fixer() && op->grav1() != 0.) {
-    TORCH_CHECK(cell,
-                "forcing/const-gravity/gravity-work-fixer needs gravity-work: "
-                "cell");
-  }
+  TORCH_CHECK(op->gravity_work() == "face",
+              "forcing/const-gravity/gravity-work: '", op->gravity_work(),
+              "' is not supported: the cell form was removed (V3 I-7); use "
+              "gravity-work: face");
+  // the global gravity-work fixer is removed (V3 X5, gw1; Cheng): the key
+  // stays readable so decks that switch it off keep working
+  op->gravity_work_fixer() = node["gravity-work-fixer"].as<bool>(false);
+  TORCH_CHECK(!op->gravity_work_fixer(),
+              "forcing/const-gravity/gravity-work-fixer was removed in V3; "
+              "set it false or drop the key");
 
   return op;
 }

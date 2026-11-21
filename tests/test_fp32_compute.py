@@ -54,7 +54,9 @@ def case(scheme, steps, sediment=True):
                 "hydro.eos.",
                 "hydro.recon1.",
                 "hydro.recon23.",
-                "hydro.sed.sedvel.",
+                "hydro.sed.radius",
+                "hydro.sed.density",
+                "hydro.sed.const_vsed",
             )
             diagnostics = {
                 "hydro.P1",
@@ -62,10 +64,6 @@ def case(scheme, steps, sediment=True):
                 "hydro.positivity_min",
                 "hydro.lim_cut",
                 "hydro.lim_flux",
-                "hydro.gwfix_d",
-                "hydro.gwfix_total",
-                "hydro.gwfix_pending",
-                "hydro.gwfix_wall",
                 "hydro.icorr.clamp_residual",
                 "hydro.icorr.dry_clamp_step",
             }

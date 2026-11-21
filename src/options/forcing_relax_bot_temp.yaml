@@ -1,0 +1,13 @@
+# forcing/relax-bot-temp options (src/forcing/forcing.hpp); columns: tools/gen_options.py
+module: relax_bot_temp
+struct: RelaxBotTempOptionsImpl
+yaml_node: forcing/relax-bot-temp
+report_title: "-- relax bottom temperature options --"
+options:
+  - {name: tau, key: tau, type: double, default: 0., doc: "Relaxation time [s]."}
+  - {name: btemp, key: btemp, type: double, default: 300., doc: "Bottom temperature [K]; required."}
+  - {name: at_face, key: at-face, type: bool, default: false, read: none, doc: "Relax the extrapolated bottom-face temperature instead of the first cell-centre temperature."}
+checks:
+  - {cond: 'node["btemp"]', message: "RelaxBotTempOptions: btemp is required (no default)."}
+  - {cond: "op.tau() > 0.", message: "RelaxBotTempOptions: tau must be greater than zero."}
+  - {cond: "op.btemp() > 0.", message: "RelaxBotTempOptions: btemp must be greater than zero."}

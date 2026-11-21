@@ -18,6 +18,7 @@
 #include <snap/hydro/balance_column.hpp>
 #include <snap/hydro/hydro_dispatch.hpp>
 #include <snap/mesh/meshblock.hpp>
+#include <snap/recon/x1_rows.hpp>
 
 namespace {
 
@@ -94,8 +95,7 @@ Ref reference(torch::Tensor const& w, torch::Tensor const& dx1f, int iu,
         torch::empty(sizes, w.options())};
   torch::Tensor anchor, rows;
   if (!uniform)  // unequal widths: the stretched rows, as balance_column
-    rows = snap::hydro_ref_x1_stretched_rows(dx1f, iu, phys_in, phys_out,
-                                             wall_clamp)
+    rows = snap::six_face_rows(dx1f, iu, phys_in, phys_out, wall_clamp)
                .to(w.options());
   at::native::call_hydro_ref_x1(
       w.device().type(), w.contiguous(), dx1f.contiguous(), anchor, r.psf_lo,

@@ -1,10 +1,14 @@
-// snap
-#include "scalar.hpp"
+// C/C++
+#include <numeric>
 
+// snap
 #include <snap/hydro/flux_positivity.hpp>
 #include <snap/hydro/hydro.hpp>
 #include <snap/layout/layout.hpp>
+#include <snap/layout/seam_register.hpp>
 #include <snap/mesh/meshblock.hpp>
+
+#include "scalar.hpp"
 
 namespace snap {
 ScalarImpl::ScalarImpl(const ScalarOptions& options_, torch::nn::Module* p)
@@ -59,15 +63,13 @@ void ScalarImpl::reset() {
   auto nc2 = pcoord->options->nc2();
   auto nc3 = pcoord->options->nc3();
 
-  _flux1 = register_buffer(
-      "F1", nc1 > 1 ? torch::zeros({nvar(), nc3, nc2, nc1}, torch::kFloat64)
-                    : torch::Tensor());
-  _flux2 = register_buffer(
-      "F2", nc2 > 1 ? torch::zeros({nvar(), nc3, nc2, nc1}, torch::kFloat64)
-                    : torch::Tensor());
-  _flux3 = register_buffer(
-      "F3", nc3 > 1 ? torch::zeros({nvar(), nc3, nc2, nc1}, torch::kFloat64)
-                    : torch::Tensor());
+  // R-4's coordinate reset, so boundary.prescribed books with the face areas
+  // (S step 4); the scalar fluxes stay float64, as before
+  freg.reset(pcoord.get(), PrecisionPolicy("float64"), nvar(),
+             RegisterRequest());
+  _flux1 = register_buffer("F1", freg.totals()[0]);
+  _flux2 = register_buffer("F2", freg.totals()[1]);
+  _flux3 = register_buffer("F3", freg.totals()[2]);
   _div = register_buffer(
       "D", torch::zeros({nvar(), nc3, nc2, nc1}, torch::kFloat64));
   // the census is a slot of the block's EfStatus, registered as this buffer
@@ -82,11 +84,9 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
   TORCH_CHECK(pmb != nullptr, "[Scalar] Parent MeshBlock is null");
   TORCH_CHECK(other.count("hydro_u"),
               "[Scalar] hydro_u is required for passive scalar transport");
-
+  auto ph = pmb->phydro;
   // the TOTAL dry density (anomaly storage adds the reference)
-  auto rho = pmb->phydro->dry_density(other.at("hydro_u"))
-                 .to(u.options())
-                 .unsqueeze(0);
+  auto rho = ph->dry_density(other.at("hydro_u")).to(u.options()).unsqueeze(0);
   // r = q_face / rho_face; q / rho of cell averages is second order (S177)
   auto face_r = [&](int dim) {
     auto recon = dim == DIM1 ? precon1 : precon;
@@ -94,159 +94,111 @@ torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
     return torch::where(rf > 0., recon->forward(u, dim) / rf,
                         torch::stack({r.roll(1, dim), r}));
   };
-
+  // the fluxes, by direction, and the hydro dry-mass rows they ride on: the
+  // hydro register's mass.dry.limited@d, row IDN of its total as limit ends
+  // (R-5; R.rst 4.2 EF c), not the total after the hydro forward
+  torch::Tensor* flux[3] = {&_flux1, &_flux2, &_flux3};
+  auto const& hreg = ph->flux_register();
+  auto row = [&](int d) {
+    if (!hreg.total(d).defined()) return torch::Tensor();
+    TORCH_CHECK(hreg.keeps(d, "mass.dry.limited"), "[Scalar] the hydro ",
+                "register keeps no mass.dry.limited@", d);
+    return hreg.kept(d, "mass.dry.limited")[IDN];
+  };
+  torch::Tensor rlr[3], mass[3] = {row(1), row(2), row(3)};
   if (_flux1.defined()) {
-    auto rlr = face_r(DIM1);
-    _flux1.set_data(
-        priemann->forward(rlr[ILT], rlr[IRT], DIM1, pmb->phydro->flux1()[IDN]));
+    rlr[0] = face_r(DIM1);
+    _flux1.set_data(priemann->forward(rlr[0][ILT], rlr[0][IRT], DIM1, mass[0]));
   }
 
-  auto playout = pmb->get_layout();
-  torch::Tensor rtmp2, rtmp3;
-  Variables send_vars2, send_vars3;
-  SyncOptions sync_opts;
-  sync_opts.cross_panel_only(true).interpolate(false).type(kScalar);
-  std::vector<CommWorkPtr> works2, works3;
-
-  if (_flux2.defined()) {
-    rtmp2 = face_r(DIM2);
-    if (playout->options->type() == "cubed-sphere") {
-      // Ship the two reconstructed states under DIRECTION-SUFFIXED keys, as the
-      // hydro does (hydro_forward.cpp). The ':' suffix selects the directional
-      // partial send/recv in CubedSphereLayoutImpl::serialize/deserialize,
-      // whose mirrored skip rules resolve the L/R roles across a panel edge;
-      // one un-suffixed key took no directional branch and swapped them at a
-      // flip_flag seam, making the upwind solver pick the downwind state.
-      send_vars2["scalar_wl:+"] = rtmp2[ILT];
-      send_vars2["scalar_wr:-"] = rtmp2[IRT];
-      pmb->begin_exchange(send_vars2, sync_opts.dim(DIM2));
-    }
+  // cubed sphere: DIRECTION-SUFFIXED keys, as the hydro's, resolve the L/R
+  // roles across a panel edge (an un-suffixed key swapped them at flip_flag)
+  bool cubed = pmb->get_layout()->options->type() == "cubed-sphere";
+  Variables send[3];
+  std::vector<CommWorkPtr> works[3];
+  SyncOptions so;
+  so.cross_panel_only(true).interpolate(false).type(kScalar);
+  for (int d : {1, 2}) {
+    if (!flux[d]->defined()) continue;
+    rlr[d] = face_r(3 - d);
+    if (!cubed) continue;
+    send[d]["scalar_wl:+"] = rlr[d][ILT];
+    send[d]["scalar_wr:-"] = rlr[d][IRT];
+    pmb->begin_exchange(send[d], so.dim(3 - d));
   }
+  for (int d : {1, 2})
+    if (cubed && flux[d]->defined())
+      pmb->launch_exchange(so.dim(3 - d), works[d]);
+  for (int d : {1, 2})
+    if (cubed && flux[d]->defined())
+      pmb->finalize_exchange(send[d], so.dim(3 - d), works[d]);
 
-  if (_flux3.defined()) {
-    rtmp3 = face_r(DIM3);
-    if (playout->options->type() == "cubed-sphere") {
-      // See the DIM2 comment above.
-      send_vars3["scalar_wl:+"] = rtmp3[ILT];
-      send_vars3["scalar_wr:-"] = rtmp3[IRT];
-      pmb->begin_exchange(send_vars3, sync_opts.dim(DIM3));
-    }
-  }
-
-  if (playout->options->type() == "cubed-sphere") {
-    bool exchange_dim2 = _flux2.defined();
-    bool exchange_dim3 = _flux3.defined();
-    if (exchange_dim2) {
-      pmb->launch_exchange(sync_opts.dim(DIM2), works2);
-    }
-    if (exchange_dim3) {
-      pmb->launch_exchange(sync_opts.dim(DIM3), works3);
-    }
-    if (exchange_dim2)
-      pmb->finalize_exchange(send_vars2, sync_opts.dim(DIM2), works2);
-    if (exchange_dim3)
-      pmb->finalize_exchange(send_vars3, sync_opts.dim(DIM3), works3);
-  }
-
-  // dynamics/flux-covariance (#289): a scalar carries the tracer row of the
-  // face covariance (HydroImpl::scalar_flux_covariance), not r times the
-  // dry-mass row that the hydro's mass flux carries, so it rides on the mass
-  // flux without that row and adds its own: the flux of a hydro species with
-  // the same mass fraction
+  // flux-covariance (#289): a scalar rides on the mass flux without its dry
+  // row (R4) and adds its own tracer row (HydroImpl::scalar_flux_covariance)
   bool cov = false;
-  auto lateral = [&](torch::Tensor const& rlr, int dim,
-                     torch::Tensor const& mass) {
-    auto dcov = pmb->phydro->scalar_flux_covariance(rlr[ILT], rlr[IRT], dim);
-    if (!dcov.defined())
-      return priemann->forward(rlr[ILT], rlr[IRT], dim, mass);
+  for (int d : {1, 2}) {
+    if (!flux[d]->defined()) continue;
+    auto dcov = ph->scalar_flux_covariance(rlr[d][ILT], rlr[d][IRT], 3 - d);
+    if (!dcov.defined()) {
+      flux[d]->set_data(
+          priemann->forward(rlr[d][ILT], rlr[d][IRT], 3 - d, mass[d]));
+      continue;
+    }
     cov = true;
-    auto vel = mass - pmb->phydro->flux_covariance_dry(dim);
-    return priemann->forward(rlr[ILT], rlr[IRT], dim, vel) + dcov;
-  };
-
-  if (_flux2.defined()) {
-    _flux2.set_data(lateral(rtmp2, DIM2, pmb->phydro->flux2()[IDN]));
+    auto vel = mass[d] - ph->flux_covariance_dry(3 - d);
+    flux[d]->set_data(priemann->forward(rlr[d][ILT], rlr[d][IRT], 3 - d, vel) +
+                      dcov);
   }
 
-  if (_flux3.defined()) {
-    _flux3.set_data(lateral(rtmp3, DIM3, pmb->phydro->flux3()[IDN]));
-  }
-
-  // Tracer flux positivity limiter: same scheme (and same rationale) as the
-  // hydro species channels -- see flux_positivity.hpp and hydro_forward.cpp
-  // step (4.C). It follows the existing EOS limiter setting, and runs whenever
-  // the scalar carries its covariance row, which can export tracer a cell
-  // does not have.
-  auto sync_theta = [&](torch::Tensor theta) {
-    flux_positivity_sync_theta_(pmb, theta, "scalar_theta");
-    return theta;
-  };
+  // S step (4), boundary.prescribed on this register too (S.rst rev 2.5
+  // section 4: every register instance): every tracer row is 0 on the wall
+  // and solid faces, as the hydro's species rows are
+  supply_prescribed(freg, pmb,
+                    other.count("solid") ? other.at("solid") : torch::Tensor(),
+                    {});
+  for (int d = 0; d < 3; ++d)
+    if (flux[d]->defined()) freg.apply_prescribed(d + 1);
 
   auto cells = pmb->part({0, 0, 0}, PartOptions().exterior(false));
-  // r <= b is positivity of the complement b*rho - s, whose flux is b*F_mass -
-  // F_s, so the same limiter applies to it -- a SECOND theta, not the one
-  // below. Scaling the complement blends F_s toward b*F_mass, the donor-cell
-  // flux of a tracer at the bound; scaling F_s toward zero would bound it too
-  // but stop a plateau advecting.
-  // r <= b assumes rho moves by -dt*div(F_mass) alone (not so if implicit)
+  std::vector<int> rows(nvar());
+  std::iota(rows.begin(), rows.end(), 0);
+  // P4: r <= b is positivity of the complement b*rho - s (flux g = b*F_mass -
+  // F_s), a SECOND theta. It adds the CHANGE g - g*factor, never b*F_mass - g,
+  // which perturbs every face and in float32 annihilates r near eps(b).
   if (options->upper_bound() > 0.) {
     auto b = options->upper_bound();
-    auto mf = [&](int dim) {
-      return (dim == DIM1   ? pmb->phydro->flux1()
-              : dim == DIM2 ? pmb->phydro->flux2()
-                            : pmb->phydro->flux3())[IDN]
-          .unsqueeze(0);
-    };
-    torch::Tensor g1, g2, g3, h1, h2, h3;
-    if (_flux1.defined()) h1 = (g1 = b * mf(DIM1) - _flux1).clone();
-    if (_flux2.defined()) h2 = (g2 = b * mf(DIM2) - _flux2).clone();
-    if (_flux3.defined()) h3 = (g3 = b * mf(DIM3) - _flux3).clone();
-
-    auto theta = flux_positivity_theta(b * rho - u, g1, g2, g3, pcoord, dt);
+    torch::Tensor g[3];
+    for (int d = 0; d < 3; ++d)
+      if (flux[d]->defined()) g[d] = b * mass[d].unsqueeze(0) - *flux[d];
+    auto theta =
+        flux_positivity_theta(b * rho - u, g[0], g[1], g[2], pcoord, dt);
     pmb->pefs->slot(EfStatus::kScalarPosHits) +=
         (theta.index(cells) < 1.).sum();
-    flux_positivity_scale_(sync_theta(theta), g1, g2, g3, pcoord);
-
-    // Add the CHANGE, never recompute F_s = b*F_mass - g. The two are equal in
-    // algebra only: recomputing carries an error absolute in b*F_mass, so it
-    // perturbs EVERY face even where theta is 1, and in float32 it annihilates
-    // the flux of a species whose ratio is near the epsilon of b. This form is
-    // bitwise identity where nothing was limited.
-    if (_flux1.defined()) _flux1.add_(h1 - g1);
-    if (_flux2.defined()) _flux2.add_(h2 - g2);
-    if (_flux3.defined()) _flux3.add_(h3 - g3);
+    flux_positivity_sync_theta_(pmb, theta, "scalar_theta");
+    for (int d = 0; d < 3; ++d) {
+      if (!g[d].defined()) continue;
+      auto factor = flux_positivity_factor(theta, g[d], 3 - d, pcoord);
+      freg.add(d + 1, "scalar.upper_bound", rows,
+               g[d] - (g[d] * factor).to(g[d].scalar_type()));
+    }
   }
 
-  // positivity last: the blend above can export tracer a donor lacks
-  // by design: Courant>1 can make explicit rho<0; no scaling keeps both, so r>b
-  bool lim = pmb->phydro->options->eos()->limiter();
-  if (lim || cov) {
-    auto theta = flux_positivity_theta(u, _flux1, _flux2, _flux3, pcoord, dt);
-    // the eos limiter does not limit the mass flux either: where it drains
-    // the dry air too (Courant>1), the neighbours (implicit x1 refill, inflow
-    // along x2, x3) bring their r back, so the tracer may drain past its
-    // content only as far as the poorer neighbour repays: all of it at a
-    // uniform r, none beside an empty cell
-    {
-      auto m = [&](torch::Tensor const& f, torch::Tensor const& mass) {
-        return f.defined() ? mass[IDN].unsqueeze(0) : torch::Tensor();
-      };
-      auto ph = pmb->phydro;
-      auto td = flux_positivity_theta(rho, m(_flux1, ph->flux1()),
-                                      m(_flux2, ph->flux2()),
-                                      m(_flux3, ph->flux3()), pcoord, dt);
-      auto phi = flux_positivity_share(u / rho);
-      theta = flux_positivity_relax(theta, td, phi);
-    }
-    pmb->pefs->slot(EfStatus::kScalarPosHits) +=
-        (theta.index(cells) < 1.).sum();
-    flux_positivity_scale_(sync_theta(theta), _flux1, _flux2, _flux3, pcoord);
+  // P5, last (the blend can export tracer a donor lacks): the shared limiter
+  if (ph->options->eos()->limiter() || cov) {
+    PositivityInputs in;
+    in.u = u;
+    in.rho_dry = rho;
+    for (int d = 0; d < 3; ++d)
+      if (flux[d]->defined())
+        in.flux[d] = *flux[d], in.mass[d] = mass[d].unsqueeze(0);
+    in.dt = dt;
+    PositivityLimiter(pmb, pmb->pefs.get(), EfStatus::kScalarPosHits)
+        .apply(freg, in, "scalar", "scalar.positivity.withhold");
   }
 
   _div.set_data(pcoord->divergence(_flux1, _flux2, _flux3));
   auto ds = torch::zeros_like(_div);
-  auto interior = pmb->part({0, 0, 0}, PartOptions().exterior(false));
-  ds.index(interior) = -dt * _div.index(interior);
+  ds.index(cells) = -dt * _div.index(cells);
   return ds;
 }
 

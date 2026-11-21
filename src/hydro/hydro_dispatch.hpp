@@ -6,34 +6,11 @@
 
 namespace snap {
 
-class EquationOfStateImpl;
-
-//! dynamics/conversion-order 4's per-cell fallback test (hydro_forward.cpp):
-//! true where `a` is admissible -- finite, rho above the density floor and,
-//! with `limiter` on, no species below zero (u - L u, prim false), and p
-//! above the pressure floor too (its primitives, prim true). The floors are
-//! zero with `limiter` off. balance_column passes the run's limiter flag.
-torch::Tensor conv4_admissible(torch::Tensor const& a, bool prim,
-                               EquationOfStateImpl* eos, bool limiter);
-
-//! key 4 at a reflecting x1 wall (hydro_forward.cpp): E = wall4_weights(x1f,
-//! is, iu, ng); wall4_fill overwrites a's ghosts at the flagged walls with
-//! E[side][c] . (4 owned cells), the mirror kept where pos and ref + ghost <= 0
-//! (only on the `rows` mask if given); kept mirrors are added to `trips`
-torch::Tensor wall4_weights(torch::Tensor x1f, int is, int iu, int ng);
-void wall4_fill(torch::Tensor a, torch::Tensor const& E, int c, int i0, int i1,
-                bool const* wall, bool pos, torch::Tensor ref,
-                torch::Tensor rows = {}, torch::Tensor trips = {});
-
 enum X1RefGrid : int {
   kX1RefNonUniform = 0,
   kX1RefUniform = 1,
   kX1RefStretched = 2
 };
-
-torch::Tensor hydro_ref_x1_stretched_rows(torch::Tensor const& dx1f, int iu,
-                                          bool phys_in, bool phys_out,
-                                          bool wall_clamp);
 
 //! The CPU kernel, which MPS runs through OnHost; also callable from tests.
 void hydro_pressure_scan_x1_cpu(torch::Tensor const& rho,

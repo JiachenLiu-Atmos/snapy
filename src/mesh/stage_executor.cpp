@@ -15,6 +15,22 @@
 
 namespace snap {
 
+torch::Tensor global_phase_sum(std::vector<torch::Tensor> const& partials,
+                               LayoutImpl const& layout) {
+  TORCH_CHECK(!partials.empty(), "global_phase_sum: no partial sums");
+  auto sums = partials.front();
+  if (partials.size() > 1) {
+    sums = torch::zeros_like(partials.front());
+    for (auto const& p : partials) sums += p;
+  }
+  if (layout.has_process_group()) {  // the host segment: one allreduce
+    std::vector<at::Tensor> reduce = {sums.cpu()};
+    layout.comm->allreduce(reduce, c10d::ReduceOp::SUM);
+    sums = reduce[0].to(sums.device());
+  }
+  return sums;
+}
+
 bool GraphKey::operator==(GraphKey const& other) const {
   return device_index == other.device_index && names == other.names &&
          layout == other.layout && store_generation == other.store_generation &&
@@ -81,6 +97,18 @@ std::vector<std::string> StageExecutor::capture_reasons(
     why.push_back("forcing is not const-gravity alone");
   if (vars.count("solid")) why.push_back("a solid mask is set");
   return why;
+}
+
+Capability StageExecutor::capability(Variables const& vars) const {
+  Capability c;
+  bool fp32 = _block->policy.fp32();
+  c.eager_fp64 = !fp32;  // every case runs eager in its precision
+  c.eager_fp32 = fp32;
+  c.eager_reasons = capture_reasons(vars);
+  bool graph = c.eager_reasons.empty();
+  c.graph_fp64 = graph && !fp32;
+  c.graph_fp32 = graph && fp32;
+  return c;
 }
 
 GraphKey StageExecutor::make_key(Variables const& vars, double dt,

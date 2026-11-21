@@ -1,8 +1,10 @@
 // C/C++
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <regex>
 
 // external
@@ -14,20 +16,23 @@
 
 #include "device_testing.hpp"
 
-namespace snap {
-void call_hllc_cpu(at::TensorIterator&, int);
-}
-
 // kintera
 #include <kintera/species.hpp>
 
 // snap
-#include <snap/riemann/hllc_impl.h>
+#include <snap/riemann/riemann_kernels.h>
 
 #include <snap/eos/equation_of_state.hpp>
+#include <snap/hydro/balance_column.hpp>
 #include <snap/mesh/meshblock.hpp>
-#include <snap/riemann/riemann_solver.hpp>
+#include <snap/riemann/riemann.hpp>
 #include <snap/utils/on_host.hpp>
+
+namespace snap {
+void riemann_cpu(at::TensorIterator&, int, int, RiemannParams const&,
+                 torch::Tensor const&, torch::Tensor const&,
+                 torch::Tensor const&);
+}
 
 enum {
   DIM1 = 3,
@@ -454,9 +459,8 @@ TEST_P(DeviceTest, hllc_pressure_split_dispatch_and_on_host) {
   opts->hydro()->riemann()->type() = "hllc";
   auto block = MeshBlock(opts);
   block->to(device, dtype);
-  auto solver =
-      std::dynamic_pointer_cast<HLLCSolverImpl>(block->phydro->priemann);
-  ASSERT_TRUE(solver);
+  auto solver = block->phydro->priemann;
+  ASSERT_TRUE(solver->kind == RiemannKind::hllc);
   auto coord = block->pcoord;
   auto wl = torch::zeros({block->phydro->peos->nvar(), coord->options->nc3(),
                           coord->options->nc2(), coord->options->nc1()},
@@ -493,7 +497,9 @@ TEST_P(DeviceTest, hllc_pressure_split_dispatch_and_on_host) {
                   .add_input(solver->clr)
                   .add_owned_input(p0.unsqueeze(0))
                   .build();
-  snap::OnHost<&snap::call_hllc_cpu>::run(iter, DIM1);
+  snap::OnHost<&snap::riemann_cpu>::run(
+      iter, static_cast<int>(snap::RiemannKind::hllc), DIM1,
+      snap::RiemannParams{}, torch::Tensor(), torch::Tensor(), torch::Tensor());
   if (device.is_cpu()) {
     EXPECT_TRUE(torch::equal(host_flux, flux));
     EXPECT_TRUE(torch::equal(host_dp, dp));
@@ -509,6 +515,258 @@ TEST_P(DeviceTest, hllc_pressure_split_dispatch_and_on_host) {
   solver->forward(total_l, total_r, DIM1, full_flux);
   if (dtype == torch::kFloat32)
     EXPECT_EQ(full_flux[IDN].abs().max().item<double>(), 0.);
+}
+
+// C5: the solve writes riemann.central, the mass rows (dry and species) of
+// 1/2 (F(w_L) + F(w_R)), in the kernel. It replaces the two extra solves of
+// hydro_forward.cpp (F(w, w) of each side), so it must equal them to
+// round-off (C.rst section 5: 1e-14 relative, FP64); the other rows of the
+// part are not written.
+TEST_P(DeviceTest, riemann_central_matches_the_two_extra_solves) {
+  for (std::string type : {"hllc", "lmars", "roe"}) {
+    auto opts = MeshBlockOptionsImpl::from_yaml("test_eos_temp2inteng.yaml");
+    opts->hydro()->riemann()->type() = type;
+    auto block = MeshBlock(opts);
+    block->to(device, dtype);
+    auto solver = block->phydro->priemann;
+    auto coord = block->pcoord;
+    int nvar = block->phydro->peos->nvar(), ny = nvar - ICY;
+    ASSERT_GT(ny, 0);
+    auto shape =
+        std::vector<int64_t>{nvar, coord->options->nc3(), coord->options->nc2(),
+                             coord->options->nc1()};
+    auto o = torch::device(device).dtype(dtype);
+    torch::manual_seed(7);
+    auto state = [&] {
+      auto w = torch::zeros(shape, o);
+      w[IDN] = 1. + torch::rand_like(w[IDN]);
+      w.narrow(0, IVX, 3).copy_(20. * torch::rand_like(w.narrow(0, IVX, 3)) -
+                                10.);
+      w[IPR] = 1.e5 * (0.9 + 0.2 * torch::rand_like(w[IPR]));
+      w.narrow(0, ICY, ny).copy_(0.01 * torch::rand_like(w.narrow(0, ICY, ny)));
+      return w;
+    };
+    auto wl = state(), wr = state();
+    for (int dim : {DIM1, DIM2, DIM3}) {
+      auto flux = torch::zeros(shape, o), cen = torch::zeros(shape, o);
+      solver->forward(wl.clone(), wr.clone(), dim, flux, torch::Tensor(), cen);
+      auto fa = torch::zeros(shape, o), fb = torch::zeros(shape, o);
+      solver->forward(wl.clone(), wl.clone(), dim, fa);
+      solver->forward(wr.clone(), wr.clone(), dim, fb);
+      auto ref = 0.5 * (fa + fb);
+      auto mass = [&](torch::Tensor const& f) {
+        return torch::cat({f.narrow(0, IDN, 1), f.narrow(0, ICY, ny)});
+      };
+      double tol = dtype == torch::kFloat64 ? 1.e-14 : 2.e-6;
+      auto err = ((mass(cen) - mass(ref)).abs().max() / mass(ref).abs().max())
+                     .item<double>();
+      EXPECT_LE(err, tol) << type << " dim " << dim;
+      EXPECT_EQ(cen.narrow(0, IVX, 4).abs().max().item<double>(), 0.)
+          << type << " dim " << dim;
+    }
+  }
+}
+
+// G-R8 (R.rst; lane A's G2, A.rst at c405d491): the kernel's riemann.central
+// against today's central, 1/2 (F(w_L, w_L) + F(w_R, w_R)), on the face
+// states the deck's reconstruction gives, every x2 and x3 face, one stage,
+// FP64: e_inf = max_f |dF_c| / max_f rho (|u_n| + c) <= 1e-13. The decks are
+// test_axial_momentum_flux_form's 3D arm (lmars, weno5, interp_order 4) and
+// W2 C16 (shallow water, shallow-roe yz), one panel each, under a smooth
+// non-uniform wind.
+const char* g_r8_3d_config = R"(
+reference-state: {Tref: 300., Pref: 1.e5}
+species:
+  - name: dry
+    composition: {H: 1.64813, He: 0.17591}
+    cv_R: 2.5
+geometry:
+  type: gnomonic-equiangle
+  bounds: {x1min: 6.0e6, x1max: 6.4e6, x2min_pi: -0.25, x2max_pi: 0.25, x3min_pi: -0.25, x3max_pi: 0.25}
+  cells: {nx1: 8, nx2: 8, nx3: 8, nghost: 3, interp_order: 4}
+dynamics:
+  equation-of-state: {type: ideal-gas, density-floor: 1.e-20, pressure-floor: 1.e-20, limiter: false}
+  reconstruct:
+    vertical:   {type: weno5, scale: true, shock: false}
+    horizontal: {type: weno5, scale: true, shock: false}
+  riemann-solver: {type: lmars}
+boundary-condition:
+  external: {x1-inner: reflecting, x1-outer: reflecting, x2-inner: custom, x2-outer: custom, x3-inner: custom, x3-outer: custom}
+)";
+
+const char* g_r8_w2_config = R"(
+geometry:
+  type: gnomonic-equiangle
+  bounds: {x1min: 6371000.0, x1max: 6371001.0, x2min_pi: -0.25, x2max_pi: 0.25, x3min_pi: -0.25, x3max_pi: 0.25}
+  cells: {nx1: 1, nx2: 16, nx3: 16, nghost: 3}
+dynamics:
+  equation-of-state: {type: shallow-water}
+  reconstruct:
+    vertical:   {type: weno5, scale: false, shock: false}
+    horizontal: {type: weno5, scale: false, shock: false}
+  riemann-solver: {type: shallow-roe, dir: yz}
+boundary-condition:
+  external: {x1-inner: reflecting, x1-outer: reflecting, x2-inner: custom, x2-outer: custom, x3-inner: custom, x3-outer: custom}
+)";
+
+// the decks' initial states, as test_axial_momentum_flux_form.py builds them:
+// the 3D arm's isothermal column in the scheme's balance (balance_column),
+// times the rigid-rotation factor, with the perturbed jet (arm (f) at
+// Omega = the wind's rate); W2's steady zonal flow at the Earth's rate
+constexpr double kWsb = 5.e-6, kUpert = 10., kP0 = 1.e5, kRho0 = 0.1;
+constexpr double kSwOmega = 7.292e-5, kSwU0 = 38.6, kSwPhi0 = 2.94e4;
+
+torch::Tensor g_r8_3d_state(MeshBlock block) {
+  auto coord = block->pcoord;
+  auto o = coord->x1v.options().dtype(torch::kFloat64);
+  int ng = coord->options->nghost(), nx1 = coord->options->nx1();
+  double g = 10.;
+  auto r = coord->x1v.narrow(0, ng, nx1).cpu().to(torch::kFloat64);
+  auto dr = coord->dx1f.narrow(0, ng, nx1).cpu().to(torch::kFloat64);
+  auto p = kP0 * torch::exp(-(r - r[0]) * kRho0 * g / kP0);
+  auto col = torch::zeros({IPR + 1, 1, 1, nx1}, torch::kFloat64);
+  col[IDN][0][0] = p * kRho0 / kP0;
+  col[IPR][0][0] = p;
+  auto wb = std::get<0>(balance_column(col, dr.contiguous(), g));
+  int nvar = block->phydro->peos->nvar();
+  auto w = torch::zeros({nvar, coord->options->nc3(), coord->options->nc2(),
+                         coord->options->nc1()},
+                        o);
+  for (int c : {IDN, IPR}) {
+    auto row = wb[c][0][0].to(o);
+    w[c].narrow(-1, ng, nx1).copy_(row);
+    w[c].narrow(-1, 0, ng).copy_(row.narrow(0, 0, 1).expand({ng}));
+    w[c].narrow(-1, ng + nx1, ng).copy_(row.narrow(0, nx1 - 1, 1).expand({ng}));
+  }
+  auto bufs = block->named_buffers();
+  auto lon = bufs["coord.longitude"].to(o), lat = bufs["coord.latitude"].to(o);
+  auto rc = coord->x1v.to(o) * torch::cos(lat);
+  auto fac = torch::exp((kWsb * kWsb + 2. * kWsb * kWsb) * rc * rc /
+                        (2. * kP0 / kRho0));
+  w[IDN] *= fac;
+  w[IPR] *= fac;
+  auto k = bufs["coord.aam_k_c"].to(o);
+  auto u_east =
+      kWsb * rc + kUpert * torch::cos(lat).pow(2) * torch::sin(2. * lon);
+  w[IVY] = u_east * k[1] / torch::cos(lat);
+  w[IVZ] = u_east * k[2] / torch::cos(lat);
+  return w;
+}
+
+torch::Tensor g_r8_w2_state(MeshBlock block) {
+  auto coord = block->pcoord;
+  auto o = coord->x1v.options().dtype(torch::kFloat64);
+  int nvar = block->phydro->peos->nvar();
+  auto w = torch::zeros({nvar, coord->options->nc3(), coord->options->nc2(),
+                         coord->options->nc1()},
+                        o);
+  auto bufs = block->named_buffers();
+  auto lat = bufs["coord.latitude"].to(o), a = coord->x1v.to(o);
+  auto k = bufs["coord.aam_k_c"].to(o);
+  w[IDN] = kSwPhi0 - (a * kSwOmega * kSwU0 + 0.5 * kSwU0 * kSwU0) *
+                         torch::sin(lat).pow(2);
+  w[IVY] = kSwU0 * k[1] + 0. * a;
+  w[IVZ] = kSwU0 * k[2] + 0. * a;
+  return w;
+}
+
+double g_r8_e_inf(const char* config,
+                  std::function<torch::Tensor(MeshBlock)> state,
+                  torch::Device device) {
+  auto fname = std::string("test_riemann_g_r8.yaml");
+  {
+    std::ofstream f(fname);
+    f << config;
+  }
+  auto block = MeshBlock(MeshBlockOptionsImpl::from_yaml(fname));
+  std::remove(fname.c_str());
+  block->to(device, torch::kFloat64);
+  auto hydro = block->phydro;
+  auto peos = hydro->peos;
+  int nvar = peos->nvar(), ny = std::max(nvar - ICY, 0);
+  auto w = state(block).to(device);
+
+  double e = 0.;
+  for (int dim : {DIM2, DIM3}) {
+    auto lr = hydro->precon23->forward(w, dim);
+    auto like = torch::zeros_like(w);
+    auto flux = like.clone(), cen = like.clone();
+    hydro->priemann->forward(lr[ILT].clone(), lr[IRT].clone(), dim, flux,
+                             torch::Tensor(), cen);
+    auto fa = like.clone(), fb = like.clone();
+    hydro->priemann->forward(lr[ILT].clone(), lr[ILT].clone(), dim, fa);
+    hydro->priemann->forward(lr[IRT].clone(), lr[IRT].clone(), dim, fb);
+    auto ref = 0.5 * (fa + fb);
+    auto mass = [&](torch::Tensor const& f) {
+      return ny > 0 ? torch::cat({f.narrow(0, IDN, 1), f.narrow(0, ICY, ny)})
+                    : f.narrow(0, IDN, 1);
+    };
+    int ivn = dim == DIM2 ? IVY : IVZ;
+    double scale = 0.;
+    for (int side : {ILT, IRT}) {
+      auto s = lr[side];
+      auto c = peos->compute("WA->L", {s, peos->compute("W->A", {s})});
+      scale =
+          std::max(scale, (s[IDN] * (s[ivn].abs() + c)).max().item<double>());
+    }
+    // the kernel wrote the mass rows: the gate cannot pass vacuously
+    EXPECT_GT(mass(cen).abs().max().item<double>(), 0.);
+    e = std::max(e, (mass(cen) - mass(ref)).abs().max().item<double>() / scale);
+  }
+  return e;
+}
+
+TEST_P(DeviceTest, g_r8_riemann_central_on_the_aam_decks) {
+  if (dtype != torch::kFloat64) GTEST_SKIP() << "G-R8 is an FP64 gate";
+  double e3d = g_r8_e_inf(g_r8_3d_config, g_r8_3d_state, device);
+  double ew2 = g_r8_e_inf(g_r8_w2_config, g_r8_w2_state, device);
+  std::printf("G-R8 e_inf: 3D arm deck %.3e, W2 C16 deck %.3e\n", e3d, ew2);
+  EXPECT_LE(e3d, 1.e-13);
+  EXPECT_LE(ew2, 1.e-13);
+}
+
+// C5 events (C.rst 3.6, R.rst 2.6 names riemann.pstar_clamp and riemann.llf):
+// a gentle jump clamps nothing; a strong expansion (u = -/+2000 m/s) makes
+// hllc's contact pressure non-positive on every interior face and sends roe
+// to its LLF fallback.
+TEST_P(DeviceTest, riemann_events_count_clamped_and_llf_faces) {
+  for (std::string type : {"hllc", "roe"}) {
+    auto opts = MeshBlockOptionsImpl::from_yaml("test_eos_temp2inteng.yaml");
+    opts->hydro()->riemann()->type() = type;
+    auto block = MeshBlock(opts);
+    block->to(device, dtype);
+    auto solver = block->phydro->priemann;
+    auto c = block->pcoord;
+    int nvar = block->phydro->peos->nvar();
+    auto shape = std::vector<int64_t>{nvar, c->options->nc3(),
+                                      c->options->nc2(), c->options->nc1()};
+    auto o = torch::device(device).dtype(dtype);
+    auto state = [&](double u) {
+      auto w = torch::zeros(shape, o);
+      w[IDN].fill_(1.);
+      w[IVX].fill_(u);
+      w[IPR].fill_(1.e5);
+      w[ICY].fill_(0.01);
+      return w;
+    };
+    int64_t n1 = std::min<int64_t>(c->iu() + 2, shape[3]) - c->il();
+    int64_t n2 = c->ju() + 1 - c->jl(), n3 = c->ku() + 1 - c->kl();
+    int64_t interior = n1 * n2 * n3;
+    for (double u : {1., 2000.}) {
+      auto flux = torch::zeros(shape, o);
+      solver->forward(state(-u), state(u), DIM1, flux);
+      auto ev = solver->events.cpu();
+      int k = type == "hllc" ? 0 : 1;
+      if (u < 10.) {
+        EXPECT_EQ(ev[0].item<int64_t>() + ev[1].item<int64_t>(), 0) << type;
+      } else if (type == "hllc") {
+        EXPECT_EQ(ev[0].item<int64_t>(), interior) << type;
+      } else {
+        EXPECT_GT(ev[k].item<int64_t>(), 0) << type;
+        EXPECT_LE(ev[k].item<int64_t>(), interior) << type;
+      }
+    }
+  }
 }
 
 int main(int argc, char** argv) {

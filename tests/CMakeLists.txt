@@ -39,6 +39,8 @@ setup_test(test_cubed_sphere_exchange)
 setup_test(test_coordinate)
 # cubed-sphere seams
 setup_test(test_cubed_sphere_seams)
+# the one panel rotation (V3 S step (1))
+setup_test(test_panel_rotation)
 setup_test(test_cp5_nghost)
 setup_test(test_stretched_x1)
 setup_test(test_deck_x1_wiring)
@@ -208,11 +210,14 @@ setup_test(test_check_redo_vapor_deficit)
 setup_test(test_flux_register)
 setup_test(test_species_face_clamp)
 setup_test(test_parentless_cloud_nb1)
+setup_test(test_global_phase)
+setup_test(test_global_phase_closure)
 setup_test(test_vapor_column_nb1)
 setup_test(test_wall_saturation)
 setup_test(test_cloud_parent_slots)
 setup_test(test_two_cards_species)
 setup_test(test_forcing)
+setup_test(test_source_registry)
 setup_test(test_conservation_budget)
 add_test(NAME test_conservation_budget_cuda.${buildl}
          COMMAND test_conservation_budget.${buildl})
@@ -337,12 +342,17 @@ endfunction()
 snapy_add_python_test(test_mesh_exchange LABELS "python;exchange")
 snapy_add_python_test(test_cubed_sphere_vertical_velocity_exchange
                       LABELS "python;exchange;cubed-sphere;diagnostic")
+# periodic corner ghosts from the diagonal neighbour (V3 S step (2), P)
+snapy_add_python_test(test_periodic_corners TIMEOUT 120 LABELS "python;exchange")
 snapy_add_python_test(test_jit_user_forcing TIMEOUT 30 LABELS "python;forcing")
 snapy_add_python_test(test_fix_vapor_reports_failure TIMEOUT 60 LABELS "python;eos;positivity")
 snapy_add_python_test(test_fix_vapor_stale_count TIMEOUT 60 LABELS "python;eos;positivity;redo")
 snapy_add_python_test(test_fix_vapor_counts_every_column TIMEOUT 120 LABELS "python;eos;positivity")
 snapy_add_python_test(test_implicit_advection_cfl TIMEOUT 60 LABELS "python;hydro;implicit")
 # axial angular momentum in flux form on six cubed-sphere panels (#314)
+# FaceFloor counts on the FP32 split path (V3 C5)
+snapy_add_python_test(test_fp32_face_floor_counts TIMEOUT 300
+                      LABELS "python;hydro;fp32-foundations")
 snapy_add_python_test(test_axial_momentum_flux_form TIMEOUT 1200
                       LABELS "python;cubed-sphere;hydro;conservation")
 snapy_add_python_test(test_implicit_gravity_tall_column TIMEOUT 120 LABELS "python;hydro;implicit;gravity")
@@ -361,7 +371,7 @@ snapy_add_python_test(test_implicit_gravity_tall_column_large_courant
 snapy_add_python_test(test_tall_column_runner_child_failure TIMEOUT 120 LABELS "python;hydro;implicit")
 snapy_add_python_test(test_implicit_face_work_operator TIMEOUT 300 LABELS "python;hydro;implicit;gravity")
 snapy_add_python_test(test_implicit_stratified_solid TIMEOUT 300 LABELS "python;hydro;implicit;gravity")
-snapy_add_python_test(test_gravity_work_fixer TIMEOUT 120 LABELS "python;hydro;gravity;energy")
+snapy_add_python_test(test_gravity_work_fixer_removed TIMEOUT 60 LABELS "python;hydro;gravity")
 snapy_add_python_test(test_gravity_work_radial_exact TIMEOUT 300 LABELS "python;hydro;gravity")
 snapy_add_python_test(test_implicit_options_type TIMEOUT 60 LABELS "python;implicit")
 snapy_add_python_test(test_shear_cfl TIMEOUT 60 LABELS "python;hydro;implicit")
@@ -431,6 +441,7 @@ snapy_add_python_test(test_fp32_science TIMEOUT 300 LABELS "python;hydro;fp32-sc
 # no cuda label: its setup checks run on CPU builds too; the capture part
 # skips without a CUDA device
 snapy_add_python_test(test_stage_executor_capture TIMEOUT 300 LABELS "python;hydro;fp32-science")
+snapy_add_python_test(test_execution_capability TIMEOUT 120 LABELS "python;hydro")
 snapy_add_python_test(test_fp32_restart TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-restart")
 snapy_add_python_test(test_fp32_policy TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
 snapy_add_python_test(test_fp32_implicit TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
@@ -619,7 +630,7 @@ foreach(example IN LISTS reference_examples)
 endforeach()
 
 # straka at cfl 1.6 needs redos: a non-finite step must reach check_redo
-# (gravity-work-fixer on), not stop the run
+# (gravity-work: face, V3 I-7), not stop the run
 add_test(NAME test_straka_redo
          COMMAND ${CMAKE_COMMAND} -Dbuildl=release
                  -P ${CMAKE_CURRENT_SOURCE_DIR}/run_straka_redo.cmake)
@@ -837,7 +848,7 @@ foreach(_t IN ITEMS
   set_property(TEST ${_t}.${buildl} APPEND PROPERTY LABELS "fp32-foundations")
 endforeach()
 foreach(_t IN ITEMS
-    test_anomaly_storage test_gravity_work_fixer test_gravity_work_radial_exact
+    test_anomaly_storage test_gravity_work_radial_exact
     test_implicit_face_work_operator
     test_implicit_gravity_tall_column test_implicit_gravity_tall_column_cubed)
   set_property(TEST ${_t}_python APPEND PROPERTY LABELS "fp32-foundations")

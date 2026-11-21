@@ -88,6 +88,110 @@ void expect_rising_cloud_taken_from_below(torch::Device device) {
 }
 }  // namespace
 
+// EF-6 (D8): the one kernel takes the species energy from the EOS, so a
+// settling face carries exactly vsed times "W->E" of its donor cell (the old
+// ideal-moist kernel rebuilt it inline and rounded differently)
+TEST(sedimentation, settling_energy_is_the_eos_species_energy) {
+  auto options = MeshBlockOptionsImpl::from_yaml(kCard);
+  auto gravity = ConstGravityOptionsImpl::create();
+  gravity->grav1(-1.);
+  options->hydro()->grav() = gravity;
+  auto block = std::make_shared<MeshBlockImpl>(options);
+  int il = block->pcoord->il(), iu = block->pcoord->iu();
+  auto w = make_primitive(block);
+  for (int i = il; i <= iu; ++i) {
+    w[IVX].select(-1, i).fill_(0.3 * (i - il) - 0.7);
+    w[IVY].select(-1, i).fill_(1.9 + 0.13 * i);
+    w[ICY].select(-1, i).fill_(0.0137 * (i - il + 1));
+    w[ICY + 1].select(-1, i).fill_(0.0071 * (i - il + 2));
+    w[IPR].select(-1, i).fill_(1.e5 * (1. - 0.03 * (i - il)));
+  }
+  auto flux = block->phydro->psed->forward(w);
+  auto en = block->phydro->peos->compute("W->E", {w})[1];  // the cloud
+  for (int i = il + 1; i <= iu; ++i)  // settling at -2 takes cell i
+    EXPECT_EQ(flux[IPR][0][0][i].item<double>(),
+              -2. * en[0][0][i].item<double>())
+        << "face " << i;
+}
+
+// SedKernelArgs is cached on first use: a move of the block after a forward
+// must rebuild all of it. On CPU FP64 the particle tensors are the module's
+// buffers themselves and move with them; cosine_cell_kj is a view and does not
+TEST(sedimentation, kernel_args_follow_a_move_after_a_forward) {
+  auto options = MeshBlockOptionsImpl::from_yaml(kCard);
+  auto gravity = ConstGravityOptionsImpl::create();
+  gravity->grav1(-1.);
+  options->hydro()->grav() = gravity;
+  auto block = std::make_shared<MeshBlockImpl>(options);
+  auto w = make_primitive(block);
+  auto f64 = block->phydro->psed->forward(w);
+  block->to(torch::kFloat32);
+  torch::Tensor f32;
+  ASSERT_NO_THROW(f32 = block->phydro->psed->forward(w.to(torch::kFloat32)));
+  EXPECT_TRUE(torch::allclose(f32.to(torch::kFloat64), f64, 1.e-6, 1.e-6));
+}
+
+// a dense but non-contiguous input (x1-major storage) is made contiguous,
+// and so is the flux forward returns when no out is given
+TEST(sedimentation, a_permuted_input_settles_like_a_contiguous_one) {
+  auto options = MeshBlockOptionsImpl::from_yaml(kCard);
+  auto gravity = ConstGravityOptionsImpl::create();
+  gravity->grav1(-1.);
+  options->hydro()->grav() = gravity;
+  auto block = std::make_shared<MeshBlockImpl>(options);
+  auto w = make_primitive(block);
+  auto wp =
+      torch::empty({w.size(3), w.size(0), w.size(1), w.size(2)}, w.options())
+          .permute({1, 2, 3, 0});
+  wp.copy_(w);
+  ASSERT_FALSE(wp.is_contiguous());
+  auto ref = block->phydro->psed->forward(w);
+  torch::Tensor flux;
+  ASSERT_NO_THROW(flux = block->phydro->psed->forward(wp));
+  EXPECT_TRUE(torch::equal(flux, ref));
+}
+
+// EF-12 (D14): SedVel is folded into SedHydro, which holds the particle
+// buffers itself, rebuilt from the options at reset()
+TEST(sedimentation, particle_buffers_are_sedhydros_own) {
+  auto options = MeshBlockOptionsImpl::from_yaml(kCard);
+  auto gravity = ConstGravityOptionsImpl::create();
+  gravity->grav1(-1.);
+  options->hydro()->grav() = gravity;
+  auto block = std::make_shared<MeshBlockImpl>(options);
+  auto buffers = block->phydro->psed->named_buffers();
+  for (auto name : {"radius", "density", "const_vsed"})
+    EXPECT_TRUE(buffers.contains(name)) << name;
+  EXPECT_FALSE(buffers.contains("sedvel.radius"));
+  if (buffers.contains("const_vsed"))
+    EXPECT_EQ(buffers["const_vsed"][0].item<double>(), -2.);
+}
+
+// EF-7 (D6): "W->E" is the base species_energy, rho y (species_enthalpy -
+// pressure share); a cloud has no pressure share, so its row is exactly
+// rho y species_enthalpy (the old inline form rounded differently)
+TEST(sedimentation, cloud_energy_is_its_enthalpy_times_its_mass) {
+  auto options = MeshBlockOptionsImpl::from_yaml(kCard);
+  auto gravity = ConstGravityOptionsImpl::create();
+  gravity->grav1(-1.);
+  options->hydro()->grav() = gravity;
+  auto block = std::make_shared<MeshBlockImpl>(options);
+  int il = block->pcoord->il(), iu = block->pcoord->iu();
+  auto w = make_primitive(block);
+  for (int i = il; i <= iu; ++i) {
+    w[IVX].select(-1, i).fill_(0.3 * (i - il) - 0.7);
+    w[IVY].select(-1, i).fill_(1.9 + 0.13 * i);
+    w[ICY + 1].select(-1, i).fill_(0.0071 * (i - il + 2));
+    w[IPR].select(-1, i).fill_(1.e5 * (1. - 0.03 * (i - il)));
+  }
+  auto peos = block->phydro->peos;
+  auto en = peos->compute("W->E", {w})[1];
+  auto h = w[IDN] * w[ICY + 1] * peos->species_enthalpy(w)[1];
+  for (int i = il; i <= iu; ++i)
+    EXPECT_EQ(en[0][0][i].item<double>(), h[0][0][i].item<double>())
+        << "cell " << i;
+}
+
 // sedimentation reads grav1 in forward(); without const-gravity that was a null
 // dereference on the first step, so the card is refused at setup instead
 TEST(sedimentation, refuses_a_card_without_const_gravity) {

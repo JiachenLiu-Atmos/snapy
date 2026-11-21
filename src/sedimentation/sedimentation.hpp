@@ -17,14 +17,8 @@ class Node;
 
 namespace snap {
 
-struct ConstGravityOptionsImpl;
-using ConstGravityOptions = std::shared_ptr<ConstGravityOptionsImpl>;
-
 struct EquationOfStateOptionsImpl;
 using EquationOfStateOptions = std::shared_ptr<EquationOfStateOptionsImpl>;
-
-class EquationOfStateImpl;
-using EquationOfState = std::shared_ptr<EquationOfStateImpl>;
 
 struct SedVelOptionsImpl {
   static std::shared_ptr<SedVelOptionsImpl> create() {
@@ -55,26 +49,16 @@ struct SedVelOptionsImpl {
   //! particle_ids cannot be resolved through it afterwards (issue #234).
   ADD_ARG(std::vector<std::string>, particle_names) = {};
 
-  //! radius and density of particles
-  //! if specified, must be the same size of cloud particles in thermo
+  //! per particle: radius, density and a constant velocity (0: Stokes)
   ADD_ARG(std::vector<double>, radius) = {};
   ADD_ARG(std::vector<double>, density) = {};
-
-  //! additional constant sedimentation velocity
   ADD_ARG(std::vector<double>, const_vsed) = {};
 
-  //! default H2-atmosphere properties
-  //! diameter of molecule [m]
+  //! the background gas, H2 by default: molecular diameter [m], Lennard-Jones
+  //! energy [J] (59.7 K), molecular mass [kg]; the velocity cap [m/s]
   ADD_ARG(double, a_diameter) = 2.827e-10;
-
-  //! Lennard-Jones potential [J]
-  //! H2 characteristic temperature: 59.7K
   ADD_ARG(double, a_epsilon_LJ) = 8.24e-22;
-
-  //! molecular mass of background atmosphere, default to H2 [kg]
   ADD_ARG(double, a_mass) = 3.34e-27;
-
-  //! upper limit of sedimentation velocity [m/s]
   ADD_ARG(double, upper_limit) = 5.e3;
 };
 using SedVelOptions = std::shared_ptr<SedVelOptionsImpl>;
@@ -101,54 +85,14 @@ struct SedHydroOptionsImpl {
 };
 using SedHydroOptions = std::shared_ptr<SedHydroOptionsImpl>;
 
+class FluxRegister;
 class HydroImpl;
-class SedHydroImpl;
 
-class SedVelImpl : public torch::nn::Cloneable<SedVelImpl> {
- public:
-  //! Create and register a `SedVel` module
-  /*!
-   * This function registers the created module as a submodule
-   * of the given parent module `p`.
-   *
-   * \param[in] options  options for creating the `SedVel` module
-   * \param[in] p        parent module for registering the created module
-   * \param[in] name     name for registering the created module
-   * \return           created `SedVel` module
-   */
-  static std::shared_ptr<SedVelImpl> create(SedVelOptions const& opts,
-                                            torch::nn::Module* p,
-                                            std::string const& name = "sedvel");
-
-  //! particle radius and density
-  //! 1D tensor of number of particles
-  //! radius and density must have the same size
-  torch::Tensor radius, density, const_vsed;
-
-  //! options with which this `SedVel` was constructed
-  SedVelOptions options;
-
-  //! non-owning reference to parent
-  SedHydroImpl const* psed = nullptr;
-
-  //! Constructor to initialize the layers
-  SedVelImpl() : options(SedVelOptionsImpl::create()) {}
-  explicit SedVelImpl(SedVelOptions const& options_,
-                      torch::nn::Module* p = nullptr);
-  void reset() override;
-
-  //! Calculate sedimentation velocites
-  /*!
-   * \param dens    atmospheric density [kg/m^3]
-   * \param pres    atmospheric pressure [Pa]
-   * \param temp    atmospheric temperature [K]
-   * \return        4D tensor of sedimentation velocities.
-   *                The first dimension is the number of particles.
-   */
-  torch::Tensor forward(torch::Tensor dens, torch::Tensor pres,
-                        torch::Tensor temp) const;
+//! The kernel's tensors in the compute dtype and device, built on first use
+//! and again after a move (D8): (nparticle,) and cosine_cell_kj (nc3, nc2)
+struct SedKernelArgs {
+  torch::Tensor radius, density, const_vsed, hydro_ids, cosine_cell_kj;
 };
-TORCH_MODULE(SedVel);
 
 class SedHydroImpl : public torch::nn::Cloneable<SedHydroImpl> {
  public:
@@ -156,35 +100,37 @@ class SedHydroImpl : public torch::nn::Cloneable<SedHydroImpl> {
                                               torch::nn::Module* p,
                                               std::string const& name = "sed");
 
-  //! cache
-  torch::Tensor vsed;
+  //! the face velocities (cache), the particles' hydro rows, and the x1
+  //! settling flux of the stage (P1: EF's buffer, kept until 4.C)
+  torch::Tensor vsed, hydro_ids, settling;
+  //! particle radius, density, const_vsed (nparticle,), from the options at
+  //! reset() (D14: SedVel folded in)
+  torch::Tensor radius, density, const_vsed;
 
-  //! particle indices in hydro
-  torch::Tensor hydro_ids;
-
-  //! non-owning reference to parent
-  HydroImpl const* phydro = nullptr;
-
-  //! submodules
-  SedVel psedvel = nullptr;
-
-  //! options with which this `SedHydro` was constructed
+  HydroImpl const* phydro = nullptr;  //!< non-owning reference to parent
   SedHydroOptions options;
 
-  //! Constructor to initialize the layers
   SedHydroImpl() : options(SedHydroOptionsImpl::create()) {}
   explicit SedHydroImpl(SedHydroOptions const& options_,
                         torch::nn::Module* p = nullptr);
   void reset() override;
 
-  //! Calculate sedimentation velocites
-  /*!
-   * \param wr        hydro primitive variables at the right interface
-   * \param out       optional output tensor to store the result
-   * \return          4D tensor of sedimentation flux (mass, momentum, energy).
-   */
+  //! the settling flux of primitives wr added onto out (or zeros)
   torch::Tensor forward(torch::Tensor wr,
                         torch::optional<torch::Tensor> out = torch::nullopt);
+
+  //! the kernel's tensors for `like`'s dtype and device
+  SedKernelArgs& kernel_args(torch::Tensor const& like);
+
+  //! whether forward adds anything (gravity and a settling species)
+  bool settles() const;
+
+  //! P1: the settling flux into `settling`, then add(1, "sedimentation") of
+  //! its rows (species, IVX..IVZ, IPR) onto the register's x1 total
+  torch::Tensor const& post(FluxRegister& reg, torch::Tensor wr);
+
+ private:
+  SedKernelArgs args_;
 };
 TORCH_MODULE(SedHydro);
 

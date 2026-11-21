@@ -46,6 +46,9 @@ class CubedSphereLayoutImpl : public LayoutImpl {
                    SyncOptions const& opts) const override;
 
   int num_exchange_buffers() const override { return 9; }
+  //! a panel corner has no diagonal neighbour, and a diagonal across a panel
+  //! edge would need its own rotation: corners stay synthesized here
+  CornerRule corner_rule() const override { return CornerRule::synthesized; }
 
  private:
   //! Constructor-time setup that replaces the old torch-style reset() hook.
@@ -65,7 +68,7 @@ class CubedSphereLayoutImpl : public LayoutImpl {
                              torch::Tensor var) const;
 
   torch::Tensor const& _velocity_transform(SyncOptions const& opts,
-                                           int buffer_id, bool to_spherical,
+                                           int buffer_id, bool to_global,
                                            torch::Tensor alpha,
                                            torch::Tensor beta,
                                            torch::Tensor cosine,

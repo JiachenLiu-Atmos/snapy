@@ -1,0 +1,12 @@
+# forcing/relax-bot-velo options (src/forcing/forcing.hpp); columns: tools/gen_options.py
+module: relax_bot_velo
+struct: RelaxBotVeloOptionsImpl
+yaml_node: forcing/relax-bot-velo
+report_title: "-- relax bottom velocity options --"
+options:
+  - {name: tau, key: tau, type: double, default: 0., doc: "Relaxation time [s]."}
+  - {name: bvx, key: bvx, type: double, default: 0., doc: "Target x1 velocity [m/s]."}
+  - {name: bvy, key: bvy, type: double, default: 0., doc: "Target x2 velocity [m/s]."}
+  - {name: bvz, key: bvz, type: double, default: 0., doc: "Target x3 velocity [m/s]."}
+checks:
+  - {cond: "op.tau() > 0.", message: "RelaxBotVeloOptions: tau must be greater than zero."}

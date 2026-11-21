@@ -12,10 +12,11 @@ from pathlib import Path
 import torch
 import yaml
 import test_implicit_face_work_operator as tall
-import test_gravity_work_fixer as box
+import gravity_box as box
 import snapy
 from snapy import MeshBlock, MeshBlockOptions, kIDN, kIPR, kIV1
 torch.set_default_dtype(torch.float64)
+
 device = sys.argv[1] if len(sys.argv) > 1 else 'cpu'
 
 def create(cfg):
@@ -160,14 +161,14 @@ def clamp_energy(scheme, work):
         defect += tall.corrected_pe(du[kIDN][sl], torch.arange(9.), phi, -1.).sum().item()
     raw = b.buffer('hydro.icorr.delta').reshape(8, 5 if scheme == 9 else 3)
     raw_epe = (raw[:, -1] + phi * raw[:, 0]).sum().item()
-    error = defect - (raw_epe if work == 'cell' else 0.0)
+    error = defect
     print(json.dumps({'clamp_scheme': scheme, 'work': work,
                       'energy_defect': defect, 'raw_epe': raw_epe,
                       'redistribution_error': error}), flush=True)
     return error
 
 def curved_energy(scheme, geometry, work):
-    cfg=box.config({'gravity-work':'cell','gravity-work-fixer':False},scheme=scheme)
+    cfg=box.config({'gravity-work':'face','gravity-work-fixer':False},scheme=scheme)
     cfg['geometry'].update(type=geometry)
     cfg['geometry']['cells'].update(nx1=8,nx2=6,nx3=6)
     if geometry=='gnomonic-equiangle':
@@ -219,7 +220,7 @@ def curved_energy(scheme, geometry, work):
 def coarse_restart():
     cfg = tall.config(0)
     cfg['forcing']['const-gravity'].update(
-        {'gravity-work': 'cell', 'gravity-work-fixer': False})
+        {'gravity-work': 'face', 'gravity-work-fixer': False})
     cfg['geometry']['bounds']['x1max'] = 40 * tall.RD * tall.T0 / tall.GRAV
     b = create(cfg)
     w = b.buffer('hydro.D').clone().zero_()
@@ -249,39 +250,36 @@ def coarse_restart():
 if __name__ == '__main__':
     coarse_restart()
     failures = []
-    for work, fixer in (('cell', True), ('cell', False), ('face', False)):
+    # V3 I-7: face is the one gravity-work form (the cell arms are removed)
+    for work, fixer in (('face', False),):
         for nz in (120, 140, 150):
             out = tall_run(nz, nz * 11.3 / 45, 9, work, 300, fixer=fixer)
             if not (out['finite'] and out['redos'] == 0 and out['steps'] == 300 and abs(out['top_rho']) < 0.01
                     and abs(out['top_T'] / tall.T0 - 1) < 0.01 and out['wmax'] < 0.1
                     and abs(out['mass']) < 1e-12 and out['clamp'] == 0
-                    and (work == 'cell' and not fixer or abs(out['epe_drift']) < tall.EPE_TOL)):
+                    and abs(out['epe_drift']) < tall.EPE_TOL):
                 failures.append(f'tall column {nz}: {out}')
         out = tall_run(45, 40, 9, work, 40, 1500, fixer=fixer)
-        if work == 'face':
-            # Rollback coverage only; a retry does not establish stability.
-            if out['redo_status'] > 0:
-                if not out['rolled_back']:
-                    failures.append(f'coarse face retry did not restore its input: {out}')
-            elif not (out['finite'] and out['steps'] == 40 and out['wmax'] < 0.1
-                      and abs(out['mass']) < 1.e-12):
-                failures.append(f'coarse face run outside rollback control: {out}')
-        elif not (out['finite'] and out['redos'] == 0 and out['steps'] == 40
-                  and out['wmax'] < 0.1 and abs(out['mass']) < 1.e-12):
-            failures.append(f'coarse cell column: {out}')
+        # Rollback coverage only; a retry does not establish stability.
+        if out['redo_status'] > 0:
+            if not out['rolled_back']:
+                failures.append(f'coarse face retry did not restore its input: {out}')
+        elif not (out['finite'] and out['steps'] == 40 and out['wmax'] < 0.1
+                  and abs(out['mass']) < 1.e-12):
+            failures.append(f'coarse face run outside rollback control: {out}')
         out = tall_run(160, 40, 9, work, 40, 1500, fixer=fixer)
         if not (out['finite'] and out['redos'] == 0 and out['steps'] == 40 and out['wmax'] < 0.1
                 and abs(out['mass']) < 1e-12
-                and (work == 'cell' and not fixer or abs(out['epe_drift']) < tall.EPE_TOL)):
+                and abs(out['epe_drift']) < tall.EPE_TOL):
             failures.append(f'coarse column 160: {out}')
     for scheme in (0, 1, 9):
-        for (work, fixer) in (('cell', False), ('cell', True), ('face', False)):
+        for (work, fixer) in (('face', False),):
             out = solid_run(scheme, work, fixer)
             if not (out['finite'] and abs(out['mass']) < 1e-12):
                 failures.append(f'solid mass: {out}')
     for placement in ('middle', 'bottom'):
         for scheme in (1, 9):
-            for work in ('cell', 'face'):
+            for work in ('face',):
                 out = solid_run(scheme, work, False, placement)
                 if not (out['finite'] and abs(out['mass']) < 1e-12):
                     failures.append(f'segmented solid mass: {out}')
@@ -291,12 +289,12 @@ if __name__ == '__main__':
             failures.append(f'transposed solid mask: {out}')
     for scheme in (1, 9):
         for geometry in ('gnomonic-equiangle', 'spherical-polar'):
-            for work in ('cell', 'face'):
+            for work in ('face',):
                 out = curved_energy(scheme, geometry, work)
                 if not out['finite'] or not out['relative'] <= 1.e-12:
                     failures.append(f'curved implicit energy: {out}')
     for scheme in (1, 9):
-        for work in ('cell', 'face'):
+        for work in ('face',):
             defect = clamp_energy(scheme, work)
             if abs(defect) > 1e-10:
                 failures.append(f'clamped energy scheme {scheme}, {work}: {defect}')

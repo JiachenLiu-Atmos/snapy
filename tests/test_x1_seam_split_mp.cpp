@@ -278,7 +278,7 @@ TEST(X1SeamSplitMp, split_across_two_ranks_matches_one_process) {
   ASSERT_EQ(x1_centroid_exact_enabled(), centroid);
   torch::set_num_threads(1);
 
-  auto probe = make_column(2, true, 16, 1., "cell");
+  auto probe = make_column(2, true, 16, 1., "face");
   auto layout = probe->blocks.front()->get_layout();
   ASSERT_TRUE(layout->has_process_group() &&
               layout->options->process_world_size() == 2 &&
@@ -312,7 +312,7 @@ TEST(X1SeamSplitMp, split_across_two_ranks_matches_one_process) {
   // co4: the cold column, its face-density flag switching on above the seam
   int nx1 = co4 ? 16 : 32;
   for (double nh : {1., 0.}) {
-    auto g = split_gaps(rank, nx1, nh, "cell", 20, co4);
+    auto g = split_gaps(rank, nx1, nh, "face", 20, co4);
     if (rank != 0) continue;
     std::printf(
         "%s, non-hydrostatic %g: 2 ranks vs 2 blocks %.3e, vs 1 block %.3e\n",

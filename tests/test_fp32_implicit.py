@@ -57,12 +57,19 @@ def main():
     # not a production timestep recommendation.
     b, v = column("float32", gravity=False)
     run_steps(b, v, 1, dt=1.0e9)
-    assert b.module("hydro.icorr").buffer("fp64_fallbacks").item() > 0
+    n = b.module("hydro.icorr").buffer("fp64_fallbacks").item()
+    assert n > 0
     assert torch.isfinite(v["hydro_u"]).all()
+    # V3 I-6: both meters count the retried columns (one step); a retry that
+    # succeeds is not a failure of the step: implicit.column stays clear
+    assert b.buffer("hydro.monitor_counters")[-1].item() == n
+    assert b.buffer("hydro.monitor_retry")[-1].item() == 0
     b, v = column("float32", gravity=False, fallback=False)
     for stage in range(len(b.intg.stages)):
         b.forward(v, 1.0e9, stage)
     expected = b.buffer("u0").clone()
+    # no FP64 retry ran: the FP32 failure is the last solve of its columns
+    assert b.buffer("hydro.monitor_retry")[-1].item() == 1
     assert b.check_redo(v) == 1
     assert torch.equal(v["hydro_u"], expected)
     print("FP64 fallback and FP32-only retry passed", flush=True)

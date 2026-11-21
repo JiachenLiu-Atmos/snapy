@@ -3,9 +3,6 @@
 #include <ATen/Parallel.h>
 #include <torch/torch.h>
 
-// C/C++
-#include <cmath>
-
 // snap
 #include <snap/utils/on_host.hpp>
 
@@ -75,43 +72,6 @@ void hydro_ref_x1_cpu(torch::Tensor const& w, torch::Tensor const& dx1f,
       }
     });
   });
-}
-
-torch::Tensor hydro_ref_x1_stretched_rows(torch::Tensor const& dx1f, int iu,
-                                          bool phys_in, bool phys_out,
-                                          bool wall_clamp) {
-  auto h = dx1f.cpu().to(torch::kFloat64).contiguous();
-  int nc1 = h.size(0);
-  auto hp = h.data_ptr<double>();
-  auto rows = torch::zeros({nc1, 7}, torch::kFloat64);
-  auto r = rows.accessor<double, 2>();
-  long double const tq[3] = {0.5L - 0.1L * std::sqrt(15.0L), 0.5L,
-                             0.5L + 0.1L * std::sqrt(15.0L)};
-  long double const wq[3] = {5.0L / 18.0L, 8.0L / 18.0L, 5.0L / 18.0L};
-  for (int i = 0; i < nc1; ++i) {
-    int start =
-        hydro_ref_x1_six_face_start(i, nc1, iu, phys_in, phys_out, wall_clamp);
-    r[i][0] = start;
-    if (start < 0) continue;
-    long double t[6];
-    for (int k = 0; k < 6; ++k) {
-      long double o = 0.0L;
-      for (int j = i; j < start + k; ++j) o += hp[j];
-      for (int j = start + k; j < i; ++j) o -= hp[j];
-      t[k] = o / hp[i];
-    }
-    for (int m = 0; m < 6; ++m) {
-      long double wm = 0.0L;
-      for (int q = 0; q < 3; ++q) {
-        long double l = 1.0L;
-        for (int k = 0; k < 6; ++k)
-          if (k != m) l *= (tq[q] - t[k]) / (t[m] - t[k]);
-        wm += wq[q] * l;
-      }
-      r[i][1 + m] = static_cast<double>(wm);
-    }
-  }
-  return rows;
 }
 
 }  // namespace snap

@@ -48,9 +48,9 @@ struct RefPeek : HydroImpl {
   static auto ptr() { return &RefPeek::_hydro_ref_x1; }
 };
 
-// Return is (psf_lo, pref, dsf, dref). The seam check uses pref.
+// The seam check uses the cell pressure reference, pref.
 torch::Tensor pref_of(Hydro const& hydro, torch::Tensor const& w) {
-  return std::get<1>(((*hydro).*RefPeek::ptr())(w, torch::Tensor(), nullptr));
+  return ((*hydro).*RefPeek::ptr())(w, torch::Tensor()).pref;
 }
 
 Mesh make_mesh(int nb1) {

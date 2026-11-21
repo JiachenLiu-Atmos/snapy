@@ -4,7 +4,8 @@ per-direction gating of the p* geometric source.
 
   1. conservation: six cubed-sphere panels in one process, closed x1 walls, moist (vapor/cloud), the term on,
      a non-rest state (a sheared solid-body wind and a vapor field varying in r and in the horizontal). Every
-     correction is added to the face flux, so total mass, vapor mass and E+PE = sum (E + rho g x1) dV must
+     correction is added to the face flux, so total mass, vapor mass and E+P = sum (E + rho g x1) dV plus the
+     corrected potential energy (gravity-work: face, V3 I-7; derivation curved-gravity-work-weight.md sec 7, 12) must
      hold to round-off over NSTEP steps: a seam face whose two panels disagree on the correction would leak.
   2. gating: a discretely balanced spherical-polar shell at rest with the x3 flux disabled (nx3 > 1) and the
      term on stays at rest: the x2 faces carry p* in their flux, so the x2 geometric source must carry p*
@@ -36,7 +37,10 @@ DIFF_TOL = 1e-13      # minimum relative on/off difference that shows the switch
 
 
 def totals(blocks, mv):
+    """mass, vapor and E+P: E + rho g x1 plus the corrected PE g (sigma^2 s[rho] + (r_c - x1v) rho) of
+    gravity-work: face (test_gravity_work_radial_exact's E+P, on the total density)"""
     from snapy import kIDN, kIPR
+    from test_gravity_work_radial_exact import centroid_offset, slope, variance
     icy = kIPR + 1
     out = torch.zeros(3, dtype=torch.float64)
     for ib, b in enumerate(blocks):
@@ -46,9 +50,12 @@ def totals(blocks, mv):
         k, j, i = sl
         x1v = b.buffer("coord.x1v")[i]
         mass = u[kIDN][sl] + u[icy:][(slice(None),) + tuple(sl)].sum(0)
+        x1f = b.buffer("coord.x1f")[i.start:i.stop + 1]
+        corr = (variance(x1f, True).to(mass) * slope(mass, x1v.to(mass))
+                + centroid_offset(x1f, x1v).to(mass) * mass)
         out += torch.stack([(mass * vol).sum(),
                             (u[icy][sl] * vol).sum(),
-                            ((u[kIPR][sl] + rows.G * x1v * mass) * vol).sum()]).cpu()
+                            ((u[kIPR][sl] + rows.G * x1v * mass + rows.G * corr) * vol).sum()]).cpu()
     return out
 
 
@@ -56,8 +63,9 @@ def arm_conservation(device):
     import snapy
     from snapy import kIPR
     cfg = rows.card("gnomonic-equiangle", moist=True)
-    # E+PE above is the invariant of cell work + fixer; face work conserves E+P (corrected PE)
-    cfg["forcing"]["const-gravity"]["gravity-work"] = "cell"
+    # V3 I-7: face is the one gravity-work form (cell and its fixer were removed);
+    # it conserves E+P (corrected PE), not E+PE
+    cfg["forcing"]["const-gravity"]["gravity-work"] = "face"
     mesh, blocks = rows.blocks_of(cfg, device)
     nx1 = cfg["geometry"]["cells"]["nx1"]
     r0 = float(cfg["geometry"]["bounds"]["x1min"])
@@ -89,7 +97,7 @@ def arm_conservation(device):
     drift = ((t1 - t0) / t0).abs().tolist()
     vmax = max(float(w[1:4].abs().max()) for w in rows.end_prims(blocks, mv))
     fp = sum(float(m["hydro_u"].abs().sum()) for m in mv)  # final conserved state, summed
-    return {"mass": drift[0], "vapor": drift[1], "e_plus_pe": drift[2], "vmax": vmax, "fp": fp}
+    return {"mass": drift[0], "vapor": drift[1], "e_plus_p": drift[2], "vmax": vmax, "fp": fp}
 
 
 def arm_gating(device):
@@ -136,10 +144,10 @@ def main():
             c = run("conservation", sw, a.device, tmp)
             fps[sw] = c["fp"]
             print(f"six panels, closed walls, {NSTEP} steps, switch {sw}: relative drift "
-                  f"mass {c['mass']:.3e}  vapor {c['vapor']:.3e}  E+PE {c['e_plus_pe']:.3e}  "
+                  f"mass {c['mass']:.3e}  vapor {c['vapor']:.3e}  E+P {c['e_plus_p']:.3e}  "
                   f"(max|v| {c['vmax']:.2f})", flush=True)
             if sw == "1":
-                for k in ("mass", "vapor", "e_plus_pe"):
+                for k in ("mass", "vapor", "e_plus_p"):
                     if not c[k] < DRIFT_TOL:
                         failures.append(f"{k} drift {c[k]:.3e} >= {DRIFT_TOL} with the term on")
         dc = abs(fps["1"] - fps["0"]) / abs(fps["0"])

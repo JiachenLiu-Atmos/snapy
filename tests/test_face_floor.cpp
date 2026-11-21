@@ -98,6 +98,57 @@ void face_floor_fires_on_an_unresolved_column(torch::Device device) {
   EXPECT_NEAR(dipped_mass, 1.28524e-8, 1.e-5 * 1.28524e-8);
 }
 
+// C5, FaceFloor (C.rst 3.7, section 5 "floor counts equal the faces
+// changed"): the reconstruction's floors count exactly the faces they
+// change. One cell has a negative density and another a negative pressure,
+// so their faces reconstruct below the floors.
+void floor_counts_equal_the_faces_changed(torch::Device device) {
+  constexpr int kX1 = 3;  // the x1 axis of w (nvar, nc3, nc2, nc1)
+  auto options = MeshBlockOptionsImpl::from_yaml("test_face_floor.yaml");
+  options->hydro()->eos()->limiter() = true;
+  auto block = std::make_shared<MeshBlockImpl>(options);
+  block->to(device, torch::kFloat64);
+  auto coord = block->pcoord;
+  auto w = torch::ones({block->phydro->peos->nvar(), coord->options->nc3(),
+                        coord->options->nc2(), coord->options->nc1()},
+                       torch::dtype(torch::kFloat64).device(device));
+  w[IPR].fill_(1.e5);
+  w[IDN].select(-1, 10).fill_(-5.);
+  w[IPR].select(-1, 20).fill_(-5.e5);
+
+  auto recon = block->phydro->precon1;
+  auto raw = recon->forward(w, kX1, /*floor=*/false).clone();
+  auto out = recon->forward(w, kX1);
+  auto n = recon->floored.cpu();
+
+  int nghost = recon->pinterp1->stencils() / 2 + 1;
+  int il = nghost, iu = w.size(kX1) - nghost;
+  auto changed = [&](int var) {
+    return (out.select(1, var) != raw.select(1, var))
+        .narrow(kX1, il, iu + 2 - il)
+        .sum()
+        .item<int64_t>();
+  };
+  EXPECT_GT(changed(IDN), 0);
+  EXPECT_GT(changed(IPR), 0);
+  EXPECT_EQ(n[0].item<int64_t>(), changed(IDN));
+  EXPECT_EQ(n[1].item<int64_t>(), changed(IPR));
+  EXPECT_EQ(n[2].item<int64_t>(), 0);
+}
+
+// ... and the hydro posts them, with the well-balanced fallbacks, into the
+// monitor's face_floor.* counters: the dipped column's fallback on the
+// dipped face shows in face_floor.rho
+void face_floor_counter_sees_the_fallback(torch::Device device) {
+  auto block = dipped_column(device, 1.e5);
+  auto& mon = block->phydro->flux_register().monitor();
+  auto count = [&](std::string const& name) {
+    return mon.counters[mon.counter_index(name)].item<int64_t>();
+  };
+  EXPECT_GE(count("face_floor.rho"), 1);
+  EXPECT_EQ(count("face_floor.species"), 0);
+}
+
 }  // namespace
 
 TEST(hydro, face_floor_uses_adjacent_density) {
@@ -128,4 +179,17 @@ TEST(hydro, face_floor_fires_on_an_unresolved_column_cuda) {
       "p = 10 e^{-x/2}: dipped face mass flux %.4e (CUDA), %.4e (CPU)\n", cuda,
       cpu);
   EXPECT_NEAR(cuda, cpu, 1.e-5 * std::abs(cpu));
+}
+
+TEST(hydro, floor_counts_equal_the_faces_changed) {
+  floor_counts_equal_the_faces_changed(torch::kCPU);
+}
+
+TEST(hydro, face_floor_counter_sees_the_fallback) {
+  face_floor_counter_sees_the_fallback(torch::kCPU);
+}
+
+TEST(hydro, floor_counts_equal_the_faces_changed_cuda) {
+  if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
+  floor_counts_equal_the_faces_changed(torch::Device(torch::kCUDA, 0));
 }

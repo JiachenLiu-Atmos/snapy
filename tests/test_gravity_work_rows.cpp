@@ -94,8 +94,7 @@ TEST(gravity_work_rows, general_rows_equal_the_midpoint_form_to_round_off) {
   double grav = -23.1;
   int e = IPR, m = IVX;
   M a = M::Constant(1.), b = M::Constant(2.), c = M::Constant(3.);
-  vic_gravity_work_rows<double, 5>(a, b, c, am, ap, e, m, grav, true, false,
-                                   .25, .25);
+  vic_gravity_work_rows<double, 5>(a, b, c, am, ap, e, m, grav, .25, .25);
   // the midpoint-potential rows the Cartesian branch wrote
   M a0 = M::Constant(1.), b0 = M::Constant(2.), c0 = M::Constant(3.);
   R em = R::Zero();

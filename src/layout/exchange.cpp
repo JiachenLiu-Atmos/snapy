@@ -1,6 +1,7 @@
 #include "exchange.hpp"
 
 // C/C++
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -21,6 +22,35 @@ std::pair<int, int> raw_x1_peers(LayoutImpl const& layout) {
 }
 
 }  // namespace
+
+FaceKind Exchange::kind(int face) const {
+  TORCH_CHECK(face >= 0 && face < 6, "[Exchange:kind] face ", face,
+              " is not in [0, 6)");
+  int side = face % 2 == 0 ? -1 : 1;
+  int dy = face / 2 == 2 ? side : 0;  // x3
+  int dx = face / 2 == 1 ? side : 0;  // x2
+  int dz = face / 2 == 0 ? side : 0;  // x1
+  // a boundary function on the face answers for it
+  auto k = pmb_->options->face_kind(dy, dx, dz);
+  if (k != FaceKind::interior) return k;
+
+  auto layout = pmb_->get_layout();
+  if (!layout) return FaceKind::interior;
+  int rank = layout->options->rank();
+  auto iloc = layout->loc_of(rank);
+  int nb = layout->neighbor_rank(iloc, {dy, dx, dz});
+  if (nb < 0) return FaceKind::interior;
+  if (nb == rank) return FaceKind::periodic;
+  if (layout->options->type() == "cubed-sphere" &&
+      std::get<2>(layout->loc_of(nb)) != std::get<2>(iloc))
+    return FaceKind::panel;
+  if (dz != 0) return FaceKind::seam_x1;
+  // the neighbour past a domain edge is the wrapped one
+  auto [rx, ry, rz] = iloc;
+  bool wrap = (dx != 0 && (rx + dx < 0 || rx + dx >= layout->options->px())) ||
+              (dy != 0 && (ry + dy < 0 || ry + dy >= layout->options->py()));
+  return wrap ? FaceKind::periodic : FaceKind::interior;
+}
 
 std::pair<int, int> Exchange::x1_neighbors() const {
   auto layout = pmb_->get_layout();
@@ -106,26 +136,30 @@ std::pair<torch::Tensor, torch::Tensor> Exchange::x1_seam_slab(
   if (above < 0 && below < 0) return theirs;
   auto layout = pmb_->get_layout();
 
+  // a same-process peer goes through a board, a remote one through the
+  // process group (S step (4): row 9 on every x1 seam)
   std::vector<CommWorkPtr> sends;
   std::vector<torch::Tensor> up_mine, dn_mine;
-  if (above >= 0) {
-    up_mine = {upper};
-    sends.push_back(layout->send_to_block(up_mine, above, tag));
-  }
-  if (below >= 0) {
-    dn_mine = {lower};
-    sends.push_back(layout->send_to_block(dn_mine, below, tag + 1));
-  }
-  if (above >= 0) {
-    std::vector<torch::Tensor> rbuf = {torch::empty_like(upper)};
-    layout->recv_from_block(rbuf, above, tag + 1)->wait();
-    theirs.second = rbuf[0];
-  }
-  if (below >= 0) {
-    std::vector<torch::Tensor> rbuf = {torch::empty_like(lower)};
-    layout->recv_from_block(rbuf, below, tag)->wait();
-    theirs.first = rbuf[0];
-  }
+  auto post = [&](std::vector<torch::Tensor>& mine, torch::Tensor const& slab,
+                  int to, int t) {
+    if (layout->is_local_block(to)) {
+      layout->post_to_local_block(to, slab, t);
+    } else {
+      mine = {slab};
+      sends.push_back(layout->send_to_block(mine, to, t));
+    }
+  };
+  auto take = [&](torch::Tensor const& like, int from, int t) {
+    if (layout->is_local_block(from))
+      return layout->take_from_local_block(from, t);
+    std::vector<torch::Tensor> rbuf = {torch::empty_like(like)};
+    layout->recv_from_block(rbuf, from, t)->wait();
+    return rbuf[0];
+  };
+  if (above >= 0) post(up_mine, upper, above, tag);
+  if (below >= 0) post(dn_mine, lower, below, tag + 1);
+  if (above >= 0) theirs.second = take(upper, above, tag + 1);
+  if (below >= 0) theirs.first = take(lower, below, tag);
   for (auto& sw : sends) sw->wait();
   return theirs;
 }

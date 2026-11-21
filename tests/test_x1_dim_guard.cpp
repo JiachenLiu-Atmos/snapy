@@ -3,9 +3,13 @@
 #include <torch/torch.h>
 
 #include <cmath>
-#include <snap/recon/interpolation.hpp>
-#include <snap/recon/x1_coeffs.hpp>
+#include <snap/recon/reconstruct.hpp>
+#include <snap/recon/x1_rows.hpp>
 #include <vector>
+
+// tests
+#include "make_interp.hpp"
+
 using namespace snap;
 
 namespace {
@@ -36,13 +40,13 @@ torch::Tensor out_for(torch::Tensor const& w, int dim, int stencils) {
   return torch::empty(vec, w.options());
 }
 std::vector<Interp> installed(torch::Tensor const& x1f) {
-  Weno5Interp weno;
-  Center5Interp cp5;
+  auto weno = make_interp("weno5");
+  auto cp5 = make_interp("cp5");
   weno->set_x1_coeffs(x1f);
   cp5->set_x1_coeffs(x1f);
   EXPECT_TRUE(weno->has_x1_coeffs());
   EXPECT_TRUE(cp5->has_x1_coeffs());
-  return {weno.ptr(), cp5.ptr()};
+  return {weno, cp5};
 }
 }  // namespace
 
@@ -104,9 +108,9 @@ TEST(X1DimGuard, x1_still_runs) {
 
 TEST(X1DimGuard, an_uninstalled_interpolator_still_serves_x2) {
   auto w = state();
-  Weno5Interp weno;
-  Center5Interp cp5;
-  std::vector<Interp> bare = {weno.ptr(), cp5.ptr()};
+  auto weno = make_interp("weno5");
+  auto cp5 = make_interp("cp5");
+  std::vector<Interp> bare = {weno, cp5};
   for (auto const& p : bare) {
     ASSERT_FALSE(p->has_x1_coeffs());
     auto lr = p->forward(w, DIM2);

@@ -17,64 +17,28 @@
 
 namespace snap {
 
+#include <snap_options/coriolis_read.inc>
+
 CoriolisOptions CoriolisOptionsImpl::from_yaml(YAML::Node const &forcing) {
-  if (!forcing["coriolis"]) return nullptr;
-
-  auto node = forcing["coriolis"];
-  check_keys(node, "forcing/coriolis",
-             {"type", "omega1", "omega2", "omega3", "traditional"});
-  auto op = CoriolisOptionsImpl::create();
-
-  op->type() = node["type"].as<std::string>("xyz");
-  TORCH_CHECK(op->type() == "xyz" || op->type() == "123",
-              "CoriolisOptions: unsupported type ", op->type());
-
-  op->omega1() = node["omega1"].as<double>(0.);
-  op->omega2() = node["omega2"].as<double>(0.);
-  op->omega3() = node["omega3"].as<double>(0.);
-  op->traditional() = node["traditional"].as<bool>(false);
-
-  return op;
+  return read_forcing(forcing, "coriolis", read_coriolis_rows);
 }
 
-Coriolis123Impl::Coriolis123Impl(CoriolisOptions const &options_,
-                                 torch::nn::Module *p)
-    : options(options_) {
-  phydro = dynamic_cast<HydroImpl const *>(p);
+CoriolisImpl::CoriolisImpl(CoriolisOptions op, HydroImpl const *p)
+    : SourceModule(std::move(op), p) {
+  // conserve-axial-momentum-closure copies its sums to the host (7.1)
+  decl_ = {"coriolis",
+           SourcePhase::pre_implicit,
+           false,
+           SourceKind::physical,
+           kMomentum,
+           SourceRegion::interior,
+           !phydro->options->conserve_axial_momentum_closure()};
   reset();
 }
 
-void Coriolis123Impl::reset() {
-  TORCH_CHECK(phydro, "[Coriolis123] Parent Hydro is null");
-}
-
-torch::Tensor Coriolis123Impl::forward(torch::Tensor du, torch::Tensor w,
-                                       torch::Tensor temp, double dt) {
-  if (options->omega1() != 0.0 || options->omega2() != 0.0 ||
-      options->omega3() != 0.0) {
-    auto m1 = w[IDN] * w[IVX];
-    auto m2 = w[IDN] * w[IVY];
-    auto m3 = w[IDN] * w[IVZ];
-    du[IVX] += 2. * dt * (options->omega3() * m2 - options->omega2() * m3);
-    du[IVY] += 2. * dt * (options->omega1() * m3 - options->omega3() * m1);
-
-    if (w.size(1) > 1) {  // 3d
-      du[IVZ] += 2. * dt * (options->omega2() * m1 - options->omega1() * m2);
-    }
-  }
-
-  return du;
-}
-
-CoriolisXYZImpl::CoriolisXYZImpl(CoriolisOptions const &options_,
-                                 torch::nn::Module *p)
-    : options(options_) {
-  phydro = dynamic_cast<HydroImpl const *>(p);
-  reset();
-}
-
-void CoriolisXYZImpl::reset() {
-  TORCH_CHECK(phydro, "[CoriolisXYZ] Parent Hydro is null");
+void CoriolisImpl::reset() {
+  TORCH_CHECK(phydro, "[Coriolis] Parent Hydro is null");
+  if (options->type() == "123") return;
   auto pcoord = phydro->pmb->pcoord;
 
   cubed_sphere = false;
@@ -142,7 +106,7 @@ void CoriolisXYZImpl::reset() {
         cs_velocity_transform_matrix(alpha_plane, beta_plane, face_id, false,
                                      pcoord->cosine_cell_kj.narrow(-1, 0, 1)));
   } else {
-    throw std::runtime_error("CoriolisXYZ: unsupported coordinate system");
+    throw std::runtime_error("Coriolis: unsupported coordinate system");
   }
 
   register_buffer("omega1", omega1);
@@ -150,8 +114,22 @@ void CoriolisXYZImpl::reset() {
   register_buffer("omega3", omega3);
 }
 
-torch::Tensor CoriolisXYZImpl::forward(torch::Tensor du, torch::Tensor w,
-                                       torch::Tensor temp, double dt) {
+void CoriolisImpl::add(torch::Tensor du, StageState const &s) {
+  auto w = s.wc.defined() ? s.wc : s.w;
+  double dt = s.dt;
+  if (options->type() == "123") {  // the x3 row only in 3D
+    if (options->omega1() == 0.0 && options->omega2() == 0.0 &&
+        options->omega3() == 0.0)
+      return;
+    auto m1 = w[IDN] * w[IVX];
+    auto m2 = w[IDN] * w[IVY];
+    auto m3 = w[IDN] * w[IVZ];
+    du[IVX] += 2. * dt * (options->omega3() * m2 - options->omega2() * m3);
+    du[IVY] += 2. * dt * (options->omega1() * m3 - options->omega3() * m1);
+    if (w.size(1) > 1)
+      du[IVZ] += 2. * dt * (options->omega2() * m1 - options->omega1() * m2);
+    return;
+  }
   if (cubed_sphere) {
     auto force = w.narrow(0, IVX, 3).clone();
     force *= w[IDN].unsqueeze(0);
@@ -201,10 +179,11 @@ torch::Tensor CoriolisXYZImpl::forward(torch::Tensor du, torch::Tensor w,
                           mf[2].defined() ? phydro->flux3() : torch::Tensor(),
                           options->omega1(), phydro->axial_mass_species()) -
                       target;
+        // stays on the device (V3 X4); FP64, MPS FP32 (X.rst:295)
         phydro->axial_closure_sums() =
             torch::stack(
                 {(vol * (kf - rate_c)).sum(), (vol * rho * r * r * kk).sum()})
-                .to(torch::kCPU, torch::kFloat64);
+                .to(vol.is_mps() ? torch::kFloat32 : torch::kFloat64);
         phydro->axial_closure_rho() = rho.clone();
       }
       pg->axial_rate_to_rows_(z2, z3, target);  // K . z = target, along K
@@ -216,7 +195,7 @@ torch::Tensor CoriolisXYZImpl::forward(torch::Tensor du, torch::Tensor w,
     } else {
       du.narrow(0, IVX, 3) += dt * force;
     }
-    return du;
+    return;
   }
 
   auto m1 = w[IDN] * w[IVX];
@@ -226,7 +205,5 @@ torch::Tensor CoriolisXYZImpl::forward(torch::Tensor du, torch::Tensor w,
   du[IVX] += 2. * dt * (omega3 * m2 - omega2 * m3);
   du[IVY] += 2. * dt * (omega1 * m3 - omega3 * m1);
   du[IVZ] += 2. * dt * (omega2 * m1 - omega1 * m2);
-
-  return du;
 }
 }  // namespace snap

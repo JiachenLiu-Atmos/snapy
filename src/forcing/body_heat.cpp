@@ -1,6 +1,3 @@
-// yaml
-#include <yaml-cpp/yaml.h>
-
 // snap
 #include <snap/snap.h>
 
@@ -12,46 +9,43 @@
 
 namespace snap {
 
+#include <snap_options/body_heat_read.inc>
+#include <snap_options/plume_forcing_read.inc>
+
 BodyHeatOptions BodyHeatOptionsImpl::from_yaml(YAML::Node const& forcing) {
-  if (!forcing["body-heat"]) return nullptr;
-
-  auto node = forcing["body-heat"];
-  check_keys(node, "forcing/body-heat", {"dTdt", "pmin", "pmax"});
-  auto op = BodyHeatOptionsImpl::create();
-
-  op->dTdt() = node["dTdt"].as<double>(0.0);
-  op->pmin() = node["pmin"].as<double>(0.0);
-  op->pmax() = node["pmax"].as<double>(1.0);
-
-  TORCH_CHECK(op->pmin() <= op->pmax(),
-              "BodyHeatOptions: pmin must not exceed pmax.");
-
-  return op;
+  return read_forcing(forcing, "body-heat", read_body_heat_rows);
 }
 
-BodyHeatImpl::BodyHeatImpl(BodyHeatOptions const& options_,
-                           torch::nn::Module* p)
-    : options(options_) {
-  phydro = dynamic_cast<HydroImpl const*>(p);
-  reset();
+PlumeForcingOptions PlumeForcingOptionsImpl::from_yaml(
+    YAML::Node const& forcing) {
+  return read_forcing(forcing, "plume-forcing", read_plume_forcing_rows);
 }
 
-void BodyHeatImpl::reset() {
-  TORCH_CHECK(phydro, "[BodyHeat] Parent Hydro is null");
+BodyHeatImpl::BodyHeatImpl(BodyHeatOptions op, HydroImpl const* p)
+    : SourceModule(std::move(op), p) {
+  decl_ = {"body-heat", SourcePhase::pre_implicit, false, SourceKind::physical,
+           kEnergy};
 }
 
-torch::Tensor BodyHeatImpl::forward(torch::Tensor du, torch::Tensor w,
-                                    torch::Tensor temp, double dt) {
+void BodyHeatImpl::add(torch::Tensor du, StageState const& s) {
   auto interior =
       phydro->pmb->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
-  auto pres = w[IPR].index(interior);
-  auto rho = w[IDN].index(interior);
-  auto cv = phydro->peos->specific_heat_cv(w, temp).index(interior);
+  auto pres = s.w[IPR].index(interior);
+  auto rho = s.w[IDN].index(interior);
+  auto cv = phydro->peos->specific_heat_cv(s.w, s.temp).index(interior);
   auto mask =
       torch::logical_and(pres >= options->pmin(), pres <= options->pmax());
-  du[IPR].index(interior) += torch::where(mask, dt * options->dTdt() * rho * cv,
-                                          torch::zeros_like(pres));
-  return du;
+  du[IPR].index(interior) += torch::where(
+      mask, s.dt * options->dTdt() * rho * cv, torch::zeros_like(pres));
+}
+
+void PlumeForcingImpl::add(torch::Tensor du, StageState const& s) {
+  auto R = s.w[0];
+  auto W = s.w[1];
+  auto B = s.w[2];
+  du[0] -= 2. * R * options->entrainment() * s.dt;
+  du[1] += R * R * B * s.dt;
+  du[2] -= options->N2() * R * R * W * s.dt;
 }
 
 }  // namespace snap

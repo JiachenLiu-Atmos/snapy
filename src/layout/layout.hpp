@@ -189,6 +189,12 @@ void exchange_each_var(ProcessGroupContext const& comm,
 
 class MeshBlockImpl;
 
+//! corner ghosts of an exchange (S.rst rev 2.4 section 3.1, "Corners")
+enum class CornerRule : uint8_t {
+  diagonal,     // the diagonal neighbour's cells; synthesized where none
+  synthesized,  // 0.5 * (edge + edge) everywhere (cubed-sphere panels)
+};
+
 class LayoutImpl {
  public:
   static std::shared_ptr<LayoutImpl> create(LayoutOptions const& opts,
@@ -228,9 +234,15 @@ class LayoutImpl {
   //! Number of directional exchange slots required by this layout geometry.
   virtual int num_exchange_buffers() const { return 9; }
 
+  //! How the x2-x3 corner ghosts of a skip_corner exchange are filled (V3 S
+  //! step (2), identity P): from the diagonal neighbour where one exists
+  //! (slab and cubed layouts), else synthesized from the two edge strips
+  virtual CornerRule corner_rule() const { return CornerRule::diagonal; }
+
   //! Every neighbour direction of one exchange, as fn(dy, dx, dz) in dz, dy,
-  //! dx order: the centre is left out, and with skip_corner every direction
-  //! with more than one nonzero component; dz moves only with 27 buffers.
+  //! dx order: the centre is left out. With skip_corner, a direction with
+  //! more than one nonzero component is left out too, except an x2-x3
+  //! diagonal under CornerRule::diagonal; dz moves only with 27 buffers.
   void for_each_direction(SyncOptions const& opts,
                           std::function<void(int, int, int)> const& fn) const;
 
@@ -267,7 +279,8 @@ class LayoutImpl {
   virtual void deserialize(MeshBlockImpl const* pmb, Variables& vars,
                            SyncOptions const& opts) const;
 
-  //! fill corners after exchange
+  //! fill the corners after exchange that no diagonal neighbour filled:
+  //! 0.5 * (edge + edge) from the two edge strips
   virtual void fill_corners(MeshBlockImpl const* pmb, Variables& vars) const;
 
   //! Launch only the communication phase after buffers have been serialized.

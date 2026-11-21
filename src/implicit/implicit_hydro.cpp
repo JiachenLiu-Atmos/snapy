@@ -122,6 +122,12 @@ void ImplicitHydroImpl::reset() {
   TORCH_CHECK(phydro, "[ImplicitHydro] Parent Hydro is null");
   TORCH_CHECK(options, "[ImplicitHydro] options is null");
   options->type();  // throws on an unsupported scheme
+  // V3 I-8 (I-8.scheme0): scheme 0 has no module. From YAML, implicit-scheme:
+  // 0 creates none (ImplicitOptionsImpl::from_yaml returns nullptr)
+  TORCH_CHECK(options->scheme() != 0,
+              "[ImplicitHydro] implicit-scheme 0 has no module (V3 I-8): "
+              "leave the hydro icorr options unset, or write implicit-scheme: "
+              "0 in YAML, for no implicit correction");
   _fp64_fallbacks =
       register_buffer("fp64_fallbacks", torch::zeros({}, torch::kInt64));
   _a = register_buffer("a", torch::empty({0}, torch::kFloat64));
@@ -131,6 +137,11 @@ void ImplicitHydroImpl::reset() {
   _du0 = register_buffer("du0", torch::empty({0}, torch::kFloat64));
   _corr = register_buffer("corr", torch::empty({0}, torch::kFloat64));
   _mass_corr = register_buffer("mass_corr", torch::empty({0}, torch::kFloat64));
+  // V3 I-6: the FP64 stage's own scratch (unregistered), so the FP32
+  // stage's keeps its dtype and address (I.rst section 7, fixed storage)
+  for (auto* t :
+       {&_a64, &_b64, &_c64, &_delta64, &_du064, &_corr64, &_mass_corr64})
+    *t = torch::empty({0}, torch::kFloat64);
   _clamp_residual =
       register_buffer("clamp_residual", torch::zeros({1}, torch::kFloat64));
   _dry_clamp_step =
@@ -166,6 +177,80 @@ void ImplicitHydroImpl::ensure_workspace(torch::Tensor const& w) {
   maybe_resize(_du0, w.sizes().vec());
   maybe_resize(_corr, w.sizes().vec());
   maybe_resize(_mass_corr, w.sizes().vec());
+  // V3 I-5/I-6: the stage's VicStatusBit per column, in the solve's dtype
+  // (the kernel operand), and the step's status, int32, which survives a
+  // change of dtype (the FP64 stage) or device
+  auto st_shape = std::vector<int64_t>{w.size(1), w.size(2)};
+  if (needs_reset(_stage_status, st_shape))  // unregistered scratch
+    _stage_status = torch::empty(st_shape, w.options());
+  auto i32 = w.options().dtype(torch::kInt32);
+  if (!_status.defined() || _status.sizes().vec() != st_shape)
+    _status = torch::zeros(st_shape, i32);
+  else if (_status.device() != w.device())
+    _status = _status.to(i32);
+}
+
+torch::Tensor ImplicitHydroImpl::col_status() const { return _status; }
+
+torch::Tensor ImplicitHydroImpl::status() const {
+  if (!_status.defined()) return torch::zeros({}, torch::kBool);
+  // V3 I-6: a column whose last solve failed: the FP64 retry failed, or a
+  // failure that no FP64 retry followed (an FP64 solve, or the fallback off)
+  auto failed = (_status & kVicFailBits) != 0;
+  auto retried = (_status & kVicFp64Retried) != 0;
+  auto fp64_failed = (_status & kVicFp64Failed) != 0;
+  return (fp64_failed | (failed & retried.logical_not())).any();
+}
+
+void ImplicitHydroImpl::reset_status() {
+  if (_status.defined()) _status.zero_();
+  if (_stage_failed.defined()) _stage_failed.zero_();
+}
+
+void ImplicitHydroImpl::swap_scratch_() {
+  std::swap(_a, _a64);
+  std::swap(_b, _b64);
+  std::swap(_c, _c64);
+  std::swap(_delta, _delta64);
+  std::swap(_du0, _du064);
+  std::swap(_corr, _corr64);
+  std::swap(_mass_corr, _mass_corr64);
+  std::swap(_stage_status, _stage_status64);
+}
+
+torch::Tensor ImplicitHydroImpl::merge_fp64(torch::Tensor const& retry) {
+  // the FP64 stage's correction in the retried columns, the FP32 stage's
+  // elsewhere, in the FP32 stage's buffers and dtype (I-6)
+  auto r = retry.unsqueeze(-1);
+  _corr.copy_(torch::where(r, _corr64.to(_corr.scalar_type()), _corr));
+  _mass_corr.copy_(
+      torch::where(r, _mass_corr64.to(_mass_corr.scalar_type()), _mass_corr));
+  return _corr;
+}
+
+void ImplicitHydroImpl::count_fp64_columns(torch::Tensor const& retry) {
+  _fp64_fallbacks.add_(retry.sum().to(_fp64_fallbacks.device()));
+}
+
+void ImplicitHydroImpl::report_failure(std::ostream& os) const {
+  if (!_status.defined()) return;
+  auto pcoord = phydro->pmb->pcoord;
+  auto st = _status.to(torch::kCPU);
+  auto columns = st.nonzero();
+  auto a = st.accessor<int32_t, 2>();
+  auto index = columns.accessor<int64_t, 2>();
+  for (int64_t n = 0; n < columns.size(0); ++n) {
+    int64_t k = index[n][0], j = index[n][1];
+    int32_t bits = a[k][j];
+    os << "[ImplicitHydro] rank=" << get_rank() << " VIC column=(" << k << ","
+       << j
+       << ") failed:" << (bits & kVicInputNonfinite ? " nonfinite input" : "")
+       << (bits & kVicSingular ? " singular/near-singular" : "")
+       << (bits & kVicResultNonfinite ? " nonfinite result" : "")
+       << " step=" << phydro->pmb->cycle + 1
+       << " retry=" << phydro->pmb->pintg->current_redo
+       << "; check_redo will restore step input." << std::endl;
+  }
 }
 
 torch::Tensor ImplicitHydroImpl::forward(torch::Tensor du, torch::Tensor w,
@@ -173,28 +258,10 @@ torch::Tensor ImplicitHydroImpl::forward(torch::Tensor du, torch::Tensor w,
   return forward_masked(du, w, gamma, dt, torch::Tensor());
 }
 
-torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
-                                                torch::Tensor w,
-                                                torch::Tensor gamma, double dt,
-                                                torch::Tensor solid) {
-  if (options->scheme() == 0) {  // null operation
-    if (_corr.sizes() != du.sizes() ||
-        _corr.scalar_type() != du.scalar_type() ||
-        _corr.device() != du.device()) {
-      _corr.set_data(torch::zeros_like(du));
-    } else {
-      _corr.zero_();
-    }
-    return _corr;
-  }
-
-  // Once a stage fails, later stages cannot turn the step into a success.
-  if (_solve_failed) {
-    _corr.zero_();
-    _mass_corr.zero_();
-    return _corr;
-  }
-
+torch::Tensor ImplicitHydroImpl::forward_masked(
+    torch::Tensor du, torch::Tensor w, torch::Tensor gamma, double dt,
+    torch::Tensor solid, FluxRegister* reg, double post_dt,
+    torch::Tensor const& retry) {
   TORCH_CHECK(phydro->options->grav(),
               "[ImplicitHydro] forcing does not have const-gravity");
 
@@ -207,9 +274,15 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     TORCH_CHECK(false, "[ImplicitHydro] NaN encountered before implicit solve");
   }*/
 
+  struct Swap {  // the FP64 stage's scratch for this call only
+    ImplicitHydroImpl* self;
+    bool on;
+    ~Swap() {
+      if (on) self->swap_scratch_();
+    }
+  } swap{this, retry.defined()};
+  if (swap.on) swap_scratch_();
   ensure_workspace(w);
-  if (!_failed_dev.defined() || _failed_dev.device() != du.device())
-    _failed_dev = torch::zeros({}, du.options().dtype(torch::kBool));
   _du0.copy_(du);
   _mass_corr.zero_();
 
@@ -217,40 +290,23 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   // two rows of w in place (the frame projection)
   auto w0 = w.narrow(0, IVY, 2).clone();
 
-  auto reject = [&](torch::Tensor const& bad_columns) {
-    _solve_failed = true;
-    // no columns: the previous stage failed after its solve
-    auto columns = bad_columns.defined() ? bad_columns.nonzero().cpu()
-                                         : torch::zeros({0, 3}, torch::kInt64);
-    auto index = columns.accessor<int64_t, 2>();
-    for (int64_t n = 0; n < columns.size(0); ++n)
-      std::cerr << "[ImplicitHydro] rank=" << get_rank()
-                << " VIC singular/near-singular or nonfinite value: column=("
-                << index[n][1] + pcoord->kl() << ","
-                << index[n][2] + pcoord->jl()
-                << ") step=" << phydro->pmb->cycle + 1
-                << " stage=" << phydro->rk_stage
-                << " retry=" << phydro->pmb->pintg->current_redo
-                << "; check_redo will restore step input." << std::endl;
-    du.copy_(_du0);
-    w.narrow(0, IVY, 2).copy_(w0);
-    _corr.zero_();
-    _mass_corr.zero_();
-    return _corr;
+  // V3 I-5: no host read in the solve. Each column's thread sets its
+  // VicStatusBit (input screen, forward sweep, solution); a failed stage, or
+  // one after a failed stage, is undone below with device masks, and
+  // check_redo reads the status OR (solve_failed_tensor); the failed columns
+  // are logged on a redo only (report_failure)
+  // V3 I-6: the predicated FP64 stage (retry defined) solves only the
+  // columns in retry; every other column carries kVicSkipColumn, returns at
+  // once in each kernel and is undone below. It runs on its own scratch.
+  if (retry.defined())
+    _stage_status.copy_(torch::where(retry, 0., double(kVicSkipColumn)));
+  else
+    _stage_status.zero_();
+  auto status_in = _stage_status.slice(0, pcoord->kl(), pcoord->ku() + 1)
+                       .slice(1, pcoord->jl(), pcoord->ju() + 1);
+  auto per_column = [&](torch::Tensor const& t) {  // one value per column
+    return t.unsqueeze(0).unsqueeze(-1).expand(du.index(interior).sizes());
   };
-  auto finite_columns = [&](torch::Tensor const& values) {
-    return torch::isfinite(values.index(interior)).all(0).all(-1).unsqueeze(0);
-  };
-  // one device-to-host read per stage (#291): the sum of each checked tensor
-  // is nonfinite if any of its values is; only then are the columns found,
-  // in the order the checks would have met them. The read also carries the
-  // previous stage's post-solve failure, latched on the device.
-  std::vector<torch::Tensor> screen = {
-      du.index(interior).to(acc_type(du)).sum(),
-      w.index(interior).to(acc_type(du)).sum(),
-      gamma.unsqueeze(0).index(interior).to(acc_type(du)).sum(),
-      torch::zeros({}, du.options())
-          .masked_fill(_failed_dev, std::numeric_limits<double>::quiet_NaN())};
 
   /// (1) Project to local orthonormal frame
   w[IVY] += w[IVZ] * cos_theta;
@@ -289,7 +345,8 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
         .add_input(_delta)
         .add_owned_input(mask.unsqueeze(0).index(interior))
         .add_owned_input(_gw.face_lo().index(interior))
-        .add_owned_input(_gw.face_hi().index(interior));
+        .add_owned_input(_gw.face_hi().index(interior))
+        .add_owned_input(per_column(status_in));  // written per column
     return cfg;
   };
   auto iter = vic_config().build();
@@ -298,12 +355,8 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   // sum to grav1); scaling by non_hydrostatic() drops the gravity coupling
   // and destabilizes the solve at dt >> dt_acoustic whenever nh < 1.
   auto grav1 = phydro->options->grav()->grav1();
-  // gravity-work: face books the metric-weighted work in the energy row
-  bool face_work = phydro->face_work_in_operator();
-  int adir = face_work ? kVicFaceWork : 0;
-  bool diffusive_work =
-      grav1 != 0. && phydro->options->grav()->gravity_work() == "cell";
-  if (diffusive_work) adir |= kVicDiffusiveCell;
+  // the energy row books the metric-weighted face work, always (V3 I-8: no
+  // kVicFaceWork switch; with grav1 = 0 its rows add zeros)
 
   // gravity-work: face: the energy row also carries the corrected
   // potential energy's work g1 sigma^2 s[drho] of the mass this solve moves
@@ -376,8 +429,7 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
     prm.dir = dir;
     return prm;
   };
-  at::native::vic_stage(du.device().type(), iter,
-                        stage(VicStage::assemble, adir));
+  at::native::vic_stage(du.device().type(), iter, stage(VicStage::assemble, 0));
   couple_radial_exact();
   // Woodbury: the wall third points (E row of cells 0 and n-1, mass column of
   // cells 2 and n-3) are a rank-2 update U V^T of the block-tridiagonal T:
@@ -387,50 +439,97 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   if (!woodbury) {
     at::native::vic_stage(du.device().type(), iter, stage(VicStage::solve, 0));
   } else {
-    int m = options->size(), nx2 = pcoord->options->nx2(),
-        nx3 = pcoord->options->nx3();
+    // the 2x2 correction runs in the kernel, after the back substitution of
+    // each column (V3 I-5), with its wall coefficients one value per column
+    int nx2 = pcoord->options->nx2(), nx3 = pcoord->options->nx3();
     auto z0 = torch::empty_like(_delta), z1 = torch::empty_like(_delta);
-    auto it = vic_config().add_input(z0).add_input(z1).build();
+    auto one = torch::ones({}, w.options());
+    auto it =
+        vic_config()
+            .add_input(z0)
+            .add_input(z1)
+            .add_owned_input(per_column(rx_t0.expand({nx3, nx2})))
+            .add_owned_input(per_column(rx_t1.expand({nx3, nx2})))
+            .add_owned_input(per_column(no_solid ? one.expand({nx3, nx2})
+                                                 : rx_fluid.select(-1, 0)))
+            .add_owned_input(per_column(no_solid
+                                            ? one.expand({nx3, nx2})
+                                            : rx_fluid.select(-1, nx1 - 1)))
+            .build();
     at::native::vic_stage(du.device().type(), it,
                           stage(VicStage::solve, 0, /*woodbury=*/true));
-    auto y = _delta.view({nx3, nx2, nx1, m});
-    z0 = z0.view({nx3, nx2, nx1, m}), z1 = z1.view({nx3, nx2, nx1, m});
-    auto k0 = -rx_t0 / dt, k1 = -rx_t1 / dt;
-    if (!no_solid) {
-      k0 = k0 * rx_fluid.select(-1, 0), k1 = k1 * rx_fluid.select(-1, nx1 - 1);
-    }
-    auto pick = [&](torch::Tensor const& v, int cell) {
-      return v.select(-2, cell).select(-1, 0);
-    };
-    auto m00 = 1. + k0 * pick(z0, 2), m01 = k0 * pick(z1, 2);
-    auto m10 = k1 * pick(z0, nx1 - 3), m11 = 1. + k1 * pick(z1, nx1 - 3);
-    auto r0 = k0 * pick(y, 2), r1 = k1 * pick(y, nx1 - 3);
-    auto det = m00 * m11 - m01 * m10;
-    auto al0 = (m11 * r0 - m01 * r1) / det, al1 = (m00 * r1 - m10 * r0) / det;
-    y.sub_(z0 * al0.unsqueeze(-1).unsqueeze(-1))
-        .sub_(z1 * al1.unsqueeze(-1).unsqueeze(-1));
   }
 
-  // Both dispatches share the same rejection sentinel. This also catches
-  // nonfinite backward-substitution results, before redistribution sees them.
-  screen.push_back(_delta.to(acc_type(_delta)).sum());
-  if (!std::isfinite(torch::stack(screen).sum().item<double>())) {
-    // a stage after a failed one stops here
-    if (_failed_dev.item<bool>()) return reject(torch::Tensor());
-    auto w_in = w.clone();  // the inputs, then the solve
-    w_in.narrow(0, IVY, 2).copy_(w0);
-    auto bad_inputs =
-        torch::logical_not(finite_columns(_du0) & finite_columns(w_in) &
-                           finite_columns(gamma.unsqueeze(0)));
-    if (bad_inputs.any().item<bool>()) return reject(bad_inputs);
-    auto bad_columns = torch::logical_not(torch::isfinite(_delta).all(-1));
-    if (bad_columns.any().item<bool>()) return reject(bad_columns);
-  }
   at::native::vic_stage(du.device().type(), iter,
                         stage(VicStage::redistribute, 0));
 
+  // V3 I-4: the face transfers go to the register. A face i of total(1) is
+  // the face below cell i, as MASS(IVX+dir, i); the posts are M_f / (A_f dt)
+  // with the step's dt (I.rst section 4, "Frame and units")
+  bool post = reg != nullptr && post_dt > 0. && reg->keeps(1, "vic.mass_total");
+  bool partial = options->matrix() == VicMatrix::partial;
+  torch::Tensor kdt, ptan;
+  if (post) {
+    kdt = pcoord->face_area1().narrow(-1, 0, nc1).to(_mass_corr.options()) *
+          post_dt;
+    // partial matrix: the donor-cell tangential transfers of
+    // vic_tangential_momentum_column, q w_t(donor), in the local frame
+    if (partial) {
+      auto q = _mass_corr[IVZ];
+      auto wt = w.narrow(0, IVY, 2);
+      ptan = q * torch::where(q > 0., wt.roll(1, -1), wt);
+    }
+  }
+
+  /// (3) De-project from local orthonormal frame
+  w[IVZ] /= sin_theta;
+  w[IVY] -= w[IVZ] * cos_theta;
+  pcoord->flux2global1_(du);
+
+  // the post-solve gravity-work remainder, one call (V3 I-3); I-4: it reads
+  // the moved total mass from the kept "vic.mass_total"
+  torch::Tensor moved_total = _mass_corr[IVZ], energy_solved, kept_before;
+  if (post) {
+    // the FP64 stage merges its columns into the FP32 stage's kept total
+    if (retry.defined())
+      kept_before = reg->kept(1, "vic.mass_total")[IDN].clone();
+    reg->keep(1, "vic.mass_total", _mass_corr[IVZ] / kdt);
+    moved_total =
+        reg->kept(1, "vic.mass_total")[IDN].to(_mass_corr.options()) * kdt;
+    energy_solved = du[IPR].clone();  // vic.cell: without the remainder
+  }
+  book_remainder_(du, w.size(0), mask, no_solid, radial_exact, grav1, rx_mass0,
+                  rx_fluid, nx1, moved_total);
+
+  _corr.copy_(du);
+  _corr.sub_(_du0);
+
+  // a nonfinite result after the solve (redistribution, remainder) sets the
+  // column's bit too; the stage fails if any column has a bit, this stage's
+  // or an earlier one's: undone with masks (on success they select the
+  // values as they are)
+  auto bad = [&](torch::Tensor const& t) {
+    return torch::isfinite(t.index(interior)).logical_not().any(0).any(-1);
+  };
+  auto result_bad = bad(du) | bad(_mass_corr) | bad(_corr);
+  status_in.copy_(torch::where(
+      result_bad,
+      (status_in.to(torch::kInt32) | kVicResultNonfinite).to(w.options()),
+      status_in));
+  // V3 I-6: undone per column, a column that failed in this stage or that
+  // the FP64 stage skipped; the others keep their solution (on success the
+  // masks select the values as they are)
+  auto sbits = _stage_status.to(torch::kInt32);
+  auto failed = (sbits & kVicFailBits) != 0;
+  auto drop = failed | ((sbits & kVicSkipColumn) != 0);
+  auto drop3 = drop.unsqueeze(-1);
+  du.copy_(torch::where(drop3, _du0, du));
+  w.narrow(0, IVY, 2).copy_(torch::where(drop3, w0, w.narrow(0, IVY, 2)));
+  _corr.masked_fill_(drop3, 0.);
+  _mass_corr.masked_fill_(drop3, 0.);
   // only the availability clamp breaks sum_ch MASS*VOL == M(i) - M(i+1);
-  // the meters are committed below, unless the stage fails
+  // the meters read the kept columns only: an undone column's mass
+  // correction is zero (I-6; before, a failed stage left them as they were)
   torch::Tensor clamp_next;
   {
     int is = pcoord->il();
@@ -455,36 +554,101 @@ torch::Tensor ImplicitHydroImpl::forward_masked(torch::Tensor du,
   }
   auto dry_next =
       torch::maximum(_dry_clamp_step, _mass_corr[IPR].max().detach());
-
-  /// (3) De-project from local orthonormal frame
-  w[IVZ] /= sin_theta;
-  w[IVY] -= w[IVZ] * cos_theta;
-  pcoord->flux2global1_(du);
-
-  // the post-solve gravity-work remainder, one call (V3 I-3)
-  book_remainder_(du, w.size(0), mask, no_solid, face_work, diffusive_work,
-                  radial_exact, grav1, rx_mass0, rx_fluid, nx1);
-
-  _corr.copy_(du);
-  _corr.sub_(_du0);
-
-  auto results =
-      torch::stack({du.index(interior).to(acc_type(du)).sum(),
-                    _mass_corr.index(interior).to(acc_type(du)).sum(),
-                    _corr.index(interior).to(acc_type(du)).sum()});
-  // no host read: a nonfinite result is latched on the device, undone here
-  // with masks (on success they select the values as they are) and stops
-  // the next stage at its screen; check_redo reads the latch
-  auto fail = torch::isfinite(results.sum()).logical_not();
-  _failed_dev.logical_or_(fail);
-  du.copy_(torch::where(fail, _du0, du));
-  w.narrow(0, IVY, 2).copy_(torch::where(fail, w0, w.narrow(0, IVY, 2)));
-  _corr.masked_fill_(fail, 0.);
-  _mass_corr.masked_fill_(fail, 0.);
-  // a failed stage leaves the meters as they were
-  _clamp_residual.copy_(torch::where(fail, _clamp_residual, clamp_next));
-  _dry_clamp_step.copy_(torch::where(fail, _dry_clamp_step, dry_next));
+  _clamp_residual.copy_(clamp_next);
+  _dry_clamp_step.copy_(dry_next);
+  // the step's status: the FP32 (or only) stage's bits; the FP64 stage marks
+  // its columns retried and, if they failed again, FP64-failed
+  if (retry.defined()) {
+    auto fp64 = torch::where(failed, (sbits | kVicFp64Failed) & ~kVicSkipColumn,
+                             torch::zeros_like(sbits)) |
+                kVicFp64Retried;
+    _status.bitwise_or_(torch::where(retry, fp64, torch::zeros_like(sbits)));
+  } else {
+    _status.bitwise_or_(sbits);
+    _stage_failed = failed;
+  }
+  if (post)
+    post_(*reg, du, drop3, kdt, ptan, energy_solved, volume, kept_before);
   return _corr;
+}
+
+void ImplicitHydroImpl::post_(FluxRegister& reg, torch::Tensor const& du,
+                              torch::Tensor const& drop,
+                              torch::Tensor const& kdt,
+                              torch::Tensor const& ptan,
+                              torch::Tensor const& energy_solved,
+                              torch::Tensor const& volume,
+                              torch::Tensor const& kept_before) {
+  auto pcoord = phydro->pmb->pcoord;
+  int is = pcoord->il(), ie = pcoord->iu() + 1;
+  int ny = du.size(0) - ICY;
+  // an undone column posts -0: x + (-0) is x for every x, so a column the
+  // FP64 stage skipped leaves the FP32 stage's total as it is, bit for bit
+  auto ok = [&](torch::Tensor const& t) {
+    return torch::where(drop, torch::full({}, -0., t.options()), t);
+  };
+  auto interior_jk = [&](torch::Tensor t) {
+    return t.slice(-2, pcoord->jl(), pcoord->ju() + 1)
+        .slice(-3, pcoord->kl(), pcoord->ku() + 1);
+  };
+
+  // (1) the posts, in declared order; each add also fills its kept part
+  reg.add(1, "vic.mass_dry", {IDN}, ok(_mass_corr[IVY] / kdt).unsqueeze(0));
+  if (ny > 0) {
+    // the species face transfers of pass 3b, from their cell increments:
+    // q_{i+1} = q_i - MASS(ICY+n, i) VOL(i), q = 0 at the bottom wall; the
+    // top wall moves nothing
+    auto q = torch::zeros_like(_mass_corr.narrow(0, ICY, ny));
+    if (ie - is > 1) {
+      auto s = (_mass_corr.narrow(0, ICY, ny) * volume).slice(-1, is, ie - 1);
+      q.slice(-1, is + 1, ie) = -s.cumsum(-1);
+    }
+    std::vector<int> rows(ny);
+    for (int n = 0; n < ny; ++n) rows[n] = ICY + n;
+    reg.add(1, "vic.mass_species", rows, ok(q / kdt));
+  }
+  // tangential momenta, in the explicit x1 flux's global components
+  torch::Tensor pt;
+  if (ptan.defined()) {  // partial matrix: donor transfers, local frame
+    auto tmp = torch::zeros_like(du);
+    tmp.narrow(0, IVY, 2).copy_(ok(ptan));
+    pcoord->flux2global1_(tmp);
+    pt = tmp.narrow(0, IVY, 2);
+  } else {  // full matrix: the prefix sum of the cell increments from the
+            // bottom wall, top face included (gnomonic axial_x1_source_)
+    pt = torch::zeros_like(du.narrow(0, IVY, 2));
+    auto T = interior_jk((_corr.narrow(0, IVY, 2) * volume).slice(-1, is, ie));
+    interior_jk(pt).slice(-1, is + 1, ie + 1).copy_(-T.cumsum(-1));
+  }
+  reg.add(1, "vic.momentum_t", {IVY, IVZ}, ok(pt / kdt));
+
+  // (2) the kept total, from the (undone: zeroed) moved masses; the FP64
+  // stage keeps the FP32 stage's value in the columns it did not solve
+  auto total = _mass_corr[IVZ] / kdt;
+  if (kept_before.defined())
+    total = torch::where(drop, kept_before.to(total.options()), total);
+  reg.keep(1, "vic.mass_total", total);
+
+  // (3) the amounts, V du of this stage's du: weight w2_s
+  double w2 = reg.weight2();
+  int nvar = du.size(0);
+  auto in = [&](torch::Tensor t) { return interior_jk(t.slice(-1, is, ie)); };
+  auto cell = torch::zeros_like(du);
+  cell[IVX] = du[IVX] - _du0[IVX];
+  cell[IPR] = ok(energy_solved - _du0[IPR]);
+  if (!ptan.defined()) cell.narrow(0, IVY, 2) = _corr.narrow(0, IVY, 2);
+  reg.cell_amount("vic.cell", in(cell * volume), w2, AmountKind::cell_source);
+  // V div(moved - requested) of the total mass, on row IDN
+  auto d = _mass_corr[IVZ] - _mass_corr[IVX];
+  auto clamped = torch::zeros({nvar}, du.options());
+  clamped[IDN] =
+      interior_jk(d.slice(-1, is + 1, ie + 1) - d.slice(-1, is, ie)).sum();
+  reg.cell_amount("vic.mass_clamped", clamped, w2, AmountKind::flux_correction);
+  if (!ptan.defined()) {  // the top face of the prefix sum (scheme 9)
+    auto top = torch::zeros({nvar}, du.options());
+    top.narrow(0, IVY, 2) = interior_jk(pt.narrow(-1, ie, 1)).sum({-3, -2, -1});
+    reg.cell_amount("vic.momentum_t.top", top, w2, AmountKind::diagnostic);
+  }
 }
 
 std::shared_ptr<ImplicitHydroImpl> ImplicitHydroImpl::create(
@@ -498,22 +662,22 @@ std::shared_ptr<ImplicitHydroImpl> ImplicitHydroImpl::create(
 
 void ImplicitHydroImpl::book_remainder_(
     torch::Tensor du, int wsize, torch::Tensor const& mask, bool no_solid,
-    bool face_work, bool diffusive_work, bool radial_exact, double grav1,
-    torch::Tensor const& rx_mass0, torch::Tensor const& rx_fluid, int nx1) {
+    bool radial_exact, double grav1, torch::Tensor const& rx_mass0,
+    torch::Tensor const& rx_fluid, int nx1, torch::Tensor const& moved_total) {
   auto pcoord = phydro->pmb->pcoord;
   // du[IPR] is a scalar row: the frame de-projection before this call
   // (flux2global1_) leaves it as it was, so the order of the two terms below
   // is the order they had when the first was booked before it
 
   // the projection's and the availability clamp's work, from the face masses
-  // the solve requested and moved
-  if (face_work || diffusive_work) {
+  // the solve requested and moved (always, V3 I-8)
+  {
     int is = pcoord->il(), ie = pcoord->iu() + 1;
     auto in3 =
         phydro->pmb->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
     auto volume = _gw.volume().index(in3);  // cached
     auto requested = _mass_corr[IVX];
-    auto moved = _mass_corr[IVZ] - requested;
+    auto moved = moved_total - requested;
     auto projected =
         (requested.slice(-1, is, ie) - requested.slice(-1, is + 1, ie + 1))
             .slice(-2, pcoord->jl(), pcoord->ju() + 1)

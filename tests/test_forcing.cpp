@@ -27,7 +27,8 @@ using namespace snap;
 
 namespace {
 
-class DryDensitySourceImpl : public torch::nn::Cloneable<DryDensitySourceImpl> {
+class DryDensitySourceImpl : public torch::nn::Cloneable<DryDensitySourceImpl>,
+                             public SourceTerm {
  public:
   double increment = 0.;
 
@@ -35,10 +36,8 @@ class DryDensitySourceImpl : public torch::nn::Cloneable<DryDensitySourceImpl> {
   explicit DryDensitySourceImpl(double increment_) : increment(increment_) {}
   void reset() override {}
 
-  torch::Tensor forward(torch::Tensor du, torch::Tensor /*w*/,
-                        torch::Tensor /*temp*/, double /*dt*/) {
+  void add(torch::Tensor du, StageState const&) override {
     du[IDN].select(-1, du.size(-1) / 2).add_(increment);
-    return du;
   }
 };
 TORCH_MODULE(DryDensitySource);
@@ -158,7 +157,7 @@ void check_cubed_sphere_coriolis(std::string const& eos_type,
         "coriolis: {type: xyz, omega1: 0.7, omega2: -0.4, omega3: 0.2}"));
     op->traditional() = configure_traditional;
 
-    CoriolisXYZ(op, block->phydro.get())->forward(du, w, torch::Tensor(), 1.);
+    Coriolis(op, block->phydro.get())->forward(du, w, torch::Tensor(), 1.);
 
     auto expected = expected_cubed_sphere_coriolis(
         block, global_velocity, w[IDN], omega, expected_traditional);
@@ -527,14 +526,14 @@ TEST(forcing, cubed_sphere_sponge_drag_is_covariant) {
       auto du = torch::zeros_like(w);
       auto op = TopSpongeLyrOptionsImpl::from_yaml(
           YAML::Load("top-sponge-lyr: {tau: 100.0, width: 1.0e30}"));
-      TopSpongeLyr(op, block->phydro.get())->forward(du, w, temp, 1.);
+      Sponge(op, block->phydro.get())->forward(du, w, temp, 1.);
       expect_drag_is_covariant(block, w, du, at + " top-sponge-lyr");
     }
     {
       auto du = torch::zeros_like(w);
       auto op = BotSpongeLyrOptionsImpl::from_yaml(
           YAML::Load("bot-sponge-lyr: {tau: 100.0, width: 1.0e30}"));
-      BotSpongeLyr(op, block->phydro.get())->forward(du, w, temp, 1.);
+      Sponge(op, block->phydro.get())->forward(du, w, temp, 1.);
       expect_drag_is_covariant(block, w, du, at + " bot-sponge-lyr");
     }
     {
@@ -751,7 +750,10 @@ TEST(forcing, limiter_patch_is_reported_below_the_temperature_floor) {
     for (int stage = 0; stage < block->pintg->stages.size(); ++stage) {
       block->forward(vars, 1.e-3, stage);
     }
-    EXPECT_EQ(block->limiter_patch_hit(), pres < 1.e4) << "pres=" << pres;
+    // the limiter's patch mark (marks: {patched, nan})
+    auto const& marks = block->phydro->peos->limiter_marks();
+    bool patched = marks.defined() && marks[0].item<bool>();
+    EXPECT_EQ(patched, pres < 1.e4) << "pres=" << pres;
   }
 }
 
@@ -1284,8 +1286,8 @@ TEST(forcing, boundary_fluxes_scale_with_timestep) {
       YAML::Load("top-cool: {flux: -100., depth: 2}"));
   auto bot_op = BotHeatOptionsImpl::from_yaml(
       YAML::Load("bot-heat: {flux: 100., depth: 2}"));
-  TopCool top(top_op, block->phydro.get());
-  BotHeat bot(bot_op, block->phydro.get());
+  LayerHeat top(top_op, block->phydro.get());
+  LayerHeat bot(bot_op, block->phydro.get());
 
   top->forward(du1, w, temp, 0.25);
   bot->forward(du1, w, temp, 0.25);
@@ -1332,7 +1334,7 @@ TEST(forcing, native_dry_source_uses_each_rk_stage_weight) {
     options->intg()->type() = type;
     auto block = std::make_shared<MeshBlockImpl>(options);
     auto source = DryDensitySource(0.);
-    block->phydro->forcings.push_back(torch::nn::AnyModule(source));
+    block->phydro->sources.add(source.ptr());
 
     auto coord = block->pcoord;
     auto w = torch::zeros({block->phydro->peos->nvar(), coord->options->nc3(),
@@ -1376,8 +1378,7 @@ TEST(forcing, native_dry_source_preserves_scalar_bounds_at_every_rk_order) {
           MeshBlockOptionsImpl::from_yaml("test_scalar_source_bound.yaml");
       options->intg()->type() = type;
       auto block = std::make_shared<MeshBlockImpl>(options);
-      block->phydro->forcings.push_back(
-          torch::nn::AnyModule(DryDensitySource(increment)));
+      block->phydro->sources.add(DryDensitySource(increment).ptr());
 
       auto coord = block->pcoord;
       auto w = torch::zeros({block->phydro->peos->nvar(), coord->options->nc3(),

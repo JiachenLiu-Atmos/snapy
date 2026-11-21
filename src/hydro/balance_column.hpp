@@ -105,7 +105,7 @@ class EquationOfStateImpl;
 //! `coord->options->stretched_x1()` of the grid the column comes from. A
 //! stretched x1 is non-uniform in every block whatever its widths, and its
 //! cell pressure is the six-face degree-5 Lagrange cell average with per-cell
-//! rows (hydro_ref_x1_stretched_rows); a column of unequal widths takes them
+//! rows (x1_rows' six_face_rows); a column of unequal widths takes them
 //! whatever the flag.
 //!
 //! Under SNAP_X1_CENTROID_EXACT a spherical-polar block's reference works on
@@ -120,9 +120,10 @@ class EquationOfStateImpl;
 //! w4 at order 2 and moves w by the same dp and drho, until w4 needs no sweep;
 //! `eos` (the run's) gives W -> U -> W, and the return counts passes. The x1
 //! ends are reflecting walls, as above. The temperature (p/rho) is held per
-//! pass, not over the call: w's p/rho drifts at second order in dz. Cells
-//! where conv4_admissible() fails keep W(u), as in the solver (its
-//! limiter-repair fallback is not modelled). The eos limiter flag is cleared
+//! pass, not over the call: w's p/rho drifts at second order in dz. The
+//! conversion is the solver's own (Conversion): cells where conv4_admissible()
+//! fails keep W(u), as in the solver (its limiter-repair fallback is not
+//! modelled). The eos limiter flag is cleared
 //! for the call and restored on return and on error. `eos` must come from a
 //! block with nx2 = nx3 = 1.
 std::tuple<torch::Tensor, double, int> balance_column(

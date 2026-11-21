@@ -62,6 +62,7 @@ class IdealMoistImpl final : public torch::nn::Cloneable<IdealMoistImpl>,
    *! \return $1/\mu$
    */
   torch::Tensor f_eps(torch::Tensor const& yfrac) const;
+  static double gammad_(double c) { return (c + 1) / c; }  //!< dry gamma
 
   //! \brief Correction to specific heat capacity at constant volume
   /*!
@@ -106,12 +107,7 @@ class IdealMoistImpl final : public torch::nn::Cloneable<IdealMoistImpl>,
    */
   torch::Tensor _prim2temp(torch::Tensor prim) override;
 
-  //! \brief calculate species energy (internal + kinetic)
-  /*
-   * \param[in] prim  primitive variables
-   * \return          individual species energy (ie + ke)
-   */
-  torch::Tensor _prim2speciesEng(torch::Tensor prim) override;
+  torch::Tensor species_pressure_share(torch::Tensor prim) override;
 
   //! \brief Convert temperature to kinetic energy.
   /*

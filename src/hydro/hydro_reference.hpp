@@ -4,6 +4,9 @@
 
 #include <utility>
 
+// snap
+#include <snap/recon/x1_rows.hpp>
+
 #include "hydro_dispatch.hpp"
 
 namespace snap {
@@ -49,8 +52,7 @@ class HydroReferenceX1Operator {
                              ? kX1RefUniform
                              : unequal);
     if (grid_ == kX1RefStretched) {
-      rows_ =
-          hydro_ref_x1_stretched_rows(dx1f, iu, phys_in, phys_out, wall_clamp);
+      rows_ = six_face_rows(dx1f, iu, phys_in, phys_out, wall_clamp);
     }
   }
 

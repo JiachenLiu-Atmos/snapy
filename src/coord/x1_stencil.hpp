@@ -9,7 +9,7 @@
 
 namespace snap {
 
-//! the per-grid x1 stencil caches (x1_centroid.cpp, wb_ref4.cpp): rows of k
+//! the per-grid x1 stencil caches (x1_centroid.cpp, x1_rows.cpp): rows of k
 //! cell or face indices and weights, built on the CPU, applied on any device
 
 //! (rows, k) int64 indices, a short row padded with 0
