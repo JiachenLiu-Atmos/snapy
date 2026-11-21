@@ -31,6 +31,10 @@
 // arg
 #include <snap/add_arg.h>
 
+namespace kintera {
+class ThermoYImpl;
+}
+
 namespace snap {
 
 struct OutputOptionsImpl;
@@ -351,6 +355,8 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! K.rst 3.5: the ThermoY prepared for the interior shape (idempotent) and
   //! _active_set0 made for it; at stage 0 and before a graph warm-up
   void prepare_thermo(torch::Tensor const& hydro_u);
+  //! the EOS's kintera ThermoY (hydro.eos.thermo), or null
+  std::shared_ptr<kintera::ThermoYImpl> thermo_y() const;
 
   //! distribution layout
   Layout _playout;

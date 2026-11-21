@@ -28,9 +28,8 @@
 
 namespace snap {
 
-// the EOS's kintera ThermoY (hydro.eos.thermo), or null
-static std::shared_ptr<kintera::ThermoYImpl> thermo_of(MeshBlockImpl &block) {
-  auto modules = block.named_modules();
+std::shared_ptr<kintera::ThermoYImpl> MeshBlockImpl::thermo_y() const {
+  auto modules = named_modules();
   auto mt = modules.find("hydro.eos.thermo");
   return mt ? std::dynamic_pointer_cast<kintera::ThermoYImpl>(*mt) : nullptr;
 }
@@ -38,7 +37,7 @@ static std::shared_ptr<kintera::ThermoYImpl> thermo_of(MeshBlockImpl &block) {
 static std::mutex meshblock_mutex;
 
 void MeshBlockImpl::prepare_thermo(torch::Tensor const &hydro_u) {
-  auto pthermo = thermo_of(*this);
+  auto pthermo = thermo_y();
   if (!pthermo) return;
   // prepare() (idempotent) gives the counter, the active-set buffers and the
   // table their interior shape, device and dtype before the first adjustment
@@ -781,8 +780,7 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
     // K4 (K.rst 3.4, 3.5): after the u0 backup, the active set of this
     // attempt's start
     prepare_thermo(hydro_u);
-    if (auto pthermo = thermo_of(*this))
-      pthermo->snapshot_active_set(_active_set0);
+    if (auto pthermo = thermo_y()) pthermo->snapshot_active_set(_active_set0);
     if (auto moist = dynamic_cast<IdealMoistImpl *>(phydro->peos.get()))
       moist->clear_heat_capacity_failure();
     // the fixer buffers are only written under the
@@ -799,7 +797,7 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
     phydro->peos->reset_limiter_marks(hydro_u);
     // K2 (K.rst 3.2): the device counter is zeroed in place, no host read;
     // a failure counted before the step is not its own
-    if (auto pthermo = thermo_of(*this)) pthermo->reset_failures();
+    if (auto pthermo = thermo_y()) pthermo->reset_failures();
     if (phydro->peos->vapor_failures().defined())
       phydro->peos->vapor_failures().zero_();  // nor is a vapor failure
   }
@@ -1548,7 +1546,7 @@ int MeshBlockImpl::apply_redo(Variables &vars, int causes) {
     _state.restore();
     for (auto &s : phydro->sources.splits()) s->restore_split(vars["hydro_u"]);
     // K4 (K.rst 3.4): the retry starts from the attempt's initial active set
-    if (auto pthermo = thermo_of(*this))
+    if (auto pthermo = thermo_y())
       if (_active_set0.second.defined())
         pthermo->restore_active_set(_active_set0);
     phydro->peos->forward(vars["hydro_u"], vars["hydro_w"]);
@@ -1610,7 +1608,7 @@ torch::Tensor MeshBlockImpl::local_redo_flag_tensor(Variables const &vars) {
   // K2 (K.rst 3.2): retry cause 4 is row 0 of the device counter, consumed
   // in place (rows 1-2 stay for the step-end post); no host read here
   auto sat = zero;
-  if (auto pthermo = thermo_of(*this)) {
+  if (auto pthermo = thermo_y()) {
     auto flag = torch::zeros({1}, opts);
     pthermo->consume_failures(flag);
     sat = flag.reshape({});
