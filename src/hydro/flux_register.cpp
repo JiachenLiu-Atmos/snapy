@@ -11,6 +11,8 @@
 #include <snap/snap.h>
 
 #include <snap/coord/coordinate.hpp>
+#include <snap/layout/exchange.hpp>
+#include <snap/mesh/meshblock.hpp>
 #include <snap/mesh/precision_policy.hpp>
 
 #include "flux_register.hpp"
@@ -44,6 +46,9 @@ void RegisterMonitor::reset(RegisterRequest const& req) {
 }
 
 void RegisterMonitor::begin_step() {
+  for (auto* bs : {&_boundary, &_bdirect})
+    for (auto& b : *bs)
+      if (b.defined()) b.zero_();
   if (counters.numel()) counters.zero_();
   if (minima.numel()) minima.fill_(std::numeric_limits<double>::infinity());
   if (retry_flags.numel()) retry_flags.zero_();
@@ -146,6 +151,15 @@ void RegisterMonitor::post(std::string const& name, AmountKind kind,
   to[i].add_(amount.to(to.scalar_type()), weight);
 }
 
+torch::Tensor RegisterMonitor::boundary(int dim) const {
+  TORCH_CHECK(dim >= 1 && dim <= 3, "[RegisterMonitor] boundary(", dim,
+              "): dim is 1, 2 or 3");
+  auto const& b = _boundary[dim - 1];
+  if (b.defined()) return b + _bdirect[dim - 1];
+  int64_t nrows = _step_amount.defined() ? _step_amount.size(1) : 0;
+  return torch::zeros({nrows}, torch::kFloat64);
+}
+
 void RegisterMonitor::end_stage(double w1, double w2dt) {
   if (!_step_amount.defined()) return;
   _step_amount.mul_(w1).add_(_stage_amount, w2dt).add_(_stage_post);
@@ -219,6 +233,7 @@ void FluxRegister::begin_step() {
   }
   _rec = _direct = {};  // the step's split posts start again
   _in_stage = false;
+  place_boundary_();
   for (auto const& t : _total)
     if (t.defined() && _monitor._step_amount.defined()) {
       _monitor.place_amounts(t.device());
@@ -408,6 +423,14 @@ void FluxRegister::end_stage(double dt) {
     _rec[d].mul_(_w1).add_(_total[d].to(_rec[d].scalar_type()), _w2 * dt);
     torch::add_out(_step[d], _rec[d], _direct[d]);
   }
+  // R-7: boundary(dim) follows S_d's recursion, B <- w1 B + w2 dt sum W T
+  for (int d = 0; d < 3; ++d) {
+    auto& b = _monitor._boundary[d];
+    if (!b.defined()) continue;
+    auto const& w = boundary_weight_(d + 1);
+    b.mul_(_w1).add_((_total[d].to(w.scalar_type()) * w).sum({1, 2, 3}),
+                     _w2 * dt);
+  }
   _monitor.end_stage(_w1, _w2 * dt);
   _in_stage = false;
 }
@@ -433,6 +456,101 @@ void FluxRegister::post_split(int dim, std::string const& name,
   }
   _direct[d].add_(flux.to(_direct[d].scalar_type()), weight * dt);
   torch::add_out(_step[d], _rec[d], _direct[d]);
+  auto& b = _monitor._bdirect[d];  // R-7: the direct part, never scaled
+  if (b.defined()) {
+    auto const& w = boundary_weight_(dim);
+    b.add_((flux.to(w.scalar_type()) * w).sum({1, 2, 3}), weight * dt);
+  }
+}
+
+void FluxRegister::set_solid(torch::Tensor const& solid) {
+  bool same = solid.defined() == _solid.defined() &&
+              (!solid.defined() ||
+               (solid.is_same(_solid) && solid._version() == _solid_version));
+  if (same) return;
+  _solid = solid;
+  _solid_version = solid.defined() ? solid._version() : 0;
+  _bweight = {};  // the face set follows the solid field
+}
+
+void FluxRegister::place_boundary_() {
+  for (int d = 0; d < 3; ++d) {
+    auto const& t = _total[d];
+    auto wide = t.defined() && t.is_mps() ? torch::kFloat32 : torch::kFloat64;
+    for (auto* bs : {&_monitor._boundary, &_monitor._bdirect}) {
+      auto& b = (*bs)[d];
+      if (!t.defined())
+        b = torch::Tensor();
+      else if (!b.defined() || b.device() != t.device() ||
+               b.scalar_type() != wide || b.size(0) != t.size(0))
+        b = torch::zeros({t.size(0)}, t.options().dtype(wide));
+      else
+        b.zero_();
+    }
+    if (!t.defined()) continue;
+    auto& w = _bweight[d];
+    if (w.defined() && (w.device() != t.device() || w.scalar_type() != wide))
+      w = torch::Tensor();  // the register moved: rebuild on its device
+  }
+}
+
+torch::Tensor const& FluxRegister::boundary_weight_(int dim) {
+  int d = dim - 1;
+  auto& w = _bweight[d];
+  if (w.defined()) return w;
+  auto const& t = _total[d];
+  auto wide = t.is_mps() ? torch::kFloat32 : torch::kFloat64;
+  w = torch::zeros(t.sizes().slice(1), t.options().dtype(wide));
+  if (!_coord) return w;  // no coordinate: no face areas, no transfer
+  auto c = _coord;
+  int ax = 3 - dim;  // the axis of a [k, j, i] field
+  std::array<int64_t, 3> lo = {c->kl(), c->jl(), c->il()};
+  std::array<int64_t, 3> hi = {c->ku(), c->ju(), c->iu()};
+  std::array<int64_t, 3> n;
+  for (int a = 0; a < 3; ++a) n[a] = hi[a] - lo[a] + 1;
+  n[ax] += 1;  // the interior cells' faces, both ends
+  auto window = [&](torch::Tensor const& f, int shift) {
+    return f.narrow(0, lo[0] - (ax == 0) * shift, n[0])
+        .narrow(1, lo[1] - (ax == 1) * shift, n[1])
+        .narrow(2, lo[2] - (ax == 2) * shift, n[2]);
+  };
+  auto sign = torch::zeros(n, w.options());
+  torch::Tensor solid;
+  if (_solid.defined()) {
+    solid = _solid.ne(0).to(w.device());
+    // a face with one solid neighbour, outward from the fluid cell, which
+    // must be this block's: the first face's left and the last face's right
+    // cell are ghosts, and the neighbour block counts its own side
+    auto left = window(solid, 1), right = window(solid, 0);
+    sign = (left.logical_not() & right).to(w.scalar_type()) -
+           (left & right.logical_not()).to(w.scalar_type());
+    sign.select(ax, 0).clamp_(c10::nullopt, 0.);
+    sign.select(ax, n[ax] - 1).clamp_(0., c10::nullopt);
+  }
+  if (auto pmb = c->pmb) {
+    Exchange ex(pmb);
+    for (bool upper : {false, true}) {
+      // bfuncs order: x1 inner, x1 outer, x2 inner, x2 outer, x3 inner, ...
+      auto k = ex.kind(2 * d + (upper ? 1 : 0));
+      if (k != FaceKind::wall && k != FaceKind::outflow &&
+          k != FaceKind::custom)
+        continue;  // a shared face: its two entries cancel over the blocks
+      auto plane = sign.select(ax, upper ? n[ax] - 1 : 0);
+      plane.fill_(upper ? 1. : -1.);
+      if (solid.defined()) {  // only where the interior cell is fluid
+        int64_t cell = upper ? hi[ax] : lo[ax];
+        auto inner = solid;
+        for (int a = 0; a < 3; ++a)
+          inner = inner.narrow(a, a == ax ? cell : lo[a], a == ax ? 1 : n[a]);
+        plane.mul_(inner.squeeze(ax).logical_not().to(w.scalar_type()));
+      }
+    }
+  }
+  auto area = dim == 1   ? c->face_area1()
+              : dim == 2 ? c->face_area2()
+                         : c->face_area3();
+  window(w, 0).copy_(sign * window(area.to(w.device(), wide), 0));
+  return w;
 }
 
 }  // namespace snap

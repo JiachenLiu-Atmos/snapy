@@ -88,6 +88,14 @@ class RegisterMonitor {
   //! A <- w1 A + w2 dt a_s + p_s, then a_s, p_s <- 0 (FluxRegister::end_stage)
   void end_stage(double w1, double w2dt);
 
+  //! R-7 (R.rst 4.2 O, L-3): the step's outward transfer through dim's faces
+  //! of the fluid domain's boundary, area-integrated, (nrows,) FP64 (FP32 on
+  //! MPS), in units of each row's conserved quantity: sum A_f S_d over the
+  //! block faces whose S FaceKind is wall, outflow or custom (interior cell
+  //! fluid) and the faces with one solid neighbour, outward from the fluid
+  //! cell. Zero before the first step and for an inactive direction.
+  torch::Tensor boundary(int dim) const;
+
   std::vector<std::string> const& row_names() const { return _rows; }
   std::vector<std::string> const& counter_names() const { return _counter; }
   std::vector<std::string> const& minimum_names() const { return _minimum; }
@@ -108,6 +116,9 @@ class RegisterMonitor {
   //! FluxRegister::begin_step or the first book()/post()
   torch::Tensor _step_amount, _stage_amount, _stage_post;
   void place_amounts(torch::Device device);
+  //! R-7: boundary(dim) = _boundary + _bdirect: the stage recursion, which
+  //! FluxRegister folds like S_d's, and the post_split part no w1 scales
+  std::array<torch::Tensor, 3> _boundary, _bdirect;
   friend class FluxRegister;
 };
 
@@ -207,6 +218,10 @@ class FluxRegister {
   //! field; begin_step clears the direct part.
   void post_split(int dim, std::string const& name, torch::Tensor const& flux,
                   double weight, double dt);
+  //! R-7: this stage's immersed-solid cells (nonzero: solid), shaped like a
+  //! cell field, for boundary(dim)'s solid faces; undefined: no solid. The
+  //! face set is rebuilt only when the solid field changes.
+  void set_solid(torch::Tensor const& solid);
 
   RegisterMonitor& monitor() { return _monitor; }
   RegisterMonitor const& monitor() const { return _monitor; }
@@ -227,6 +242,14 @@ class FluxRegister {
   CoordinateImpl const* _coord = nullptr;
   //! total(dim) <- after; books sum A_f (after - before) per row as name
   void overwrite_(int dim, std::string const& name, torch::Tensor const& after);
+  //! R-7: per direction, the outward sign times A_f of each boundary face,
+  //! zero elsewhere, shaped like total(dim) without rows (FP64, FP32 on MPS);
+  //! undefined until built, rebuilt when the solid field changes
+  std::array<torch::Tensor, 3> _bweight;
+  torch::Tensor _solid;
+  uint32_t _solid_version = 0;
+  torch::Tensor const& boundary_weight_(int dim);
+  void place_boundary_();
   std::array<bool, 3> _want_step = {false, false, false};
   RegisterMonitor _monitor;
   int _stage = -1;
