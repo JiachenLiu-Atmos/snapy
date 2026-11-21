@@ -1,6 +1,3 @@
-// C/C++
-#include <optional>
-
 // base
 #include <configure.h>
 
@@ -161,9 +158,7 @@ std::map<std::string, torch::Tensor> StageExecutor::save_list(
 }
 
 std::shared_ptr<kintera::ThermoYImpl> StageExecutor::thermo_of() const {
-  auto modules = _block->named_modules();
-  auto mt = modules.find("hydro.eos.thermo");
-  return mt ? std::dynamic_pointer_cast<kintera::ThermoYImpl>(*mt) : nullptr;
+  return _block->thermo();
 }
 
 void StageExecutor::run_stage(Variables& vars, double dt, int stage) {
@@ -204,11 +199,24 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
   auto current = at::cuda::getCurrentCUDAStream(device);
   auto side = at::cuda::getStreamFromPool(false, device);
 
-  // K.rst 3.5, 7: the thermo is prepared before the warm-up (below, with the
-  // warm-up's one-time uploads: prepare() builds the table, so the
-  // no-table-build scope opens right after it); from then on no kintera
-  // table is built inside the warm-up or the capture (a missing one throws)
-  std::optional<kintera::NoTableBuild> no_table_build;
+  // K.rst 3.5, 7: the thermo is prepared first, under the sync-exempt mode
+  // the warm-up uses (its table upload is a synchronizing copy), so the save
+  // list below already holds the counter and the active-set buffers on the
+  // first capture; from then on no kintera table is built inside the
+  // warm-up or the capture (a missing one throws)
+  {
+    auto& warn = c10::cuda::warning_state();
+    auto mode = warn.get_sync_debug_mode();
+    warn.set_sync_debug_mode(c10::cuda::SyncDebugMode::L_DISABLED);
+    try {
+      _block->prepare_thermo(vars.at("hydro_u"));
+    } catch (...) {
+      warn.set_sync_debug_mode(mode);
+      throw;
+    }
+    warn.set_sync_debug_mode(mode);
+  }
+  kintera::NoTableBuild no_table_build;
   auto handles = save_list(vars);
   std::map<std::string, torch::Tensor> saved;
   for (auto const& [name, t] : handles) saved[name] = t.clone();
@@ -229,8 +237,6 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
     warn.set_sync_debug_mode(c10::cuda::SyncDebugMode::L_DISABLED);
     c10::cuda::CUDAStreamGuard guard(side);
     try {
-      _block->prepare_thermo(vars.at("hydro_u"));  // its table upload syncs
-      no_table_build.emplace();
       for (int i = 0; i < 3; ++i) run_eager(vars, dt, stage);
     } catch (...) {
       warn.set_sync_debug_mode(mode);
