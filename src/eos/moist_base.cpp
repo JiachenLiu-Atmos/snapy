@@ -11,6 +11,7 @@
 #include <snap/mesh/meshblock.hpp>
 
 #include "moist_base.hpp"
+#include "species_sum.hpp"
 
 namespace snap {
 
@@ -75,8 +76,11 @@ void MoistEOSImpl::_prim2cons(torch::Tensor prim, torch::Tensor& cons) {
   int ny = nspecies();
 
   // den -> den
+  // (species_total accumulates in species order, as in _prim2intEng)
   auto out = cons[IDN];
-  torch::mul_out(out, (1. - prim.narrow(0, ICY, ny).sum(0)), prim[IDN]);
+  auto yd = ny > 0 ? 1. - species_total(prim.narrow(0, ICY, ny))
+                   : torch::ones_like(prim[IDN]);
+  torch::mul_out(out, yd, prim[IDN]);
 
   // mixr -> den
   out = cons.narrow(0, ICY, ny);
@@ -123,7 +127,8 @@ torch::Tensor MoistEOSImpl::_cons2prim_layout(torch::Tensor cons,
 torch::Tensor MoistEOSImpl::_cons2ke(torch::Tensor cons) {
   auto pcoord = phydro->pmb->pcoord;
   int ny = nspecies();
-  auto rho = cons[IDN] + cons.narrow(0, ICY, ny).sum(0);
+  auto rho = cons[IDN];
+  if (ny > 0) rho = rho + species_total(cons.narrow(0, ICY, ny));
 
   auto mom = cons.narrow(0, IVX, 3).clone();
   coord_vec_raise_(mom, pcoord->cosine_cell_kj);

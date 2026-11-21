@@ -12,29 +12,9 @@
 #include <snap/mesh/meshblock.hpp>
 
 #include "ideal_moist.hpp"
+#include "species_sum.hpp"
 
 namespace snap {
-
-namespace {
-
-// sum_k y[k] * c[k] over the leading (species) axis, accumulated one species
-// at a time with elementwise ops. A sum(0) or matmul over that axis of a
-// block's strided (nvar, nc3, nc2, nc1) view rounds by memory position, so
-// identical states in different columns could come out 1 ulp apart.
-torch::Tensor species_dot(torch::Tensor const& y, torch::Tensor const& c) {
-  auto acc = y[0] * c[0];
-  for (int64_t k = 1; k < y.size(0); ++k) acc = acc + y[k] * c[k];
-  return acc;
-}
-
-// sum_k y[k] over the leading (species) axis, accumulated the same way
-torch::Tensor species_total(torch::Tensor const& y) {
-  auto acc = y[0];
-  for (int64_t k = 1; k < y.size(0); ++k) acc = acc + y[k];
-  return acc;
-}
-
-}  // namespace
 
 void IdealMoistImpl::reset() {
   split_cv_ = split_offset_ = split_gas_ = torch::Tensor();
@@ -89,10 +69,10 @@ torch::Tensor IdealMoistImpl::internal_energy_offset(
   auto offset = hydro_like[IDN] * u0[0];
   if (ny == 0) return offset;
 
-  std::vector<int64_t> vec(hydro_like.dim(), 1);
-  vec[0] = -1;
-  offset +=
-      (hydro_like.narrow(0, ICY, ny) * u0.narrow(0, 1, ny).view(vec)).sum(0);
+  // (in the promoted type of hydro_like and u0, as the broadcast product was)
+  auto dtype = torch::promote_types(hydro_like.scalar_type(), u0.scalar_type());
+  auto ys = hydro_like.narrow(0, ICY, ny).to(dtype);
+  offset += species_dot(ys, u0.narrow(0, 1, ny).to(ys.device(), dtype));
   return offset;
 }
 
@@ -232,9 +212,12 @@ void IdealMoistImpl::_cons2prim(torch::Tensor cons, torch::Tensor& prim,
   // subtract the internal energy offset
   ie -= cons[IDN] * u0[0];
 
-  std::vector<int64_t> vec(cons.dim(), 1);
-  vec[0] = -1;
-  ie -= (cons.narrow(0, ICY, ny) * u0.narrow(0, 1, ny).view(vec)).sum(0);
+  // (in the promoted type of cons and u0, as the broadcast product was)
+  if (ny > 0) {
+    auto dtype = torch::promote_types(cons.scalar_type(), u0.scalar_type());
+    auto ys = cons.narrow(0, ICY, ny).to(dtype);
+    ie -= species_dot(ys, u0.narrow(0, 1, ny).to(ys.device(), dtype));
+  }
 
   // eng -> pr  (TODO(cli) iteration needed here)
   auto gammad = gammad_(pthermo->options->cref_R()[0]);

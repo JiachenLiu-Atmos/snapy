@@ -30,6 +30,7 @@
 #include "moist_base.hpp"
 #include "moist_mixture.hpp"
 #include "shallow_water.hpp"
+#include "species_sum.hpp"
 
 namespace snap {
 
@@ -318,7 +319,9 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
   if (nvar() > IPR) {
     auto mom = cons.narrow(0, IVX, 3).clone();
     coord_vec_raise_(mom, pcoord->cosine_cell_kj);
-    auto rho = dry_total(cons) + cons.narrow(0, ICY, ny).sum(0);
+    // (species_total accumulates in species order, see species_sum.hpp)
+    auto rho = dry_total(cons);
+    if (ny > 0) rho = rho + species_total(cons.narrow(0, ICY, ny));
     auto ke = 0.5 * (mom * cons.narrow(0, IVX, 3)).sum(0) / rho;
     auto min_temp = options->temperature_floor() * torch::ones_like(ke);
     // UT->I reads the dry density: hand it the total
