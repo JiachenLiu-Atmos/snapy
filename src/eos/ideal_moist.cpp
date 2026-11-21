@@ -242,9 +242,10 @@ torch::Tensor IdealMoistImpl::_prim2intEng(torch::Tensor prim) {
   // add the internal energy offset
   auto yd = 1. - yfrac.sum(0);
   ie += prim[IDN] * yd * u0[0];
-  ie += prim[IDN] * yfrac.unfold(0, ny, 1)
-                        .matmul(u0.narrow(0, 1, ny).to(yfrac.options()))
-                        .squeeze(0);
+  std::vector<int64_t> vec(yfrac.dim(), 1);
+  vec[0] = -1;
+  ie += prim[IDN] *
+        (yfrac * u0.narrow(0, 1, ny).to(yfrac.options()).view(vec)).sum(0);
   return ie;
 }
 
@@ -322,10 +323,12 @@ torch::Tensor IdealMoistImpl::f_eps(torch::Tensor const& yfrac) const {
     return torch::ones(vec, yfrac.options());
   }
 
-  auto yu = yfrac.narrow(0, 0, nvapor).unfold(0, nvapor, 1);
-  return 1. +
-         yu.matmul(inv_mu_ratio_m1.narrow(0, 0, nvapor).to(yfrac.options()))
-             .squeeze(0) -
+  // an explicit multiply-and-sum over the species axis: a matmul on this
+  // strided view rounds by memory position (identical inputs, 1 ulp apart)
+  std::vector<int64_t> vec(yfrac.dim(), 1);
+  vec[0] = -1;
+  auto mu = inv_mu_ratio_m1.narrow(0, 0, nvapor).to(yfrac.options());
+  return 1. + (yfrac.narrow(0, 0, nvapor) * mu.view(vec)).sum(0) -
          yfrac.narrow(0, nvapor, ncloud).sum(0);
 }
 
@@ -338,8 +341,11 @@ torch::Tensor IdealMoistImpl::f_sig(torch::Tensor const& yfrac) const {
     return torch::ones(vec, yfrac.options());
   }
 
-  auto yu = yfrac.unfold(0, ny, 1);
-  return 1. + yu.matmul(cv_ratio_m1.to(yfrac.options())).squeeze(0);
+  // the same explicit species sum as f_eps, so the result does not depend on
+  // where the element sits in memory
+  std::vector<int64_t> vec(yfrac.dim(), 1);
+  vec[0] = -1;
+  return 1. + (yfrac * cv_ratio_m1.to(yfrac.options()).view(vec)).sum(0);
 }
 
 }  // namespace snap
