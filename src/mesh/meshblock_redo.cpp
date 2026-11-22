@@ -29,11 +29,6 @@
 
 namespace snap {
 
-int64_t MeshBlockImpl::saturation_failures() {
-  auto pthermo = thermo();
-  return pthermo ? pthermo->take_saturation_adjustment_failures() : 0;
-}
-
 int MeshBlockImpl::apply_redo(Variables &vars, int causes) {
   // V3 I-5: the VIC's failed columns (cause bit 5), logged on a redo only
   if ((causes & 32) && phydro->picorr)

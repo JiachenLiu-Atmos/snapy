@@ -1,7 +1,0 @@
-
-torch::TensorList CylindricalImpl::vec_from_cartesian(float vec[3]) {
-  auto theta = x2v.unsqueeze(0).unsqueeze(2);
-  auto omega1 = cos(theta) * vec[0] + sin(theta) * vec[1]
-  auto omega2 = -sin(theta) * vec[0] + cos(theta) * vec[1];
-  auto omega3 = vec[2];
-}

@@ -131,16 +131,4 @@ void SignalHandler::SetSignalFlag(int s) {
   return;
 }
 
-//! \brief Set the wall time limit alarm
-void SignalHandler::SetWallTimeAlarm(int t) {
-  alarm(t);
-  return;
-}
-
-//! \brief Cancel the wall time limit alarm
-void SignalHandler::CancelWallTimeAlarm() {
-  alarm(0);
-  return;
-}
-
 }  // namespace snap

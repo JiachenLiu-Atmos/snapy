@@ -378,17 +378,6 @@ static inline int get_side(std::tuple<int, int, int> const& offset) {
     return -1;  // invalid
 }
 
-static inline void cs_clamp_inside(int pxy, int* nx, int* ny) {
-  if (*nx < 0)
-    *nx = 0;
-  else if (*nx >= pxy)
-    *nx = pxy - 1;
-  if (*ny < 0)
-    *ny = 0;
-  else if (*ny >= pxy)
-    *ny = pxy - 1;
-}
-
 static inline void cs_edge_map_into_neighbor(int pxy, int leaving_side,
                                              int pos /*0..k-1*/,
                                              const CSEdge* emap, int* out_rx,
@@ -487,8 +476,6 @@ void CubedSphereLayoutImpl::_step_one(int face, int rx, int ry, int dx, int dy,
 
   /* Map to neighbor border */
   cs_edge_map_into_neighbor(pxy(), side, pos, &emap, out_rx, out_ry);
-
-  // cs_clamp_inside(pxy, out_rx, out_ry);
 }
 
 int CubedSphereLayoutImpl::rank_of(std::tuple<int, int, int> iloc) const {
@@ -862,31 +849,6 @@ std::tuple<int, int, int> CubedSphereLayoutImpl::_peer_exchange_offset(
   (void)opts;
   (void)offset;
   return find_peer_offset(*this, peer_rank, target_rank);
-}
-
-void CubedSphereLayoutImpl::_interpolate_to_local(
-    MeshBlockImpl const* pmb, std::tuple<int, int, int> offset,
-    torch::Tensor var) const {
-  // my coordinates
-  auto pcoord = pmb->pcoord;
-  auto mesh = torch::meshgrid({pcoord->x3v, pcoord->x2v, pcoord->x1v},
-                              /*indexing=*/"ij");
-
-  auto sub = pmb->part(offset, PartOptions().exterior(true));
-
-  auto x2v = mesh[1].unsqueeze(0).index(sub).squeeze(0);
-  auto x3v = mesh[0].unsqueeze(0).index(sub).squeeze(0);
-
-  auto var_neighbor = var.clone();
-
-  if (options->verbose() && is_root()) {
-    std::cout << "offset = (" << std::get<0>(offset) << ", "
-              << std::get<1>(offset) << ", " << std::get<2>(offset) << ")\n";
-    std::cout << "var from neighbor = \n"
-              << var_neighbor[IDN].squeeze().transpose(0, 1).flip(0) << "\n";
-  }
-
-  //\TODO calculate neighbor coordinates and perform interpolation
 }
 
 }  // namespace snap

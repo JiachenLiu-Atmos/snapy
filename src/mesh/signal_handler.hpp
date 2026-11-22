@@ -50,14 +50,6 @@ class SignalHandler {
   //! \return Signal flag value
   int GetSignalFlag(int s);
 
-  //! \brief Set wall-time alarm
-  //!
-  //! \param[in] t Time in seconds for alarm
-  void SetWallTimeAlarm(int t);
-
-  //! \brief Cancel the wall-time alarm
-  void CancelWallTimeAlarm();
-
  private:
   static SignalHandler *mysignal_;  //!< Singleton instance pointer
   static int signalflag_[nsignal];  //!< Array of signal flags

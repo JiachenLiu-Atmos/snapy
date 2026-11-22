@@ -288,7 +288,7 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   std::array<bool, 7> local_redo_flags(Variables const& vars);
   //! Device flags (six causes plus vapor/capacity failure latches), folded
   //! into the retry causes by read_redo_flags; built without a host read.
-  //! Drains the saturation-failure count like saturation_failures()
+  //! Drains kintera's saturation-failure count
   torch::Tensor local_redo_flag_tensor(Variables const& vars);
   //! one device-to-host read of a local_redo_flag_tensor (or their max):
   //! slots 0-5 are causes 0-5, slots 6-7 cause 2, slot 8 (diffusion.radial,
@@ -301,10 +301,6 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
 
   //! the EOS's kintera ThermoY (hydro.eos.thermo), or null
   std::shared_ptr<kintera::ThermoYImpl> thermo() const;
-
-  //! drains kintera's count of cells whose saturation adjustment failed since
-  //! the last call (also called at step start); 0 without a ThermoY
-  int64_t saturation_failures();
 
   //! roll back (causes != 0: 1 floor, 2 clamp, 4 limiter, 8 nan,
   //! 16 saturation) or accept it

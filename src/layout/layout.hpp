@@ -222,7 +222,6 @@ class LayoutImpl {
     return {options->px(), options->py(), options->pz()};
   }
 
-  bool is_root() const { return options->rank() == options->root_rank(); }
   bool use_process_group() const {
     return owner() != nullptr && options->process_world_size() > 1;
   }

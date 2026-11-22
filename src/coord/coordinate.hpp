@@ -13,7 +13,6 @@
 #include <torch/nn/modules/common.h>
 
 // snap
-#include <snap/mesh/mesh_functions.hpp>
 #include <snap/utils/tensor_cast_cache.hpp>
 
 // arg
