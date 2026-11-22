@@ -11,6 +11,7 @@
 #include <functional>
 #include <limits>
 #include <snap/hydro/flux_register.hpp>
+#include <snap/layout/seam_register.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/mesh/precision_policy.hpp>
 
@@ -453,6 +454,44 @@ TEST(FluxRegister, apply_prescribed_prescribes_the_kept_parts) {
   auto ref =
       (s.area(1, reg) * torch::where(mask, value - t0, 0.)).sum({1, 2, 3});
   EXPECT_LE(rel(reg.monitor().amounts("boundary.prescribed"), ref), 1.e-15);
+}
+
+// V3 E: without a solid, S's boundary.prescribed covers the wall block
+// faces only, so the register works on the wall face planes alone. A face
+// off the walls keeps its bits and never enters the booking: a non-finite
+// flux there leaves "boundary.prescribed" finite
+TEST(FluxRegister, wall_prescription_works_on_the_wall_planes_only) {
+  Seam s;
+  RegisterRequest req;
+  req.keep = {"riemann.central@1"};
+  auto reg = s.make(req, 9);
+  s.stage(reg);
+  auto c = s.block->pcoord;
+  int il = c->il(), iw = c->iu() + 1;
+  // an x1 face between two interior cells, off both walls
+  reg.total(1)[IDN].select(2, il + 2).select(1, c->jl()).fill_(NAN);
+  auto t0 = reg.total(1).clone();
+  auto k0 = reg.kept(1, "riemann.central").clone();
+  supply_prescribed(reg, s.block.get(), torch::Tensor(),
+                    {IVX, IVX + 1, IVX + 2});
+  reg.apply_prescribed(1);
+  auto mask = torch::zeros_like(t0, torch::kBool);
+  for (int r = 0; r < t0.size(0); ++r) {
+    if (r >= IVX && r <= IVX + 2) continue;  // free slip: momentum keeps
+    mask[r].select(2, il).fill_(true);
+    mask[r].select(2, iw).fill_(true);
+  }
+  auto same = [](torch::Tensor const& a, torch::Tensor const& b) {
+    return torch::allclose(a, b, 0., 0., /*equal_nan=*/true);
+  };
+  EXPECT_TRUE(same(reg.total(1), torch::where(mask, 0., t0)));
+  EXPECT_TRUE(same(reg.kept(1, "riemann.central"), torch::where(mask, 0., k0)));
+  reg.end_stage(1.);
+  auto got = reg.monitor().amounts("boundary.prescribed");
+  auto ref = (s.area(1, reg) * torch::where(mask, -t0, 0.)).sum({1, 2, 3});
+  EXPECT_TRUE(torch::isfinite(got).all().item<bool>())
+      << "a face off the walls entered the booking: " << got;
+  EXPECT_LE(rel(got, ref), 1.e-15);
 }
 
 // G-R14 (flux corrections only): the amounts' recursion equals

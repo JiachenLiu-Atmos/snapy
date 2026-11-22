@@ -343,6 +343,64 @@ void FluxRegister::set_prescribed(int dim, torch::Tensor const& mask,
               dim, "), ", t.sizes());
   _pmask[dim - 1] = mask;
   _pvalue[dim - 1] = value;
+  _pwall_set[dim - 1] = false;
+}
+
+void FluxRegister::set_prescribed_walls(int dim,
+                                        std::vector<int64_t> const& planes,
+                                        std::vector<int> const& free_rows) {
+  auto t = slot(dim, "boundary.prescribed");
+  int d = dim - 1, ax = 4 - dim;  // the face axis of [nvar, nc3, nc2, nc1]
+  for (auto p : planes)
+    TORCH_CHECK(p >= 0 && p < t.size(ax),
+                "[FluxRegister] set_prescribed_walls: plane ", p,
+                " is outside total(", dim, ")'s ", t.size(ax), " faces");
+  for (int r : free_rows)
+    TORCH_CHECK(r >= 0 && r < t.size(0),
+                "[FluxRegister] set_prescribed_walls: row ", r, " of ",
+                t.size(0));
+  _pmask[d] = _pvalue[d] = torch::Tensor();
+  _pwall[d] = planes;
+  _pwall_set[d] = true;
+  auto& rows = _prow[d];
+  if (!rows.defined() || _pfree[d] != free_rows || rows.size(0) != t.size(0) ||
+      rows.device() != t.device()) {
+    rows = torch::ones({t.size(0), 1, 1}, t.options().dtype(torch::kBool));
+    for (int r : free_rows) rows[r].fill_(false);
+    _pfree[d] = free_rows;
+  }
+}
+
+void FluxRegister::apply_wall_planes_(int dim) {
+  int d = dim - 1, ax = 4 - dim;
+  if (_pwall[d].empty()) return;
+  TORCH_CHECK(_coord,
+              "[FluxRegister] 'boundary.prescribed' books A_f (after - "
+              "before): reset the register with its coordinate");
+  auto t = _total[d];
+  auto& rows = _prow[d];
+  if (rows.device() != t.device()) rows = rows.to(t.device());
+  auto wide = t.is_mps() ? torch::kFloat32 : torch::kFloat64;
+  auto area = dim == 1   ? _coord->face_area1().narrow(2, 0, t.size(3))
+              : dim == 2 ? _coord->face_area2().narrow(1, 0, t.size(2))
+                         : _coord->face_area3().narrow(0, 0, t.size(1));
+  area = area.to(t.device(), wide);
+  torch::Tensor rate;
+  for (auto p : _pwall[d]) {
+    // the full-mask path restricted to one plane: the same values, written
+    // and booked on the wall faces only (elsewhere after - before is 0)
+    for (auto const& name : _kept[d]) {
+      auto part = _parts.at(name + "@" + std::to_string(dim)).select(ax, p);
+      part.masked_fill_(rows, 0.);
+    }
+    auto tp = t.select(ax, p);
+    auto after = tp.masked_fill(rows, 0.);
+    auto r =
+        (area.select(ax - 1, p) * (after.to(wide) - tp.to(wide))).sum({1, 2});
+    rate = rate.defined() ? rate + r : r;
+    tp.copy_(after);
+  }
+  _monitor.book("boundary.prescribed", rate);
 }
 
 void FluxRegister::keep(int dim, std::string const& part,
@@ -371,6 +429,7 @@ void FluxRegister::cell_amount(std::string const& name,
 
 void FluxRegister::apply_prescribed(int dim) {
   auto t = slot(dim, "boundary.prescribed");
+  if (_pwall_set[dim - 1]) return apply_wall_planes_(dim);
   auto& mask = _pmask[dim - 1];
   if (!mask.defined()) return;
   auto& value = _pvalue[dim - 1];

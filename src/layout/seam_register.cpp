@@ -168,21 +168,25 @@ void supply_prescribed(FluxRegister& reg, MeshBlockImpl const* pmb,
     auto t = reg.total(dim);
     if (!t.defined()) continue;
     int axis = 3 - dim;  // of a [nc3, nc2, nc1] face tensor
-    auto faces =
-        torch::zeros(t.sizes().slice(1), t.options().dtype(torch::kBool));
+    std::vector<int64_t> planes;
     for (int lu = 0; lu < 2; ++lu) {
       auto o = kFace[dim - 1][lu];
       if (pmb->options->face_kind(o[0], o[1], o[2]) == FaceKind::wall)
-        faces.select(axis, kPlane[dim - 1][lu]).fill_(true);
+        planes.push_back(kPlane[dim - 1][lu]);
     }
-    if (solid.defined()) {
-      // face i lies between cells i - 1 and i
-      auto s = (solid != 0).to(faces.device());
-      int64_t n = s.size(axis);
-      faces.narrow(axis, 1, n - 1)
-          .logical_or_(
-              s.narrow(axis, 0, n - 1).logical_or(s.narrow(axis, 1, n - 1)));
+    if (!solid.defined()) {  // V3 E: the wall planes alone, no full mask
+      reg.set_prescribed_walls(dim, planes, free_rows);
+      continue;
     }
+    auto faces =
+        torch::zeros(t.sizes().slice(1), t.options().dtype(torch::kBool));
+    for (auto p : planes) faces.select(axis, p).fill_(true);
+    // face i lies between cells i - 1 and i
+    auto s = (solid != 0).to(faces.device());
+    int64_t n = s.size(axis);
+    faces.narrow(axis, 1, n - 1)
+        .logical_or_(
+            s.narrow(axis, 0, n - 1).logical_or(s.narrow(axis, 1, n - 1)));
     auto mask = faces.unsqueeze(0).repeat({t.size(0), 1, 1, 1});
     for (int r : free_rows) mask[r].fill_(false);
     reg.set_prescribed(dim, mask, torch::zeros_like(t));

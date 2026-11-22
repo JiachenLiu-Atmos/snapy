@@ -34,7 +34,8 @@ void reconcile_panel_seams(FluxRegister& reg, MeshBlockImpl const* pmb,
 //! every row except free_rows is set to 0. The hydro passes its three
 //! momentum rows (free slip: they keep the mirror-Riemann flux); a Scalar
 //! module passes none. solid is the cell mask ([nc3, nc2, nc1], nonzero =
-//! solid), or undefined without solids.
+//! solid), or undefined without solids. Without solids R gets the wall
+//! planes (set_prescribed_walls) and touches no other face (V3 E).
 void supply_prescribed(FluxRegister& reg, MeshBlockImpl const* pmb,
                        torch::Tensor const& solid,
                        std::vector<int> const& free_rows);
