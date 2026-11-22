@@ -5,8 +5,7 @@
 
 #include <snap/coord/coordinate.hpp>
 #include <snap/coord/x1_centroid.hpp>
-#include <snap/hydro/hydro_reference.hpp>
-#include <snap/hydro/wb_ref4.hpp>
+#include <snap/coord/x1_stencil.hpp>
 #include <snap/layout/exchange.hpp>
 #include <snap/mesh/precision_policy.hpp>
 
@@ -14,9 +13,52 @@
 
 namespace snap {
 
+namespace {
+
+// relative margin of the range guards: on a flat profile the two bounds
+// coincide, and an exact test would flip on round-off between a split and a
+// one-block column
+constexpr double kMargin = 1.e-10;
+// |ln(p_lo/p_hi)| above this: fewer than two cells per pressure scale height
+constexpr double kMaxLogDrop = 0.5;
+
+torch::Tensor in_range(torch::Tensor const& v, torch::Tensor const& lo,
+                       torch::Tensor const& hi) {
+  return (v >= lo - kMargin * lo.abs()) & (v <= hi + kMargin * hi.abs());
+}
+
+// wb_ref4 (#289): the resolution flag, cells (dilated by two) keeping the
+// kernel's face density; local, so it needs no seam exchange
+torch::Tensor wb_ref4_flag(FaceDensityRows const& st,
+                           torch::Tensor const& psf_lo,
+                           torch::Tensor const& psf_hi) {
+  if (!st.usable) return torch::ones_like(psf_lo, torch::kBool);
+  auto bad = ((psf_lo / psf_hi).log().abs() > kMaxLogDrop) & st.counted;
+  auto sizes = bad.sizes();
+  return torch::max_pool1d(bad.to(psf_lo.dtype()).reshape({-1, 1, st.nc1}), 5,
+                           1, 2)
+             .reshape(sizes) > 0.;
+}
+
+// wb_ref4 faces, after the seam exchange: dsf on is..iu+1 is the fourth-order
+// face value of dref (needs is >= 1)
+void wb_ref4_faces(FaceDensityRows const& st, torch::Tensor const& dref,
+                   torch::Tensor dsf, torch::Tensor const& flag) {
+  if (!st.usable) return;
+  int nf = st.iu - st.is + 2;
+  auto face = x1_stencil_apply(dref, st.idx, st.wt);
+  auto dl = dref.narrow(-1, st.is - 1, nf), dr = dref.narrow(-1, st.is, nf);
+  auto ok = in_range(face, torch::minimum(dl, dr), torch::maximum(dl, dr)) &
+            ~flag.narrow(-1, st.is - 1, nf) & ~flag.narrow(-1, st.is, nf);
+  auto d = dsf.narrow(-1, st.is, nf);
+  d.copy_(torch::where(ok, face, d));
+}
+
 // the relay tags of the reference anchor and its ghost rows (down is +1)
 constexpr int kWbRefTag = 0x7715;
 constexpr int kWbGhostTag = 0x7717;
+
+}  // namespace
 
 ExchangeX1Link::ExchangeX1Link(MeshBlockImpl const* pmb) : pmb_(pmb) {
   std::tie(below_, above_) = Exchange(pmb).x1_neighbors();
@@ -46,15 +88,8 @@ ReferenceFaces X1Reference::evaluate(X1ReferenceConfig const& cfg,
   int is = pcoord->il();
   int iu = pcoord->iu();
 
-  // Global x1 reference across a vertical (nb1>1) decomposition: make the
-  // hydrostatic reference continuous over the x1 process seams. The block
-  // owning x1-outer anchors at the true domain top; every block below receives
-  // the running seam-face pressure from the block above and passes on that
-  // value plus its own interior hydrostatic drop (= its bottom-face pressure).
-  // A serial top->bottom scan along the x1 block column, whether the blocks
-  // sit on other processes or on other threads of this one (#254). nb1 == 1
-  // (no x1 neighbor) => an empty anchor tells the backend to compute the
-  // local top anchor.
+  // global x1 reference: a top->bottom anchor relay down a split x1 column;
+  // empty at nb1 == 1 (the kernel anchors locally). See lane-c-notes.md.
   torch::Tensor anchor;
   // relay only across a SPLIT x1 column (else unmatched send/recv at nb1=1)
   bool x1_split = link && link->split();
@@ -103,14 +138,8 @@ ReferenceFaces X1Reference::evaluate(X1ReferenceConfig const& cfg,
   auto& dsf = reference.dsf;
   auto& dref = reference.dref;
 
-  // dynamics/conversion-order 4 (#289): the only fourth-order part is the
-  // face density below, the face value of the kernel's own cell dref -- that
-  // is what makes the O(dz^2) face offset vanish, whatever dref's own accuracy
-  // (wb-ref4.md section 2), and replacing dref broke the theta bound of a
-  // density current at a wall. psf is never changed, so the rest balance is
-  // the kernel's. Only the resolution flag is wanted here; the face part
-  // follows the seam exchange, so a column split along x1 gets one block's
-  // faces.
+  // conversion-order 4 (#289): only the flag here; the faces follow the seam
+  // exchange, so a split column gets one block's faces
   torch::Tensor wb4_flag;
   if (cfg.conversion_order == 4) {
     if (!wb_ref4_ || wb_ref4_->key != X1RowsKey(pcoord->x1f, w.options())) {
@@ -132,18 +161,8 @@ ReferenceFaces X1Reference::evaluate(X1ReferenceConfig const& cfg,
     link->pass_anchor(outgoing);
   }
 
-  // Ghost-row reference exchange across x1 seams: overwrite this block's
-  // ghost rows of (pref, dref) with the NEIGHBOR'S interior rows for the same
-  // physical cells. The block-local ghost quadrature (w6e edge rows, and the
-  // [lo,hi] guard whose accept/fallback decision is stencil-dependent) does
-  // NOT reproduce the owner's interior values -- near a physical wall the
-  // mismatch reaches ~1e2 Pa (measured), which enters
-  // w' = w - ref as a spurious seam perturbation every step and makes the
-  // dynamics nb1-dependent. After this exchange the perturbation field seen
-  // by the reconstruction is identical on both sides of every seam, so the
-  // seam-face states agree and the single-valued seam flux average becomes a
-  // no-op. nb1=1: no seams, bit-unchanged. A same-process neighbor goes
-  // through a board, a remote one through the process group (#254).
+  // ghost rows of (pref, dref) <- the neighbour's owned rows, so w' is the
+  // same on both sides of a seam (lane-c-notes.md); nb1 = 1: unchanged
   if (x1_split) {
     int ng = is;  // il() == nghost
     std::vector<torch::Tensor> fields = {pref, dref};
@@ -154,17 +173,10 @@ ReferenceFaces X1Reference::evaluate(X1ReferenceConfig const& cfg,
     link->exchange_ghost_rows(fields, ng);
   }
 
-  // conversion-order 4: the face density is the fourth-order face value of
-  // the (exchanged) cell density reference, so a split column gets the same
-  // faces as one block
   if (wb4_flag.defined()) wb_ref4_faces(*wb_ref4_, dref, dsf, wb4_flag);
 
-  // the face density on each side of a face is the x1 reconstruction's own
-  // optimal-linear row applied to dref (cp5 = the weno5 candidates combined
-  // with their linear weights), so rho_f = R_lin(rho) + N(rho') whatever
-  // dref is. Read after the seam exchange; a face whose value leaves
-  // [min, max] of its two cells' dref keeps the face density above, which is
-  // also what any other reconstruction gets on both sides.
+  // per-side face density: the reconstruction's cp5 row on dref, guarded by
+  // [min, max] of the two cells (lane-c-notes.md)
   auto dsf_lr = torch::stack({dsf, dsf});
   auto const& itype = cfg.interp;
   int nc1 = dref.size(-1);
@@ -200,18 +212,11 @@ ReferenceFaces X1Reference::evaluate(X1ReferenceConfig const& cfg,
       auto d = dsf_lr[s].narrow(-1, il - 1, iu5 + 3 - il);
       d.copy_(torch::where((face >= lo) & (face <= hi), face, d));
     }
-    // a reflecting x1 wall face is a mirror: one face density on both sides,
-    // the mean of the two rows. Two values there give a Riemann solver whose
-    // wave speeds read the face density (hllc, roe) a nonzero contact speed,
-    // which moves mass through the wall.
+    // a reflecting x1 wall face is a mirror: one face density on both sides
     auto const& refl = cfg.reflecting;
     if (wb4_flag.defined()) {
-      // conversion-order 4: a side whose cp5 row reads a ghost keeps wb_ref4's
-      // face density (both sides on the two wall faces, the reading side on
-      // the third), all walls in one gather and one index_put on (side, face)
-      // rows built once per layout. Both sides then hold dsf at the wall face,
-      // where the mean below is that value (0.5 * (x + x) = x), so it is
-      // skipped
+      // key 4: a side whose cp5 row reads a ghost keeps wb_ref4's dsf, so the
+      // wall mean is skipped (lane-c-notes.md)
       std::array<int64_t, 3> at{pcoord->il(), pcoord->iu(),
                                 refl[0] + 2 * refl[1]};
       if (at != wb4_lr_at_ || !wb4_lr_col_.defined() ||

@@ -839,3 +839,203 @@ TEST(GravityWork, the_cell_form_is_refused_and_names_face) {
   msg = refused([&] { auto block = MeshBlock(opts); });
   EXPECT_NE(msg.find("gravity-work: face"), std::string::npos) << msg;
 }
+
+// R-6 follow-up (R.rst 3.4, skeleton R:79-81): a radial post_split lands in
+// a direct part of S_d that no later w1 scales. The step-start post (before
+// stage 0, after begin_step) and the step-end post (after the last
+// end_stage) both enter with their own weight; begin_step clears them.
+TEST(FluxRegister, post_split_is_never_scaled_by_a_later_w1) {
+  Seam s;
+  RegisterRequest req;
+  req.step_field = {1};
+  auto reg = s.make(req, 7);
+  auto plain = s.make(req, 7);  // the same stages without the split posts
+  auto const& stages = s.block->pintg->stages;
+  ASSERT_EQ(stages.size(), 3u);
+  double const dt = 0.37;
+  torch::manual_seed(11);
+  auto lo = torch::randn_like(reg.total(1));
+  auto hi = torch::randn_like(reg.total(1));
+
+  EXPECT_THROW(reg.post_split(2, "diffusion.radial", lo, 0.5, dt),
+               c10::Error);  // no step field for x2
+  reg.begin_step();
+  plain.begin_step();
+  reg.post_split(1, "diffusion.radial", lo, 0.5, dt);  // the step-start half
+  for (int st = 0; st < stages.size(); ++st) {
+    auto t = torch::randn_like(reg.total(1));
+    for (auto* r : {&reg, &plain}) {
+      r->begin_stage(st, stages[st]);
+      r->total(1).copy_(t);
+    }
+    EXPECT_THROW(reg.post_split(1, "diffusion.radial", hi, 0.5, dt),
+                 c10::Error);  // a split post is never inside a stage
+    reg.end_stage(dt);
+    plain.end_stage(dt);
+  }
+  reg.post_split(1, "diffusion.radial", hi, 0.5, dt);  // the step-end half
+
+  // S_d = direct + sum_s w2_s prod_{t>s} w1_t dt T_s, the recursion part
+  // computed exactly as without the posts
+  auto direct = torch::zeros_like(plain.step_field(1));
+  direct.add_(lo.to(direct.scalar_type()), 0.5 * dt);
+  direct.add_(hi.to(direct.scalar_type()), 0.5 * dt);
+  EXPECT_TRUE(torch::equal(reg.step_field(1), plain.step_field(1) + direct));
+  EXPECT_GT(direct.abs().max().item<double>(), 0.);
+
+  // a redone step starts from begin_step: the posts are gone
+  reg.begin_step();
+  EXPECT_EQ(reg.step_field(1).abs().max().item<double>(), 0.);
+}
+
+// R-7 (R.rst 4.2 O, L-3): boundary(dim) is the area-integrated outward step
+// transfer through the fluid domain's boundary faces: the block faces whose S
+// FaceKind is wall, outflow or custom, and the faces with one solid
+// neighbour, outward from the fluid cell. It follows S_d's recursion, split
+// posts included.
+namespace {
+// sum over dim's faces of sign A_f S, with the sign given by the caller
+torch::Tensor face_sum(Seam& s, FluxRegister& reg, int dim,
+                       torch::Tensor const& sign) {
+  auto f = reg.step_field(dim).to(torch::kFloat64);
+  return (f * (s.area(dim, reg).to(torch::kFloat64) * sign)).sum({1, 2, 3});
+}
+}  // namespace
+
+TEST(FluxRegister, boundary_is_the_outward_step_transfer_of_the_wall_faces) {
+  Seam s;  // the bubble: reflecting (wall) on every face; nx3 = 1
+  RegisterRequest req;
+  req.step_field = {1, 2};
+  auto reg = s.make(req, 21);
+  auto const& stages = s.block->pintg->stages;
+  double const dt = 0.29;
+  torch::manual_seed(23);
+  reg.begin_step();
+  reg.post_split(1, "diffusion.radial", torch::randn_like(reg.total(1)), 0.5,
+                 dt);
+  for (int st = 0; st < stages.size(); ++st) {
+    reg.begin_stage(st, stages[st]);
+    for (int d : {1, 2}) reg.total(d).copy_(torch::randn_like(reg.total(d)));
+    reg.end_stage(dt);
+  }
+  reg.post_split(1, "diffusion.radial", torch::randn_like(reg.total(1)), 0.5,
+                 dt);
+  auto co = s.block->pcoord;
+  int il = co->il(), iu = co->iu(), jl = co->jl(), ju = co->ju();
+  auto in_j = [&](torch::Tensor t) { return t.slice(1, jl, ju + 1); };
+  auto in_i = [&](torch::Tensor t) { return t.slice(2, il, iu + 1); };
+  for (int dim : {1, 2}) {
+    auto sign = torch::zeros_like(reg.total(dim)[0], torch::kFloat64);
+    if (dim == 1) {  // x1 faces il (inward) and iu + 1 (outward)
+      in_j(sign).select(2, il).fill_(-1.);
+      in_j(sign).select(2, iu + 1).fill_(1.);
+    } else {
+      in_i(sign).select(1, jl).fill_(-1.);
+      in_i(sign).select(1, ju + 1).fill_(1.);
+    }
+    auto want = face_sum(s, reg, dim, sign);
+    auto got = reg.monitor().boundary(dim);
+    EXPECT_EQ(got.scalar_type(), torch::kFloat64);
+    EXPECT_LE(rel(got, want), 1.e-14) << dim;
+    EXPECT_GT(want.abs().max().item<double>(), 0.) << dim;
+  }
+  // x3 is inactive (nx3 = 1): no transfer
+  EXPECT_EQ(reg.monitor().boundary(3).abs().max().item<double>(), 0.);
+  // a redone step starts from begin_step: the sums are gone
+  reg.rollback();
+  EXPECT_EQ(reg.monitor().boundary(1).abs().max().item<double>(), 0.);
+}
+
+TEST(FluxRegister, boundary_counts_solid_faces_outward_from_the_fluid) {
+  Seam s;
+  RegisterRequest req;
+  req.step_field = {1, 2};
+  auto reg = s.make(req, 31);
+  auto co = s.block->pcoord;
+  int il = co->il(), iu = co->iu(), jl = co->jl(), ju = co->ju();
+  int const i0 = il + 5, i1 = il + 9, j0 = jl + 4, j1 = jl + 12;
+  auto solid = torch::zeros_like(reg.total(1)[0], torch::kInt32);
+  solid.slice(1, j0, j1 + 1).slice(2, i0, i1 + 1).fill_(1);
+  reg.set_solid(solid);
+  reg.begin_step();
+  reg.begin_stage(0, s.block->pintg->stages[0]);  // rk3 stage 0: w2 = 1
+  reg.end_stage(1.);
+  for (int dim : {1, 2}) {
+    auto sign = torch::zeros_like(reg.total(dim)[0], torch::kFloat64);
+    auto in_j = sign.slice(1, jl, ju + 1);
+    auto in_i = sign.slice(2, il, iu + 1);
+    if (dim == 1) {
+      in_j.select(2, il).fill_(-1.);
+      in_j.select(2, iu + 1).fill_(1.);
+      // fluid left of i0 flows out through face i0; fluid right of i1
+      // through face i1 + 1, towards -x1
+      sign.slice(1, j0, j1 + 1).select(2, i0).fill_(1.);
+      sign.slice(1, j0, j1 + 1).select(2, i1 + 1).fill_(-1.);
+    } else {
+      in_i.select(1, jl).fill_(-1.);
+      in_i.select(1, ju + 1).fill_(1.);
+      sign.slice(2, i0, i1 + 1).select(1, j0).fill_(1.);
+      sign.slice(2, i0, i1 + 1).select(1, j1 + 1).fill_(-1.);
+    }
+    EXPECT_LE(rel(reg.monitor().boundary(dim), face_sum(s, reg, dim, sign)),
+              1.e-14)
+        << dim;
+  }
+}
+
+// G-R4's lane R part: with no source, every conserved row's step change over
+// the interior is minus the outward transfer the register books (O's
+// BudgetConsumer, which reads these sums, is not on this base)
+TEST(FluxRegister, boundary_closes_the_source_free_budget) {
+  std::string deck = kDeck;
+  auto at = deck.find("x2-inner: reflecting");
+  ASSERT_NE(at, std::string::npos);
+  deck.replace(at, 20, "x2-inner: outflow");
+  at = deck.find("x2-outer: reflecting");
+  ASSERT_NE(at, std::string::npos);
+  deck.replace(at, 20, "x2-outer: outflow");
+  at = deck.find("const-gravity: {grav1: -9.8}");
+  ASSERT_NE(at, std::string::npos);
+  deck.replace(at, 28, "const-gravity: {grav1: 0.}");
+  {
+    std::ofstream f("test_flux_register_budget.yaml");
+    f << deck;
+  }
+  auto block = MeshBlock(
+      MeshBlockOptionsImpl::from_yaml("test_flux_register_budget.yaml"));
+  block->to(torch::kCPU, torch::kFloat64);
+  auto co = block->pcoord;
+  auto w = torch::zeros({block->phydro->peos->nvar(), co->options->nc3(),
+                         co->options->nc2(), co->options->nc1()},
+                        torch::kFloat64);
+  auto x1 = co->x1v.view({1, 1, -1}), x2 = co->x2v.view({1, -1, 1});
+  auto L =
+      (((x2 - 6.4e3) / 4.e3).square() + ((x1 - 3.e3) / 2.e3).square()).sqrt();
+  w[IPR].fill_(1.e5);
+  w[IDN] = 1.2 * (1. + 0.1 * torch::where(L <= 1, (L * M_PI).cos() + 1., 0.));
+  w[IVY] = 10. * x2 / 12.8e3;  // into the domain nowhere, out at x2 outer
+  Variables vars;
+  vars["hydro_w"] = w;
+  block->initialize(vars);
+  auto& reg = block->phydro->flux_register();
+  auto in = block->part({0, 0, 0}, PartOptions().exterior(false));
+  auto vol = co->cell_volume();
+  for (int step = 0; step < 3; ++step) {
+    auto before = (vars.at("hydro_u") * vol).index(in).sum({1, 2, 3});
+    double dt = block->max_time_step(vars);
+    for (int st = 0; st < block->pintg->stages.size(); ++st)
+      block->forward(vars, dt, st);
+    ASSERT_EQ(block->check_redo(vars), 0);
+    auto change = (vars.at("hydro_u") * vol).index(in).sum({1, 2, 3}) - before;
+    auto out = reg.monitor().boundary(1) + reg.monitor().boundary(2);
+    for (int row : {IDN, IPR}) {
+      double b = out[row].item<double>(), c = change[row].item<double>();
+      std::printf(
+          "R-7 G-R4 step %d row %d: change %.6e, boundary %.6e, "
+          "residual / boundary %.3e\n",
+          step, row, c, b, std::abs(c + b) / std::abs(b));
+      EXPECT_GT(std::abs(b), 0.) << row;
+      EXPECT_LE(std::abs(c + b), 1.e-12 * std::abs(b)) << row;
+    }
+  }
+}

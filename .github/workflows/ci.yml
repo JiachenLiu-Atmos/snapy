@@ -75,16 +75,16 @@ jobs:
               > "$(python -c 'import site; print(site.getsitepackages()[0])')/sitecustomize.py"
           fi
 
-      # v2.6.9 contains kintera #155 but has no PyPI wheel yet.
+      # v2.6.11 contains kintera #157 (compute_into) but has no PyPI wheel yet.
       - name: Check out kintera
         uses: actions/checkout@v4
         with:
           repository: chengcli/kintera
-          ref: b8e726ce2fb1538aa15f0787fdcef732d9cdc997
+          ref: 431fd1441fdc95c2bc93f7dc56e35adb1e1315fb
           fetch-depth: 0
           path: .ci-kintera
 
-      - name: Build and install kintera 2.6.9
+      - name: Build and install kintera 2.6.11
         working-directory: .ci-kintera
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DBUILD_TESTS=OFF
@@ -159,10 +159,26 @@ jobs:
         run: |
           pip install wheel numpy pyyaml pytest netcdf4
           pip install 'torch==2.10.0'
-          pip install 'kintera>=2.6.9'
+          pip install setuptools-scm 'pyharp>=2.7.17'
           sudo apt-get update
           sudo apt-get install -y libnetcdf-dev libucx-dev nco autoconf automake libtool pkg-config
           pip install 'commux>=0.1.4' 'pinc>=0.2.0'
+
+      # v2.6.11 contains kintera #157 (compute_into) but has no PyPI wheel yet.
+      - name: Check out kintera
+        uses: actions/checkout@v4
+        with:
+          repository: chengcli/kintera
+          ref: 431fd1441fdc95c2bc93f7dc56e35adb1e1315fb
+          fetch-depth: 0
+          path: .ci-kintera
+
+      - name: Build and install kintera 2.6.11
+        working-directory: .ci-kintera
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DBUILD_TESTS=OFF
+          cmake --build build --parallel 3
+          pip install --no-build-isolation --no-deps .
 
       - name: Configure CMake
         run: |

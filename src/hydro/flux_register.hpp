@@ -88,6 +88,14 @@ class RegisterMonitor {
   //! A <- w1 A + w2 dt a_s + p_s, then a_s, p_s <- 0 (FluxRegister::end_stage)
   void end_stage(double w1, double w2dt);
 
+  //! R-7 (R.rst 4.2 O, L-3): the step's outward transfer through dim's faces
+  //! of the fluid domain's boundary, area-integrated, (nrows,) FP64 (FP32 on
+  //! MPS), in units of each row's conserved quantity: sum A_f S_d over the
+  //! block faces whose S FaceKind is wall, outflow or custom (interior cell
+  //! fluid) and the faces with one solid neighbour, outward from the fluid
+  //! cell. Zero before the first step and for an inactive direction.
+  torch::Tensor boundary(int dim) const;
+
   std::vector<std::string> const& row_names() const { return _rows; }
   std::vector<std::string> const& counter_names() const { return _counter; }
   std::vector<std::string> const& minimum_names() const { return _minimum; }
@@ -108,6 +116,9 @@ class RegisterMonitor {
   //! FluxRegister::begin_step or the first book()/post()
   torch::Tensor _step_amount, _stage_amount, _stage_post;
   void place_amounts(torch::Device device);
+  //! R-7: boundary(dim) = _boundary + _bdirect: the stage recursion, which
+  //! FluxRegister folds like S_d's, and the post_split part no w1 scales
+  std::array<torch::Tensor, 3> _boundary, _bdirect;
   friend class FluxRegister;
 };
 
@@ -190,7 +201,8 @@ class FluxRegister {
                    double stage_weight, AmountKind kind);
   //! the parts, by "part@dim", for HydroImpl to register as buffers
   std::map<std::string, torch::Tensor>& parts() { return _parts; }
-  //! S_d = sum over stages of w2_s prod_{t>s} w1_t dt T_s, per unit area
+  //! S_d = direct + sum over stages of w2_s prod_{t>s} w1_t dt T_s, per
+  //! unit area; direct holds this step's post_split entries
   torch::Tensor step_field(int dim) const { return _step[dim - 1]; }
   bool has_step_field(int dim) const { return _step[dim - 1].defined(); }
 
@@ -199,6 +211,17 @@ class FluxRegister {
   void end_stage(double dt);
   //! X's decide_retry: zero the step fields and the monitor
   void rollback();
+  //! R.rst 3.4, outside the stages (the radial split halves: after
+  //! begin_step and before stage 0, and after the last end_stage): S_d gets
+  //! weight dt flux in its direct part, which no later w1 scales. flux is
+  //! shaped like total(dim); total(dim) is untouched. dim must have a step
+  //! field; begin_step clears the direct part.
+  void post_split(int dim, std::string const& name, torch::Tensor const& flux,
+                  double weight, double dt);
+  //! R-7: this stage's immersed-solid cells (nonzero: solid), shaped like a
+  //! cell field, for boundary(dim)'s solid faces; undefined: no solid. The
+  //! face set is rebuilt only when the solid field changes.
+  void set_solid(torch::Tensor const& solid);
 
   RegisterMonitor& monitor() { return _monitor; }
   RegisterMonitor const& monitor() const { return _monitor; }
@@ -208,6 +231,10 @@ class FluxRegister {
 
  private:
   std::array<torch::Tensor, 3> _total, _step;
+  //! from a direction's first post_split of the step: S_d's stage recursion
+  //! and its direct part, S_d = _rec + _direct; undefined otherwise, when
+  //! S_d is the recursion itself
+  std::array<torch::Tensor, 3> _rec, _direct;
   std::array<std::string, 3> _slot;
   std::map<std::string, torch::Tensor> _parts;
   std::array<std::vector<std::string>, 3> _kept;
@@ -215,6 +242,14 @@ class FluxRegister {
   CoordinateImpl const* _coord = nullptr;
   //! total(dim) <- after; books sum A_f (after - before) per row as name
   void overwrite_(int dim, std::string const& name, torch::Tensor const& after);
+  //! R-7: per direction, the outward sign times A_f of each boundary face,
+  //! zero elsewhere, shaped like total(dim) without rows (FP64, FP32 on MPS);
+  //! undefined until built, rebuilt when the solid field changes
+  std::array<torch::Tensor, 3> _bweight;
+  torch::Tensor _solid;
+  uint32_t _solid_version = 0;
+  torch::Tensor const& boundary_weight_(int dim);
+  void place_boundary_();
   std::array<bool, 3> _want_step = {false, false, false};
   RegisterMonitor _monitor;
   int _stage = -1;

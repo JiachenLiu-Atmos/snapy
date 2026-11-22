@@ -14,7 +14,6 @@
 // kintera
 #include <kintera/constants.h>
 
-#include <kintera/kinetics/evolve_implicit.hpp>
 #include <kintera/kinetics/kinetics.hpp>
 #include <kintera/thermo/thermo.hpp>
 
@@ -224,13 +223,8 @@ int main(int argc, char** argv) {
     current_time = block->initialize(vars, cli->restart_filename);
   }
 
-  auto peos = block->phydro->peos;
-  auto op_kinet = kintera::KineticsOptionsImpl::from_yaml(infile);
-  auto kinet = kintera::Kinetics(op_kinet);
-  kinet->to(device);
-  kintera::ThermoX thermo_x(thermo_y->options);
-  thermo_x->to(device);
-  int ny = static_cast<int>(thermo_y->options->species().size()) - 1;
+  // the chemistry step runs inside the block's step (V3 S-K4)
+  block->set_chemistry(*kintera::KineticsOptionsImpl::from_yaml(infile));
 
   while (!block->pintg->stop(block->cycle, current_time)) {
     auto dt = block->max_time_step(vars);
@@ -239,27 +233,6 @@ int main(int argc, char** argv) {
     for (int stage = 0; stage < block->pintg->stages.size(); ++stage) {
       block->forward(vars, dt, stage);
     }
-
-    auto& hydro_u = vars["hydro_u"];
-    auto& hydro_w = vars["hydro_w"];
-    // Kinetics needs the final dynamics state, including saturation adjustment.
-    peos->forward(hydro_u, hydro_w);
-    auto temp = peos->compute("W->T", {hydro_w});
-    auto pres = hydro_w[IPR];
-    auto xfrac = thermo_y->compute("Y->X", {hydro_w.narrow(0, ICY, ny)});
-    auto conc = thermo_x->compute("TPX->V", {temp, pres, xfrac});
-    auto cp_vol = thermo_x->compute("TV->cp", {temp, conc});
-    auto conc_kinet = conc.slice(-1, 1, conc.size(-1));
-    auto [rate, rc_ddC, rc_ddT, rate_constants] =
-        kinet->forward_with_rate_constants(temp, pres, conc_kinet);
-    auto jac = kinet->jacobian(temp, conc_kinet, cp_vol, rate, rc_ddC, rc_ddT,
-                               rate_constants);
-    auto del_conc = kintera::evolve_implicit(rate, kinet->stoich, jac, dt);
-    std::vector<int64_t> view_shape(del_conc.dim(), 1);
-    view_shape[del_conc.dim() - 1] = -1;
-    auto del_rho =
-        del_conc / thermo_y->inv_mu.narrow(0, 1, ny).view(view_shape);
-    hydro_u.narrow(0, ICY, ny) += del_rho.permute({3, 0, 1, 2});
 
     int redo = block->check_redo(vars);
     if (redo > 0) continue;

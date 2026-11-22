@@ -26,14 +26,9 @@ Scheme parse_scheme(std::string const& type) {
 }
 
 Scheme velocity_pressure_scheme(Scheme s) {
-  switch (s) {
-    case Scheme::weno3:
-      return Scheme::cp3;
-    case Scheme::weno5:
-      return Scheme::cp5;
-    default:
-      return s;
-  }
+  return s == Scheme::weno3   ? Scheme::cp3
+         : s == Scheme::weno5 ? Scheme::cp5
+                              : s;
 }
 
 Interp InterpImpl::create(InterpOptions const& opts, Scheme s,
@@ -73,55 +68,44 @@ void InterpImpl::reset() {
       cp = register_buffer("cp", cm.flip({0}));
       x1_reset_tables(*this, cm_x1, cp_x1, kPoly5NuCoeff);
       break;
-    case Scheme::weno5:
-      cm = register_buffer("cm",
-                           torch::tensor({{-1. / 6., 5. / 6., 1. / 3., 0., 0.},
-                                          {0., 1. / 3., 5. / 6., -1. / 6., 0.},
-                                          {0., 0., 11. / 6., -7. / 6., 1. / 3.},
-                                          {1., -2., 1., 0., 0.},
-                                          {1., -4., 3., 0., 0.},
-                                          {0., 1., -2., 1., 0.},
-                                          {0., -1., 0., 1., 0.},
-                                          {0., 0., 1., -2., 1.},
-                                          {0., 0., 3., -4., 1.}},
-                                         torch::kFloat64));
-      cp = register_buffer("cp", cm.flip({1}));
+    case Scheme::weno5: {
+      // nine stencil rows, then the linear weights d (V3 C9: the uniform
+      // table holds d like a per-face row, so FP32 reads them in FP32)
+      auto rows = torch::tensor({{-1. / 6., 5. / 6., 1. / 3., 0., 0.},
+                                 {0., 1. / 3., 5. / 6., -1. / 6., 0.},
+                                 {0., 0., 11. / 6., -7. / 6., 1. / 3.},
+                                 {1., -2., 1., 0., 0.},
+                                 {1., -4., 3., 0., 0.},
+                                 {0., 1., -2., 1., 0.},
+                                 {0., -1., 0., 1., 0.},
+                                 {0., 0., 1., -2., 1.},
+                                 {0., 0., 3., -4., 1.}},
+                                torch::kFloat64);
+      auto d = torch::tensor({.3, .6, .1}, torch::kFloat64);
+      cm = register_buffer("cm", torch::cat({rows.flatten(), d}));
+      cp = register_buffer("cp", torch::cat({rows.flip({1}).flatten(), d}));
       x1_reset_tables(*this, cm_x1, cp_x1, kWeno5NuCoeff);
       break;
+    }
     default:
       break;
   }
 }
 
 int InterpImpl::stencils() const {
-  switch (scheme) {
-    case Scheme::dc:
-      return SchemeTraits<Scheme::dc>::stencil;
-    case Scheme::plm:
-      return SchemeTraits<Scheme::plm>::stencil;
-    case Scheme::ppm:
-      return SchemeTraits<Scheme::ppm>::stencil;
-    case Scheme::cp3:
-      return SchemeTraits<Scheme::cp3>::stencil;
-    case Scheme::weno3:
-      return SchemeTraits<Scheme::weno3>::stencil;
-    case Scheme::cp5:
-      return SchemeTraits<Scheme::cp5>::stencil;
-    case Scheme::weno5:
-      return SchemeTraits<Scheme::weno5>::stencil;
-  }
-  return 1;
+  using S = Scheme;  // indexed in Scheme's order
+  constexpr int n[] = {
+      SchemeTraits<S::dc>::stencil,    SchemeTraits<S::plm>::stencil,
+      SchemeTraits<S::ppm>::stencil,   SchemeTraits<S::cp3>::stencil,
+      SchemeTraits<S::weno3>::stencil, SchemeTraits<S::cp5>::stencil,
+      SchemeTraits<S::weno5>::stencil};
+  return n[static_cast<int>(scheme)];
 }
 
 void InterpImpl::set_x1_coeffs(torch::Tensor const& x1f) {
-  if (scheme == Scheme::weno5) {
-    x1_set_coeffs(*this, x1f, &weno5_x1_coeffs);
-    return;
-  }
-  if (scheme == Scheme::cp5) {
-    x1_set_coeffs(*this, x1f, &cp5_x1_coeffs);
-    return;
-  }
+  if (scheme == Scheme::weno5)
+    return x1_set_coeffs(*this, x1f, &weno5_x1_coeffs);
+  if (scheme == Scheme::cp5) return x1_set_coeffs(*this, x1f, &cp5_x1_coeffs);
   TORCH_CHECK(false, "[", options->type(),
               "] has no stretched-x1 reconstruction: route A builds "
               "per-face coefficients for weno5 and cp5 only, and running ",
@@ -157,36 +141,29 @@ std::pair<torch::Tensor, torch::Tensor> InterpImpl::forward(
 
     wlv.copy_(w.narrow(dim, 1, size - 2) - 0.5 * dwm);
     wrv.copy_(w.narrow(dim, 1, size - 2) + 0.5 * dwm);
-    return std::make_pair(wlv, wrv);
+    return {wlv, wrv};
   }
-
   left(w, dim, wlv);
   right(w, dim, wrv);
-  return std::make_pair(wlv, wrv);
+  return {wlv, wrv};
 }
 
 void InterpImpl::left(torch::Tensor w, int dim, torch::Tensor const& out) {
-  if (scheme == Scheme::dc) {
+  if (scheme == Scheme::dc)
     out.copy_(w.slice(dim, 0, w.size(dim)));
-    return;
-  }
-  if (scheme == Scheme::plm || scheme == Scheme::ppm) {
+  else if (scheme == Scheme::plm || scheme == Scheme::ppm)
     forward(w, dim, out, torch::nullopt);
-    return;
-  }
-  apply(w, dim, out, cm, cm_cast, cm_x1, cm_x1_cast);
+  else
+    apply(w, dim, out, cm, cm_cast, cm_x1, cm_x1_cast);
 }
 
 void InterpImpl::right(torch::Tensor w, int dim, torch::Tensor const& out) {
-  if (scheme == Scheme::dc) {
+  if (scheme == Scheme::dc)
     out.copy_(w.slice(dim, 0, w.size(dim) - 1));
-    return;
-  }
-  if (scheme == Scheme::plm || scheme == Scheme::ppm) {
+  else if (scheme == Scheme::plm || scheme == Scheme::ppm)
     forward(w, dim, torch::nullopt, out);
-    return;
-  }
-  apply(w, dim, out, cp, cp_cast, cp_x1, cp_x1_cast);
+  else
+    apply(w, dim, out, cp, cp_cast, cp_x1, cp_x1_cast);
 }
 
 void InterpImpl::apply(torch::Tensor const& w, int dim,
@@ -204,25 +181,22 @@ void InterpImpl::apply(torch::Tensor const& w, int dim,
                   });
     return;
   }
-
   auto iter = x1_uniform_iterator(w, dim, out);
   at::native::call_recon(out.device().type(), iter, cache.get(table, w), dim, s,
                          scale, /*row_stride=*/0);
 }
+
 ReconstructOptions ReconstructOptionsImpl::from_yaml(
     std::string const& filename, std::string const& section) {
   auto op = ReconstructOptionsImpl::create();
-
   auto config = YAML::LoadFile(filename);
-  if (!config["dynamics"]) return op;
-  if (!config["dynamics"]["reconstruct"]) return op;
+  if (!config["dynamics"] || !config["dynamics"]["reconstruct"]) return op;
   return from_yaml(config["dynamics"]["reconstruct"], section);
 }
 
 ReconstructOptions ReconstructOptionsImpl::from_yaml(
     const YAML::Node& node, std::string const& section) {
   auto op = ReconstructOptionsImpl::create();
-
   check_keys(node, "dynamics/reconstruct", {"vertical", "horizontal"});
   if (!node[section]) return op;
 
@@ -232,19 +206,11 @@ ReconstructOptions ReconstructOptionsImpl::from_yaml(
   op->interp() = InterpOptionsImpl::create();
   op->interp()->type() = node[section]["type"].as<std::string>("dc");
   op->interp()->scale() = node[section]["scale"].as<bool>(false);
-
   return op;
 }
 
-/*
- * |<---- nghost --->|<--- interior -->|<---- nghost --->|
- * |-----|-----|-----|-----|-----|-----|-----|-----|-----|
- * |  0  |  1  |  2  |  3  |  4  |  5  |  6  |  7  |  8  |
- * |-----|-----|-----|-----|-----|-----|-----|-----|-----|
- *                      ^           ^
- *                      |           |
- *                      il          iu
- */
+// faces il..iu+1 of cells il..iu; the ghost faces copy the end values
+// (index diagram: lane-c-notes.md)
 void _apply_inplace(int dim, int il, int iu, const torch::Tensor& w,
                     Interp& pinterp, torch::Tensor wlr) {
   if (il > iu) return;
@@ -253,13 +219,10 @@ void _apply_inplace(int dim, int il, int iu, const torch::Tensor& w,
   auto outr = wlr[ILT].slice(dim, il, iu + 2);
 
   pinterp->forward(w, dim, outl, outr);
-
-  // populate dummy regions
-  wlr[IRT].slice(dim, 0, il) = wlr[IRT].select(dim, il).unsqueeze(dim);
-  wlr[IRT].slice(dim, iu + 1) = wlr[IRT].select(dim, iu).unsqueeze(dim);
-
-  wlr[ILT].slice(dim, 0, il) = wlr[ILT].select(dim, il).unsqueeze(dim);
-  wlr[ILT].slice(dim, iu + 1) = wlr[ILT].select(dim, iu).unsqueeze(dim);
+  for (int s : {(int)IRT, (int)ILT}) {  // populate dummy regions
+    wlr[s].slice(dim, 0, il) = wlr[s].select(dim, il).unsqueeze(dim);
+    wlr[s].slice(dim, iu + 1) = wlr[s].select(dim, iu).unsqueeze(dim);
+  }
 }
 
 ReconstructImpl::ReconstructImpl(const ReconstructOptions& options_,
@@ -286,15 +249,11 @@ void ReconstructImpl::set_x1_faces(torch::Tensor const& x1f) {
 torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
   auto vec = w.sizes().vec();
   vec.insert(vec.begin(), 2);
-
   auto result = torch::zeros(vec, w.options());
-
-  auto dim_size = w.size(dim);
   int nghost = pinterp1->stencils() / 2 + 1;
   int il = nghost;
-  int iu = dim_size - nghost;
+  int iu = w.size(dim) - nghost;
   int nvar = w.size(0);
-
   TORCH_CHECK(il <= iu, "il > iu");
 
   if (phydro == nullptr) {
@@ -328,8 +287,7 @@ torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
     return result;
   }
 
-  auto eos =
-      phydro ? phydro->options->eos() : EquationOfStateOptionsImpl::create();
+  auto eos = phydro->options->eos();
 
   // density
   _apply_inplace(dim, il, iu, w.narrow(0, IDN, 1), pinterp1,
@@ -366,7 +324,6 @@ std::shared_ptr<ReconstructImpl> ReconstructImpl::create(
     std::string const& name) {
   TORCH_CHECK(p, "[Reconstruct] Parent module is null");
   TORCH_CHECK(opts, "[Reconstruct] Options pointer is null");
-
   return p->register_module(name, Reconstruct(opts, p));
 }
 

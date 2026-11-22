@@ -68,8 +68,12 @@ torch::Tensor flux_positivity_theta(torch::Tensor const& u,
   auto avail = u.relu() * pcoord->cell_volume() * (1. - margin);
   auto drain = out.mul_(dt);
   if (drain_out) *drain_out = drain;
+  // finfo(dtype).tiny: 1e-300 was 0 in float32 (only where() discards it)
+  double tiny = drain.scalar_type() == torch::kFloat
+                    ? std::numeric_limits<float>::min()
+                    : std::numeric_limits<double>::min();
   return torch::where(drain > 0.,
-                      (avail / drain.clamp_min(1e-300)).clamp_max(1.0),
+                      (avail / drain.clamp_min(tiny)).clamp_max(1.0),
                       torch::ones_like(u));
 }
 

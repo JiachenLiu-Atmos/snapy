@@ -11,19 +11,19 @@
 #include <vector>
 
 // snap
+#include <snap/chemistry/chemistry_source.hpp>
 #include <snap/coord/coord_utils.hpp>
 #include <snap/coord/gnomonic_equiangle.hpp>
 #include <snap/eos/ideal_moist.hpp>
 #include <snap/hydro/flux_positivity.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/implicit/implicit_dispatch.hpp>
-#include <snap/input/read_restart_file.hpp>
 #include <snap/mesh/signal_handler.hpp>
-#include <snap/output/output_formats.hpp>
+#include <snap/output/restart.hpp>
 #include <snap/output/restart_metadata.hpp>
+#include <snap/output/writer_core.hpp>
 #include <snap/utils/log.hpp>
 
-#include "cycle_diagnostics.hpp"
 #include "meshblock.hpp"
 #include "meshblock_internal.hpp"
 #include "stage_executor.hpp"
@@ -90,10 +90,11 @@ void MeshBlockImpl::forward(Variables &vars, double dt, int stage) {
   // host-side operator-split source terms applied between forward calls
   // (e.g. condensation on hydro_u) are then synced before use, removing a
   // one-signed seam bias on the cubed sphere.
+  if (stage == 0) step_dt = dt;
   _executor->run_stage(vars, dt, stage);  // exchange_ghost_zones, then
                                           // advance_local, or their graph
   // the global phase of a bare block, as Mesh::forward runs it over its blocks
-  if (phydro->options->conserve_axial_momentum_closure()) {
+  if (phydro->paam->closes()) {
     apply_axial_closure(vars, dt, stage,
                         global_phase_sum({axial_closure_sums()}, *_playout));
     apply_boundaries(
@@ -119,15 +120,21 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
 
   // -------- (1) save initial state --------
   if (stage == 0) {
-    // the register's step sums and monitor start the step (R.rst 3.4)
+    // the register's step sums and monitor start the step (R.rst 3.4),
+    // before the split sources' step-start half, whose post_split must
+    // survive into the step
     freg.begin_step();
     auto splits = phydro->sources.splits();
-    for (auto &s : splits) s->begin_split(hydro_u, dt);
+    for (auto &s : splits) s->begin_split(hydro_u, dt, freg);
     if (!splits.empty()) {
       apply_boundaries(vars, hydro_u, scalar_s);
       exchange_ghost_zones(vars);
     }
     _state.backup();
+    // K4 (K.rst 3.4, 3.5): after the u0 backup, the active set of this
+    // attempt's start
+    prepare_thermo(hydro_u);
+    if (auto pthermo = thermo()) pthermo->snapshot_active_set(_active_set0);
     if (auto moist = dynamic_cast<IdealMoistImpl *>(phydro->peos.get()))
       moist->clear_heat_capacity_failure();
     if (phydro->picorr) {
@@ -135,7 +142,9 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
       phydro->picorr->reset_solve_failure();
     }
     phydro->peos->reset_limiter_marks(hydro_u);
-    saturation_failures();  // a failure counted before the step is not its own
+    // K2 (K.rst 3.2): the device counter is zeroed in place, no host read;
+    // a failure counted before the step is not its own
+    if (auto pthermo = thermo()) pthermo->reset_failures();
     if (phydro->peos->vapor_failures().defined())
       phydro->peos->vapor_failures().zero_();  // nor is a vapor failure
   }
@@ -268,7 +277,7 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   // -------- (4) multi-stage averaging --------
   pintg->forward(stage, _state.u0(), hydro_u, fut_hydro_du, hydro_u);
   if (stage + 1 == static_cast<int>(pintg->stages.size()))
-    for (auto &s : phydro->sources.splits()) s->finish_split(hydro_u, dt);
+    for (auto &s : phydro->sources.splits()) s->finish_split(hydro_u, dt, freg);
   // skipped dry and scalar-free before the last stage: next U->W applies it
   if (hydro_u.size(0) > ICY || pscalar->nvar() > 0 ||
       stage + 1 == static_cast<int>(pintg->stages.size()))
@@ -310,7 +319,18 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
                      /*warm_start=*/true);
 
     hydro_u.narrow(0, ICY, ny) = yfrac * rho;
+    // K2 (K.rst 3.2): rows 1-2 of the counter, the step's temperature and
+    // pressure solves that did not converge, posted once per step; they are
+    // not retry causes. Row 0 is consumed by local_redo_flag_tensor.
+    auto const &fails = pthermo->failures();
+    freg.monitor().count("thermo.temp_solve", fails[1]);
+    freg.monitor().count("thermo.pres_solve", fails[2]);
   }
+
+  // S-K4 (K.rst 3.5): the chemistry step, the last op of the last stage of a
+  // bare block (a Mesh runs it over its blocks before its final exchange)
+  if (stage == pintg->stages.size() - 1 && _chemistry && !defer_chemistry)
+    _chemistry->forward(*this, vars, dt);
 
   // Physical ghosts must include the final-stage species adjustment.
   apply_boundaries(vars, hydro_u, scalar_s);
@@ -325,29 +345,11 @@ torch::Tensor MeshBlockImpl::axial_closure_sums() const {
 
 void MeshBlockImpl::apply_axial_closure(Variables &vars, double dt, int stage,
                                         torch::Tensor const &global) {
-  // d(rho u_east) = -rho s R dt / I with this stage's weight, along K.
-  // R and I stay on the device (X4): a mask replaces the host branch.
-  auto pg = dynamic_cast<GnomonicEquiangleImpl const *>(pcoord.get());
-  auto rho = phydro->axial_closure_rho();
-  phydro->axial_closure_rho() = torch::Tensor();
-  phydro->axial_closure_sums() = torch::Tensor();
-  if (!pg || !rho.defined()) return;
-  auto hydro_u = vars.at("hydro_u");
-  auto g = global.to(hydro_u.device(),
-                     hydro_u.is_mps() ? torch::kFloat32 : torch::kFloat64);
-  auto R = g[0], I = g[1];
-  auto ok = (I > 0.).logical_and(torch::isfinite(R));
-  auto in = part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
-  auto kj = std::vector<torch::indexing::TensorIndex>{in[0], in[1]};
-  auto r = pg->x1v.index({in[2]});
-  auto omega = -pintg->stages[stage].wght2() * dt * R / I;
-  auto z2 = torch::zeros_like(hydro_u[IVY]),
-       z3 = torch::zeros_like(hydro_u[IVZ]);
-  pg->axial_rate_to_rows_(z2, z3, omega * rho * r * r * pg->aam_kk_c.index(kj));
-  for (auto [row, z] : {std::pair<int, torch::Tensor>{IVY, z2}, {IVZ, z3}}) {
-    auto u = hydro_u[row];
-    u.copy_(torch::where(ok, u + z, u));
-  }
+  // lane A's fixer (A.rst 3.3), with this stage's weight; R and I stay on
+  // the device (X4): a mask replaces the host branch
+  AxialClosureFixer(phydro->paam.get())
+      .apply(vars.at("hydro_u"), global, dt, pintg->stages[stage].wght2(),
+             phydro->flux_register());
 }
 
 }  // namespace snap

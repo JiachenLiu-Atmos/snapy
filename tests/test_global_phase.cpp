@@ -7,8 +7,8 @@
 // has no scalars, so scalar_s is not compared.) That baseline runs the
 // closure and the fixer off, so it never reaches global_phase_sum; a second
 // test does, through Mesh::forward's N-block global phase: six cubed-sphere
-// panels with conserve-axial-momentum-closure keep their absolute axial
-// angular momentum only if the panels' partial sums are summed.
+// panels with conserve-axial-momentum exact (its closure) keep their absolute
+// axial angular momentum only if the panels' partial sums are summed.
 
 // external
 #include <gtest/gtest.h>
@@ -110,12 +110,11 @@ std::vector<torch::Tensor> run_column(int nb1, torch::Device device,
   return out;
 }
 
-//! six cubed-sphere panels in one process, full AAM, Coriolis about z and
+//! six cubed-sphere panels in one process, exact AAM, Coriolis about z and
 //! the closure on or off (as test_global_phase_closure.cpp)
 Mesh cubed_mesh(bool closure, double omega, torch::Device device) {
   auto cfg = YAML::LoadFile("test_axial_momentum_flux_form.yaml");
-  cfg["dynamics"]["conserve-axial-momentum"] = "full";
-  cfg["dynamics"]["conserve-axial-momentum-closure"] = closure;
+  cfg["dynamics"]["conserve-axial-momentum"] = "exact";
   cfg["geometry"]["cells"]["interp_order"] = 4;
   cfg["forcing"]["coriolis"]["type"] = "xyz";
   cfg["forcing"]["coriolis"]["omega1"] = omega;
@@ -148,6 +147,9 @@ Mesh cubed_mesh(bool closure, double omega, torch::Device device) {
     coord->global_nx3(8 * layout->py());
   }
   auto mesh = Mesh(opts);
+  // exact includes the closure; off is lane A's test hook (A.rst 3.2), the
+  // old full without conserve-axial-momentum-closure
+  for (auto& b : mesh->blocks) b->phydro->paam->closure = closure;
   mesh->to(device, torch::kFloat64);
   return mesh;
 }

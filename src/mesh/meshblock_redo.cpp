@@ -17,13 +17,12 @@
 #include <snap/hydro/flux_positivity.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/implicit/implicit_dispatch.hpp>
-#include <snap/input/read_restart_file.hpp>
 #include <snap/mesh/signal_handler.hpp>
-#include <snap/output/output_formats.hpp>
+#include <snap/output/restart.hpp>
 #include <snap/output/restart_metadata.hpp>
+#include <snap/output/writer_core.hpp>
 #include <snap/utils/log.hpp>
 
-#include "cycle_diagnostics.hpp"
 #include "meshblock.hpp"
 #include "meshblock_internal.hpp"
 #include "stage_executor.hpp"
@@ -63,6 +62,10 @@ int MeshBlockImpl::apply_redo(Variables &vars, int causes) {
     _state.adopt(vars);
     _state.restore();
     for (auto &s : phydro->sources.splits()) s->restore_split(vars["hydro_u"]);
+    // K4 (K.rst 3.4): the retry starts from the attempt's initial active set
+    if (auto pthermo = thermo())
+      if (_active_set0.second.defined())
+        pthermo->restore_active_set(_active_set0);
     phydro->peos->forward(vars["hydro_u"], vars["hydro_w"]);
     if (vars.count("scalar_s")) {
       set_scalar_primitive(vars, vars["scalar_s"], vars["hydro_u"], *phydro);
@@ -83,6 +86,9 @@ int MeshBlockImpl::apply_redo(Variables &vars, int causes) {
 
   // good to go
   pintg->current_redo = 0;
+  // O's consumers read the accepted step (O.rst 3.2)
+  for (auto &output_type : output_types)
+    output_type->observe(this, vars, step_dt);
   return 0;
 }
 
@@ -118,12 +124,13 @@ torch::Tensor MeshBlockImpl::local_redo_flag_tensor(Variables const &vars) {
   auto const &m = phydro->peos->limiter_marks();
   auto marks = m.defined() ? m.to(opts) : torch::zeros({2}, opts);
 
-  // drains kintera's count exactly once, as saturation_failures() does
+  // K2 (K.rst 3.2): retry cause 4 is row 0 of the device counter, consumed
+  // in place (rows 1-2 stay for the step-end post); no host read here
   auto sat = zero;
-  auto pthermo = thermo();
-  if (pthermo && pthermo->nfail_.defined()) {
-    sat = (pthermo->nfail_ > 0).to(opts).reshape({});
-    pthermo->nfail_ = torch::Tensor();
+  if (auto pthermo = thermo()) {
+    auto flag = torch::zeros({1}, opts);
+    pthermo->consume_failures(flag);
+    sat = flag.reshape({});
   }
 
   // the VIC failure latch, read in the one copy below

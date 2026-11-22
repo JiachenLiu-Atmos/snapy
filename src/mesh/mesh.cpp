@@ -3,6 +3,7 @@
 #include <configure.h>
 
 #include <algorithm>
+#include <atomic>
 #include <condition_variable>
 #include <exception>
 #include <functional>
@@ -23,11 +24,12 @@
 #include <yaml-cpp/yaml.h>
 
 // snap
+#include <snap/chemistry/chemistry_source.hpp>
+#include <snap/diagnostics/budget.hpp>
 #include <snap/mesh/mesh.hpp>
 #include <snap/mesh/signal_handler.hpp>
 #include <snap/utils/log.hpp>
 
-#include "cycle_diagnostics.hpp"
 #include "stage_executor.hpp"
 
 namespace snap {
@@ -262,9 +264,15 @@ void MeshImpl::reset() {
   base_layout->world_size(base_layout->process_world_size() *
                           options->blocks_per_process());
 
+  // this Mesh's identity in the same-process exchange state (S-L1): a new
+  // one per reset, so a rebuilt or second Mesh never takes these blocks' place
+  static std::atomic<int64_t> next_mesh_id{1};
+  int64_t mesh_id = next_mesh_id++;
+
   for (int i = 0; i < options->blocks_per_process(); ++i) {
     auto block_opts = clone_block_options(base);
     auto layout = block_opts->layout();
+    layout->mesh_id(mesh_id);
     layout->blocks_per_process(options->blocks_per_process());
     layout->world_size(layout->process_world_size() *
                        options->blocks_per_process());
@@ -349,14 +357,17 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
     TORCH_CHECK(!b->options->execution_strict(),
                 "integration/execution-strict: a Mesh runs its blocks eagerly "
                 "(CUDA graphs cover a single MeshBlock only)");
+  if (stage == 0)
+    for (auto& b : blocks) b->step_dt = dt;
 
+  for (auto& b : blocks) b->defer_chemistry = true;
   run_block_jobs(
       [&](size_t i) { blocks[i]->advance_local(vars[i], dt, stage); });
   // conserve-axial-momentum-closure: R and I summed over the local blocks,
   // one reduction, then each block's solid-body increment
   auto root = blocks.front();
   // the global phase (X4): the blocks' device partials, one reduction
-  if (root->phydro->options->conserve_axial_momentum_closure()) {
+  if (root->phydro->paam->closes()) {
     std::vector<torch::Tensor> partials;
     for (auto& b : blocks) partials.push_back(b->axial_closure_sums());
     auto global = global_phase_sum(partials, *root->get_layout());
@@ -368,7 +379,29 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
           v.count("scalar_s") ? v.at("scalar_s") : torch::Tensor());
     });
   }
+  // S-K4 (K.rst 3.5): the chemistry step, last in the global phase, before
+  // the final exchange. The blocks run it one after another, not on the
+  // worker pool: kintera's LogSVPFunc keeps one process-global _op that
+  // Evaporation::forward reassigns on every call (kintera log_svp.cpp:52-58,
+  // 2.6.11), so two blocks' kinetics on two threads race on that shared_ptr
+  // (a double free; K.rst 3.6's no-shared-state assumption does not hold).
+  // Sequential until kintera makes it per instance; the results are the
+  // same, each block's step reads only its own state.
+  if (stage == static_cast<int>(root->pintg->stages.size()) - 1)
+    for (size_t i = 0; i < blocks.size(); ++i) {
+      auto chem = blocks[i]->chemistry();
+      if (!chem) continue;
+      chem->forward(*blocks[i], vars[i], dt);
+      auto& v = vars[i];
+      blocks[i]->apply_boundaries(
+          v, v.at("hydro_u"),
+          v.count("scalar_s") ? v.at("scalar_s") : torch::Tensor());
+    }
   run_block_jobs([&](size_t i) { blocks[i]->exchange_ghost_zones(vars[i]); });
+}
+
+void MeshImpl::set_chemistry(kintera::KineticsOptionsImpl reactions) {
+  for (auto& b : blocks) b->set_chemistry(reactions);  // one after another
 }
 
 void MeshImpl::set_user_stage_forcings(
@@ -417,9 +450,8 @@ void MeshImpl::print_cycle_info(MeshVariables const& vars, double time,
   std::vector<std::pair<MeshBlockImpl const*, Variables const*>> local;
   for (size_t i = 0; i < blocks.size(); ++i)
     local.emplace_back(blocks[i].get(), &vars[i]);
-  print_cycle_diagnostics(local, time, dt,
-                          std::numeric_limits<double>::max_digits10 - 3,
-                          " energy=");
+  print_cycle_line(local, time, dt,
+                   std::numeric_limits<double>::max_digits10 - 3, " energy=");
 }
 
 int MeshImpl::check_redo(MeshVariables& vars) {

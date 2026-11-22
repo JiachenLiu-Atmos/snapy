@@ -8,10 +8,10 @@
 #include <snap/eos/equation_of_state.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/recon/conversion.hpp>
+#include <snap/recon/x1_reference.hpp>
 
 #include "balance_column.hpp"
 #include "hydro.hpp"
-#include "hydro_reference.hpp"
 
 namespace snap {
 
@@ -38,7 +38,7 @@ std::tuple<torch::Tensor, double, int> balance_column(
               "balance_column needs dynamics/wb-wall-clamp: without it the "
               "reference reads faces outside the column at each wall, so the "
               "balance found here is not the one the solver would enforce.");
-  // no r^2 -> plain-mean conversion here (balance_column.hpp)
+  // no r^2 -> plain-mean conversion here (lane-c-notes.md)
   TORCH_CHECK(!x1_centroid_exact_enabled() || geometry == "cartesian",
               "balance_column: under SNAP_X1_CENTROID_EXACT only a column "
               "declared geometry='cartesian' is balanced here, got '",
@@ -79,7 +79,7 @@ std::tuple<torch::Tensor, double, int> balance_column(
                      n > 3 && is_reflecting(bf[1])};
     Conversion conv(f, 1, n, 1, walls, w.size(0), w.options());
     // the limiter works on a block's interior, not on this column, so a cell
-    // the solver's limiter would repair keeps w4 here (balance_column.hpp);
+    // the solver's limiter would repair keeps w4 here (lane-c-notes.md);
     // the fallback test keeps the run's floors
     bool lim = eos->options->limiter();
     eos->options->limiter(false);

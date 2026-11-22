@@ -20,7 +20,6 @@ class SphericalPolarImpl : public torch::nn::Cloneable<SphericalPolarImpl>,
     reset();
   }
   void reset() override;
-  void reset_coordinates(std::array<MeshGenerator, 3> meshgens) override;
   void pretty_print(std::ostream& stream) const override {
     stream << "SphericalPolar coordinate:" << std::endl;
     print(stream);

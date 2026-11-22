@@ -19,7 +19,6 @@
 
 // snap
 #include <snap/coord/coordinate.hpp>
-#include <snap/interface/athena_arrays.hpp>
 
 // arg
 #include <snap/add_arg.h>
@@ -38,30 +37,22 @@ struct OutputOptionsImpl {
                                                       int fid = 0);
   std::string file_id() const { return "out" + std::to_string(fid()); }
 
+  //! the `domain` checks of src/options/output.yaml against the resolved
+  //! global grid: per axis not both slice and sum, every slice in [min, max),
+  //! strictly increasing; std::invalid_argument otherwise. MeshBlockImpl runs
+  //! them for every output, read from a deck or built in code.
+  void check_domain(CoordinateOptionsImpl const &co) const;
+
   // the option rows and report(), generated from src/options/output.yaml by
   // tools/gen_options.py
 #include <snap_options/output_members.inc>
 };
 using OutputOptions = std::shared_ptr<OutputOptionsImpl>;
 
-//! \brief container for output data and metadata; node in nested doubly linked
-//! list
-struct OutputData {
-  std::string type;  // one of (SCALARS,VECTORS) used for vtk outputs
-  std::string name;
-  std::string longname;
-  std::string units;
+struct Field;
+struct Frame;
 
-  AthenaArray<double> data;  // array containing data
-
-  // ptrs to previous and next nodes in doubly linked list:
-  OutputData *pnext, *pprev;
-
-  OutputData() : pnext(nullptr), pprev(nullptr) {}
-};
-
-//! OutputType is designed to be a node in a singly linked list created & stored
-//! in the Output class
+//! one scheduled output: its options, schedule and running statistics
 class OutputType {
  public:
   OutputOptions options;
@@ -75,53 +66,14 @@ class OutputType {
   //! Restart identity with the exact cadence bits.
   int64_t schedule_key_v2() const;
 
-  // constructors
-  OutputType() : options(OutputOptionsImpl::create()) {}
-
-  // mark single parameter constructors as "explicit" to prevent them from
-  // acting as implicit conversion functions: for f(OutputType arg), prevent
-  // f(anOutputParameters)
+  OutputType();
   explicit OutputType(OutputOptions const &options_);
+  virtual ~OutputType();
 
-  // rule of five:
-  virtual ~OutputType() = default;
-  // copy constructor and assignment operator (pnext_type, pfirst_data, etc. are
-  // shallow copied)
-  OutputType(const OutputType &copy_other) = default;
-  OutputType &operator=(const OutputType &copy_other) = default;
-  // move constructor and assignment operator
-  OutputType(OutputType &&) = default;
-  OutputType &operator=(OutputType &&) = default;
+  //! the fields the options request, on the block's device
+  std::shared_ptr<Frame> LoadOutputData(MeshBlockImpl *pmb,
+                                        Variables const &vars);
 
-  // data
-  // OutputData array start/end index
-  int out_is, out_ie, out_js, out_je, out_ks, out_ke;
-  std::vector<int> islice, jslice, kslice;
-  int slice_offset[3] = {0, 0, 0};
-
-  // ptr to next node in singly linked list of OutputTypes
-  OutputType *pnext_type;
-
-  // functions
-  //! \brief Create doubly linked list of OutputData's containing requested
-  //! variables
-  MeshBlockImpl *LoadOutputData(MeshBlockImpl *pmb, Variables const &vars);
-
-  void AppendOutputDataNode(OutputData *pdata);
-  void ReplaceOutputDataNode(OutputData *pold, OutputData *pnew);
-  void ClearOutputData();
-
-  bool TransformOutputData(MeshBlockImpl *pmb);
-
-  //! \brief perform data slicing and update the data list
-  bool SliceOutputData(MeshBlockImpl *pmb, int dim);
-
-  //! \brief perform data summation and update the data list
-  void SumOutputData(MeshBlockImpl *pmb, int dim);
-
-  //! \brief Convert vectors in curvilinear coordinates into Cartesian
-  void CalculateCartesianVector(torch::Tensor const &src, torch::Tensor dst,
-                                Coordinate pco);
   bool ContainVariable(const std::string &var) const;
   bool ContainAnyVariable(std::initializer_list<std::string> vars) const;
   bool OutputsPrimStat() const;
@@ -133,34 +85,36 @@ class OutputType {
   torch::Tensor PrimStatStd(torch::Tensor const &current) const;
   torch::Tensor ScalarStatMean(torch::Tensor const &current) const;
   torch::Tensor ScalarStatStd(torch::Tensor const &current) const;
-  // following pure virtual function must be implemented in all derived classes
   virtual void write_output_file(MeshBlockImpl *pmb, Variables const &vars,
                                  double time, bool flag) {}
   virtual void combine_blocks(MeshBlockImpl *pmb, bool) {}
+
+  //! the budget output's hooks (O8; nothing for the other writers): bind
+  //! once the block's modules exist, observe each accepted step of length
+  //! dt, add the BudgetCarry to a restart (fires_now: this output still
+  //! records at this time in the same pass) and resume from one
+  virtual void bind(MeshBlockImpl *pmb) {}
+  virtual void observe(MeshBlockImpl const *pmb, Variables const &vars,
+                       double dt) {}
+  virtual void save_carry(MeshBlockImpl const *pmb, Variables const &vars,
+                          bool fires_now, Variables &out) const {}
+  virtual void load_carry(MeshBlockImpl const *pmb, Variables const &data) {}
 
  protected:
   bool shouldOutputPrimitive(
       std::initializer_list<std::string> vars = {}) const;
   bool shouldOutputConserved(
       std::initializer_list<std::string> vars = {}) const;
-  void appendTensorOutput(std::string type, std::string name,
-                          torch::Tensor const &tensor);
-  void appendTensorSliceOutput(std::string type, std::string name,
-                               torch::Tensor const &tensor, int dim, int start,
-                               int count);
+  //! the whole tensor (1-3 dimensions), or `count` rows of it from `start`
+  void appendTensorOutput(std::string name, torch::Tensor const &tensor);
+  void appendTensorSliceOutput(std::string name, torch::Tensor const &tensor,
+                               int start, int count);
   void loadHydroOutputData(MeshBlockImpl *pmb, Variables const &vars);
   void loadDiagOutputData(MeshBlockImpl *pmb, Variables const &vars);
   void loadScalarOutputData(MeshBlockImpl *pmb, Variables const &vars);
   void loadUserOutputData(MeshBlockImpl *pmb, Variables const &vars);
 
-  int num_vars_;  // number of variables in output
-  // nested doubly linked list of OutputData nodes (of the same OutputType):
-
-  // ptr to head OutputData node in doubly linked list
-  OutputData *pfirst_data_;
-
-  // ptr to tail OutputData node in doubly linked list
-  OutputData *plast_data_;
+  std::shared_ptr<Frame> frame_;  //!< the fields being loaded
 
   torch::Tensor prim_stat_mean_;
   torch::Tensor prim_stat_m2_;
@@ -169,6 +123,15 @@ class OutputType {
   double stat_elapsed_ = 0.0;
   double stat_last_time_ = 0.0;
   bool stat_initialized_ = false;
+};
+
+//! restart dumps (merged with the reader in O7)
+class RestartOutput : public OutputType {
+ public:
+  explicit RestartOutput(OutputOptions const &options_);
+  void write_output_file(MeshBlockImpl *pmb, Variables const &vars, double time,
+                         bool final_write) override;
+  void combine_blocks(MeshBlockImpl *pmb, bool) override;
 };
 }  // namespace snap
 

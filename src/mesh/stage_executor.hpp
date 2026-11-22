@@ -9,6 +9,10 @@
 // torch
 #include <torch/torch.h>
 
+namespace kintera {
+class ThermoYImpl;
+}
+
 namespace snap {
 
 class MeshBlockImpl;
@@ -30,6 +34,9 @@ struct GraphKey {
   int config_generation = 0;       // StageExecutor::bump_config_generation()
   int stage = -1;
   double dt = 0.;  // host double: a new dt recaptures
+  //! kintera::alloc_epoch of the EOS thermo (K.rst 3.3): its counter,
+  //! active set or table reallocated (reset(), a new shape) recaptures
+  int64_t thermo_epoch = 0;
 
   bool operator==(GraphKey const& other) const;
   bool operator!=(GraphKey const& other) const { return !(*this == other); }
@@ -66,6 +73,8 @@ class StageExecutor {
 
   void run_eager(Variables& vars, double dt, int stage);
   GraphKey make_key(Variables const& vars, double dt, int stage) const;
+  //! the EOS's kintera ThermoY (hydro.eos.thermo), or null
+  std::shared_ptr<kintera::ThermoYImpl> thermo_of() const;
   //! the save list: the state, the registered storage and hydro_w
   std::map<std::string, torch::Tensor> save_list(Variables& vars) const;
   void capture(Variables& vars, double dt, int stage);

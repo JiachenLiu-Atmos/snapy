@@ -10,7 +10,9 @@
 
 // snap
 #include <snap/eos/equation_of_state.hpp>
+#include <snap/forcing/axial_momentum.hpp>
 #include <snap/forcing/forcing.hpp>
+#include <snap/forcing/x1_momentum.hpp>
 #include <snap/hydro/flux_register.hpp>
 #include <snap/hydro/fp64_store.hpp>
 #include <snap/implicit/implicit_hydro.hpp>
@@ -133,24 +135,19 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   FluxRegister& flux_register() { return freg; }
   FluxRegister const& flux_register() const { return freg; }
 
-  //! whether dynamics/conserve-axial-momentum acts in this block: the option
-  //! is set, the grid is gnomonic-equiangle and the Coriolis force, if any,
-  //! is of type xyz about omega1
-  bool axial_flux_form() const;
-
-  //! conserve-axial-momentum: full and it applies (axial_flux_form)
-  bool axial_coriolis_form() const;
-
-  //! full: the dissipative face mass fluxes (x1 undefined, x2, x3) the
-  //! Coriolis call of this stage takes its flux-form torque from, and their
-  //! number of species rows; cleared after that call
-  std::array<torch::Tensor, 3> const& axial_mass_fluxes() const {
-    return _aam_mass_flux;
+  //! lane A's AAM consumer (dynamics/conserve-axial-momentum, A.rst 3.1);
+  //! its mode is off where the option does not act in this block
+  std::shared_ptr<AxialMomentum> paam;
+  bool axial_flux_form() const {
+    return paam && paam->mode() != AxialMode::off;
   }
-  int axial_mass_species() const { return _aam_mass_ny; }
-  //! closure: this block's {R, I} of the stage (CPU, double) and its density
-  torch::Tensor& axial_closure_sums() const { return _aam_cl; }
-  torch::Tensor& axial_closure_rho() const { return _aam_cl_rho; }
+  //! exact: this block's {R, I} of the stage (FP64, on the device)
+  torch::Tensor axial_closure_sums() const {
+    return AxialClosureFixer(paam.get()).partial_sums();
+  }
+  //! lane A's m1 (A.rst 3.4), held here because coord's x1 metric source
+  //! needs it with or without Coriolis (R-6); applies() is #355's gate
+  std::shared_ptr<X1Momentum> px1m;
 
   //! dynamics/flux-covariance (#289): the face-flux covariance rows a passive
   //! scalar carries on this stage's x2 (dim 2) or x3 (dim 1) faces, the rows a
@@ -321,23 +318,6 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
     int64_t v1 = -1, v2 = -1, v3 = -1;
   };
   CellVolume _cell_vol;
-  //! x1 mass-flux w (forward step 8): the grid-only factors (x1 face area and
-  //! the split weights (r^2 - r_lo^2) / (2 r V), (r_hi^2 - r^2) / (2 r V) of
-  //! the interior cells) and the stage buffers it reuses: phi (face transfer
-  //! rates) and the Coriolis inputs wc1 = (rho, 0, v2, v3) before the
-  //! implicit solve and wc2 = (1, m1, 0, 0) after it, whose row IVX is m1.
-  //! Rebuilt when the x1 faces, the dtype, the device or the block shape
-  //! change
-  struct MassW {
-    torch::Tensor x1f, area, lo, hi, phi, wc1, wc2;
-    int64_t ver = -1;
-  };
-  MassW _mass_w;
-  //! see axial_mass_fluxes()
-  std::array<torch::Tensor, 3> _aam_mass_flux;
-  int _aam_mass_ny = 0;
-  //! see axial_closure_sums()
-  mutable torch::Tensor _aam_cl, _aam_cl_rho;
 
   FluxRegister freg;
   torch::Tensor _flux1, _flux2, _flux3, _face_pressure1, _div, _forcing_dry;

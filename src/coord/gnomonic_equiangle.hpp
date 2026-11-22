@@ -84,47 +84,7 @@ class GnomonicEquiangleImpl
   void x1_mass_source_(torch::Tensor du, torch::Tensor const& prim,
                        torch::Tensor const& m1, double dt) const override;
 
-  void axial_x1_source_(torch::Tensor row2, torch::Tensor row3,
-                        torch::Tensor const& corr) const override;
-
-  //! axial angular momentum in flux form (#314)
-  /*!
-   * The momentum rows of `div` are the face-flux divergence minus the
-   * geometric (metric) sources, both at cell centres. Contracting them with
-   * the rotation field K = r k of each cell does not telescope across faces:
-   * the cell-centred metric sources and the face fluxes miss the discrete
-   * identity K . (div F - S) = div (F . K) by a second-order error, a
-   * spurious torque. Here the K component of every interior cell's momentum
-   * rows is replaced by the divergence of the face AAM fluxes A F . K_f, with
-   * K_f taken at each face in the face's own basis, so the AAM leaving a cell
-   * through a face is the AAM entering its neighbour and the total changes
-   * only through the physical boundary faces. The component of `div`
-   * orthogonal to K is unchanged. A cell with K -> 0 (on the axis) holds no
-   * AAM; its correction is regularised and fades there.
-   */
-  void conserve_axial_momentum_(torch::Tensor div, torch::Tensor flux1,
-                                torch::Tensor flux2,
-                                torch::Tensor flux3) const override;
-
-  //! set the K component of a pair of covariant horizontal rows (full-shape
-  //! [nc3, nc2, nc1] views of the x2 and x3 rows of a rate) to `target`, the
-  //! AAM rate per volume on the interior; the component orthogonal to K is
-  //! unchanged. A cell centred on the axis passes its target to its four
-  //! lateral neighbours (see the source).
-  void axial_rate_to_rows_(torch::Tensor row2, torch::Tensor row3,
-                           torch::Tensor target) const override;
-
-  //! conserve-axial-momentum: full (#357): the Coriolis torque on the
-  //! relative AAM in flux form from the x2/x3 face mass fluxes, per volume,
-  //! -(Omega / V) sum_f M_f (s_f^2 - s_c^2), s = r cos(lat); `ny` is the
-  //! number of species rows after IDN. Undefined fluxes are skipped.
-  torch::Tensor axial_coriolis_rate(torch::Tensor flux2, torch::Tensor flux3,
-                                    double omega, int ny) const;
-
  private:
-  //! guards K . K = 0 in a cell centred exactly on the rotation axis
-  double _aam_eps2 = 0.;
-
   torch::Tensor _interp_ghost_LR(torch::Tensor buf, bool flip) const;
   torch::Tensor _interp_ghost_BT(torch::Tensor buf, bool flip) const;
   //! global cells along a panel edge (nx2 * px), for the cubic ghost rule

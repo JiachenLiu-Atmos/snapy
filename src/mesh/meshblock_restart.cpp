@@ -17,13 +17,12 @@
 #include <snap/hydro/flux_positivity.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/implicit/implicit_dispatch.hpp>
-#include <snap/input/read_restart_file.hpp>
 #include <snap/mesh/signal_handler.hpp>
-#include <snap/output/output_formats.hpp>
+#include <snap/output/restart.hpp>
 #include <snap/output/restart_metadata.hpp>
+#include <snap/output/writer_core.hpp>
 #include <snap/utils/log.hpp>
 
-#include "cycle_diagnostics.hpp"
 #include "meshblock.hpp"
 #include "meshblock_internal.hpp"
 #include "stage_executor.hpp"
@@ -50,37 +49,8 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
   TORCH_CHECK(data.count("next_time"),
               "Restart file is missing required variable: next_time");
 
-  if (data.count(kHydroRestartMetadata)) {
-    auto const &meta = data.at(kHydroRestartMetadata);
-    TORCH_CHECK(meta.scalar_type() == torch::kInt64 && meta.dim() == 1 &&
-                    meta.numel() == 2,
-                "restart: invalid hydro restart metadata");
-    TORCH_CHECK(meta[0].item<int64_t>() == kHydroRestartVersion,
-                "restart: unsupported hydro restart metadata version");
-    TORCH_CHECK(data.count("hydro_ref") && data.count("hydro_u_stored"),
-                "restart: metadata requires hydro_ref and hydro_u_stored");
-    auto const &stored = data.at("hydro_u_stored");
-    int bits = stored.scalar_type() == torch::kFloat32   ? 32
-               : stored.scalar_type() == torch::kFloat64 ? 64
-                                                         : 0;
-    TORCH_CHECK(bits && meta[1].item<int64_t>() == bits &&
-                    stored.sizes() == data.at("hydro_u").sizes(),
-                "restart: stored hydro dtype/shape disagrees with metadata");
-    // Regridding needs an explicit remap of totals and a new background.
-    // Never attach a serialized reference to a different same-shaped grid.
-    std::array<torch::Tensor, 3> grid = {pcoord->x1f, pcoord->x2f, pcoord->x3f};
-    for (int d = 0; d < 3; ++d) {
-      auto key = kHydroReferenceGrid[d];
-      TORCH_CHECK(data.count(key) &&
-                      torch::equal(data.at(key), grid[d].to(torch::kCPU)),
-                  "restart: reference grid mismatch at ", key,
-                  "; remap totals and initialize a new background");
-    }
-  }
-  TORCH_CHECK(!phydro->options->perturbation_flux() ||
-                  (data.count("hydro_ref") && data.count("hydro_ref_species")),
-              "restart: perturbation-flux requires the original hydro_ref "
-              "and hydro_ref_species");
+  check_restart_metadata(data, {pcoord->x1f, pcoord->x2f, pcoord->x3f},
+                         phydro->options->perturbation_flux());
 
   // Resume from the saved cycle so nlim-based runs do not take an extra step.
   cycle = data.at("last_cycle").item<int64_t>();
@@ -152,6 +122,8 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
     }
   }
 
+  for (auto &output_type : output_types) output_type->load_carry(this, data);
+
   bool rebuild_scalar_r =
       pscalar->nvar() > 0 && data.count("scalar_s") && data.count("hydro_u");
 
@@ -160,9 +132,10 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
     if (rebuild_scalar_r && name == "scalar_r") {
       continue;
     }
-    // held by hydro.ref / used below, not kept in vars
-    if (name == "hydro_ref" || name == "hydro_ref_species" ||
-        name == "hydro_u_stored" || name == kHydroRestartMetadata ||
+    // held by hydro.ref / used below, or a budget carry: not kept in vars
+    if (name.rfind(kBudgetCarryPrefix, 0) == 0 || name == "hydro_ref" ||
+        name == "hydro_ref_species" || name == "hydro_u_stored" ||
+        name == kHydroRestartMetadata ||
         std::find(kHydroReferenceGrid.begin(), kHydroReferenceGrid.end(),
                   name) != kHydroReferenceGrid.end())
       continue;

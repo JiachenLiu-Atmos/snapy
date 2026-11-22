@@ -5,10 +5,12 @@
 enable_testing()
 
 setup_test(test_eos)
-# ideal-gas refuses a moist card; AthenaArray keeps float32 values
+# ideal-gas refuses a moist card; the output frame keeps float32 values
 setup_test(test_eos_io_core)
 setup_test(test_split_reference)
 setup_test(test_precision_policy)
+setup_test(test_fp32_typed_constants)
+set_tests_properties(test_fp32_typed_constants.${buildl} PROPERTIES LABELS "fp32-foundations;recon;riemann")
 setup_test(test_state_store)
 set_tests_properties(test_split_reference.${buildl} PROPERTIES LABELS "fp32-foundations;fp32-dynamics;hydro")
 setup_test(test_pressure_scan_x1)
@@ -169,9 +171,21 @@ foreach(_t test_balance_column test_face_floor)
                        PROPERTIES ENVIRONMENT "SNAP_X1_CENTROID_EXACT=1")
 endforeach()
 setup_test(test_netcdf_utils)
+# lane O, O6b: combine_parts on the G-2 cases (each part at its offset)
+setup_test(test_combine_parts)
+target_compile_definitions(test_combine_parts.${buildl}
+                           PRIVATE SNAPY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+# gate G-4 (lane O, O7): restart bundle round trip, broken bundles throw
+setup_test(test_restart_bundle)
+target_compile_definitions(test_restart_bundle.${buildl}
+                           PRIVATE SNAPY_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+# lane O, O8 budget part: the budget consumer and G-4's BudgetCarry cases
+setup_test(test_budget)
+add_test(NAME test_budget_cuda.${buildl} COMMAND test_budget.${buildl})
+set_tests_properties(test_budget_cuda.${buildl} PROPERTIES
+  ENVIRONMENT "SNAP_BUDGET_CUDA=1" SKIP_REGULAR_EXPRESSION "no CUDA")
 setup_test(test_user_output)
 setup_test(test_process_group)
-setup_test(test_refine)
 setup_test(test_diffusion)
 setup_test(test_diffusion_cubed_sphere)
 set_tests_properties(test_diffusion_cubed_sphere.${buildl} PROPERTIES TIMEOUT 120)
@@ -218,6 +232,7 @@ setup_test(test_cloud_parent_slots)
 setup_test(test_two_cards_species)
 setup_test(test_forcing)
 setup_test(test_source_registry)
+setup_test(test_axial_momentum)
 setup_test(test_conservation_budget)
 add_test(NAME test_conservation_budget_cuda.${buildl}
          COMMAND test_conservation_budget.${buildl})
@@ -344,6 +359,8 @@ snapy_add_python_test(test_cubed_sphere_vertical_velocity_exchange
                       LABELS "python;exchange;cubed-sphere;diagnostic")
 # periodic corner ghosts from the diagonal neighbour (V3 S step (2), P)
 snapy_add_python_test(test_periodic_corners TIMEOUT 120 LABELS "python;exchange")
+# S-L1: a second Mesh in the same process leaves the first one bitwise
+snapy_add_python_test(test_mesh_second_instance TIMEOUT 900 LABELS "python;exchange")
 snapy_add_python_test(test_jit_user_forcing TIMEOUT 30 LABELS "python;forcing")
 snapy_add_python_test(test_fix_vapor_reports_failure TIMEOUT 60 LABELS "python;eos;positivity")
 snapy_add_python_test(test_fix_vapor_stale_count TIMEOUT 60 LABELS "python;eos;positivity;redo")
@@ -377,7 +394,15 @@ snapy_add_python_test(test_implicit_options_type TIMEOUT 60 LABELS "python;impli
 snapy_add_python_test(test_shear_cfl TIMEOUT 60 LABELS "python;hydro;implicit")
 snapy_add_python_test(test_check_redo_floor TIMEOUT 60 LABELS "python;mesh;redo")
 snapy_add_python_test(test_check_redo_saturation TIMEOUT 60 LABELS "python;mesh;redo;eos")
+# lane K, S-K1: the ThermoY failure counter in the reset list and the retry stack
+snapy_add_python_test(test_sk1_failure_counter TIMEOUT 120 LABELS "python;mesh;redo;eos")
+# lane K, S-K2: the active set snapshot at stage 0, restored on a retry (K-G5)
+snapy_add_python_test(test_sk2_active_set TIMEOUT 180 LABELS "python;mesh;redo;eos")
+snapy_add_python_test(test_sk4_chemistry_source TIMEOUT 600 LABELS "python;mesh;eos;kinetics")
+snapy_add_python_test(test_sk4_mesh_chemistry TIMEOUT 600 LABELS "python;mesh;eos;kinetics")
 snapy_add_python_test(test_eos_temp2inteng TIMEOUT 60 LABELS "python;eos")
+# EF-13: the ideal-moist species sums give bitwise-equal x2 columns
+snapy_add_python_test(test_eos_species_sum_layout TIMEOUT 120 LABELS "python;eos")
 # fp32 roadmap Step 1a: anomaly storage of hydro_u
 snapy_add_python_test(test_anomaly_storage TIMEOUT 600 LABELS "python;eos;anomaly")
 # the base arm is the unlimited scheme and must go negative; with the face-flux
@@ -442,6 +467,7 @@ snapy_add_python_test(test_fp32_science TIMEOUT 300 LABELS "python;hydro;fp32-sc
 # skips without a CUDA device
 snapy_add_python_test(test_stage_executor_capture TIMEOUT 300 LABELS "python;hydro;fp32-science")
 snapy_add_python_test(test_execution_capability TIMEOUT 120 LABELS "python;hydro")
+snapy_add_python_test(test_sk3_capture_moist TIMEOUT 600 LABELS "python;hydro;eos;fp32-science")
 snapy_add_python_test(test_fp32_restart TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-restart")
 snapy_add_python_test(test_fp32_policy TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
 snapy_add_python_test(test_fp32_implicit TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
@@ -491,6 +517,18 @@ if(CUDA)
   snapy_add_python_test(test_check_redo_saturation_cuda
     SCRIPT test_check_redo_saturation.py ARGS --device cuda
     TIMEOUT 60 LABELS "python;mesh;redo;eos;cuda")
+  snapy_add_python_test(test_sk1_failure_counter_cuda
+    SCRIPT test_sk1_failure_counter.py ARGS --device cuda
+    TIMEOUT 60 LABELS "python;mesh;redo;eos;cuda")
+  snapy_add_python_test(test_sk2_active_set_cuda
+    SCRIPT test_sk2_active_set.py ARGS --device cuda
+    TIMEOUT 180 LABELS "python;mesh;redo;eos;cuda")
+  snapy_add_python_test(test_sk4_chemistry_source_cuda
+    SCRIPT test_sk4_chemistry_source.py ARGS --device cuda
+    TIMEOUT 600 LABELS "python;mesh;eos;kinetics;cuda")
+  snapy_add_python_test(test_sk4_mesh_chemistry_cuda
+    SCRIPT test_sk4_mesh_chemistry.py ARGS --device cuda
+    TIMEOUT 600 LABELS "python;mesh;eos;kinetics;cuda")
   snapy_add_python_test(test_conversion_order_cuda SCRIPT test_conversion_order.py
     ARGS --device cuda TIMEOUT 600 LABELS "python;hydro;cuda")
   snapy_add_python_test(test_flux_positivity_cubedsphere_cuda
@@ -536,6 +574,10 @@ if(CUDA)
     test_fix_vapor_reports_failure_cuda_python
     test_fix_vapor_stale_count_cuda_python
     test_check_redo_saturation_cuda_python
+    test_sk1_failure_counter_cuda_python
+    test_sk2_active_set_cuda_python
+    test_sk4_chemistry_source_cuda_python
+    test_sk4_mesh_chemistry_cuda_python
     test_flux_positivity_cubedsphere_cuda_python
     test_flux_positivity_cubedsphere_moist_cuda_python
     test_vic_moist_device_python

@@ -11,19 +11,21 @@
 #include <vector>
 
 // snap
+#include <snap/chemistry/chemistry_source.hpp>
 #include <snap/coord/coord_utils.hpp>
 #include <snap/coord/gnomonic_equiangle.hpp>
+#include <snap/diagnostics/budget.hpp>
 #include <snap/eos/ideal_moist.hpp>
 #include <snap/hydro/flux_positivity.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/implicit/implicit_dispatch.hpp>
-#include <snap/input/read_restart_file.hpp>
 #include <snap/mesh/signal_handler.hpp>
-#include <snap/output/output_formats.hpp>
+#include <snap/output/budget_series.hpp>
+#include <snap/output/restart.hpp>
 #include <snap/output/restart_metadata.hpp>
+#include <snap/output/writer_core.hpp>
 #include <snap/utils/log.hpp>
 
-#include "cycle_diagnostics.hpp"
 #include "meshblock.hpp"
 #include "meshblock_internal.hpp"
 #include "stage_executor.hpp"
@@ -144,42 +146,17 @@ void MeshBlockImpl::reset() {
 
   //// --------- (3) set up output --------- ////
   for (auto const &out_op : options->outputs()) {
-    auto validate_slice = [](std::vector<double> const &slices, double lower,
-                             double upper, bool sum, char const *axis) {
-      if (!slices.empty() && sum) {
-        throw std::invalid_argument(std::string("Cannot request both slice and "
-                                                "sum along ") +
-                                    axis);
-      }
-      for (size_t i = 0; i < slices.size(); ++i) {
-        double slice = slices[i];
-        if (!(slice >= lower && slice < upper)) {
-          throw std::invalid_argument(
-              std::string("Slice out of mesh bounds: ") + axis);
-        }
-        if (i && slice <= slices[i - 1]) {
-          throw std::invalid_argument(
-              std::string("Slices must be strictly increasing: ") + axis);
-        }
-      }
-    };
-    validate_slice(out_op->x1_slice(), options->coord()->global_x1min(),
-                   options->coord()->global_x1max(), out_op->output_sumx1(),
-                   "x1");
-    validate_slice(out_op->x2_slice(), options->coord()->global_x2min(),
-                   options->coord()->global_x2max(), out_op->output_sumx2(),
-                   "x2");
-    validate_slice(out_op->x3_slice(), options->coord()->global_x3min(),
-                   options->coord()->global_x3max(), out_op->output_sumx3(),
-                   "x3");
+    out_op->check_domain(*options->coord());
 
     if (out_op->file_type() == "restart") {
       output_types.push_back(std::make_shared<RestartOutput>(out_op));
     } else if (out_op->file_type() == "netcdf") {
-      output_types.push_back(std::make_shared<NetcdfOutput>(out_op));
+      output_types.push_back(std::make_shared<GriddedWriter>(out_op));
+    } else if (out_op->file_type() == "budget") {
+      output_types.push_back(std::make_shared<BudgetOutput>(out_op));
     } else if (out_op->file_type() == "pnetcdf") {
 #ifdef PNETCDFOUTPUT
-      output_types.push_back(std::make_shared<PNetcdfOutput>(out_op));
+      output_types.push_back(std::make_shared<GriddedWriter>(out_op));
 #else
       throw std::runtime_error("Output type 'pnetcdf' requires PNETCDF=ON.");
 #endif
@@ -227,6 +204,7 @@ void MeshBlockImpl::reset() {
   _state.reset(policy, phydro->peos->nvar(), pscalar->nvar(), nc3, nc2, nc1);
   register_buffer("u0", _state.u0());
   register_buffer("s0", _state.s0());
+  for (auto &output_type : output_types) output_type->bind(this);
   register_flux_storage();
 
   //// ------- (10) stage executor (eager unless cuda-graph) ------- ////
@@ -450,6 +428,40 @@ std::shared_ptr<kintera::ThermoYImpl> MeshBlockImpl::thermo() const {
   auto modules = named_modules();
   auto m = modules.find("hydro.eos.thermo");
   return m ? std::dynamic_pointer_cast<kintera::ThermoYImpl>(*m) : nullptr;
+}
+
+void MeshBlockImpl::set_chemistry(kintera::KineticsOptionsImpl reactions) {
+  auto pthermo = thermo();
+  TORCH_CHECK(pthermo, "MeshBlock::set_chemistry needs an EOS with a thermo");
+  _chemistry =
+      std::make_shared<ChemistrySource>(std::move(reactions), pthermo->options);
+}
+
+void MeshBlockImpl::prepare_thermo(torch::Tensor const &hydro_u) {
+  auto pthermo = thermo();
+  if (!pthermo) return;
+  // prepare() (idempotent) gives the counter, the active-set buffers and the
+  // table their interior shape, device and dtype before the first adjustment
+  // or a capture (K.rst 3.3, 3.5); an unprepared module throws in a capture
+  auto sub3 = part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
+  // index() with slices is a view: the interior's shape without a copy
+  auto shape = hydro_u[0].index(sub3).sizes().vec();
+  // the EOS computes in the state's dtype; the adjustment takes total_u(),
+  // FP64 for an FP32 anomaly state (HydroImpl::total_u). The module's own
+  // table is the adjustment's (prepare), so no call inside a capture swaps
+  // it (alloc_epoch(m) stays put, K.rst 3.3); the state's table only has to
+  // exist in kintera's store before the capture (tables_for)
+  auto dtype = hydro_u.scalar_type();
+  auto totals = dtype == torch::kFloat32 && phydro->has_reference()
+                    ? torch::kFloat64
+                    : dtype;
+  if (totals != dtype)
+    kintera::tables_for(pthermo->options, torch::empty({0}, hydro_u.options()));
+  pthermo->prepare(hydro_u.device(), totals, shape);
+  if (!_active_set0.second.defined() ||
+      _active_set0.second.device() != hydro_u.device() ||
+      !_active_set0.second.sizes().equals(shape))
+    _active_set0 = pthermo->make_active_set_storage();
 }
 
 }  // namespace snap

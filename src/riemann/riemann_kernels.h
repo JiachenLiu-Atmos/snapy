@@ -12,7 +12,7 @@
 
 #include "../eos/ideal_moist_impl.h"
 #include "../eos/shallow_water_impl.h"
-#include "riemann_dispatch.hpp"
+#include "riemann.hpp"
 
 // The Riemann face functions (V3 C.rst 3.6): hllc, lmars, roe and
 // shallow-roe, one definition each for CPU and CUDA (MPS runs the CPU loop
@@ -196,27 +196,28 @@ void DISPATCH_MACRO lmars_impl(T* flx, T* wl, T* wr, T hl, T hr, T gammal,
   T wli[5] = {WL(IDN), WL(ivx), WL(ivy), WL(ivz), WL(IPR)};
   T wri[5] = {WR(IDN), WR(ivx), WR(ivy), WR(ivz), WR(IPR)};
 
-  // Enthalpies
-  hl += 0.5 * (SQR(wli[IVX]) + SQR(wli[IVY]) + SQR(wli[IVZ])) +
+  // Enthalpies. Typed constants (V3 C9) keep a float instantiation on FP32
+  // arithmetic throughout; FP64 is unchanged.
+  hl += T(0.5) * (SQR(wli[IVX]) + SQR(wli[IVY]) + SQR(wli[IVZ])) +
         wli[IPR] / wli[IDN];
-  hr += 0.5 * (SQR(wri[IVX]) + SQR(wri[IVY]) + SQR(wri[IVZ])) +
+  hr += T(0.5) * (SQR(wri[IVX]) + SQR(wri[IVY]) + SQR(wri[IVZ])) +
         wri[IPR] / wri[IDN];
 
   // Average density, average sound speed, pressure, velocity
-  auto rhobar = 0.5 * (wli[IDN] + wri[IDN]);
-  auto gamma_bar = 0.5 * (gammal + gammar);
-  auto cbar = sqrt(0.5 * gamma_bar * (wli[IPR] + wri[IPR]) / rhobar);
+  T rhobar = T(0.5) * (wli[IDN] + wri[IDN]);
+  T gamma_bar = T(0.5) * (gammal + gammar);
+  T cbar = std::sqrt(T(0.5) * gamma_bar * (wli[IPR] + wri[IPR]) / rhobar);
 
-  auto pbar = 0.5 * (wli[IPR] + wri[IPR]) +
-              0.5 * (rhobar * cbar) * (wli[IVX] - wri[IVX]);
+  T pbar = T(0.5) * (wli[IPR] + wri[IPR]) +
+           T(0.5) * (rhobar * cbar) * (wli[IVX] - wri[IVX]);
   if (face_pressure != nullptr) *face_pressure = pbar;
 
-  auto ubar = 0.5 * (wli[IVX] + wri[IVX]) +
-              0.5 / (rhobar * cbar) * (wli[IPR] - wri[IPR]);
+  T ubar = T(0.5) * (wli[IVX] + wri[IVX]) +
+           T(0.5) / (rhobar * cbar) * (wli[IPR] - wri[IPR]);
 
   // Compute fluxes depending on the sign of ubar
-  T rd = 1.0;
-  if (ubar > 0.0) {
+  T rd = T(1.0);
+  if (ubar > T(0)) {
     // Left side flux
     for (int n = 0; n < ny; n++) {
       rd -= WL(ICY + n);
@@ -554,11 +555,7 @@ struct RiemannArgs {
   int dir_yz;
 };
 
-//! riemann.central's mass rows at one face (C.rst 3.6, section 4): 1/2 (F(w_L)
-//! + F(w_R)) of the dry row and of each species row, from the face-frame
-//! states the solve used; u is the face-normal velocity, rd = 1 - sum q.
-//! Shallow-roe has the one row 1/2 (h_L u_L + h_R u_R). The other rows are
-//! not written.
+//! riemann.central's mass rows at one face (lane-c-notes.md)
 template <RiemannKind K, typename T>
 DISPATCH_MACRO void riemann_central(T* cen, T const* wl, T const* wr,
                                     RiemannArgs<T> const& a) {
@@ -582,12 +579,8 @@ DISPATCH_MACRO void riemann_central(T* cen, T const* wl, T const* wr,
   }
 }
 
-//! one face of kind K. p holds the iterator's operands at the face, in the
-//! order of call_riemann (riemann_dispatch.hpp): the outputs (flux, the face
-//! pressure except for shallow-roe, riemann.central if C, roe's LLF flag if
-//! E), then wl, wr, e, gamma and c, (2, ...) with the right side one output
-//! stride after the left, and p0. C and E are template parameters so that
-//! the face functions compile as before when neither is requested.
+//! one face of kind K; p holds the operands of call_riemann
+//! (lane-c-notes.md)
 template <RiemannKind K, bool C, bool E, typename T>
 DISPATCH_MACRO void riemann_face(T* const* p, RiemannArgs<T> const& a) {
   auto s = a.stride;

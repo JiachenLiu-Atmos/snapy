@@ -108,53 +108,6 @@ void SphericalPolarImpl::reset() {
   register_buffer("x3f", x3f);
 }
 
-void SphericalPolarImpl::reset_coordinates(
-    std::array<MeshGenerator, 3> meshgens) {
-  CoordinateImpl::reset_coordinates(meshgens);
-
-  dx1f.copy_(x1f.slice(0, 1, options->nc1() + 1) -
-             x1f.slice(0, 0, options->nc1()));
-  x1v.copy_(radial_centers(x1f, options->nc1()));
-  dx1v.copy_(center_distances(x1v, dx1f));
-
-  dx2f.copy_(x2f.slice(0, 1, options->nc2() + 1) -
-             x2f.slice(0, 0, options->nc2()));
-  if (options->nc2() == 1) {
-    x2v.copy_(0.5 * (x2f.slice(0, 0, options->nc2()) +
-                     x2f.slice(0, 1, options->nc2() + 1)));
-  } else {
-    x2v.copy_(polar_centers(x2f, options->nc2()));
-  }
-  dx2v.copy_(center_distances(x2v, dx2f));
-
-  dx3f.copy_(x3f.slice(0, 1, options->nc3() + 1) -
-             x3f.slice(0, 0, options->nc3()));
-  x3v.copy_(0.5 * (x3f.slice(0, 0, options->nc3()) +
-                   x3f.slice(0, 1, options->nc3() + 1)));
-  dx3v.copy_(center_distances(x3v, dx3f));
-
-  auto rm = x1f.slice(0, 0, options->nc1());
-  auto rp = x1f.slice(0, 1, options->nc1() + 1);
-  auto radial_volume = (rp.pow(3) - rm.pow(3)) / 3.0;
-  auto radial_area23 = 0.5 * (rp.pow(2) - rm.pow(2));
-  coord_src1_i.copy_((radial_area23 / radial_volume).unsqueeze(0).unsqueeze(0));
-  coord_src2_i.copy_(
-      (dx1f / ((rm + rp) * radial_volume)).unsqueeze(0).unsqueeze(0));
-
-  auto theta_m = x2f.slice(0, 0, options->nc2());
-  auto theta_p = x2f.slice(0, 1, options->nc2() + 1);
-  auto sin_m = theta_m.sin().abs();
-  auto sin_p = theta_p.sin().abs();
-  auto polar_volume = torch::abs(theta_m.cos() - theta_p.cos());
-  coord_src1_j.copy_(
-      ((sin_p - sin_m) / polar_volume).unsqueeze(0).unsqueeze(-1));
-  coord_src2_j.copy_(((sin_p - sin_m) / ((sin_m + sin_p) * polar_volume))
-                         .unsqueeze(0)
-                         .unsqueeze(-1));
-  coord_src3_j.copy_(
-      ((sin_p - sin_m) / polar_volume).unsqueeze(0).unsqueeze(-1));
-}
-
 torch::Tensor SphericalPolarImpl::center_width2() const {
   return x1v.unsqueeze(0).unsqueeze(1) * dx2f.unsqueeze(0).unsqueeze(2);
 }

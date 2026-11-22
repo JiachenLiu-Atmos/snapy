@@ -35,7 +35,9 @@ string(TOUPPER ${namel} nameu)
 file(GLOB src_files
     #*.cpp
     bc/*.cpp
+    chemistry/*.cpp
     coord/*.cpp
+    diagnostics/*.cpp
     eos/*.cpp
     eos/aneos/*.cpp
     hydro/*.cpp

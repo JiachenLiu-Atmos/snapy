@@ -45,19 +45,17 @@ void OutputType::loadScalarOutputData(MeshBlockImpl* pmb,
 
     if (s.defined() &&
         (output_all_scalar_cons || ContainVariable(scalar_name_cons))) {
-      appendTensorSliceOutput("SCALARS", scalar_name_cons, s, 4, n, 1);
+      appendTensorSliceOutput(scalar_name_cons, s, n, 1);
     }
 
     if (r.defined() &&
         (output_all_scalar_prim || ContainVariable(scalar_name_prim))) {
-      appendTensorSliceOutput("SCALARS", scalar_name_prim, r, 4, n, 1);
+      appendTensorSliceOutput(scalar_name_prim, r, n, 1);
     }
 
     if (r_mean.defined()) {
-      appendTensorSliceOutput("SCALARS", scalar_name_prim + "_mean", r_mean, 4,
-                              n, 1);
-      appendTensorSliceOutput("SCALARS", scalar_name_prim + "_std", r_std, 4, n,
-                              1);
+      appendTensorSliceOutput(scalar_name_prim + "_mean", r_mean, n, 1);
+      appendTensorSliceOutput(scalar_name_prim + "_std", r_std, n, 1);
     }
   }
 }

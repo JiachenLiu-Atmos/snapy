@@ -23,18 +23,6 @@ HydroImpl::HydroImpl(const HydroOptions& options_, torch::nn::Module* p)
   reset();
 }
 
-bool HydroImpl::axial_flux_form() const {
-  if (options->conserve_axial_momentum() == "off" || !pmb || !pmb->pcoord ||
-      pmb->pcoord->options->type() != "gnomonic-equiangle")
-    return false;
-  auto const& c = options->coriolis();
-  return !c || (c->type() == "xyz" && c->omega2() == 0. && c->omega3() == 0.);
-}
-
-bool HydroImpl::axial_coriolis_form() const {
-  return options->conserve_axial_momentum() == "full" && axial_flux_form();
-}
-
 void HydroImpl::reset() {
   _forcing_work = _forcing_cast = torch::Tensor();
   TORCH_CHECK(pmb, "[Hydro] Parent MeshBlock is null");
@@ -42,36 +30,17 @@ void HydroImpl::reset() {
       options->conversion_order() == 2 || options->conversion_order() == 4,
       "[Hydro] dynamics/conversion-order must be 2 or 4, got ",
       options->conversion_order());
-  // conserve-axial-momentum acts where it is defined (axial_flux_form); say
-  // so when a Coriolis force about another axis turns it off on the cubed
-  // sphere
-  auto const& aam_mode = options->conserve_axial_momentum();
-  TORCH_CHECK(
-      aam_mode == "off" || aam_mode == "transport" || aam_mode == "full",
-      "[Hydro] conserve_axial_momentum must be off, transport or full, got '",
-      aam_mode, "'");
-  TORCH_CHECK(
-      !axial_coriolis_form() || pmb->pcoord->options->interp_order() == 4,
-      "dynamics/conserve-axial-momentum: full needs cubic panel-edge "
-      "ghosts, geometry/cells/interp_order: 4");
-  TORCH_CHECK(!options->conserve_axial_momentum_closure() || aam_mode == "full",
-              "dynamics/conserve-axial-momentum-closure needs "
-              "conserve-axial-momentum: full");
-  if (aam_mode != "off" && pmb->pcoord &&
-      pmb->pcoord->options->type() == "gnomonic-equiangle" &&
-      !axial_flux_form())
-    TORCH_WARN_ONCE(
-        "dynamics/conserve-axial-momentum is off for this run: it needs "
-        "coriolis type xyz with omega2 = omega3 = 0 (the AAM is about the "
-        "omega1 axis)");
-
   TORCH_CHECK(options->precision() == "float64" || fp32(),
               "dynamics/precision must be float64 or float32");
+  // conserve-axial-momentum: lane A's consumer makes the mode's refusals
+  paam = std::make_shared<AxialMomentum>(this);
   TORCH_CHECK(!fp32() || options->perturbation_flux(),
               "dynamics/precision float32 requires perturbation-flux");
 
   //// ---- (1) set up equation-of-state model ---- ////
   peos = EquationOfStateImpl::create(options->eos(), this);
+  // x1 mass-flux w (#355's gate): needs the EOS type and the grid
+  px1m = std::make_shared<X1Momentum>(this);
   if (options->verbose()) {
     SINFO(Hydro) << "EOS type: " << peos->options->type() << "\n";
   }
@@ -233,6 +202,10 @@ void HydroImpl::reset() {
   for (auto name : {"face_floor.rho", "face_floor.p", "face_floor.species",
                     "riemann.pstar_clamp", "riemann.llf"})
     req.counters.push_back(name);
+  // K's names (K.rst 3.2): the ThermoY counter's rows 1-2, posted once per
+  // step by MeshBlock after the saturation adjustment (K2)
+  req.counters.push_back("thermo.temp_solve");
+  req.counters.push_back("thermo.pres_solve");
   // V3 I-6: the retried columns (R.rst 4.5), last, so the counters above
   // keep their indices
   req.counters.push_back("implicit.fp64_columns");
@@ -240,12 +213,14 @@ void HydroImpl::reset() {
   // V3 I-5: lane I's cause (R.rst 4.5); X maps it to its cause bit 5
   req.retry = {"ef.floor_patch", "ef.nan", "ef.vapor_fail", "ef.heat_capacity",
                "implicit.column"};
-  // conserve-axial-momentum full: A's riemann.central on the x2/x3 faces
+  // conserve-axial-momentum exact: A's riemann.central on the x2/x3 faces
   // (R-2), kept until the next stage
-  if (axial_coriolis_form()) {
-    if (nc2 > 1) req.keep.push_back("riemann.central@2");
-    if (nc3 > 1) req.keep.push_back("riemann.central@3");
-  }
+  paam->request(req);
+  // ruling A-ph3.radial_step_field: radial conduction posts its split halves
+  // with post_split, which needs the x1 step field
+  if (pdiffusion && pdiffusion->options->implicit_radial() &&
+      pdiffusion->options->kappa_iso() != 0.)
+    req.step_field.push_back(1);
   // R-5: lane I's kept x1 parts, posted by the implicit solve (I-4)
   if (picorr && nc1 > 1)
     for (auto const* key :

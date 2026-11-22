@@ -128,16 +128,7 @@ class HydroImpl;
 
 class ReconstructImpl : public torch::nn::Cloneable<ReconstructImpl> {
  public:
-  //! Create and register a Reconstruct module
-  /*!
-   * This function registers the created module as a submodule
-   * of the given parent module `p`.
-   *
-   * \param[in] opts      options for creating the `Reconstruct` module
-   * \param[in] p         parent module for registering the created module
-   * \param[in] name      name for the created module
-   * \return              created `Reconstruct` module
-   */
+  //! Create the module and register it as submodule `name` of `p`
   static std::shared_ptr<ReconstructImpl> create(
       ReconstructOptions const& opts, torch::nn::Module* p,
       std::string const& name = "recon");

@@ -32,6 +32,11 @@
 // arg
 #include <snap/add_arg.h>
 
+namespace kintera {
+class ThermoYImpl;
+struct KineticsOptionsImpl;
+}  // namespace kintera
+
 namespace snap {
 
 struct OutputOptionsImpl;
@@ -133,6 +138,7 @@ struct PartOptions {
 };
 
 class StageExecutor;
+class ChemistrySource;
 
 class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   friend class StageExecutor;
@@ -154,6 +160,10 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
 
   //! current cycle number
   int cycle = 0;
+
+  //! the length of the step being taken, set at its stage 0; the budget
+  //! output observes it once the step is accepted
+  double step_dt = 0.;
 
   //! Exchange buffers owned by the MeshBlock so Layout stays stateless.
   mutable std::vector<std::vector<torch::Tensor>> send_bufs, recv_bufs;
@@ -216,6 +226,14 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   void forward(Variables& vars, double dt, int stage);
   void advance_local(Variables& vars, double dt, int stage);
 
+  //! V3 S-K4 (K.rst 3.6): the chemistry step after the last stage, from a
+  //! by-value copy of the reaction options; one adapter for this block,
+  //! built on the calling thread. A Mesh registers its blocks through
+  //! Mesh::set_chemistry, which defers each block's run to its global phase.
+  void set_chemistry(kintera::KineticsOptionsImpl reactions);
+  ChemistrySource* chemistry() const { return _chemistry.get(); }
+  bool defer_chemistry = false;
+
   //! the stage executor's counters: captures, replays, eager stages, graphs
   std::map<std::string, int64_t> execution_report() const;
   //! this block's row of the capability matrix for vars (V3 X7)
@@ -227,9 +245,10 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! called by finalize_initialization and by a restart without one
   void build_hydro_reference(Variables& vars);
 
-  //! conserve-axial-momentum-closure: this block's {R, I} of the stage
-  //! (device, FP64; zeros if off), and the stage's solid-body increment from
-  //! the global sums, applied in the global phase (forward, Mesh::forward)
+  //! conserve-axial-momentum exact: this block's {R, I} of the stage
+  //! (device, FP64; zeros if off) and the stage's solid-body increment from
+  //! the global sums (lane A's AxialClosureFixer), applied in the global
+  //! phase (forward, Mesh::forward)
   torch::Tensor axial_closure_sums() const;
   void apply_axial_closure(Variables& vars, double dt, int stage,
                            torch::Tensor const& global);
@@ -302,6 +321,16 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! exchange vars[hydro] as `type`, then vars[scalar] as kScalar
   void exchange_state(Variables& vars, char const* hydro, int type,
                       char const* scalar);
+
+  //! K4 (K.rst 3.4): the ThermoY active set at the step's start, taken at
+  //! stage 0 of each attempt and restored on a retry, so a retry repeats
+  //! the first attempt (reaction_set, nactive buffers of the interior shape)
+  std::pair<torch::Tensor, torch::Tensor> _active_set0;
+  //! S-K4: this block's chemistry adapter (null: none registered)
+  std::shared_ptr<ChemistrySource> _chemistry;
+  //! K.rst 3.5: the ThermoY prepared for the interior shape (idempotent) and
+  //! _active_set0 made for it; at stage 0 and before a graph warm-up
+  void prepare_thermo(torch::Tensor const& hydro_u);
 
   //! distribution layout
   Layout _playout;

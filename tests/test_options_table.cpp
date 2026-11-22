@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -75,7 +76,6 @@ TEST(options_table, pin_defaults) {
   EXPECT_FALSE(o.double_precision());
   EXPECT_TRUE(o.combine());
   EXPECT_FALSE(o.verbose());
-  EXPECT_FALSE(o.super_resolution());
 
   HydroOptionsImpl h;
   EXPECT_FALSE(h.verbose());
@@ -90,7 +90,6 @@ TEST(options_table, pin_defaults) {
   EXPECT_TRUE(h.flux_covariance());
   EXPECT_FALSE(h.x1_mass_covariance());
   EXPECT_EQ(h.conserve_axial_momentum(), "off");
-  EXPECT_FALSE(h.conserve_axial_momentum_closure());
   EXPECT_EQ(h.grav(), nullptr);
   EXPECT_EQ(h.eos(), nullptr);
 }
@@ -112,8 +111,7 @@ TEST(options_table, pin_report) {
             "-- hydro options --\n* verbose = 0\n* precision = float64\n"
             "* disable_flux_x1 = 0\n* disable_flux_x2 = 0\n"
             "* disable_flux_x3 = 0\n* flux_covariance = 1\n"
-            "* x1_mass_covariance = 0\n* conserve_axial_momentum = off\n"
-            "* conserve_axial_momentum_closure = 0\n");
+            "* x1_mass_covariance = 0\n* conserve_axial_momentum = off\n");
 }
 
 // SNAP_ANOMALY keeps its words and its refusal.
@@ -132,6 +130,39 @@ TEST(options_table, hydro_env_row) {
   ::setenv("SNAP_ANOMALY", "maybe", 1);
   EXPECT_THROW(HydroOptionsImpl::from_yaml(deck.string()), c10::Error);
   ::unsetenv("SNAP_ANOMALY");
+}
+
+// A-ph2: exact replaces full and the closure key (A.rst 3.2, 10.3).
+TEST(options_table, axial_mode_words) {
+  auto deck = fs::temp_directory_path() / "test_options_table_axial.yaml";
+  auto read = [&](std::string const& body) {
+    {
+      std::ofstream out(deck);
+      out << "dynamics:\n" << body;
+    }
+    return HydroOptionsImpl::from_yaml(deck.string());
+  };
+  EXPECT_EQ(
+      read("  conserve-axial-momentum: exact\n")->conserve_axial_momentum(),
+      "exact");
+  try {
+    read("  conserve-axial-momentum: full\n");
+    ADD_FAILURE() << "full was read";
+  } catch (std::exception const& e) {
+    EXPECT_NE(std::string(e.what()).find("exact replaces full"),
+              std::string::npos)
+        << e.what();
+  }
+  try {
+    read(
+        "  conserve-axial-momentum: exact\n"
+        "  conserve-axial-momentum-closure: true\n");
+    ADD_FAILURE() << "the closure key was read";
+  } catch (std::exception const& e) {
+    EXPECT_NE(std::string(e.what()).find("conserve-axial-momentum-closure"),
+              std::string::npos)
+        << e.what();
+  }
 }
 
 // Output checks keep their exception type and messages.
@@ -154,6 +185,52 @@ TEST(options_table, output_checks) {
   EXPECT_THROW(
       OutputOptionsImpl::from_yaml(YAML::Load("{type: netcdf, dtt: 1}"), 2),
       c10::Error);
+}
+
+// O8 item sv: output.yaml's `domain` checks against the global grid, with the
+// messages and the order of the deleted MeshBlockImpl::validate_slice.
+TEST(options_table, output_domain_checks) {
+  auto co = CoordinateOptionsImpl::create();
+  co->global_x1min(0.).global_x1max(10.);
+  co->global_x2min(-1.).global_x2max(1.);
+  co->global_x3min(0.).global_x3max(1.);
+  auto error = [&](OutputOptions const& o) -> std::string {
+    try {
+      o->check_domain(*co);
+    } catch (std::invalid_argument const& e) {
+      return e.what();
+    }
+    return "";
+  };
+  auto x1 = [](std::vector<double> v) {
+    auto o = OutputOptionsImpl::create();
+    o->file_type("netcdf").x1_slice(v);
+    return o;
+  };
+  auto out = OutputOptionsImpl::create();
+  EXPECT_EQ(error(out), "");
+  EXPECT_EQ(error(x1({0., 2.5, 9.999})), "");
+  EXPECT_EQ(error(x1({10.})), "Slice out of mesh bounds: x1");  // [min, max)
+  EXPECT_EQ(error(x1({-0.5})), "Slice out of mesh bounds: x1");
+  EXPECT_EQ(error(x1({std::numeric_limits<double>::quiet_NaN()})),
+            "Slice out of mesh bounds: x1");
+  EXPECT_EQ(error(x1({2., 1.})), "Slices must be strictly increasing: x1");
+  EXPECT_EQ(error(x1({1., 1.})), "Slices must be strictly increasing: x1");
+  // element by element: the first bad element decides the message
+  EXPECT_EQ(error(x1({5., 3., 50.})), "Slices must be strictly increasing: x1");
+  EXPECT_EQ(error(x1({50., 3.})), "Slice out of mesh bounds: x1");
+  // built in code, so from_yaml's sum check never ran
+  out = OutputOptionsImpl::create();
+  out->x2_slice({0.}).output_sumx2(true);
+  EXPECT_EQ(error(out), "Cannot request both slice and sum along x2");
+  // axis order x1, x2, x3; within an axis the sum check first
+  out = OutputOptionsImpl::create();
+  out->x3_slice({5.}).x2_slice({0.5, 0.}).output_sumx2(true);
+  EXPECT_EQ(error(out), "Cannot request both slice and sum along x2");
+  out->output_sumx2(false);
+  EXPECT_EQ(error(out), "Slices must be strictly increasing: x2");
+  out->x2_slice({0.});
+  EXPECT_EQ(error(out), "Slice out of mesh bounds: x3");
 }
 
 // Lane S's three parsers against the generated rows, deck by deck.

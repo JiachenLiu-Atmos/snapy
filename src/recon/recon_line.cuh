@@ -40,9 +40,9 @@ struct ReconOp {
 // per-face x1 table, one row of NCoeff per output, read from global memory.
 template <typename T, int Stencil, int NCoeff, typename Op, bool Nu = false>
 __device__ void recon_line_block(T *out, T *inp, T const *coeff, int nvar,
-                                  int stride_in1, int stride_in2,
-                                  int stride_out1, int stride_out2, bool scale,
-                                  T *smem) {
+                                 int stride_in1, int stride_in2,
+                                 int stride_out1, int stride_out2, bool scale,
+                                 T *smem) {
   int id = threadIdx.x;
   int nt = blockDim.x;
 
@@ -73,16 +73,13 @@ __device__ void recon_line_block(T *out, T *inp, T const *coeff, int nvar,
   }
 }
 
-// One CUDA block cannot hold a line longer than 1024 threads. Walk that
-// line in tiles of blockDim.x outputs. A tile loads blockDim.x + Stencil - 1
-// inputs (the overhang) and calls the same shared-memory weights as the
-// one-thread-per-cell kernel. Nu: coeff is a per-face x1 table, one row of
-// NCoeff per output, read from global memory.
+// a line longer than 1024 threads, in tiles of blockDim.x outputs
+// (lane-c-notes.md)
 template <typename T, int Stencil, int NCoeff, typename Op, bool Nu = false>
 __device__ void recon_line_tiled(T *out, T *inp, T const *coeff, int nvar,
-                                  int stride_in1, int stride_in2,
-                                  int stride_out1, int stride_out2, bool scale,
-                                  int nline, T *smem) {
+                                 int stride_in1, int stride_in2,
+                                 int stride_out1, int stride_out2, bool scale,
+                                 int nline, T *smem) {
   int id = threadIdx.x;
   int nt = blockDim.x;
   int overhang = Stencil - 1;
@@ -129,7 +126,7 @@ __device__ void recon_line_tiled(T *out, T *inp, T const *coeff, int nvar,
 // per-face x1 table, read from global memory).
 inline int recon_tile_width(int64_t nline, int nvar, int stencil,
                             int64_t ncoeff, size_t scalar_size,
-                            size_t* shared_bytes) {
+                            size_t *shared_bytes) {
   if (nline <= 1024) {
     return 0;
   }
@@ -157,14 +154,14 @@ inline int recon_tile_width(int64_t nline, int nvar, int stencil,
 // tile width instead of the line length. grid.x stays 1: blockIdx is the
 // line id, so a second block along the line would read the wrong offset.
 template <typename scalar_t, int Arity, typename func_t>
-void stencil_kernel_tiled(at::TensorIterator& iter, int dim, int block_x,
-                          size_t shared_bytes, const func_t& f) {
+void stencil_kernel_tiled(at::TensorIterator &iter, int dim, int block_x,
+                          size_t shared_bytes, const func_t &f) {
   TORCH_CHECK(iter.ninputs() + iter.noutputs() == Arity);
   TORCH_CHECK(block_x >= 1 && block_x <= 1024);
 
-  std::array<char*, Arity> data;
+  std::array<char *, Arity> data;
   for (int i = 0; i < Arity; i++) {
-    data[i] = (char*)iter.data_ptr(i);
+    data[i] = (char *)iter.data_ptr(i);
   }
 
   auto offset_calc = ::make_offset_calculator<Arity>(iter);
@@ -199,7 +196,7 @@ void stencil_kernel_tiled(at::TensorIterator& iter, int dim, int block_x,
 
   auto stream = at::cuda::getCurrentCUDAStream();
   native::reduce_kernel<scalar_t><<<grid, block, shared_bytes, stream>>>(
-      numel, [=] __device__(int bid, scalar_t* smem) {
+      numel, [=] __device__(int bid, scalar_t *smem) {
         auto offsets = offset_calc.get(bid);
         f(data.data(), offsets.data(), smem);
       });

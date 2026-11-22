@@ -16,8 +16,6 @@
 #include <snap/mesh/mesh_functions.hpp>
 #include <snap/utils/tensor_cast_cache.hpp>
 
-#include "coordgen.hpp"
-
 // arg
 #include <snap/add_arg.h>
 
@@ -211,7 +209,6 @@ class CoordinateImpl {
   }
 
   void print(std::ostream& stream) const;
-  virtual void reset_coordinates(std::array<MeshGenerator, 3> meshgens);
 
   //! This block's slice of the global face array for one axis.
   static torch::Tensor block_faces_(double gmin, double gmax, int gnx, int nx,
@@ -324,13 +321,6 @@ class CoordinateImpl {
   static torch::Tensor radial_face_centroid_shift_(torch::Tensor const& x1f,
                                                    int nc1);
 
-  virtual torch::Tensor find_cell_index(torch::Tensor const& coords) const;
-
-  virtual std::array<double, 3> vec_from_cartesian(
-      std::array<double, 3> vec) const {
-    return {vec[0], vec[1], vec[2]};
-  }
-
   virtual void interp_ghost(torch::Tensor var,
                             std::tuple<int, int, int> const&) const {}
 
@@ -372,25 +362,6 @@ class CoordinateImpl {
   virtual void x1_mass_source_(torch::Tensor du, torch::Tensor const& prim,
                                torch::Tensor const& m1, double dt) const {}
 
-  //! rewrite the axial angular momentum component of the momentum rows of a
-  //! finished divergence `div` (flux divergence minus geometric sources) in
-  //! flux form, from the same face fluxes; see GnomonicEquiangle. No-op here.
-  virtual void conserve_axial_momentum_(torch::Tensor div, torch::Tensor flux1,
-                                        torch::Tensor flux2,
-                                        torch::Tensor flux3) const {}
-
-  //! set the K (axial rotation) component of two horizontal rate rows to
-  //! `target`; see GnomonicEquiangle. No-op here.
-  virtual void axial_rate_to_rows_(torch::Tensor row2, torch::Tensor row3,
-                                   torch::Tensor target) const {}
-
-  //! set the K component of the x1 metric source rows (-m1 v / r, as
-  //! increments) to what puts the tangential momentum the implicit solve
-  //! moved (`corr`, its increment of the conserved rows; may be undefined) at
-  //! the x1 face radius; see GnomonicEquiangle. No-op here.
-  virtual void axial_x1_source_(torch::Tensor row2, torch::Tensor row3,
-                                torch::Tensor const& corr) const {}
-
   virtual torch::Tensor forward(torch::Tensor prim, torch::Tensor flux1,
                                 torch::Tensor flux2, torch::Tensor flux3,
                                 torch::Tensor face_pressure1 = torch::Tensor());
@@ -428,8 +399,6 @@ class CartesianImpl : public torch::nn::Cloneable<CartesianImpl>,
     stream << "Cartesian coordinate:" << std::endl;
     print(stream);
   }
-
-  void reset_coordinates(std::array<MeshGenerator, 3> meshgens) override;
 };
 TORCH_MODULE(Cartesian);
 

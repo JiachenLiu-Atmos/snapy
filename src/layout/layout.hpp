@@ -129,6 +129,10 @@ struct LayoutOptionsImpl {
   ADD_ARG(int, process_world_size) = 1;
   ADD_ARG(int, world_size) = 1;
   ADD_ARG(int, blocks_per_process) = 1;
+  //! the Mesh this block belongs to (S-L1): keys the same-process exchange
+  //! state, so two Meshes in one process never meet. MeshImpl::reset sets a
+  //! new id for its blocks; 0, blocks built outside a Mesh, share one group.
+  ADD_ARG(int64_t, mesh_id) = 0;
   ADD_ARG(int, master_port) = -1;
   ADD_ARG(int, device_id) = -1;
   ADD_ARG(bool, verbose) = false;

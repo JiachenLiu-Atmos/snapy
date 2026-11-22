@@ -3,7 +3,7 @@
 #include <torch/torch.h>
 
 #include <limits>
-#include <snap/hydro/hydro_reference.hpp>
+#include <snap/recon/x1_reference.hpp>
 #include <snap/utils/on_host.hpp>
 
 #include "device_testing.hpp"

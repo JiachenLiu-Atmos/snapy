@@ -50,6 +50,7 @@ int random_master_port() {
 }
 
 struct LocalExchangeKey {
+  int64_t mesh_id;
   int process_rank;
   int blocks_per_process;
   int dim;
@@ -63,11 +64,11 @@ struct LocalExchangeKey {
   std::string device;
 
   bool operator<(LocalExchangeKey const& other) const {
-    return std::tie(process_rank, blocks_per_process, dim, phyid, type,
+    return std::tie(mesh_id, process_rank, blocks_per_process, dim, phyid, type,
                     intra_panel_only, cross_panel_only, skip_corner,
                     interpolate, layout_type, device) <
-           std::tie(other.process_rank, other.blocks_per_process, other.dim,
-                    other.phyid, other.type, other.intra_panel_only,
+           std::tie(other.mesh_id, other.process_rank, other.blocks_per_process,
+                    other.dim, other.phyid, other.type, other.intra_panel_only,
                     other.cross_panel_only, other.skip_corner,
                     other.interpolate, other.layout_type, other.device);
   }
@@ -99,7 +100,10 @@ struct RemoteExchangeOp {
 
 std::mutex g_local_exchange_mutex;
 std::condition_variable g_local_exchange_cv;
-std::map<std::pair<int, int>, LayoutImpl*> g_local_layouts;
+//! every same-process map below is keyed first by the Mesh (S-L1:
+//! LayoutOptions::mesh_id), so a second Mesh in the process never meets it
+//! (mesh, process, local block index)
+std::map<std::tuple<int64_t, int, int>, LayoutImpl*> g_local_layouts;
 std::map<LocalExchangeKey, LocalExchangeState> g_local_exchange_states;
 std::mutex g_process_comm_mutex;
 
@@ -110,15 +114,16 @@ struct ColumnBoard {
   bool full = false;
   std::map<int, torch::Tensor> pieces;
 };
-std::map<std::tuple<int, int, int>, ColumnBoard> g_column_boards;
+//! (mesh, process, column x, column y)
+std::map<std::tuple<int64_t, int, int, int>, ColumnBoard> g_column_boards;
 
 //! same-process x1 reference anchors in flight (take_x1_anchor), keyed by
-//! (process, receiving block rank)
-std::map<std::pair<int, int>, torch::Tensor> g_x1_anchors;
+//! (mesh, process, receiving block rank)
+std::map<std::tuple<int64_t, int, int>, torch::Tensor> g_x1_anchors;
 
 //! same-process block-to-block messages in flight (post_to_local_block),
-//! keyed by (process, sender block rank, receiver block rank, tag)
-std::map<std::tuple<int, int, int, int>, torch::Tensor> g_local_mail;
+//! keyed by (mesh, process, sender block rank, receiver block rank, tag)
+std::map<std::tuple<int64_t, int, int, int, int>, torch::Tensor> g_local_mail;
 
 std::pair<int, int> exchange_dz_bounds(LayoutImpl const& layout,
                                        SyncOptions const& opts) {
@@ -131,12 +136,13 @@ std::vector<LayoutImpl*> local_layouts_for(LayoutImpl const& layout) {
                                    nullptr);
 
   for (auto const& [key, local_layout] : g_local_layouts) {
-    if (key.first == layout.options->process_rank()) {
-      TORCH_CHECK(
-          key.second >= 0 && key.second < layout.options->blocks_per_process(),
-          "invalid local block index ", key.second,
-          " for process-local layout registry");
-      layouts[key.second] = local_layout;
+    auto const& [mesh, process, index] = key;
+    if (mesh == layout.options->mesh_id() &&
+        process == layout.options->process_rank()) {
+      TORCH_CHECK(index >= 0 && index < layout.options->blocks_per_process(),
+                  "invalid local block index ", index,
+                  " for process-local layout registry");
+      layouts[index] = local_layout;
     }
   }
 
@@ -152,6 +158,7 @@ std::vector<LayoutImpl*> local_layouts_for(LayoutImpl const& layout) {
 LocalExchangeKey make_local_exchange_key(LayoutImpl const& layout,
                                          SyncOptions const& opts) {
   return LocalExchangeKey{
+      layout.options->mesh_id(),
       layout.options->process_rank(),
       layout.options->blocks_per_process(),
       opts.dim(),
@@ -290,7 +297,7 @@ std::shared_ptr<LayoutImpl> LayoutImpl::create(LayoutOptions const& options,
 
   if (p != nullptr) {
     std::lock_guard<std::mutex> lock(g_local_exchange_mutex);
-    g_local_layouts[{options->process_rank(),
+    g_local_layouts[{options->mesh_id(), options->process_rank(),
                      options->local_block_index(options->rank())}] = pl.get();
   }
 
@@ -301,8 +308,8 @@ LayoutImpl::~LayoutImpl() {
   if (options == nullptr || owner() == nullptr) return;
 
   std::lock_guard<std::mutex> lock(g_local_exchange_mutex);
-  auto key = std::make_pair(options->process_rank(),
-                            options->local_block_index(options->rank()));
+  auto key = std::make_tuple(options->mesh_id(), options->process_rank(),
+                             options->local_block_index(options->rank()));
   auto it = g_local_layouts.find(key);
   // A restarted mesh may register its replacement before the old Python
   // mesh/block references are released. Do not unregister that replacement.
@@ -771,7 +778,7 @@ torch::Tensor LayoutImpl::gather_x1(torch::Tensor const& piece) {
   int nlocal = local.size();
   if (nlocal > 1) {
     std::unique_lock<std::mutex> lock(g_local_exchange_mutex);
-    auto& board = g_column_boards[{proc, rx, ry}];
+    auto& board = g_column_boards[{options->mesh_id(), proc, rx, ry}];
     g_local_exchange_cv.wait(lock, [&]() { return !board.full; });
     board.pieces[rz] = pieces[rz];
     if (++board.posted == nlocal) {
@@ -791,7 +798,7 @@ torch::Tensor LayoutImpl::gather_x1(torch::Tensor const& piece) {
 #endif
   if (nlocal > 1) {
     std::lock_guard<std::mutex> lock(g_local_exchange_mutex);
-    auto& board = g_column_boards[{proc, rx, ry}];
+    auto& board = g_column_boards[{options->mesh_id(), proc, rx, ry}];
     if (++board.taken == nlocal) {
       board = ColumnBoard();
       g_local_exchange_cv.notify_all();
@@ -841,7 +848,8 @@ torch::Tensor LayoutImpl::take_x1_anchor(int above, torch::Tensor const& like,
   // the block above runs on another thread of this process (Mesh advances
   // local blocks together); a caller stepping them one by one must go top
   // down, or this would wait forever
-  std::pair<int, int> key = {options->process_rank(), options->rank()};
+  std::tuple<int64_t, int, int> key = {
+      options->mesh_id(), options->process_rank(), options->rank()};
   std::unique_lock<std::mutex> lock(g_local_exchange_mutex);
   bool posted = g_local_exchange_cv.wait_for(
       lock, std::chrono::minutes(5), [&]() { return g_x1_anchors.count(key); });
@@ -871,7 +879,7 @@ void LayoutImpl::pass_x1_anchor(int below, torch::Tensor const& face, int tag) {
   if (posted.is_cuda()) c10::cuda::getCurrentCUDAStream().synchronize();
 #endif
   std::lock_guard<std::mutex> lock(g_local_exchange_mutex);
-  g_x1_anchors[{options->process_rank(), below}] = posted;
+  g_x1_anchors[{options->mesh_id(), options->process_rank(), below}] = posted;
   g_local_exchange_cv.notify_all();
 }
 
@@ -884,8 +892,9 @@ void LayoutImpl::post_to_local_block(int block_rank, torch::Tensor const& t,
   // the receiving block reads this tensor on its own stream
   if (posted.is_cuda()) c10::cuda::getCurrentCUDAStream().synchronize();
 #endif
-  std::tuple<int, int, int, int> key = {options->process_rank(),
-                                        options->rank(), block_rank, tag};
+  std::tuple<int64_t, int, int, int, int> key = {
+      options->mesh_id(), options->process_rank(), options->rank(), block_rank,
+      tag};
   std::unique_lock<std::mutex> lock(g_local_exchange_mutex);
   // one message per (sender, receiver, tag) in flight: wait for the previous
   // one to be taken
@@ -903,8 +912,9 @@ torch::Tensor LayoutImpl::take_from_local_block(int block_rank, int tag) {
   TORCH_CHECK(is_local_block(block_rank),
               "[Layout:take_from_local_block] block ", block_rank,
               " is not in this process");
-  std::tuple<int, int, int, int> key = {options->process_rank(), block_rank,
-                                        options->rank(), tag};
+  std::tuple<int64_t, int, int, int, int> key = {
+      options->mesh_id(), options->process_rank(), block_rank, options->rank(),
+      tag};
   std::unique_lock<std::mutex> lock(g_local_exchange_mutex);
   bool posted = g_local_exchange_cv.wait_for(
       lock, std::chrono::minutes(5), [&]() { return g_local_mail.count(key); });

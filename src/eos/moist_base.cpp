@@ -11,21 +11,37 @@
 #include <snap/mesh/meshblock.hpp>
 
 #include "moist_base.hpp"
+#include "species_sum.hpp"
 
 namespace snap {
 
 void MoistEOSImpl::sync_dry_options_() {
   options->gammad(1. + 1. / options->thermo()->cref_R()[0]);
-  options->weight(1. / pthermo->inv_mu[0].item<double>());
+  host_dtype_ = c10::ScalarType::Undefined;  // a new pthermo: read it again
+  options->weight(species_weight(0));
+}
+
+// host copies of inv_mu's reads, taken again when to() changes its dtype,
+// so no stage call reads the device (G2)
+void MoistEOSImpl::host_weights_() const {
+  auto const& im = pthermo->inv_mu;
+  auto const& cref = options->thermo()->cref_R();
+  if (im.scalar_type() == host_dtype_) return;
+  host_weight_.resize(im.size(0)), host_cv_ref_.resize(cref.size());
+  for (size_t n = 0; n < host_weight_.size(); ++n) {
+    host_weight_[n] = 1. / im[n].item<double>();
+    auto Ri = kintera::constants::Rgas * im[n];
+    if (n < cref.size()) host_cv_ref_[n] = (cref[n] * Ri).item<double>();
+  }
+  host_dtype_ = im.scalar_type();
 }
 
 double MoistEOSImpl::species_weight(int n) const {
-  return 1. / pthermo->inv_mu[n].item<double>();
+  return host_weights_(), host_weight_.at(n);
 }
 
 double MoistEOSImpl::species_cv_ref(int n) const {
-  auto Ri = kintera::constants::Rgas * pthermo->inv_mu[n];
-  return (options->thermo()->cref_R()[n] * Ri).item<double>();
+  return host_weights_(), host_cv_ref_.at(n);
 }
 
 torch::Tensor MoistEOSImpl::species_energy(torch::Tensor prim) {
@@ -60,8 +76,11 @@ void MoistEOSImpl::_prim2cons(torch::Tensor prim, torch::Tensor& cons) {
   int ny = nspecies();
 
   // den -> den
+  // (species_total accumulates in species order, as in _prim2intEng)
   auto out = cons[IDN];
-  torch::mul_out(out, (1. - prim.narrow(0, ICY, ny).sum(0)), prim[IDN]);
+  auto yd = ny > 0 ? 1. - species_total(prim.narrow(0, ICY, ny))
+                   : torch::ones_like(prim[IDN]);
+  torch::mul_out(out, yd, prim[IDN]);
 
   // mixr -> den
   out = cons.narrow(0, ICY, ny);
@@ -108,7 +127,8 @@ torch::Tensor MoistEOSImpl::_cons2prim_layout(torch::Tensor cons,
 torch::Tensor MoistEOSImpl::_cons2ke(torch::Tensor cons) {
   auto pcoord = phydro->pmb->pcoord;
   int ny = nspecies();
-  auto rho = cons[IDN] + cons.narrow(0, ICY, ny).sum(0);
+  auto rho = cons[IDN];
+  if (ny > 0) rho = rho + species_total(cons.narrow(0, ICY, ny));
 
   auto mom = cons.narrow(0, IVX, 3).clone();
   coord_vec_raise_(mom, pcoord->cosine_cell_kj);

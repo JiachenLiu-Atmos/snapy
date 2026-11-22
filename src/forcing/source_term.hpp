@@ -14,6 +14,8 @@
 
 namespace snap {
 
+class FluxRegister;
+
 //! before the implicit solve, or after it with the stage's x1 mass transfer
 //! (#355); the two RegisterPhase values sources use (A.rst 3.6)
 enum class SourcePhase : uint8_t { pre_implicit, post_implicit };
@@ -58,12 +60,24 @@ class SourceTerm {
     add(du, {w, temp, dt});
     return du;
   }
+  //! divergence phase, its first entry (ruling A-ph3.diffusion_phase):
+  //! after limit and before du = -dt div(total), post face fluxes into the
+  //! register; s.temp may be undefined
+  virtual void post_fluxes(FluxRegister& reg, StageState const& s) {}
   virtual double max_time_step(StageState const&) const {
     return std::numeric_limits<double>::infinity();
   }
   //! split sources: before / after the stages, and on a redo
   virtual void begin_split(torch::Tensor u, double dt) {}
   virtual void finish_split(torch::Tensor u, double dt) {}
+  //! the same, run by MeshBlock: a split source posts its step transfer with
+  //! reg.post_split (R.rst 3.4)
+  virtual void begin_split(torch::Tensor u, double dt, FluxRegister& reg) {
+    begin_split(u, dt);
+  }
+  virtual void finish_split(torch::Tensor u, double dt, FluxRegister& reg) {
+    finish_split(u, dt);
+  }
   virtual void restore_split(torch::Tensor u) const {}
 
  protected:
@@ -115,6 +129,12 @@ class SourceRegistry {
       sink(src->declaration().name, scratch_);
       du += scratch_;
     }
+  }
+  //! the divergence-phase posts of the pre_implicit sources, in order
+  void post_fluxes(FluxRegister& reg, StageState const& s) {
+    for (auto const& src : at(kPre))
+      if (!on_block || on_block(src->declaration().region))
+        src->post_fluxes(reg, s);
   }
   double max_time_step(StageState const& s) const {
     double dt = std::numeric_limits<double>::infinity();

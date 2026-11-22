@@ -120,13 +120,8 @@ struct X1RowsKey {
 std::pair<torch::Tensor, torch::Tensor> conv4_rows(torch::Tensor const& x1f,
                                                    int n);
 
-//! conversion order 4 at a reflecting x1 wall, (2, 4, ng, 4): E[side][c] maps
-//! the four owned averages next to the wall (narrow order) to the ghosts.
-//! c = 0: the cubic through them. Parity ghosts, the mirrored cell plus twice
-//! the opposite-parity part of a fit: c = 1 odd v + v''(0) z^2 (least squares
-//! on the four cells), c = 2 even rho' - rho'_z(0) z - rho'_zzz(0) z^3 / 6
-//! (the cubic), c = 3 even p' - p'_zzz(0) z^3 / 6 (a0 + a2 z^2 + a3 z^3
-//! through the three wall cells)
+//! conversion order 4 at a reflecting x1 wall, (2, 4, ng, 4): owned
+//! averages to ghosts (lane-c-notes.md)
 torch::Tensor wall4_rows(torch::Tensor const& x1f, int is, int iu, int ng);
 
 //! #289, conversion order 4: the face density of the cell reference at faces

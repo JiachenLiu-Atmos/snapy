@@ -31,7 +31,14 @@ torch::Tensor reconstruct_faces(HydroImpl& hydro, FaceDir const& dir,
     post_face_floors(*recon, monitor);
     return lr;
   }
-  auto gauge = perturb->pressure0.mean(dim - 1, true);
+  // The gauge: the midrange of pressure0 along the sweep. The mean is a
+  // rounded sum over the block's own cells, so on a column that is uniform
+  // along the sweep it is 1 ulp off by block extent and the FP32 face states
+  // depend on the decomposition. The midrange of a uniform column is the
+  // column's value exactly in every block, and elsewhere it bounds
+  // |pressure0 - gauge| at half the range, as small as any constant can.
+  auto [lo, hi] = torch::aminmax(perturb->pressure0, dim - 1, true);
+  auto gauge = 0.5 * (lo + hi);
   auto input = w.to(torch::kFloat32);
   input[IPR].copy_((perturb->pressure0 - gauge) + perturb->pressure_delta);
   auto lr = recon->forward(input, dim, false);
@@ -103,8 +110,6 @@ void riemann_solve(HydroImpl& hydro, torch::Tensor lr, int dim,
     post_events();
     return;
   }
-  TORCH_CHECK(!central.defined(),
-              "riemann.central needs the total-state solve");
   if (!background.defined()) {
     // Horizontal (or gravity-free) sweeps: the shared face gauge need not
     // be hydrostatic. Its full gradient is retained in the momentum source.
@@ -122,7 +127,7 @@ void riemann_solve(HydroImpl& hydro, torch::Tensor lr, int dim,
   }
   if (hydro.fp32()) lr = lr.to(torch::kFloat32);
   hydro.priemann->forward_perturbations(lr[ILT], lr[IRT], dim, flux, background,
-                                        face_pressure);
+                                        face_pressure, central);
   post_events();
   // Public face pressure and all implicit/energy consumers keep TOTALS.
   if (face_pressure.defined() && face_pressure.numel())
