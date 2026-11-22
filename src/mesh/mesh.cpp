@@ -241,7 +241,8 @@ MeshOptions MeshOptionsImpl::from_yaml(std::string input_file, bool verbose) {
 
   auto config = YAML::LoadFile(input_file);
   options->blocks_per_process(
-      config["distribute"]["blocks_per_process"].as<int>(1));
+      config["distribute"]["blocks_per_process"].as<int>(
+          options->blocks_per_process()));
   return options;
 }
 
