@@ -25,15 +25,14 @@ void CubedLayoutImpl::pretty_print(std::ostream &os) const {
   options->report(os);
   os << " Rank | (rx,ry,rz)\n";
   os << "-------------------\n";
-  for (int r = 0; r < options->px() * options->py() * options->pz(); ++r) {
+  for (int r = 0; r < options->nblocks(); ++r) {
     os << fmt::format(" {:>3} | ({:>2},{:>2},{:>2})\n", r, _coords3[r].x,
                       _coords3[r].y, _coords3[r].z);
   }
 }
 
 std::tuple<int, int, int> CubedLayoutImpl::loc_of(int rank) const {
-  if (rank < 0 || rank >= options->px() * options->py() * options->pz())
-    return {-1, -1, -1};
+  if (rank < 0 || rank >= options->nblocks()) return {-1, -1, -1};
   return {_coords3[rank].x, _coords3[rank].y, _coords3[rank].z};
 }
 

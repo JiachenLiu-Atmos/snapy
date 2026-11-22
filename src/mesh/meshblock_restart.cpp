@@ -174,12 +174,11 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
       }
     } else {
       auto const &lo = _playout->options;
-      TORCH_CHECK(
-          !_playout->has_process_group() && lo->px() * lo->py() * lo->pz() == 1,
-          "restart: anomaly mode needs 'hydro_ref' in a multi-block "
-          "restart file (this one was written without it). Resume "
-          "with SNAP_ANOMALY=0, or from a file written with anomaly "
-          "storage on.");
+      TORCH_CHECK(!_playout->has_process_group() && lo->nblocks() == 1,
+                  "restart: anomaly mode needs 'hydro_ref' in a multi-block "
+                  "restart file (this one was written without it). Resume "
+                  "with SNAP_ANOMALY=0, or from a file written with anomaly "
+                  "storage on.");
       Variables tmp = vars;
       tmp["hydro_w"] = phydro->peos->compute("U->W", {hydro_u.clone()});
       build_hydro_reference(tmp);

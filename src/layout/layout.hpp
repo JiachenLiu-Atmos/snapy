@@ -114,6 +114,9 @@ struct LayoutOptionsImpl {
   //! number of blocks along mesh axis 1..3: nb1 = pz, nb2 = px, nb3 = py
   int nb(int axis) const { return axis == 1 ? pz() : axis == 2 ? px() : py(); }
 
+  //! number of blocks in the process grid, px * py * pz
+  int nblocks() const { return px() * py() * pz(); }
+
   //! periodicity in X
   ADD_ARG(bool, periodic_x) = false;
 
@@ -218,8 +221,7 @@ class LayoutImpl {
   LayoutImpl() : options(LayoutOptionsImpl::create()) {}
   LayoutImpl(const LayoutOptions& opts, MeshBlockImpl* owner = nullptr)
       : comm(nullptr), options(opts), _owner(owner) {
-    int P = options->px() * options->py() * options->pz();
-    _rankof.resize(P);
+    _rankof.resize(options->nblocks());
   }
 
   std::tuple<int, int, int> get_procs() const {

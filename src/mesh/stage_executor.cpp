@@ -95,8 +95,7 @@ std::vector<std::string> StageExecutor::capture_reasons(
   if (op->intg()->type() != "rk3")
     why.push_back("integration type is " + op->intg()->type() + ", not rk3");
   auto const& lo = _block->_playout->options;
-  if (lo->px() * lo->py() * lo->pz() != 1 ||
-      _block->_playout->has_process_group())
+  if (lo->nblocks() != 1 || _block->_playout->has_process_group())
     why.push_back("more than one block");
   if (!hydro->grav() || hydro->coriolis() || hydro->diffusion() ||
       hydro->bodyHeat() || hydro->botHeat() || hydro->topCool() ||

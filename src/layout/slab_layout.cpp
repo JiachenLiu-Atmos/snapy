@@ -27,14 +27,14 @@ void SlabLayoutImpl::pretty_print(std::ostream& os) const {
   options->report(os);
   os << " Rank | (rx,ry)\n";
   os << "----------------\n";
-  for (int r = 0; r < options->px() * options->py(); ++r) {
+  for (int r = 0; r < options->nblocks(); ++r) {
     os << fmt::format(" {:>3} | ({:>2},{:>2})\n", r, _coords2[r].x,
                       _coords2[r].y);
   }
 }
 
 std::tuple<int, int, int> SlabLayoutImpl::loc_of(int rank) const {
-  if (rank < 0 || rank >= options->px() * options->py()) return {-1, -1, 0};
+  if (rank < 0 || rank >= options->nblocks()) return {-1, -1, 0};
   return {_coords2[rank].x, _coords2[rank].y, 0};
 }
 
