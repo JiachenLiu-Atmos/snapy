@@ -125,14 +125,7 @@ torch::Tensor MoistEOSImpl::_cons2prim_layout(torch::Tensor cons,
 }
 
 torch::Tensor MoistEOSImpl::_cons2ke(torch::Tensor cons) {
-  auto pcoord = phydro->pmb->pcoord;
-  int ny = nspecies();
-  auto rho = cons[IDN];
-  if (ny > 0) rho = rho + species_total(cons.narrow(0, ICY, ny));
-
-  auto mom = cons.narrow(0, IVX, 3).clone();
-  coord_vec_raise_(mom, pcoord->cosine_cell_kj);
-  return 0.5 * (cons.narrow(0, IVX, 3) * mom).sum(0) / rho;
+  return cons_kinetic_energy_(cons, cons[IDN], nspecies());
 }
 
 }  // namespace snap

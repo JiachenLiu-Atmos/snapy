@@ -237,6 +237,16 @@ torch::Tensor EquationOfStateImpl::ideal_sound_speed_(
   return torch::sqrt(gamma * w[IPR] / w[IDN]);
 }
 
+torch::Tensor EquationOfStateImpl::cons_kinetic_energy_(
+    torch::Tensor const& cons, torch::Tensor const& dry, int ny) const {
+  // (species_total accumulates in species order, see species_sum.hpp)
+  auto rho = dry;
+  if (ny > 0) rho = rho + species_total(cons.narrow(0, ICY, ny));
+  auto mom = cons.narrow(0, IVX, 3).clone();
+  coord_vec_raise_(mom, phydro->pmb->pcoord->cosine_cell_kj);
+  return 0.5 * (mom * cons.narrow(0, IVX, 3)).sum(0) / rho;
+}
+
 torch::Tensor EquationOfStateImpl::adiabatic_index(torch::Tensor const& w) {
   return compute("W->A", {w});
 }
@@ -332,12 +342,7 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
   }
 
   if (nvar() > IPR) {
-    auto mom = cons.narrow(0, IVX, 3).clone();
-    coord_vec_raise_(mom, pcoord->cosine_cell_kj);
-    // (species_total accumulates in species order, see species_sum.hpp)
-    auto rho = dry_total(cons);
-    if (ny > 0) rho = rho + species_total(cons.narrow(0, ICY, ny));
-    auto ke = 0.5 * (mom * cons.narrow(0, IVX, 3)).sum(0) / rho;
+    auto ke = cons_kinetic_energy_(cons, dry_total(cons), ny);
     auto min_temp = options->temperature_floor() * torch::ones_like(ke);
     // UT->I reads the dry density: hand it the total
     auto cons_t = cons;
