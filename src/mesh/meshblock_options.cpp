@@ -51,8 +51,9 @@ MeshBlockOptions MeshBlockOptionsImpl::from_yaml(std::string input_file,
   // integration.execution / execution-strict (V3 X3; provisional names)
   if (config["integration"]) {
     auto intg = config["integration"];
-    op->execution() = intg["execution"].as<std::string>("eager");
-    op->execution_strict() = intg["execution-strict"].as<bool>(false);
+    op->execution() = intg["execution"].as<std::string>(op->execution());
+    op->execution_strict() =
+        intg["execution-strict"].as<bool>(op->execution_strict());
   }
   TORCH_CHECK(op->execution() == "eager" || op->execution() == "cuda-graph",
               "integration/execution must be eager or cuda-graph, got '",
