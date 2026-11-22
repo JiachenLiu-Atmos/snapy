@@ -47,8 +47,9 @@ ImplicitOptions ImplicitOptionsImpl::from_yaml(const std::string& filename,
                 "implicit direction: set implicit-scheme or remove them");
     return nullptr;
   }
-  op->precision() = intg["implicit-precision"].as<std::string>("auto");
-  op->fallback_fp64() = intg["implicit-fallback-fp64"].as<bool>(true);
+  op->precision() = intg["implicit-precision"].as<std::string>(op->precision());
+  op->fallback_fp64() =
+      intg["implicit-fallback-fp64"].as<bool>(op->fallback_fp64());
   TORCH_CHECK(
       op->precision() == "auto" || op->precision() == "float32" ||
           op->precision() == "float64",
