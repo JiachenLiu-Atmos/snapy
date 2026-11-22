@@ -76,7 +76,27 @@ jobs:
           fi
 
       - name: Install kintera 2.6.11
+        if: runner.os == 'Linux'
         run: pip install 'kintera>=2.6.11'
+
+      # The kintera 2.6.11 macOS wheel fails snapy's MPS column cases
+      # (DispatchStub.cpp:276); a source build against the installed torch passes.
+      - name: Check out kintera
+        if: runner.os == 'macOS'
+        uses: actions/checkout@v4
+        with:
+          repository: chengcli/kintera
+          ref: 431fd1441fdc95c2bc93f7dc56e35adb1e1315fb
+          fetch-depth: 0
+          path: .ci-kintera
+
+      - name: Build and install kintera 2.6.11
+        if: runner.os == 'macOS'
+        working-directory: .ci-kintera
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DBUILD_TESTS=OFF
+          cmake --build build --parallel 3
+          pip install --no-build-isolation --no-deps .
 
       - name: Install commux UCX backend
         if: runner.os == 'Linux'
