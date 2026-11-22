@@ -255,7 +255,7 @@ torch::Tensor IdealMoistImpl::_prim2temp(torch::Tensor prim) {
 }
 
 torch::Tensor IdealMoistImpl::species_pressure_share(torch::Tensor prim) {
-  int nvapor = pthermo->options->vapor_ids().size() - 1;
+  int nvapor = thermo_vapor_rows(pthermo->options);
   auto r = torch::zeros({nspecies()}, inv_mu_ratio_m1.options());
   r.narrow(0, 0, nvapor) = (inv_mu_ratio_m1.narrow(0, 0, nvapor) + 1.) *
                            kintera::constants::Rgas / options->weight();
@@ -266,8 +266,8 @@ torch::Tensor IdealMoistImpl::species_pressure_share(torch::Tensor prim) {
 
 torch::Tensor IdealMoistImpl::species_enthalpy(torch::Tensor prim) {
   auto pcoord = phydro->pmb->pcoord;
-  int nvapor = pthermo->options->vapor_ids().size() - 1;
-  int ny = nvapor + pthermo->options->cloud_ids().size();
+  int nvapor = thermo_vapor_rows(pthermo->options);
+  int ny = thermo_species_rows(pthermo->options);
 
   auto Rd = gas_constant_dry();
   auto cvd = pthermo->options->cref_R()[0] * Rd;
@@ -312,7 +312,7 @@ torch::Tensor IdealMoistImpl::_temp2intEng(torch::Tensor cons,
 }
 
 torch::Tensor IdealMoistImpl::f_eps(torch::Tensor const& yfrac) const {
-  int nvapor = pthermo->options->vapor_ids().size() - 1;
+  int nvapor = thermo_vapor_rows(pthermo->options);
   int ncloud = pthermo->options->cloud_ids().size();
 
   if (nvapor == 0 && ncloud == 0) {

@@ -264,7 +264,7 @@ torch::Tensor RiemannSolverImpl::solve(torch::Tensor wl, torch::Tensor wr,
     if (params.ideal_moist) {
       auto moist = dynamic_cast<IdealMoistImpl*>(peos.get());
       TORCH_CHECK(moist != nullptr, "[RoeSolver] ideal-moist EOS cast failed");
-      params.nvapor = moist->pthermo->options->vapor_ids().size() - 1;
+      params.nvapor = thermo_vapor_rows(moist->pthermo->options);
       inv_mu_ratio_m1 = moist->inv_mu_ratio_m1.to(wl);
       cv_ratio_m1 = moist->cv_ratio_m1.to(wl);
       u0 = moist->u0.to(wl);

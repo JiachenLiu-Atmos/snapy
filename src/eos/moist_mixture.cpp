@@ -107,7 +107,7 @@ torch::Tensor MoistMixtureImpl::species_pressure_share(torch::Tensor prim) {
 torch::Tensor MoistMixtureImpl::species_enthalpy(torch::Tensor prim) {
   auto pcoord = phydro->pmb->pcoord;
   int ngas = pthermo->options->vapor_ids().size();
-  int ny = ngas + pthermo->options->cloud_ids().size() - 1;
+  int ny = thermo_species_rows(pthermo->options);
 
   _ensure_cache(prim);
   auto conc = ivol * pthermo->inv_mu;
@@ -147,8 +147,8 @@ torch::Tensor MoistMixtureImpl::_adiabatic_index(torch::Tensor V,
 torch::Tensor MoistMixtureImpl::_isothermal_sound_speed(torch::Tensor V,
                                                         torch::Tensor T,
                                                         torch::Tensor dens) {
-  int nvapor = pthermo->options->vapor_ids().size();
-  auto conc_gas = (V * pthermo->inv_mu).narrow(-1, 0, nvapor);
+  int ngas = pthermo->options->vapor_ids().size();  // dry included
+  auto conc_gas = (V * pthermo->inv_mu).narrow(-1, 0, ngas);
   auto cz = kintera::eval_czh(T, conc_gas, pthermo->options);
   auto cz_ddC = kintera::eval_czh_ddC(T, conc_gas, pthermo->options);
   auto ct = torch::addcmul(cz, cz_ddC, conc_gas).mul_(conc_gas).sum(-1);

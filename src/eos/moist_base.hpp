@@ -13,6 +13,13 @@ inline int thermo_species_rows(kintera::ThermoOptions const& thermo) {
   return n > 0 ? n - 1 : 0;
 }
 
+//! number of vapor rows after the dry one; 0 without a card
+inline int thermo_vapor_rows(kintera::ThermoOptions const& thermo) {
+  if (!thermo) return 0;
+  int n = thermo->vapor_ids().size();
+  return n > 0 ? n - 1 : 0;
+}
+
 //! \brief What the two moist equations of state share.
 /*!
  * Both IdealMoistImpl (closed-form) and MoistMixtureImpl (kintera
