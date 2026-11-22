@@ -100,11 +100,6 @@ set_tests_properties(test_yamlcpp_cstdint_patch PROPERTIES
 setup_test(test_sedimentation_guards)
 setup_test(test_balance_column)
 setup_test(test_hydro_ref_x1)
-add_test(NAME test_hydro_ref_x1_stretched_cuda.${buildl}
-         COMMAND test_hydro_ref_x1.${buildl}
-                 --gtest_filter=HydroRefX1Dispatch.cuda_matches_cpu_on_the_stretched_rows)
-set_tests_properties(test_hydro_ref_x1_stretched_cuda.${buildl}
-                     PROPERTIES TIMEOUT 120 LABELS "hydro;gpu")
 setup_test(test_uranus_cycle1_abort)
 setup_test(test_pref_local_seam)
 setup_test(test_gravity_work_cache_to)
