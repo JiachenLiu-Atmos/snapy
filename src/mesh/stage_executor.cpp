@@ -201,6 +201,21 @@ void StageExecutor::run_stage(Variables& vars, double dt, int stage) {
 #endif
 }
 
+#ifdef USE_CUDA
+namespace {
+// the CUDA sync-debug mode off for a scope; the caller's mode is restored on
+// exit, by an exception too
+struct SyncDebugOff {
+  c10::cuda::WarningState& warn = c10::cuda::warning_state();
+  c10::cuda::SyncDebugMode mode = warn.get_sync_debug_mode();
+  SyncDebugOff() {
+    warn.set_sync_debug_mode(c10::cuda::SyncDebugMode::L_DISABLED);
+  }
+  ~SyncDebugOff() { warn.set_sync_debug_mode(mode); }
+};
+}  // namespace
+#endif
+
 void StageExecutor::capture(Variables& vars, double dt, int stage) {
 #ifdef USE_CUDA
   _graphs.erase(stage);
@@ -214,16 +229,8 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
   // first capture; from then on no kintera table is built inside the
   // warm-up or the capture (a missing one throws)
   {
-    auto& warn = c10::cuda::warning_state();
-    auto mode = warn.get_sync_debug_mode();
-    warn.set_sync_debug_mode(c10::cuda::SyncDebugMode::L_DISABLED);
-    try {
-      _block->prepare_thermo(vars.at("hydro_u"));
-    } catch (...) {
-      warn.set_sync_debug_mode(mode);
-      throw;
-    }
-    warn.set_sync_debug_mode(mode);
+    SyncDebugOff off;
+    _block->prepare_thermo(vars.at("hydro_u"));
   }
   kintera::NoTableBuild no_table_build;
   auto handles = save_list(vars);
@@ -241,17 +248,9 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
   ready.record(current);
   ready.block(side);
   {
-    auto& warn = c10::cuda::warning_state();
-    auto mode = warn.get_sync_debug_mode();
-    warn.set_sync_debug_mode(c10::cuda::SyncDebugMode::L_DISABLED);
+    SyncDebugOff off;
     c10::cuda::CUDAStreamGuard guard(side);
-    try {
-      for (int i = 0; i < 3; ++i) run_eager(vars, dt, stage);
-    } catch (...) {
-      warn.set_sync_debug_mode(mode);
-      throw;
-    }
-    warn.set_sync_debug_mode(mode);
+    for (int i = 0; i < 3; ++i) run_eager(vars, dt, stage);
   }
   at::cuda::CUDAEvent warm;
   warm.record(side);
