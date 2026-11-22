@@ -551,8 +551,7 @@ void DiffusionImpl::profiles_on(torch::Tensor const& w) {
 void DiffusionImpl::add(torch::Tensor du, StageState const& s) {
   auto w = s.w, temp = s.temp;
   double dt = s.dt;
-  auto pmb = phydro->pmb;
-  auto coord = pmb->pcoord;
+  auto coord = phydro->pmb->pcoord;
 
   check_profiles();
   profiles_on(w);
@@ -562,6 +561,26 @@ void DiffusionImpl::add(torch::Tensor du, StageState const& s) {
     return;
   }
 
+  // post_fluxes ran this stage: the energy rows are in the register and
+  // only the other rows enter du here (A.rst 3.7)
+  bool posted =
+      posted_[0].defined() || posted_[1].defined() || posted_[2].defined();
+  auto fluxes = posted ? posted_ : cartesian_fluxes(w, temp);
+  posted_ = {};
+  if (!fluxes[0].defined() && !fluxes[1].defined() && !fluxes[2].defined())
+    return;
+  auto div = coord->divergence(fluxes[0], fluxes[1], fluxes[2]);
+  if (posted) {
+    du.narrow(0, 0, IPR) -= dt * div.narrow(0, 0, IPR);
+  } else {
+    du -= dt * div;
+  }
+}
+
+std::array<torch::Tensor, 3> DiffusionImpl::cartesian_fluxes(
+    torch::Tensor w, torch::Tensor temp) {
+  auto pmb = phydro->pmb;
+  auto coord = pmb->pcoord;
   auto [cell_start, cell_end] = region_bounds(
       pmb->part({0, 0, 0}, PartOptions().exterior(false).ndim(3)));
   PartOptions div_options;
@@ -594,10 +613,8 @@ void DiffusionImpl::add(torch::Tensor du, StageState const& s) {
   }
 
   std::array<torch::Tensor, 3> fluxes;
-  bool has_flux = false;
   for (int idir = 0; idir < 3; ++idir) {
     if (!active(coord, idir)) continue;
-    has_flux = true;
 
     auto dim = kSpatialDims[idir] - 1;
     auto face_start = cell_start;
@@ -694,10 +711,7 @@ void DiffusionImpl::add(torch::Tensor du, StageState const& s) {
     }
     fluxes[idir] = flux;
   }
-
-  if (has_flux) {
-    du -= dt * coord->divergence(fluxes[0], fluxes[1], fluxes[2]);
-  }
+  return fluxes;
 }
 
 double DiffusionImpl::max_time_step(StageState const& s) const {

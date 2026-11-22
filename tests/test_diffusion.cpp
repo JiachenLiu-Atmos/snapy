@@ -248,6 +248,39 @@ TEST_P(DeviceTest, transverse_velocity_uses_viscous_laplacian) {
   EXPECT_TRUE(torch::allclose(du[IVY], expected, 1.e-5, 1.e-5));
 }
 
+// A.rst 3.7 on a Cartesian grid as on the cubed sphere: post_fluxes puts the
+// energy rows of the face fluxes into the register as "diffusion" and add()
+// keeps the others. Rows IDN..IVZ of du are the same bits; the energy row, now
+// the register's divergence, differs from the old one only by rounding.
+TEST_P(DeviceTest, cartesian_energy_post_reproduces_the_energy_row) {
+  auto block = make_block();
+  block->to(device, dtype);
+  auto w = make_primitive(block, device, dtype);
+  auto x = block->pcoord->x1v.to(device, dtype).view({1, 1, -1});
+  w[IVY] = x.square();
+  auto temp = (300. + x.square()).expand_as(w[IDN]).contiguous();
+  auto Rd = 8.31446261815324 / block->phydro->peos->options->weight();
+  w[IPR] = w[IDN] * Rd * temp;
+  auto diffusion = block->phydro->pdiffusion;
+  auto old = diffusion->forward(torch::zeros_like(w), w, temp, 1.);
+
+  auto& reg = block->phydro->flux_register();
+  for (int d = 1; d <= 3; ++d)
+    if (reg.total(d).defined()) reg.total(d).zero_();
+  diffusion->post_fluxes(reg, {w, temp, 1.});
+  auto du = diffusion->forward(torch::zeros_like(w), w, temp, 1.);
+  EXPECT_TRUE(torch::equal(du.narrow(0, 0, IPR), old.narrow(0, 0, IPR)));
+  EXPECT_EQ(du[IPR].abs().max().item<double>(), 0.);  // not in add()
+
+  auto sl = block->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
+  auto e =
+      -block->pcoord->divergence(reg.total(1), reg.total(2), reg.total(3))[IPR];
+  double worst = (e - old[IPR]).index(sl).abs().max().item<double>();
+  double scale = old[IPR].index(sl).abs().max().item<double>();
+  ASSERT_GT(scale, 0.);
+  EXPECT_LE(worst, (dtype == torch::kFloat64 ? 1.e-13 : 1.e-5) * scale);
+}
+
 TEST_P(DeviceTest, temperature_uses_conductive_laplacian) {
   auto block = make_block();
   block->to(device, dtype);

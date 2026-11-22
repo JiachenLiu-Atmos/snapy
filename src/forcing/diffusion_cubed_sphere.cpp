@@ -368,16 +368,18 @@ std::array<Tensor, 3> DiffusionImpl::face_fluxes(Tensor w, Tensor temp) {
 void DiffusionImpl::post_fluxes(FluxRegister &reg, StageState const &s) {
   posted_ = {};
   auto c = phydro->pmb->pcoord;
-  if (c->options->type() != "gnomonic-equiangle") return;
+  bool cubed = c->options->type() == "gnomonic-equiangle";
   if (options->nu_iso() == 0. && options->kappa_iso() == 0.) return;
-  for (int d = 1; d <= 3; ++d)
-    if (!reg.total(d).defined()) return;  // add() keeps the energy rows
   check_profiles();
   profiles_on(s.w);
   auto temp = s.temp.defined() ? s.temp : phydro->peos->compute("W->T", {s.w});
-  auto flux = cubed_sphere_fluxes(s.w, temp);
+  auto flux =
+      cubed ? cubed_sphere_fluxes(s.w, temp) : cartesian_fluxes(s.w, temp);
+  for (int d = 1; d <= 3; ++d)  // else add() keeps the energy rows
+    if (flux[d - 1].defined() && !reg.total(d).defined()) return;
   for (int d = 1; d <= 3; ++d)
-    reg.add(d, "diffusion", {IPR}, flux[d - 1].narrow(0, IPR, 1));
+    if (flux[d - 1].defined())
+      reg.add(d, "diffusion", {IPR}, flux[d - 1].narrow(0, IPR, 1));
   posted_ = flux;
 }
 
