@@ -231,7 +231,7 @@ void GnomonicEquiangleImpl::reset() {
   // build global ghost cell usrc
   int N, offset_x, offset_y;
   torch::Tensor usrc;
-  N = op->nx2() * pmb->options->layout()->px();
+  N = op->nx2() * pmb->options->layout()->nb(2);
   usrc = torch::empty({op->nghost(), N}, torch::kFloat64);
   cs_build_ghost_usrc(usrc.data_ptr<double>(), N, op->nghost());
 

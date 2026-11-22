@@ -185,9 +185,9 @@ CoordinateOptions CoordinateOptionsImpl::from_yaml(
 
   if (playout->options->type() == "cubed-sphere") lx1 = 0;
 
-  int nb1 = playout->options->pz();
-  int nb2 = playout->options->px();
-  int nb3 = playout->options->py();
+  int nb1 = playout->options->nb(1);
+  int nb2 = playout->options->nb(2);
+  int nb3 = playout->options->nb(3);
 
   if (op->global_nx1() % nb1 != 0) {
     TORCH_CHECK(
@@ -345,9 +345,9 @@ void CoordinateOptionsImpl::repartition(LayoutOptions const& layout) {
 
   if (layout->type() == "cubed-sphere") lx1 = 0;
 
-  int nb1 = layout->pz();
-  int nb2 = layout->px();
-  int nb3 = layout->py();
+  int nb1 = layout->nb(1);
+  int nb2 = layout->nb(2);
+  int nb3 = layout->nb(3);
 
   if (stretched_x1()) {  // equal cell counts, bounds read off the faces
     TORCH_CHECK(nb1 > 0 && global_nx1() % nb1 == 0,

@@ -110,6 +110,10 @@ struct LayoutOptionsImpl {
   //! number of processors in Z
   ADD_ARG(int, pz) = 1;
 
+ public:
+  //! number of blocks along mesh axis 1..3: nb1 = pz, nb2 = px, nb3 = py
+  int nb(int axis) const { return axis == 1 ? pz() : axis == 2 ? px() : py(); }
+
   //! periodicity in X
   ADD_ARG(bool, periodic_x) = false;
 

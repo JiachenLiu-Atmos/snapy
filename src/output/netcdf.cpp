@@ -161,11 +161,11 @@ void NetcdfSink::write(MeshBlockImpl* pmb, Frame const& fr,
   };
   auto co = pmb->pcoord->options;
   int nbtotal = count_blocks(op.x1_slice(), co->global_x1min(),
-                             co->global_x1max(), layout->options->pz()) *
+                             co->global_x1max(), layout->options->nb(1)) *
                 count_blocks(op.x2_slice(), co->global_x2min(),
-                             co->global_x2max(), layout->options->px()) *
+                             co->global_x2max(), layout->options->nb(2)) *
                 count_blocks(op.x3_slice(), co->global_x3min(),
-                             co->global_x3max(), layout->options->py());
+                             co->global_x3max(), layout->options->nb(3));
   if (cs) nbtotal *= 6;
   nc_put_att_int(ifile, NC_GLOBAL, "NumFilesInSet", NC_INT, 1, &nbtotal);
 

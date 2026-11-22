@@ -261,9 +261,9 @@ OutputBlockLocation output_block_location(Layout const& layout, int rank) {
   OutputBlockLocation loc;
   loc.level = 0;
   std::tie(loc.lx2, loc.lx3, loc.lx1) = layout->loc_of(rank);
-  loc.nb1 = layout->options->pz();
-  loc.nb2 = layout->options->px();
-  loc.nb3 = layout->options->py();
+  loc.nb1 = layout->options->nb(1);
+  loc.nb2 = layout->options->nb(2);
+  loc.nb3 = layout->options->nb(3);
 
   loc.face = 0;
   if (layout->options->type() == "cubed-sphere") {

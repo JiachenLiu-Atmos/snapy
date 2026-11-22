@@ -584,7 +584,7 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
     // sums telescope across the seam. On every x1 seam, process or same
     // process; nothing at nb1 = 1. The companions (face pressure,
     // pressure base) are not register rows: S averages them alongside.
-    if (!options->disable_flux_x1() && playout && playout->options->pz() > 1) {
+    if (!options->disable_flux_x1() && playout && playout->options->nb(1) > 1) {
       Exchange ex(pmb);
       auto [below, above] = ex.x1_seam_peers(/*process_only=*/false);
       if (above >= 0 || below >= 0) {

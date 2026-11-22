@@ -152,8 +152,8 @@ void bind_mesh(py::module& m) {
             }
             coord->nx2(nx2);
             coord->nx3(nx3);
-            coord->global_nx2(nx2 * layout->px());
-            coord->global_nx3(nx3 * layout->py());
+            coord->global_nx2(nx2 * layout->nb(2));
+            coord->global_nx3(nx3 * layout->nb(3));
           },
           py::arg("nx2"), py::arg("nx3"))
       .ADD_OPTION(snap::MeshBlockOptions, snap::MeshOptionsImpl, block)

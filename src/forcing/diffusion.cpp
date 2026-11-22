@@ -434,7 +434,7 @@ void DiffusionImpl::reset() {
                 "and at least max(4, nghost) active cells per direction.");
     TORCH_CHECK(
         phydro->pmb->options->layout()->type() == "cubed-sphere" &&
-            phydro->pmb->options->layout()->pz() == 1,
+            phydro->pmb->options->layout()->nb(1) == 1,
         "[Diffusion] Cubed sphere requires cubed-sphere layout and nb1=1.");
     auto const& names = phydro->pmb->options->bcnames();
     TORCH_CHECK(
@@ -463,7 +463,7 @@ void DiffusionImpl::reset() {
   // one value per x1 cell centre, ghosts included, from a tensor or a table
   auto nc1 = coord->options->nc1();
   auto layout = phydro->pmb->options->layout();
-  int nb1 = layout ? layout->pz() : 1;
+  int nb1 = layout ? layout->nb(1) : 1;
   auto profile = [&](torch::Tensor const& cells, torch::Tensor const& table,
                      char const* name, double* max) {
     *max = 1.;

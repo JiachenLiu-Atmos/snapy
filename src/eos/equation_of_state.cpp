@@ -373,7 +373,7 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
           dry_total(cons).to(field.options()).unsqueeze(0).index(interior);
       auto layout = pmb->get_layout();
       bool split =
-          count > 0 && whole_column && layout && layout->options->pz() > 1;
+          count > 0 && whole_column && layout && layout->options->nb(1) > 1;
       auto column = split ? layout->gather_x1(torch::cat(
                                 {field, major, vol.expand_as(major)}))
                           : torch::Tensor();
