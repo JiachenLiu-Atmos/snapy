@@ -60,6 +60,13 @@ AxialMomentum::AxialMomentum(HydroImpl const* hydro) : hydro_(hydro) {
   // own booked source, so the closure removes none of the viscous torque
 }
 
+AxialMomentum::Interior AxialMomentum::interior() const {
+  int si = pg_->il(), ei = pg_->iu() + 1;
+  int sj = pg_->jl(), ej = pg_->ju() + 1;
+  int sk = pg_->kl(), ek = pg_->ku() + 1;
+  return {si, ei, sj, ej, sk, ek, ei - si, ej - sj, ek - sk};
+}
+
 void AxialMomentum::request(RegisterRequest& req) const {
   if (mode_ != AxialMode::exact) return;
   if (pg_->options->nc2() > 1) req.keep.push_back("riemann.central@2");
@@ -68,10 +75,7 @@ void AxialMomentum::request(RegisterRequest& req) const {
 
 void AxialMomentum::rate_to_rows(torch::Tensor row2, torch::Tensor row3,
                                  torch::Tensor target) const {
-  int si = pg_->il(), ei = pg_->iu() + 1;
-  int sj = pg_->jl(), ej = pg_->ju() + 1;
-  int sk = pg_->kl(), ek = pg_->ku() + 1;
-  int n2 = ej - sj, n3 = ek - sk;
+  auto [si, ei, sj, ej, sk, ek, n1, n2, n3] = interior();
 
   auto kc = pg_->aam_k_c.slice(1, sk, ek).slice(2, sj, ej);    // [3, n3, n2, 1]
   auto klc = pg_->aam_kl_c.slice(1, sk, ek).slice(2, sj, ej);  // [3, n3, n2, 1]
@@ -109,10 +113,7 @@ void AxialMomentum::rate_to_rows(torch::Tensor row2, torch::Tensor row3,
 
 void AxialMomentum::x1_source(torch::Tensor row2, torch::Tensor row3,
                               torch::Tensor const& corr) const {
-  int si = pg_->il(), ei = pg_->iu() + 1;
-  int sj = pg_->jl(), ej = pg_->ju() + 1;
-  int sk = pg_->kl(), ek = pg_->ku() + 1;
-  int n1 = ei - si, n2 = ej - sj, n3 = ek - sk;
+  auto [si, ei, sj, ej, sk, ek, n1, n2, n3] = interior();
 
   auto target = torch::zeros({n3, n2, n1}, row2.options());
   if (corr.defined() && corr.numel() > 0) {
@@ -135,10 +136,7 @@ void AxialMomentum::x1_source(torch::Tensor row2, torch::Tensor row3,
 
 void AxialMomentum::flux_form(torch::Tensor div, torch::Tensor flux1,
                               torch::Tensor flux2, torch::Tensor flux3) const {
-  int si = pg_->il(), ei = pg_->iu() + 1;
-  int sj = pg_->jl(), ej = pg_->ju() + 1;
-  int sk = pg_->kl(), ek = pg_->ku() + 1;
-  int n1 = ei - si, n2 = ej - sj, n3 = ek - sk;
+  auto [si, ei, sj, ej, sk, ek, n1, n2, n3] = interior();
 
   // interior cells: rotation field, radius and volume
   auto kc = pg_->aam_k_c.slice(1, sk, ek).slice(2, sj, ej);  // [3, n3, n2, 1]
@@ -194,10 +192,7 @@ void AxialMomentum::flux_form(torch::Tensor div, torch::Tensor flux1,
 
 torch::Tensor AxialMomentum::rate(torch::Tensor flux2, torch::Tensor flux3,
                                   double omega, int ny) const {
-  int si = pg_->il(), ei = pg_->iu() + 1;
-  int sj = pg_->jl(), ej = pg_->ju() + 1;
-  int sk = pg_->kl(), ek = pg_->ku() + 1;
-  int n1 = ei - si, n2 = ej - sj, n3 = ek - sk;
+  auto [si, ei, sj, ej, sk, ek, n1, n2, n3] = interior();
 
   auto kk = pg_->aam_kk_c.slice(0, sk, ek).slice(1, sj, ej);  // cos^2(lat)
   auto r = pg_->x1v.slice(0, si, ei);

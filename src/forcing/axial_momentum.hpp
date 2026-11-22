@@ -71,6 +71,11 @@ class AxialMomentum {
   bool armed_ = false;
   torch::Tensor sums_;  //!< {R, I}, FP64 on the device
   torch::Tensor rho_;   //!< interior density the increment scales with
+  //! the interior cells si..ei-1, sj..ej-1, sk..ek-1 of pg_ and their counts
+  struct Interior {
+    int si, ei, sj, ej, sk, ek, n1, n2, n3;
+  };
+  Interior interior() const;
   //! rule 1 (#363): -(Omega / V) sum_f M_f (s_f^2 - s_c^2), s = r cos(lat)
   torch::Tensor rate(torch::Tensor flux2, torch::Tensor flux3, double omega,
                      int ny) const;
