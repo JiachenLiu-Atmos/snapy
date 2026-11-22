@@ -23,8 +23,8 @@ ScalarOptions ScalarOptionsImpl::from_yaml(std::string const& filename,
              {"verbose", "nvar", "upper-bound", "names", "reconstruct",
               "riemann-solver"});
   op->verbose() = node["verbose"].as<bool>(verbose);
-  op->nvar() = node["nvar"].as<int>(0);
-  op->upper_bound() = node["upper-bound"].as<double>(-1.);
+  op->nvar() = node["nvar"].as<int>(op->nvar());
+  op->upper_bound() = node["upper-bound"].as<double>(op->upper_bound());
   if (node["names"]) {
     op->names() = node["names"].as<std::vector<std::string>>();
     op->nvar() = op->names().size();
