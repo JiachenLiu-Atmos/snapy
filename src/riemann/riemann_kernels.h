@@ -26,6 +26,12 @@
 
 namespace snap {
 
+//! the small speed and sound-speed floor of the hllc and roe solvers
+template <typename T>
+DISPATCH_MACRO constexpr T riemann_tiny() {
+  return T(1.0e-10);
+}
+
 template <typename T>
 void DISPATCH_MACRO hllc_impl(T* flx, T* wl, T* wr, T el, T er, T gammal,
                               T gammar, T cl, T cr, int dim, int ny,
@@ -38,7 +44,6 @@ void DISPATCH_MACRO hllc_impl(T* flx, T* wl, T* wr, T el, T er, T gammal,
   bool shifted = reference_pressure != T(0);
   auto pl = shifted ? reference_pressure + WL(IPR) : WL(IPR);
   auto pr = shifted ? reference_pressure + WR(IPR) : WR(IPR);
-  constexpr T TINY_NUMBER = T(1.0e-10);
 
   auto ivx = IPR - dim;
   auto ivy = IVX + ((ivx - IVX) + 1) % 3;
@@ -76,8 +81,8 @@ void DISPATCH_MACRO hllc_impl(T* flx, T* wl, T* wr, T el, T er, T gammal,
   auto al = WL(ivx) - cl * ql;
   auto ar = WR(ivx) + cr * qr;
 
-  auto bp = ar > T(0.0) ? ar : (TINY_NUMBER);
-  auto bm = al < T(0.0) ? al : -(TINY_NUMBER);
+  auto bp = ar > T(0.0) ? ar : riemann_tiny<T>();
+  auto bm = al < T(0.0) ? al : -riemann_tiny<T>();
 
   //--- Step 5. Compute the contact wave speed and pressure
 
@@ -110,8 +115,8 @@ void DISPATCH_MACRO hllc_impl(T* flx, T* wl, T* wr, T el, T er, T gammal,
 
   if constexpr (std::is_same_v<T, float>) {
     // bm/bp are clipped at zero: only their acoustic branches simplify.
-    vxl = al < T(0) ? cl * ql : WL(ivx) + TINY_NUMBER;
-    vxr = ar > T(0) ? -cr * qr : WR(ivx) - TINY_NUMBER;
+    vxl = al < T(0) ? cl * ql : WL(ivx) + riemann_tiny<T>();
+    vxr = ar > T(0) ? -cr * qr : WR(ivx) - riemann_tiny<T>();
   } else {
     vxl = WL(ivx) - bm;
     vxr = WR(ivx) - bp;
@@ -276,8 +281,6 @@ void DISPATCH_MACRO roe_impl(T* flx, T const* wl, T const* wr, T el, T er,
                              T const* inv_mu_ratio_m1, T const* cv_ratio_m1,
                              T const* u0, int stride_w, int stride_f,
                              T* face_pressure = nullptr, T* llf = nullptr) {
-  auto TINY_NUMBER = T(1.0e-10);
-
   auto ivx = IPR - dim;
   auto ivy = IVX + ((ivx - IVX) + 1) % 3;
   auto ivz = IVX + ((ivx - IVX) + 2) % 3;
@@ -362,7 +365,7 @@ void DISPATCH_MACRO roe_impl(T* flx, T const* wl, T const* wr, T el, T er,
   T vsq = v1 * v1 + v2 * v2 + v3 * v3;
   T gm1_roe = gamma_roe - T(1);
   T q = h - T(0.5) * vsq - offset;
-  T cs_sq = roe_max(gm1_roe * roe_max(q, TINY_NUMBER), TINY_NUMBER);
+  T cs_sq = roe_max(gm1_roe * roe_max(q, riemann_tiny<T>()), riemann_tiny<T>());
   T cs = sqrt(cs_sq);
   if (face_pressure != nullptr) {
     *face_pressure =
