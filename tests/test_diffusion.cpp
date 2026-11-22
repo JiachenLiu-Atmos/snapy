@@ -1,6 +1,8 @@
 // C/C++
 #include <cmath>
+#include <cstdio>
 #include <string>
+#include <vector>
 
 // external
 #include <gtest/gtest.h>
@@ -279,6 +281,46 @@ TEST_P(DeviceTest, cartesian_energy_post_reproduces_the_energy_row) {
   double scale = old[IPR].index(sl).abs().max().item<double>();
   ASSERT_GT(scale, 0.);
   EXPECT_LE(worst, (dtype == torch::kFloat64 ? 1.e-13 : 1.e-5) * scale);
+}
+
+// The hydro rewrites the register total of a direction each stage only where
+// its flux is on; a disabled direction's total is never rewritten, so a
+// diffusion post there would add one more energy flux every stage. With
+// disable-flux-x1 or -x2 the disabled total must not grow with the number of
+// stages at a frozen state (add() then keeps the energy rows).
+TEST_P(DeviceTest, disabled_direction_total_does_not_accumulate) {
+  for (int off : {1, 2}) {
+    auto options = MeshBlockOptionsImpl::from_yaml("test_diffusion_2d.yaml");
+    if (off == 1) options->hydro()->disable_flux_x1(true);
+    if (off == 2) options->hydro()->disable_flux_x2(true);
+    auto block = std::make_shared<MeshBlockImpl>(options);
+    block->to(device, dtype);
+    auto w = make_primitive(block, device, dtype);
+    auto x = block->pcoord->x1v.to(device, dtype).view({1, 1, -1});
+    auto y = block->pcoord->x2v.to(device, dtype).view({1, -1, 1});
+    auto temp = (300. + 5. * x + 3. * y).expand_as(w[IDN]).contiguous();
+    auto Rd = 8.31446261815324 / block->phydro->peos->options->weight();
+    w[IPR] = w[IDN] * Rd * temp;
+    Variables vars;
+    vars["hydro_w"] = w;
+    block->initialize(vars);
+    auto u0 = vars["hydro_u"].clone();
+    int nstage = block->pintg->stages.size();
+    auto& reg = block->phydro->flux_register();
+    std::vector<double> energy;
+    for (int n = 1; n <= 24; ++n) {
+      vars["hydro_u"].copy_(u0);  // frozen state
+      block->forward(vars, 1.e-4, (n - 1) % nstage);
+      if (n == 3 || n == 6 || n == 12 || n == 24)
+        energy.push_back(reg.total(off)[IPR].abs().max().item<double>());
+    }
+    std::printf(
+        "disable-flux-x%d: max|total(%d)[IPR]| after 3/6/12/24 "
+        "stages = %.6g %.6g %.6g %.6g\n",
+        off, off, energy[0], energy[1], energy[2], energy[3]);
+    EXPECT_LE(energy[3], energy[0] * (1. + 1.e-6) + 1.e-12)
+        << "disable-flux-x" << off;
+  }
 }
 
 TEST_P(DeviceTest, temperature_uses_conductive_laplacian) {

@@ -370,6 +370,12 @@ void DiffusionImpl::post_fluxes(FluxRegister &reg, StageState const &s) {
   auto c = phydro->pmb->pcoord;
   bool cubed = c->options->type() == "gnomonic-equiangle";
   if (options->nu_iso() == 0. && options->kappa_iso() == 0.) return;
+  // the hydro rewrites total(d) each stage only where its flux is on: a post
+  // to a disabled direction would accumulate, so add() keeps the energy rows
+  auto ho = phydro->options;
+  if (!cubed &&
+      (ho->disable_flux_x1() || ho->disable_flux_x2() || ho->disable_flux_x3()))
+    return;
   check_profiles();
   profiles_on(s.w);
   auto temp = s.temp.defined() ? s.temp : phydro->peos->compute("W->T", {s.w});
