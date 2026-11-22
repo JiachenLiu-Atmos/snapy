@@ -193,6 +193,10 @@ bool buffer_matches(torch::Tensor const& buffer, torch::Tensor const& source) {
          buffer.device() == source.device();
 }
 
+void ensure_like(torch::Tensor& buffer, torch::Tensor const& source) {
+  if (!buffer_matches(buffer, source)) buffer = torch::empty_like(source);
+}
+
 void LayoutImpl::for_each_direction(
     SyncOptions const& opts,
     std::function<void(int, int, int)> const& fn) const {
@@ -537,15 +541,9 @@ void LayoutImpl::serialize(MeshBlockImpl const* pmb, Variables& vars,
     cached_recv.resize(vars.size());
     for (auto& [name, var] : vars) {
       auto source = var.index(sub);
-      if (!buffer_matches(cached_send[count], source)) {
-        cached_send[count] = torch::empty(source.sizes(), source.options());
-      }
+      ensure_like(cached_send[count], source);
       cached_send[count].copy_(source);
-
-      if (!buffer_matches(cached_recv[count], cached_send[count])) {
-        cached_recv[count] = torch::empty(cached_send[count].sizes(),
-                                          cached_send[count].options());
-      }
+      ensure_like(cached_recv[count], cached_send[count]);
       count++;
     }
     pmb->send_bufs[bid] = cached_send;

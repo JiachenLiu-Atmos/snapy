@@ -81,9 +81,7 @@ void ScalarImpl::reset() {
 // fixed storage, written in place; sized again (eager) only when the solve's
 // shape, dtype or device changes, as set_data did on every stage before EF-8
 static void put(torch::Tensor& buf, torch::Tensor const& value) {
-  if (buf.sizes() != value.sizes() || buf.dtype() != value.dtype() ||
-      buf.device() != value.device())
-    buf.set_data(torch::empty_like(value));
+  if (!buffer_matches(buf, value)) buf.set_data(torch::empty_like(value));
   buf.copy_(value);
 }
 

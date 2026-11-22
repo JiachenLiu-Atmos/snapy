@@ -182,6 +182,9 @@ std::string exchange_buffer_key(SyncOptions const& opts, Variables const& vars);
 //! A cached buffer can take `source`: same shape, dtype and device.
 bool buffer_matches(torch::Tensor const& buffer, torch::Tensor const& source);
 
+//! Reallocate `buffer` (torch::empty_like) unless it can take `source`.
+void ensure_like(torch::Tensor& buffer, torch::Tensor const& source);
+
 //! exchange_each_var adds n * 65536 for variable n, so the tag must stay in
 //! [0, 65536) for the tags of different variables to stay distinct.
 inline int make_comm_tag(int local_block_index,

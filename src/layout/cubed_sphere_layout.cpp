@@ -587,12 +587,8 @@ void CubedSphereLayoutImpl::serialize(MeshBlockImpl const* pmb, Variables& vars,
         if (skips_partial(name, dy, dx, /*send=*/true)) continue;
 
         auto source = var.index(sub);
-        if (!buffer_matches(send_bufs[ivar], source)) {
-          send_bufs[ivar] = torch::empty_like(source);
-        }
-        if (!buffer_matches(recv_bufs[ivar], source)) {
-          recv_bufs[ivar] = torch::empty_like(source);
-        }
+        ensure_like(send_bufs[ivar], source);
+        ensure_like(recv_bufs[ivar], source);
         send_bufs[ivar].copy_(source);
         ++ivar;
       }
@@ -655,15 +651,9 @@ void CubedSphereLayoutImpl::serialize(MeshBlockImpl const* pmb, Variables& vars,
       if (skips_partial(name, dy, dx, /*send=*/true)) continue;
 
       auto source = var.index(sub);
-      if (!buffer_matches(send_bufs[ivar], source)) {
-        send_bufs[ivar] = torch::empty_like(source);
-      }
-      if (!buffer_matches(recv_bufs[ivar], source)) {
-        recv_bufs[ivar] = torch::empty_like(source);
-      }
-      if (!buffer_matches(work_bufs[ivar], source)) {
-        work_bufs[ivar] = torch::empty_like(source);
-      }
+      ensure_like(send_bufs[ivar], source);
+      ensure_like(recv_bufs[ivar], source);
+      ensure_like(work_bufs[ivar], source);
 
       send_bufs[ivar].copy_(source);
       auto var_send = send_bufs[ivar];
