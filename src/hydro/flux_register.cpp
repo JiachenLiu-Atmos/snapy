@@ -58,10 +58,6 @@ int RegisterMonitor::counter_index(std::string const& name) const {
   return index_of(_counter, name, "counter");
 }
 
-int RegisterMonitor::minimum_index(std::string const& name) const {
-  return index_of(_minimum, name, "minimum");
-}
-
 int RegisterMonitor::retry_index(std::string const& name) const {
   return index_of(_retry, name, "retry cause");
 }
@@ -72,7 +68,7 @@ void RegisterMonitor::count(std::string const& name, torch::Tensor const& n) {
 
 void RegisterMonitor::record_min(std::string const& name,
                                  torch::Tensor const& v) {
-  auto slot = minima[minimum_index(name)];
+  auto slot = minima[index_of(_minimum, name, "minimum")];
   slot.copy_(torch::minimum(slot, v.min().to(minima.scalar_type())));
 }
 

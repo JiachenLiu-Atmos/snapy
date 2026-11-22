@@ -139,7 +139,7 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
       moist->clear_heat_capacity_failure();
     if (phydro->picorr) {
       phydro->picorr->reset_dry_clamp_step();
-      phydro->picorr->reset_solve_failure();
+      phydro->picorr->reset_status();
     }
     phydro->peos->reset_limiter_marks(hydro_u);
     // K2 (K.rst 3.2): the device counter is zeroed in place, no host read;

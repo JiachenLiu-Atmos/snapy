@@ -132,7 +132,6 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
 
   //! status() read back: the FP32 fallback's host read (hydro.cpp, until I-6)
   bool solve_failed() const { return status().item<bool>(); }
-  void reset_solve_failure() { reset_status(); }
 
   //! status() as a 0-d tensor (1 or 0) with `opts`, without a host read: the
   //! redo's slot 5 (meshblock.cpp) until lane X reads retry_flags

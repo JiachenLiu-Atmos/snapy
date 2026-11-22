@@ -92,7 +92,6 @@ class RegisterMonitor {
   std::vector<std::string> const& counter_names() const { return _counter; }
   std::vector<std::string> const& minimum_names() const { return _minimum; }
   int counter_index(std::string const& name) const;
-  int minimum_index(std::string const& name) const;
   int retry_index(std::string const& name) const;
 
   //! the tensors, on the register's device; int64, FP64 (+inf when unset),
