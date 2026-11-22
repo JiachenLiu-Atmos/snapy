@@ -95,13 +95,13 @@ EquationOfStateOptions EquationOfStateOptionsImpl::from_yaml(
 
   op->verbose() = node["verbose"].as<bool>(verbose);
 
-  op->type() = node["type"].as<std::string>("moist-mixture");
+  op->type() = node["type"].as<std::string>(op->type());
   if (op->verbose()) {
     SINFO(EquationOfStateOptions) << "EOS type = " << op->type() << std::endl;
   }
 
-  op->gammad() = node["gammad"].as<double>(1.4);
-  op->weight() = node["weight"].as<double>(29.e-3);
+  op->gammad() = node["gammad"].as<double>(op->gammad());
+  op->weight() = node["weight"].as<double>(op->weight());
 
   op->density_floor() = node["density-floor"].as<double>(op->density_floor());
   if (op->verbose()) {
@@ -114,13 +114,13 @@ EquationOfStateOptions EquationOfStateOptionsImpl::from_yaml(
   op->temperature_floor() =
       node["temperature-floor"].as<double>(op->temperature_floor());
 
-  op->limiter() = node["limiter"].as<bool>(false);
+  op->limiter() = node["limiter"].as<bool>(op->limiter());
   if (op->verbose()) {
     SINFO(EquationOfStateOptions)
         << "limiter = " << (op->limiter() ? "true" : "false") << std::endl;
   }
 
-  op->eos_file() = node["eos-file"].as<std::string>("");
+  op->eos_file() = node["eos-file"].as<std::string>(op->eos_file());
   if (op->verbose() && !op->eos_file().empty()) {
     SINFO(EquationOfStateOptions)
         << "eos file = " << op->eos_file() << std::endl;
