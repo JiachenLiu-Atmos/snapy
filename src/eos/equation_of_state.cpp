@@ -226,6 +226,11 @@ std::pair<torch::Tensor, torch::Tensor> EquationOfStateImpl::gamma_sound_speed(
   return {gamma, c};
 }
 
+torch::Tensor EquationOfStateImpl::ideal_sound_speed_(
+    torch::Tensor const& w, torch::Tensor const& gamma) {
+  return torch::sqrt(gamma * w[IPR] / w[IDN]);
+}
+
 torch::Tensor EquationOfStateImpl::adiabatic_index(torch::Tensor const& w) {
   return compute("W->A", {w});
 }

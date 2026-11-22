@@ -47,11 +47,7 @@ torch::Tensor IdealGasImpl::compute(std::string ab,
     auto w = args[0];
     return options->gammad() * torch::ones_like(w[IDN]);
   } else if (ab == "WA->L") {
-    auto w = args[0];
-    auto gamma = args[1];
-    auto dens = w[IDN];
-    auto pres = w[IPR];
-    return torch::sqrt(gamma * pres / dens);
+    return ideal_sound_speed_(args[0], args[1]);
   } else {
     TORCH_CHECK(false, "Unknown abbreviation: ", ab);
   }

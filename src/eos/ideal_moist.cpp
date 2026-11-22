@@ -193,11 +193,7 @@ torch::Tensor IdealMoistImpl::compute(std::string ab,
     auto fsig = f_sig(w.narrow(0, ICY, ny));
     return 1. + (gammad_(pthermo->options->cref_R()[0]) - 1.) * feps / fsig;
   } else if (ab == "WA->L") {
-    auto w = args[0];
-    auto gamma = args[1];
-    auto dens = w[IDN];
-    auto pres = w[IPR];
-    return torch::sqrt(gamma * pres / dens);
+    return ideal_sound_speed_(args[0], args[1]);
   } else {
     TORCH_CHECK(false, "Unknown abbreviation: ", ab);
   }

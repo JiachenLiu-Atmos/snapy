@@ -218,6 +218,10 @@ class EquationOfStateImpl {
   bool convert_(std::string const& ab, std::vector<torch::Tensor> const& args,
                 torch::Tensor* out);
 
+  //! "WA->L" of an ideal gas (dry or moist): sqrt(gamma p / rho)
+  static torch::Tensor ideal_sound_speed_(torch::Tensor const& w,
+                                          torch::Tensor const& gamma);
+
   //! \brief Convert primitive variables to conserved variables.
   virtual void _prim2cons(torch::Tensor prim, torch::Tensor& cons);
   //! \brief Convert conserved variables to primitive variables.
