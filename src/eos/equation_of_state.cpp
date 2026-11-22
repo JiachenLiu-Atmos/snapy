@@ -10,6 +10,8 @@
 #include <ATen/TensorIterator.h>
 
 // kintera
+#include <kintera/constants.h>
+
 #include <kintera/species.hpp>
 
 // snap
@@ -206,6 +208,10 @@ void EquationOfStateImpl::cache_cloud_parents_() {
 torch::Tensor EquationOfStateImpl::internal_energy_offset(
     torch::Tensor hydro_like) const {
   return torch::zeros_like(hydro_like[IDN]);
+}
+
+double EquationOfStateImpl::gas_constant_dry() const {
+  return kintera::constants::Rgas / options->weight();
 }
 
 torch::Tensor EquationOfStateImpl::specific_heat_cv(torch::Tensor prim,

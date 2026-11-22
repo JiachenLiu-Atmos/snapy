@@ -102,6 +102,9 @@ class EquationOfStateImpl {
   //!         units consistent with the underlying thermodynamic model).
   virtual double species_weight(int n = 0) const { return 0.; }
 
+  //! dry gas constant Rgas / weight, in J/(kg K)
+  double gas_constant_dry() const;
+
   //! \brief Return the reference specific heat at constant volume of species \p
   //! n.
   //!

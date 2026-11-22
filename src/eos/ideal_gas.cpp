@@ -18,8 +18,7 @@ void IdealGasImpl::reset() {}
 double IdealGasImpl::species_weight(int n) const { return options->weight(); }
 
 double IdealGasImpl::species_cv_ref(int n) const {
-  auto Ri = kintera::constants::Rgas / options->weight();
-  return Ri / (options->gammad() - 1.);
+  return gas_constant_dry() / (options->gammad() - 1.);
 }
 
 torch::Tensor IdealGasImpl::specific_heat_cv(torch::Tensor prim,
@@ -37,8 +36,7 @@ torch::Tensor IdealGasImpl::compute(std::string ab,
     return _prim2intEng(w);
   } else if (ab == "W->T") {
     auto w = args[0];
-    auto Rd = kintera::constants::Rgas / options->weight();
-    return w[IPR] / (w[IDN] * Rd);
+    return w[IPR] / (w[IDN] * gas_constant_dry());
   } else if (ab == "UT->I") {
     auto w = args[0];
     auto temp = args[1];

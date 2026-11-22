@@ -249,7 +249,7 @@ torch::Tensor IdealMoistImpl::_prim2intEng(torch::Tensor prim) {
 torch::Tensor IdealMoistImpl::_prim2temp(torch::Tensor prim) {
   // Recompute so each public call owns its autograd graph.
   int ny = nspecies();
-  auto Rd = kintera::constants::Rgas / options->weight();
+  auto Rd = gas_constant_dry();
   auto yfrac = prim.narrow(0, ICY, ny);
   return prim[IPR] / (prim[IDN] * Rd * f_eps(yfrac));
 }
@@ -269,7 +269,7 @@ torch::Tensor IdealMoistImpl::species_enthalpy(torch::Tensor prim) {
   int nvapor = pthermo->options->vapor_ids().size() - 1;
   int ny = nvapor + pthermo->options->cloud_ids().size();
 
-  auto Rd = kintera::constants::Rgas / options->weight();
+  auto Rd = gas_constant_dry();
   auto cvd = pthermo->options->cref_R()[0] * Rd;
 
   // the per-species split of the flux enthalpy rho*(W->I/rho + KE + p/rho):
@@ -291,8 +291,7 @@ torch::Tensor IdealMoistImpl::_temp2intEng(torch::Tensor cons,
                                            torch::Tensor temp) {
   int ny = nspecies();
 
-  auto mud = options->weight();
-  auto Rd = kintera::constants::Rgas / mud;
+  auto Rd = gas_constant_dry();
   auto cvd = pthermo->options->cref_R()[0] * Rd;
   auto cvy = (cv_ratio_m1 + 1.) * cvd;
 
