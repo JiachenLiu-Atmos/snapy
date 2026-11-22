@@ -440,53 +440,22 @@ torch::Tensor CoordinateImpl::block_faces_(double gmin, double gmax, int gnx,
 }
 
 void CoordinateImpl::print(std::ostream& stream) const {
-  stream << "x1f = [";
-  for (int i = 0; i < x1f.size(0); ++i) {
-    stream << x1f[i].item<float>();
-    if (i < x1f.size(0) - 1) {
-      stream << ", ";
+  auto put = [&](char const* name, torch::Tensor const& x) {
+    stream << name << " = [";
+    for (int i = 0; i < x.size(0); ++i) {
+      stream << x[i].item<float>();
+      if (i < x.size(0) - 1) {
+        stream << ", ";
+      }
     }
-  }
-  stream << "]" << std::endl << "x1v = [";
-  for (int i = 0; i < x1v.size(0); ++i) {
-    stream << x1v[i].item<float>();
-    if (i < x1v.size(0) - 1) {
-      stream << ", ";
-    }
-  }
-  stream << "]" << std::endl;
-
-  stream << "x2f = [";
-  for (int i = 0; i < x2f.size(0); ++i) {
-    stream << x2f[i].item<float>();
-    if (i < x2f.size(0) - 1) {
-      stream << ", ";
-    }
-  }
-  stream << "]" << std::endl << "x2v = [";
-  for (int i = 0; i < x2v.size(0); ++i) {
-    stream << x2v[i].item<float>();
-    if (i < x2v.size(0) - 1) {
-      stream << ", ";
-    }
-  }
-  stream << "]" << std::endl;
-
-  stream << "x3f = [";
-  for (int i = 0; i < x3f.size(0); ++i) {
-    stream << x3f[i].item<float>();
-    if (i < x3f.size(0) - 1) {
-      stream << ", ";
-    }
-  }
-  stream << "]" << std::endl << "x3v = [";
-  for (int i = 0; i < x3v.size(0); ++i) {
-    stream << x3v[i].item<float>();
-    if (i < x3v.size(0) - 1) {
-      stream << ", ";
-    }
-  }
-  stream << "]" << std::endl;
+    stream << "]" << std::endl;
+  };
+  put("x1f", x1f);
+  put("x1v", x1v);
+  put("x2f", x2f);
+  put("x2v", x2v);
+  put("x3f", x3f);
+  put("x3v", x3v);
 }
 
 torch::Tensor CoordinateImpl::x1_row_faces(std::string const& interp) const {
