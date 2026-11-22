@@ -10,9 +10,9 @@
 // snap
 #include <snap/snap.h>
 
-#include <snap/input/check_keys.hpp>
 #include <snap/layout/layout.hpp>
 #include <snap/mesh/meshblock.hpp>
+#include <snap_options/coord_rows.hpp>
 
 #include "coordinate.hpp"
 #include "gnomonic_equiangle.hpp"
@@ -63,48 +63,16 @@ CoordinateOptions CoordinateOptionsImpl::from_yaml(
     std::string const& filename) {
   auto op = CoordinateOptionsImpl::create();
 
+  // the rows of src/options/coord.yaml: key checks, defaults, the _pi
+  // aliases and the x1f/x1rat checks. The grid rules stay here.
   auto config = YAML::LoadFile(filename);
+  auto g = GeometryRows::read(config);
+  if (!g.present()) return op;  // return default options
   auto node = config["geometry"];
-  if (!node) return op;  // return default options
 
-  check_keys(node, "geometry", {"type", "bounds", "cells", "x1f"});
-  op->type(node["type"].as<std::string>("cartesian"));
-
-  double x1min = 0, x2min = 0, x3min = 0, x1max = 1, x2max = 1, x3max = 1;
-
-  if (node["bounds"]) {
-    check_keys(node["bounds"], "geometry/bounds",
-               {"x1min", "x1max", "x2min", "x2max", "x3min", "x3max",
-                "x2min_pi", "x2max_pi", "x3min_pi", "x3max_pi"});
-    x1min = node["bounds"]["x1min"].as<double>(0.0);
-
-    if (node["bounds"]["x2min_pi"]) {
-      x2min = node["bounds"]["x2min_pi"].as<double>() * M_PI;
-    } else {
-      x2min = node["bounds"]["x2min"].as<double>(0.0);
-    }
-
-    if (node["bounds"]["x3min_pi"]) {
-      x3min = node["bounds"]["x3min_pi"].as<double>() * M_PI;
-    } else {
-      x3min = node["bounds"]["x3min"].as<double>(0.0);
-    }
-
-    x1max = node["bounds"]["x1max"].as<double>(1.0);
-
-    if (node["bounds"]["x2max_pi"]) {
-      x2max = node["bounds"]["x2max_pi"].as<double>() * M_PI;
-    } else {
-      x2max = node["bounds"]["x2max"].as<double>(1.0);
-    }
-
-    if (node["bounds"]["x3max_pi"]) {
-      x3max = node["bounds"]["x3max_pi"].as<double>() * M_PI;
-    } else {
-      x3max = node["bounds"]["x3max"].as<double>(1.0);
-    }
-  }
-
+  op->type(g.type());
+  double x1min = g.x1min(), x2min = g.x2min(), x3min = g.x3min();
+  double x1max = g.x1max(), x2max = g.x2max(), x3max = g.x3max();
   op->global_x1min() = x1min;
   op->global_x2min() = x2min;
   op->global_x3min() = x3min;
@@ -116,40 +84,22 @@ CoordinateOptions CoordinateOptionsImpl::from_yaml(
   // it. The block must be given those bounds too, or ixN() offsets it out of
   // its own one-cell face array.
   if (!node["cells"]) {
-    TORCH_CHECK(!node["x1f"], "geometry/x1f needs geometry/cells/nx1");
     op->x1min() = x1min, op->x1max() = x1max, op->global_nx1() = 1;
     op->x2min() = x2min, op->x2max() = x2max, op->global_nx2() = 1;
     op->x3min() = x3min, op->x3max() = x3max, op->global_nx3() = 1;
     return op;
   }
 
-  check_keys(node["cells"], "geometry/cells",
-             {"nx1", "nx2", "nx3", "nghost", "interp_order", "x1rat"});
-  op->global_nx1() = node["cells"]["nx1"].as<int>(1);
-  op->global_nx2() = node["cells"]["nx2"].as<int>(1);
-  op->global_nx3() = node["cells"]["nx3"].as<int>(1);
+  op->global_nx1() = g.nx1();
+  op->global_nx2() = g.nx2();
+  op->global_nx3() = g.nx3();
 
-  auto x1rat = node["cells"]["x1rat"];
-  auto x1f = node["x1f"];
-  TORCH_CHECK(!(x1rat && x1f),
-              "geometry: give cells/x1rat or x1f, not both (#280)");
   int gnx1 = op->global_nx1();
   std::vector<double> faces;
-  if (x1f) {
-    faces = x1f.as<std::vector<double>>();
-    TORCH_CHECK(static_cast<int>(faces.size()) == gnx1 + 1, "geometry/x1f has ",
-                faces.size(), " faces; cells/nx1 = ", gnx1, " needs ",
-                gnx1 + 1);
-    auto bounds = node["bounds"];
-    TORCH_CHECK(!(bounds && bounds["x1min"]) || faces.front() == x1min,
-                "geometry/x1f starts at ", faces.front(),
-                " but bounds/x1min = ", x1min);
-    TORCH_CHECK(!(bounds && bounds["x1max"]) || faces.back() == x1max,
-                "geometry/x1f ends at ", faces.back(),
-                " but bounds/x1max = ", x1max);
-  } else if (x1rat) {
-    double q = x1rat.as<double>();
-    TORCH_CHECK(q > 0., "geometry/cells/x1rat must be > 0, got ", q);
+  if (g.x1f()) {
+    faces = *g.x1f();
+  } else if (g.x1rat()) {
+    double q = *g.x1rat();
     if (q != 1.) {  // q = 1 is the uniform grid: keep today's path
       double lq = std::log(q), den = std::expm1(gnx1 * lq);
       for (int k = 0; k < gnx1; ++k)
@@ -210,8 +160,8 @@ CoordinateOptions CoordinateOptionsImpl::from_yaml(
         "blocks in x3 direction");
   }
 
-  op->nghost() = node["cells"]["nghost"].as<int>(1);
-  op->interp_order() = node["cells"]["interp_order"].as<int>(2);
+  op->nghost() = g.nghost();
+  op->interp_order() = g.interp_order();
   op->repartition(layout);
 
   TORCH_CHECK(
