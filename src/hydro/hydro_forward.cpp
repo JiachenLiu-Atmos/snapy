@@ -337,10 +337,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       TORCH_WARN_ONCE("fewer than 4 x1 cells: wall ghosts stay mirrored");
     wall4[f] = wall4[f] && i1 - i0 >= 3;
   }
-  auto fill4 = [&](torch::Tensor a, int c, bool pos, torch::Tensor ref) {
-    if (wall4[0] || wall4[1])  // key 2 and wall-less blocks never enter
-      conv4_->fill_walls(a, c, pos, ref, {}, _conv4_trips);
-  };
   bool split_flux = options->perturbation_flux();
   IdealMoistPerturbations perturb;
   torch::Tensor raw_primitive;

@@ -21,7 +21,6 @@
 namespace snap {
 struct LayoutOptionsImpl;
 using LayoutOptions = std::shared_ptr<LayoutOptionsImpl>;
-using IndexRange = std::vector<torch::indexing::TensorIndex>;
 
 struct EquationOfStateOptionsImpl;
 using EquationOfStateOptions = std::shared_ptr<EquationOfStateOptionsImpl>;

@@ -91,7 +91,6 @@ class RegisterMonitor {
   std::vector<std::string> const& row_names() const { return _rows; }
   std::vector<std::string> const& counter_names() const { return _counter; }
   std::vector<std::string> const& minimum_names() const { return _minimum; }
-  std::vector<std::string> const& retry_names() const { return _retry; }
   int counter_index(std::string const& name) const;
   int minimum_index(std::string const& name) const;
   int retry_index(std::string const& name) const;
@@ -132,7 +131,6 @@ class FluxRegister {
   void begin_step();
   //! X, before stage s: its integrator weights
   void begin_stage(int stage, harp::IntegratorWeight const& w);
-  double weight1() const { return _w1; }
   double weight2() const { return _w2; }
   int stage() const { return _stage; }
 

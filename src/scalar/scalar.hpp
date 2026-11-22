@@ -113,10 +113,6 @@ class ScalarImpl : public torch::nn::Cloneable<ScalarImpl> {
   int nvar() const { return options ? options->nvar() : 0; }
   virtual double max_time_step(torch::Tensor w) const { return 1.e9; }
 
-  torch::Tensor get_buffer(std::string var) const {
-    return named_buffers()[var];
-  }
-
   //! Advance the conserved variables by one time step.
   torch::Tensor forward(double dt, torch::Tensor scalar_u,
                         Variables const& other);

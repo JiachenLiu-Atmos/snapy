@@ -51,7 +51,6 @@ BC_FUNCTION(periodic_outer, var, dim, op) {
 
 BC_FUNCTION(extrapolation_inner, var, dim, op) {
   if (var.size(dim) == 1) return;
-  int nc = var.size(dim);
   int nghost = op.nghost();
 
   var.narrow(dim, 0, nghost) = var.narrow(dim, nghost, 1);

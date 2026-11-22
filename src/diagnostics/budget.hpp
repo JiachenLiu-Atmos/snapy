@@ -70,7 +70,6 @@ class BudgetConsumer : public Consumer {
   //! resume the interval on `device`, the block's (a restart loads the carry
   //! on the host); a carry with other rows starts a new one
   void resume(BudgetCarry const& carry, torch::Device device);
-  bool started() const { return _started; }
 
  private:
   void start(MeshBlockImpl const& block, Variables const& vars);

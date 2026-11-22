@@ -20,11 +20,6 @@
 #include "implicit_hydro.hpp"
 
 namespace snap {
-// screen sums in FP64, except on MPS, which has no FP64
-static torch::ScalarType acc_type(torch::Tensor const& t) {
-  return t.is_mps() ? torch::kFloat32 : torch::kFloat64;
-}
-
 ImplicitOptions ImplicitOptionsImpl::from_yaml(const std::string& filename,
                                                bool /*verbose*/) {
   auto config = YAML::LoadFile(filename);

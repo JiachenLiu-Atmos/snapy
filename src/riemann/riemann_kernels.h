@@ -343,7 +343,6 @@ void DISPATCH_MACRO roe_impl(T* flx, T const* wl, T const* wr, T el, T er,
     }
   }
 
-  T du0 = WR(IDN) - WL(IDN);
   T du1 = WR(IDN) * WR(ivx) - WL(IDN) * WL(ivx);
   T du2 = WR(IDN) * WR(ivy) - WL(IDN) * WL(ivy);
   T du3 = WR(IDN) * WR(ivz) - WL(IDN) * WL(ivz);

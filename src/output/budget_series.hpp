@@ -41,7 +41,6 @@ class BudgetOutput : public OutputType {
                   bool fires_now, Variables& out) const override;
   void load_carry(MeshBlockImpl const* pmb, Variables const& data) override;
 
-  BudgetConsumer const& consumer() const { return _consumer; }
   //! the domain record of the last interval (every process holds it)
   BudgetRecord const& record() const { return _record; }
   //! the series file of block pmb

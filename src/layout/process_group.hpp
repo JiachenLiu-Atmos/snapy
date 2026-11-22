@@ -33,7 +33,6 @@ class ProcessGroupContext {
   at::intrusive_ptr<c10d::Store> store;
   c10::intrusive_ptr<c10d::ProcessGroup> pg;
 
-  bool is_ucx() const { return backend == "ucx"; }
   bool owns_process_group() const { return owns_process_group_; }
   bool initialized() const;
   CommWorkPtr send(std::vector<torch::Tensor>& tensors, int peer,

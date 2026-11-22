@@ -62,10 +62,6 @@ enum {
   kPrimitive = 0,  //!< Primitive variables (rho, v, P)
   kConserved = 1,  //!< Conserved variables (rho, rho*v, E)
   kScalar = 2,     //!< Scalar variables
-
-  // temperature, pressure, mass fraction with LR states
-  kTPMassLR = 5,  //!< Temperature, pressure, mass with left-right states
-  kDPMassLR = 6,  //!< Density, pressure, mass with left-right states
 };
 
 //! \brief Velocity component enumeration

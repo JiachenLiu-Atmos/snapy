@@ -111,7 +111,6 @@ torch::Tensor InternalBoundaryImpl::rectify_solid(
     std::vector<bcfunc_t> const& bfuncs) const {
   int nc3 = solid_in.size(0);
   int nc2 = solid_in.size(1);
-  int nc1 = solid_in.size(2);
 
   auto solid = solid_in.contiguous();
   int nghost = pmb ? pmb->options->coord()->nghost() : 1;

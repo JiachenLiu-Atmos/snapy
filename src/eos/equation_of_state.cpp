@@ -337,7 +337,6 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
   if (mark) status.mark(0, dens_energy().ne(before).any());
 
   if (options->thermo() && ny > 0) {
-    auto nghost = pcoord->options->nghost();
     auto species = [&] { return cons.index(interior).narrow(0, ICY, ny); };
     auto species_before = mark ? species().clone() : torch::Tensor();
 

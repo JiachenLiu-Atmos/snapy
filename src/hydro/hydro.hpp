@@ -310,14 +310,6 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
     int64_t ver = -1;
   };
   mutable FaceMoment2 _s2;
-  //! cell_volume() for this block's grid, built on first use by the tracer
-  //! positivity limiter. Holds the three face tensors, so a key tensor
-  //! cannot be freed and its address reused
-  struct CellVolume {
-    torch::Tensor f1, f2, f3, val;
-    int64_t v1 = -1, v2 = -1, v3 = -1;
-  };
-  CellVolume _cell_vol;
 
   FluxRegister freg;
   torch::Tensor _flux1, _flux2, _flux3, _face_pressure1, _div, _forcing_dry;
