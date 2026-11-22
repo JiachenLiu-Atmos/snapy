@@ -75,21 +75,8 @@ jobs:
               > "$(python -c 'import site; print(site.getsitepackages()[0])')/sitecustomize.py"
           fi
 
-      # v2.6.11 contains kintera #157 (compute_into) but has no PyPI wheel yet.
-      - name: Check out kintera
-        uses: actions/checkout@v4
-        with:
-          repository: chengcli/kintera
-          ref: 431fd1441fdc95c2bc93f7dc56e35adb1e1315fb
-          fetch-depth: 0
-          path: .ci-kintera
-
-      - name: Build and install kintera 2.6.11
-        working-directory: .ci-kintera
-        run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DBUILD_TESTS=OFF
-          cmake --build build --parallel 3
-          pip install --no-build-isolation --no-deps .
+      - name: Install kintera 2.6.11
+        run: pip install 'kintera>=2.6.11'
 
       - name: Install commux UCX backend
         if: runner.os == 'Linux'
@@ -164,21 +151,8 @@ jobs:
           sudo apt-get install -y libnetcdf-dev libucx-dev nco autoconf automake libtool pkg-config
           pip install 'commux>=0.1.4' 'pinc>=0.2.0'
 
-      # v2.6.11 contains kintera #157 (compute_into) but has no PyPI wheel yet.
-      - name: Check out kintera
-        uses: actions/checkout@v4
-        with:
-          repository: chengcli/kintera
-          ref: 431fd1441fdc95c2bc93f7dc56e35adb1e1315fb
-          fetch-depth: 0
-          path: .ci-kintera
-
-      - name: Build and install kintera 2.6.11
-        working-directory: .ci-kintera
-        run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DBUILD_TESTS=OFF
-          cmake --build build --parallel 3
-          pip install --no-build-isolation --no-deps .
+      - name: Install kintera 2.6.11
+        run: pip install 'kintera>=2.6.11'
 
       - name: Configure CMake
         run: |
