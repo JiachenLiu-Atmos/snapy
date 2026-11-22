@@ -493,6 +493,10 @@ snapy_add_python_test(test_graph_outflow_refused TIMEOUT 300 LABELS "python;hydr
 snapy_add_python_test(test_sk3_capture_moist TIMEOUT 600 LABELS "python;hydro;eos;fp32-science")
 # V3 C4: an implicit scheme captures; one capture per stage serves every dt
 snapy_add_python_test(test_graph_implicit_dt TIMEOUT 900 LABELS "python;hydro;implicit")
+# V3 C: the chemistry slot as an eager segment beside captured ones, and the
+# vertical implicit correction (with its predicated FP64 retry) under graph
+snapy_add_python_test(test_graph_chemistry_slot TIMEOUT 600 LABELS "python;hydro;eos")
+snapy_add_python_test(test_graph_implicit TIMEOUT 600 LABELS "python;hydro;implicit")
 snapy_add_python_test(test_fp32_restart TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-restart")
 snapy_add_python_test(test_fp32_policy TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
 snapy_add_python_test(test_fp32_implicit TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
