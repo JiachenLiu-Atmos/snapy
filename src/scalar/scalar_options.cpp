@@ -31,11 +31,10 @@ ScalarOptions ScalarOptionsImpl::from_yaml(std::string const& filename,
   }
 
   if (node["reconstruct"]) {
-    op->recon() = ReconstructOptionsImpl::create();
-    auto recon = node["reconstruct"];
-    check_keys(recon, "scalar/reconstruct", {"shock", "type"});
-    op->recon()->shock() = recon["shock"].as<bool>(false);
-    op->recon()->interp()->type() = recon["type"].as<std::string>("dc");
+    // no scale key: the scalar always reconstructs scale-invariant (Scalar)
+    check_keys(node["reconstruct"], "scalar/reconstruct", {"shock", "type"});
+    op->recon() = ReconstructOptionsImpl::from_node(node["reconstruct"],
+                                                    "scalar/reconstruct");
   } else {
     op->recon() = nullptr;
   }

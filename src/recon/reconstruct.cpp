@@ -196,16 +196,18 @@ ReconstructOptions ReconstructOptionsImpl::from_yaml(
 
 ReconstructOptions ReconstructOptionsImpl::from_yaml(
     const YAML::Node& node, std::string const& section) {
-  auto op = ReconstructOptionsImpl::create();
   check_keys(node, "dynamics/reconstruct", {"vertical", "horizontal"});
-  if (!node[section]) return op;
+  if (!node[section]) return ReconstructOptionsImpl::create();
+  return from_node(node[section], "dynamics/reconstruct/" + section);
+}
 
-  check_keys(node[section], "dynamics/reconstruct/" + section,
-             {"shock", "type", "scale"});
-  op->shock() = node[section]["shock"].as<bool>(false);
-  op->interp() = InterpOptionsImpl::create();
-  op->interp()->type() = node[section]["type"].as<std::string>("dc");
-  op->interp()->scale() = node[section]["scale"].as<bool>(false);
+ReconstructOptions ReconstructOptionsImpl::from_node(const YAML::Node& node,
+                                                     std::string const& path) {
+  auto op = ReconstructOptionsImpl::create();
+  check_keys(node, path, {"shock", "type", "scale"});
+  op->shock() = node["shock"].as<bool>(op->shock());
+  op->interp()->type() = node["type"].as<std::string>(op->interp()->type());
+  op->interp()->scale() = node["scale"].as<bool>(op->interp()->scale());
   return op;
 }
 

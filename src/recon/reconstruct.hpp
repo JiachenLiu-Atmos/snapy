@@ -108,6 +108,10 @@ struct ReconstructOptionsImpl {
       std::string const& filename, std::string const& section);
   static std::shared_ptr<ReconstructOptionsImpl> from_yaml(
       const YAML::Node& node, std::string const& section);
+  //! one reconstruct section node (shock, type, scale) at YAML path `path`;
+  //! a missing key keeps its ADD_ARG default
+  static std::shared_ptr<ReconstructOptionsImpl> from_node(
+      const YAML::Node& node, std::string const& path);
 
   ReconstructOptionsImpl() = default;
   void report(std::ostream& os) const {

@@ -8,6 +8,7 @@
 #include <fstream>
 #include <snap/hydro/hydro.hpp>
 #include <snap/mesh/meshblock.hpp>
+#include <snap/scalar/scalar.hpp>
 #include <string>
 #include <vector>
 
@@ -88,4 +89,27 @@ TEST(OptionsDefaults, replaced_variables_are_silent) {
     EXPECT_EQ(cap.all.find(var), std::string::npos) << cap.all;
   EXPECT_TRUE(b->phydro->options->flux_covariance());
   EXPECT_FALSE(b->phydro->options->x1_mass_covariance());
+}
+
+// the scalar's reconstruct section goes through the shared section reader:
+// the dynamics sections' defaults, and still no scale key (Scalar forces it)
+TEST(OptionsDefaults, scalar_reconstruct_section) {
+  auto read = [](std::string const& rec) {
+    auto f = (std::filesystem::temp_directory_path() /
+              ("test-options-defaults-scalar-" + std::to_string(getpid())))
+                 .string();
+    std::ofstream(f) << "scalar: {nvar: 1, reconstruct: " << rec << "}\n";
+    auto op = ScalarOptionsImpl::from_yaml(f);
+    std::remove(f.c_str());
+    return op->recon();
+  };
+  auto dyn = ReconstructOptionsImpl::from_yaml(
+      YAML::Load("vertical: {type: weno5}"), "vertical");
+  auto r = read("{type: weno5}");
+  EXPECT_EQ(r->shock(), dyn->shock());
+  EXPECT_EQ(r->interp()->type(), dyn->interp()->type());
+  EXPECT_EQ(r->interp()->scale(), dyn->interp()->scale());
+  EXPECT_TRUE(read("{shock: true}")->shock());
+  EXPECT_EQ(read("{shock: true}")->interp()->type(), "dc");
+  EXPECT_THROW(read("{type: weno5, scale: true}"), c10::Error);
 }
