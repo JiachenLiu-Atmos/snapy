@@ -26,6 +26,25 @@
 
 namespace snap {
 
+//! the velocity rows of a face: the normal x and the two tangential y, z
+struct FaceAxes {
+  int x, y, z;
+};
+
+//! face of dimension dim (3: x1, 2: x2, 1: x3): normal IPR - dim, then the
+//! tangential rows in cyclic order
+DISPATCH_MACRO inline FaceAxes face_axes(int dim) {
+  int ivx = IPR - dim;
+  return {ivx, IVX + ((ivx - IVX) + 1) % 3, IVX + ((ivx - IVX) + 2) % 3};
+}
+
+//! shallow-water face of dimension dim in the y-z plane (dir_yz) or the x-y
+//! plane
+DISPATCH_MACRO inline FaceAxes shallow_axes(int dim, int dir_yz) {
+  if (dir_yz) return {dim == 2 ? IVY : IVZ, dim == 2 ? IVZ : IVY, IVX};
+  return {dim == 3 ? IVX : IVY, dim == 3 ? IVY : IVX, IVZ};
+}
+
 //! the small speed and sound-speed floor of the hllc and roe solvers
 template <typename T>
 DISPATCH_MACRO constexpr T riemann_tiny() {
@@ -45,9 +64,7 @@ void DISPATCH_MACRO hllc_impl(T* flx, T* wl, T* wr, T el, T er, T gammal,
   auto pl = shifted ? reference_pressure + WL(IPR) : WL(IPR);
   auto pr = shifted ? reference_pressure + WR(IPR) : WR(IPR);
 
-  auto ivx = IPR - dim;
-  auto ivy = IVX + ((ivx - IVX) + 1) % 3;
-  auto ivz = IVX + ((ivx - IVX) + 2) % 3;
+  auto [ivx, ivy, ivz] = face_axes(dim);
 
   //--- Step 1.  Compute kappa
 
@@ -194,9 +211,7 @@ template <typename T>
 void DISPATCH_MACRO lmars_impl(T* flx, T* wl, T* wr, T hl, T hr, T gammal,
                                T gammar, int dim, int ny, int stride_w,
                                int stride_f, T* face_pressure = nullptr) {
-  auto ivx = IPR - dim;
-  auto ivy = IVX + ((ivx - IVX) + 1) % 3;
-  auto ivz = IVX + ((ivx - IVX) + 2) % 3;
+  auto [ivx, ivy, ivz] = face_axes(dim);
 
   T wli[5] = {WL(IDN), WL(ivx), WL(ivy), WL(ivz), WL(IPR)};
   T wri[5] = {WR(IDN), WR(ivx), WR(ivy), WR(ivz), WR(IPR)};
@@ -281,9 +296,7 @@ void DISPATCH_MACRO roe_impl(T* flx, T const* wl, T const* wr, T el, T er,
                              T const* inv_mu_ratio_m1, T const* cv_ratio_m1,
                              T const* u0, int stride_w, int stride_f,
                              T* face_pressure = nullptr, T* llf = nullptr) {
-  auto ivx = IPR - dim;
-  auto ivy = IVX + ((ivx - IVX) + 1) % 3;
-  auto ivz = IVX + ((ivx - IVX) + 2) % 3;
+  auto [ivx, ivy, ivz] = face_axes(dim);
 
   T etl = el + T(0.5) * WL(IDN) * (SQR(WL(IVX)) + SQR(WL(IVY)) + SQR(WL(IVZ)));
   T etr = er + T(0.5) * WR(IDN) * (SQR(WR(IVX)) + SQR(WR(IVY)) + SQR(WR(IVZ)));
@@ -478,16 +491,7 @@ namespace snap {
 template <typename T>
 void DISPATCH_MACRO shallow_roe_impl(T* flx, T const* wl, T const* wr, int dim,
                                      int dir_yz, int stride_w, int stride_f) {
-  int ivx, ivy, ivz;
-  if (dir_yz) {
-    ivx = dim == 2 ? IVY : IVZ;
-    ivy = dim == 2 ? IVZ : IVY;
-    ivz = IVX;
-  } else {
-    ivx = dim == 3 ? IVX : IVY;
-    ivy = dim == 3 ? IVY : IVX;
-    ivz = IVZ;
-  }
+  auto [ivx, ivy, ivz] = shallow_axes(dim, dir_yz);
 
   T sqrtdl = sqrt(SWL(IDN));
   T sqrtdr = sqrt(SWR(IDN));
@@ -563,11 +567,11 @@ DISPATCH_MACRO void riemann_central(T* cen, T const* wl, T const* wr,
                                     RiemannArgs<T> const& a) {
   auto s = a.stride;
   if constexpr (K == RiemannKind::shallow_roe) {
-    int ivx = a.dir_yz ? (a.dim == 2 ? IVY : IVZ) : (a.dim == 3 ? IVX : IVY);
+    int ivx = shallow_axes(a.dim, a.dir_yz).x;
     cen[IDN * s] =
         T(0.5) * (wl[IDN * s] * wl[ivx * s] + wr[IDN * s] * wr[ivx * s]);
   } else {
-    int ivx = IPR - a.dim;
+    int ivx = face_axes(a.dim).x;
     auto ml = wl[IDN * s] * wl[ivx * s];
     auto mr = wr[IDN * s] * wr[ivx * s];
     T rdl = T(1), rdr = T(1);
