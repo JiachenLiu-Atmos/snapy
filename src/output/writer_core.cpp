@@ -257,6 +257,22 @@ void make_output_dir(MeshBlockImpl const* pmb) {
   }
 }
 
+AxisText axis_text(int d, std::string const& hunits) {
+  char const* axis[3] = {"Z", "X", "Y"};
+  std::string a = axis[d];
+  return {"x" + std::to_string(d + 1), a, d ? hunits : "m",
+          a + "-coordinate at cell center", a + "-coordinate at cell face"};
+}
+
+FieldDims field_dims(char k, int idt, int const* idx, int const* idxf) {
+  if (k == 'p') return {3, {idt, idx[2], idx[1], 0}};
+  if (k == 'f') return {2, {idt, idxf[0], 0, 0}};
+  int ndim = k == 'z' ? 2 : k == 's' ? 1 : 4;
+  return {ndim,
+          {idt, k == '1' ? idxf[0] : idx[0], k == '3' ? idxf[2] : idx[2],
+           k == '2' ? idxf[1] : idx[1]}};
+}
+
 OutputBlockLocation output_block_location(Layout const& layout, int rank) {
   OutputBlockLocation loc;
   loc.level = 0;

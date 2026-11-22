@@ -114,14 +114,12 @@ void NetcdfSink::write(MeshBlockImpl* pmb, Frame const& fr,
 
   std::string const hunits =
       horizontal_axis_units(pmb->options->coord()->type());
-  char const* axis[3] = {"Z", "X", "Y"};
   for (int d = 0; d < 3; ++d) {
-    std::string x = "x" + std::to_string(d + 1), units = d ? hunits : "m";
-    nc_def_var(ifile, x.c_str(), nctype, 1, &idx[d], &ivx[d]);
-    put_text(ifile, ivx[d], "axis", axis[d]);
-    put_text(ifile, ivx[d], "units", units);
-    put_text(ifile, ivx[d], "long_name",
-             std::string(axis[d]) + "-coordinate at cell center");
+    auto t = axis_text(d, hunits);
+    nc_def_var(ifile, t.name.c_str(), nctype, 1, &idx[d], &ivx[d]);
+    put_text(ifile, ivx[d], "axis", t.axis);
+    put_text(ifile, ivx[d], "units", t.units);
+    put_text(ifile, ivx[d], "long_name", t.center);
     auto const& want = d == 0   ? op.x1_slice()
                        : d == 1 ? op.x2_slice()
                                 : op.x3_slice();
@@ -136,10 +134,9 @@ void NetcdfSink::write(MeshBlockImpl* pmb, Frame const& fr,
     }
     nc_put_att_int(ifile, ivx[d], "domain_decomposition", NC_INT, 4, pos);
     if (nc[d] > 1 || sl[d]) {
-      nc_def_var(ifile, (x + "f").c_str(), nctype, 1, &idxf[d], &ivxf[d]);
-      put_text(ifile, ivxf[d], "units", units);
-      put_text(ifile, ivxf[d], "long_name",
-               std::string(axis[d]) + "-coordinate at cell face");
+      nc_def_var(ifile, (t.name + "f").c_str(), nctype, 1, &idxf[d], &ivxf[d]);
+      put_text(ifile, ivxf[d], "units", t.units);
+      put_text(ifile, ivxf[d], "long_name", t.face);
       if (!sl[d]) pos[0]--, pos[2]--;
       nc_put_att_int(ifile, ivxf[d], "domain_decomposition", NC_INT, 4, pos);
     }
@@ -173,17 +170,12 @@ void NetcdfSink::write(MeshBlockImpl* pmb, Frame const& fr,
   auto pmeta = MetadataTable::GetInstance();
   std::vector<int> var_ids;
   for (auto const& f : fr.fields) {
-    char k = fr.kind(f);
-    int ax[4] = {idt, k == '1' ? idxf[0] : idx[0], k == '3' ? idxf[2] : idx[2],
-                 k == '2' ? idxf[1] : idx[1]};
-    int ax_p[3] = {idt, idx[2], idx[1]}, ax_f[2] = {idt, idxf[0]};
-    int ndim = k == 'z' ? 2 : k == 'p' ? 3 : k == 'f' ? 2 : k == 's' ? 1 : 4;
-    int* dims = k == 'p' ? ax_p : k == 'f' ? ax_f : ax;
+    auto [ndim, dims] = field_dims(fr.kind(f), idt, idx, idxf);
     for (auto const& raw_name : f.names()) {
       int iv;
       SNAP_NETCDF_CHECK(nc_def_var(ifile,
                                    sanitize_netcdf_name(raw_name).c_str(),
-                                   nctype, ndim, dims, &iv));
+                                   nctype, ndim, dims.data(), &iv));
       auto attr = pmeta->GetUnits(raw_name);
       if (attr != "") put_text(ifile, iv, "units", attr);
       attr = pmeta->GetLongName(raw_name);
