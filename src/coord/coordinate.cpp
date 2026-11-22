@@ -20,6 +20,9 @@
 
 namespace snap {
 
+//! floor of a length or spacing that is divided by (derivative, curl)
+constexpr double kTinyLength = 1.e-30;
+
 torch::Tensor derivative(torch::Tensor value, torch::Tensor distance, int dim) {
   auto grad = torch::zeros_like(value);
   int n = value.size(dim);
@@ -34,7 +37,7 @@ torch::Tensor derivative(torch::Tensor value, torch::Tensor distance, int dim) {
   lo[dim] = 0;
   hi[dim] = 1;
   grad.index_put_(dst, (value.index(hi) - value.index(lo)) /
-                           distance.index(hi).clamp_min(1.e-30));
+                           distance.index(hi).clamp_min(kTinyLength));
 
   if (n > 2) {
     dst[dim] = torch::indexing::Slice(1, n - 1);
@@ -46,15 +49,15 @@ torch::Tensor derivative(torch::Tensor value, torch::Tensor distance, int dim) {
     d_lo[dim] = torch::indexing::Slice(1, n - 1);
     d_hi[dim] = torch::indexing::Slice(2, n);
     auto denom = distance.index(d_lo) + distance.index(d_hi);
-    grad.index_put_(
-        dst, (value.index(hi) - value.index(lo)) / denom.clamp_min(1.e-30));
+    grad.index_put_(dst, (value.index(hi) - value.index(lo)) /
+                             denom.clamp_min(kTinyLength));
   }
 
   dst[dim] = n - 1;
   lo[dim] = n - 2;
   hi[dim] = n - 1;
   grad.index_put_(dst, (value.index(hi) - value.index(lo)) /
-                           distance.index(hi).clamp_min(1.e-30));
+                           distance.index(hi).clamp_min(kTinyLength));
 
   return grad;
 }
@@ -700,12 +703,12 @@ torch::Tensor CoordinateImpl::curl(torch::Tensor velocity) const {
   auto dl2 = center_width2().to(device).to(dtype);
   auto dl3 = center_width3().to(device).to(dtype);
 
-  auto curl1 = derivative(v3 * dl3, dx2, DIM2) / dl3.clamp_min(1.e-30) -
-               derivative(v2 * dl2, dx3, DIM3) / dl2.clamp_min(1.e-30);
-  auto curl2 = derivative(v1 * dl1, dx3, DIM3) / dl1.clamp_min(1.e-30) -
-               derivative(v3 * dl3, dx1, DIM1) / dl3.clamp_min(1.e-30);
-  auto curl3 = derivative(v2 * dl2, dx1, DIM1) / dl2.clamp_min(1.e-30) -
-               derivative(v1 * dl1, dx2, DIM2) / dl1.clamp_min(1.e-30);
+  auto curl1 = derivative(v3 * dl3, dx2, DIM2) / dl3.clamp_min(kTinyLength) -
+               derivative(v2 * dl2, dx3, DIM3) / dl2.clamp_min(kTinyLength);
+  auto curl2 = derivative(v1 * dl1, dx3, DIM3) / dl1.clamp_min(kTinyLength) -
+               derivative(v3 * dl3, dx1, DIM1) / dl3.clamp_min(kTinyLength);
+  auto curl3 = derivative(v2 * dl2, dx1, DIM1) / dl2.clamp_min(kTinyLength) -
+               derivative(v1 * dl1, dx2, DIM2) / dl1.clamp_min(kTinyLength);
 
   return torch::stack({curl1, curl2, curl3});
 }
