@@ -9,15 +9,10 @@ void CartesianImpl::reset() {
   auto const &op = options;
 
   // metric
-  cosine_cell_kj =
-      register_buffer("cosine_cell_kj",
-                      torch::zeros({op->nc3(), op->nc2(), 1}, torch::kFloat64));
-  cosine_face2_kj = register_buffer(
-      "cosine_face2_kj",
-      torch::zeros({op->nc3(), op->nc2() + 1, 1}, torch::kFloat64));
-  cosine_face3_kj = register_buffer(
-      "cosine_face3_kj",
-      torch::zeros({op->nc3() + 1, op->nc2(), 1}, torch::kFloat64));
+  auto [cc, c2, c3] = zero_cosines_();
+  cosine_cell_kj = register_buffer("cosine_cell_kj", cc);
+  cosine_face2_kj = register_buffer("cosine_face2_kj", c2);
+  cosine_face3_kj = register_buffer("cosine_face3_kj", c3);
 
   // dimension 1
   auto [df, xv, dv] = x1_metrics_();
@@ -25,19 +20,15 @@ void CartesianImpl::reset() {
   x1v = register_buffer("x1v", xv);
   dx1v = register_buffer("dx1v", dv);
 
-  // dimension 2
-  auto dx = op->dx2();
-  dx2f = register_buffer("dx2f", torch::ones(op->nc2(), torch::kFloat64) * dx);
-  x2v = register_buffer("x2v", 0.5 * (x2f.slice(0, 0, op->nc2()) +
-                                      x2f.slice(0, 1, op->nc2() + 1)));
-  dx2v = register_buffer("dx2v", torch::ones(op->nc2(), torch::kFloat64) * dx);
-
-  // dimension 3
-  dx = op->dx3();
-  dx3f = register_buffer("dx3f", torch::ones(op->nc3(), torch::kFloat64) * dx);
-  x3v = register_buffer("x3v", 0.5 * (x3f.slice(0, 0, op->nc3()) +
-                                      x3f.slice(0, 1, op->nc3() + 1)));
-  dx3v = register_buffer("dx3v", torch::ones(op->nc3(), torch::kFloat64) * dx);
+  // dimensions 2 and 3 (uniform)
+  auto [df2, xv2, dv2] = uniform_axis_metrics_(2);
+  dx2f = register_buffer("dx2f", df2);
+  x2v = register_buffer("x2v", xv2);
+  dx2v = register_buffer("dx2v", dv2);
+  auto [df3, xv3, dv3] = uniform_axis_metrics_(3);
+  dx3f = register_buffer("dx3f", df3);
+  x3v = register_buffer("x3v", xv3);
+  dx3v = register_buffer("dx3v", dv3);
 
   // register buffers defined in the base class
   register_buffer("x1f", x1f);

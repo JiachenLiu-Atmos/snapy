@@ -47,14 +47,10 @@ void SphericalPolarImpl::reset() {
               "Spherical-polar coordinates require x2 in [0, pi], got [",
               op->x2min(), ", ", op->x2max(), "]");
 
-  auto opts = torch::TensorOptions().dtype(torch::kFloat64);
-
-  cosine_cell_kj = register_buffer(
-      "cosine_cell_kj", torch::zeros({op->nc3(), op->nc2(), 1}, opts));
-  cosine_face2_kj = register_buffer(
-      "cosine_face2_kj", torch::zeros({op->nc3(), op->nc2() + 1, 1}, opts));
-  cosine_face3_kj = register_buffer(
-      "cosine_face3_kj", torch::zeros({op->nc3() + 1, op->nc2(), 1}, opts));
+  auto [cc, c2, c3] = zero_cosines_();
+  cosine_cell_kj = register_buffer("cosine_cell_kj", cc);
+  cosine_face2_kj = register_buffer("cosine_face2_kj", c2);
+  cosine_face3_kj = register_buffer("cosine_face3_kj", c3);
 
   dx1f = register_buffer(
       "dx1f", x1f.slice(0, 1, op->nc1() + 1) - x1f.slice(0, 0, op->nc1()));

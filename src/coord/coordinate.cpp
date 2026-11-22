@@ -383,6 +383,24 @@ torch::Tensor CoordinateOptionsImpl::global_x1f() const {
   return torch::cat({lo, f, hi});
 }
 
+std::array<torch::Tensor, 3> CoordinateImpl::uniform_axis_metrics_(
+    int axis) const {
+  auto const& op = options;
+  auto const& xf = axis == 2 ? x2f : x3f;
+  int n = axis == 2 ? op->nc2() : op->nc3();
+  double dx = axis == 2 ? op->dx2() : op->dx3();
+  return {torch::ones(n, torch::kFloat64) * dx,
+          0.5 * (xf.slice(0, 0, n) + xf.slice(0, 1, n + 1)),
+          torch::ones(n, torch::kFloat64) * dx};
+}
+
+std::array<torch::Tensor, 3> CoordinateImpl::zero_cosines_() const {
+  auto const& op = options;
+  return {torch::zeros({op->nc3(), op->nc2(), 1}, torch::kFloat64),
+          torch::zeros({op->nc3(), op->nc2() + 1, 1}, torch::kFloat64),
+          torch::zeros({op->nc3() + 1, op->nc2(), 1}, torch::kFloat64)};
+}
+
 std::array<torch::Tensor, 3> CoordinateImpl::x1_metrics_() const {
   auto const& op = options;
   int n = op->nc1();

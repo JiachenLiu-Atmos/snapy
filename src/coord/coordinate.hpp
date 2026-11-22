@@ -216,6 +216,12 @@ class CoordinateImpl {
   //! dx1f, x1v and dx1v of this block, uniform or stretched (#280)
   std::array<torch::Tensor, 3> x1_metrics_() const;
 
+  //! dxNf, xNv and dxNv of a uniform x2 (axis 2) or x3 (axis 3)
+  std::array<torch::Tensor, 3> uniform_axis_metrics_(int axis) const;
+
+  //! zero cosine_cell_kj, cosine_face2_kj and cosine_face3_kj (orthogonal)
+  std::array<torch::Tensor, 3> zero_cosines_() const;
+
   //! module methods
   virtual torch::Tensor center_width1() const;
   virtual torch::Tensor center_width1(int is, int ie) const {
