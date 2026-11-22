@@ -69,6 +69,14 @@ class CubedSphereLayoutImpl : public LayoutImpl {
                                            torch::Tensor cosine,
                                            torch::Tensor const& velocity) const;
 
+  //! Rotate the velocity rows of `var` (kConserved with the metric cosine at
+  //! cosine_cell[sub3], kPrimitive without; kScalar is left alone)
+  void _transform_velocity_(
+      SyncOptions const& opts, int buffer_id, bool to_global,
+      torch::Tensor alpha, torch::Tensor beta, torch::Tensor const& cosine_cell,
+      std::vector<torch::indexing::TensorIndex> const& sub3,
+      torch::Tensor var) const;
+
   mutable std::map<std::string, torch::Tensor> _velocity_transform_cache;
 
   //! \brief Global rank layout: face-major, Z-order within face

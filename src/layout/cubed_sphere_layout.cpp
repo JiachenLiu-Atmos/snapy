@@ -192,6 +192,22 @@ torch::Tensor const& CubedSphereLayoutImpl::_velocity_transform(
       .first->second;
 }
 
+void CubedSphereLayoutImpl::_transform_velocity_(
+    SyncOptions const& opts, int buffer_id, bool to_global, torch::Tensor alpha,
+    torch::Tensor beta, torch::Tensor const& cosine_cell,
+    std::vector<torch::indexing::TensorIndex> const& sub3,
+    torch::Tensor var) const {
+  torch::Tensor cosine;  // conserved momenta carry the metric cosine
+  if (opts.type() == kConserved)
+    cosine = cosine_cell.index(sub3);
+  else if (opts.type() != kPrimitive)
+    return;  // kScalar: nothing to rotate
+  auto vel = var.narrow(0, IVX, 3);
+  auto const& matrix =
+      _velocity_transform(opts, buffer_id, to_global, alpha, beta, cosine, vel);
+  cs_apply_velocity_transform_(vel, matrix);
+}
+
 /*!
  * ----------------------------
  * Global cartesian coordinates
@@ -659,23 +675,8 @@ void CubedSphereLayoutImpl::serialize(MeshBlockImpl const* pmb, Variables& vars,
       auto var_send = send_bufs[ivar];
       auto scratch = work_bufs[ivar];
 
-      switch (opts.type()) {
-        case kConserved: {
-          auto vel = var_send.narrow(0, IVX, 3);
-          auto const& matrix =
-              _velocity_transform(opts, bid, /*to_global=*/true, alpha, beta,
-                                  cosine_cell.index(sub3), vel);
-          cs_apply_velocity_transform_(vel, matrix);
-        } break;
-        case kPrimitive: {
-          auto vel = var_send.narrow(0, IVX, 3);
-          auto const& matrix = _velocity_transform(
-              opts, bid, /*to_global=*/true, alpha, beta, torch::Tensor(), vel);
-          cs_apply_velocity_transform_(vel, matrix);
-        } break;
-        case kScalar:
-          break;
-      }
+      _transform_velocity_(opts, bid, /*to_global=*/true, alpha, beta,
+                           cosine_cell, sub3, var_send);
 
       // check reverse flag
       if (rev_flag) {
@@ -796,24 +797,8 @@ void CubedSphereLayoutImpl::deserialize(MeshBlockImpl const* pmb,
         pcoord->interp_ghost(var, offset);
       }
 
-      switch (opts.type()) {
-        case kConserved: {
-          auto vel = var.index(sub).narrow(0, IVX, 3);
-          auto const& matrix =
-              _velocity_transform(opts, bid, /*to_global=*/false, alpha, beta,
-                                  cosine_cell.index(sub3), vel);
-          cs_apply_velocity_transform_(vel, matrix);
-        } break;
-        case kPrimitive: {
-          auto vel = var.index(sub).narrow(0, IVX, 3);
-          auto const& matrix =
-              _velocity_transform(opts, bid, /*to_global=*/false, alpha, beta,
-                                  torch::Tensor(), vel);
-          cs_apply_velocity_transform_(vel, matrix);
-        } break;
-        case kScalar:
-          break;
-      }
+      _transform_velocity_(opts, bid, /*to_global=*/false, alpha, beta,
+                           cosine_cell, sub3, var.index(sub));
     }
   });
 }
