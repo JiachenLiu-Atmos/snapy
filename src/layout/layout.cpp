@@ -20,9 +20,9 @@
 #endif
 
 // snap
-#include <snap/input/check_keys.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/utils/log.hpp>
+#include <snap_options/layout_rows.hpp>
 
 #include "cubed_sphere_layout.hpp"
 #include "layout.hpp"
@@ -261,22 +261,17 @@ LayoutOptionsImpl::LayoutOptionsImpl() {
 LayoutOptions LayoutOptionsImpl::from_yaml(std::string const& filename,
                                            bool verbose) {
   auto op = LayoutOptionsImpl::create();
-  auto config = YAML::LoadFile(filename);
+  // the rows of src/options/layout.yaml
+  auto rows = DistributeRows::read(YAML::LoadFile(filename), verbose);
+  if (!rows.present()) return op;
 
-  if (!config["distribute"]) return op;
-
-  auto node = config["distribute"];
-  check_keys(node, "distribute",
-             {"layout", "nb1", "nb2", "nb3", "verbose", "blocks_per_process",
-              "backend"});  // dead since #181; BACKEND env
-
-  op->type() = node["layout"].as<std::string>("slab");
-  op->py(node["nb3"].as<int>(1));
-  op->px(node["nb2"].as<int>(1));
-  op->pz(node["nb1"].as<int>(1));
-  op->backend() = get_env("BACKEND", op->backend());
-  op->device() = get_env("DEVICE", "cpu");
-  op->verbose() = node["verbose"].as<bool>(verbose);
+  op->type() = rows.type();
+  op->py(rows.py());
+  op->px(rows.px());
+  op->pz(rows.pz());
+  op->backend() = rows.backend();
+  op->device() = rows.device();
+  op->verbose() = rows.verbose();
 
   if (op->verbose()) op->report(SINFO(LayoutOptions));
 
