@@ -261,7 +261,7 @@ torch::Tensor HydroImpl::scalar_flux_covariance(torch::Tensor const& rl,
   if (below >= 0 || above >= 0) {
     sl = rl.clone();
     sr = rr.clone();
-    ex.x1_rows({sl, sr}, 1, false, 0x7740 + 4 * k);
+    ex.x1_rows({sl, sr}, 1, false, kTagScalarCov + 4 * k);
   }
   auto q = 0.5 * (sl * dry_fraction(wl) + sr * dry_fraction(wr));
 
@@ -371,7 +371,7 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
     // background, as the block's own outflow)
     Variables gv{{"hydro_w", w}};
     pmb->exchange(gv, SyncOptions().interpolate(true).type(kPrimitive));
-    Exchange(pmb).x1_rows({w}, ng, false, 0x772a);
+    Exchange(pmb).x1_rows({w}, ng, false, kTagPrimGhosts);
     BoundaryFuncOptions bop;
     bop.nghost(ng);
     bop.type(kPrimitive);
@@ -474,7 +474,7 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
                          !is_outflow(pmb->options->bfuncs()[1]));
       // seam ghosts: the neighbour's centred plain means, not this block's
       // off-centre ones
-      Exchange(pmb).x1_rows({wx1}, pmb->pcoord->il(), false, 0x7724);
+      Exchange(pmb).x1_rows({wx1}, pmb->pcoord->il(), false, kTagPlainMeans);
     }
     torch::Tensor wtmp;
     if (wb_x1) {
@@ -588,7 +588,6 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
       Exchange ex(pmb);
       auto [below, above] = ex.x1_seam_peers(/*process_only=*/false);
       if (above >= 0 || below >= 0) {
-        constexpr int kSeamFluxTag = 0x7720;  // up; down is kSeamFluxTag + 1
         int il = pmb->pcoord->il();
         int iu = pmb->pcoord->iu();
         // R-4's peer rows: the total's, then each kept part's
@@ -615,7 +614,7 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
         if (above >= 0) up_mine = pack(iu + 1);
         if (below >= 0) dn_mine = pack(il);
         auto [from_below, from_above] =
-            ex.x1_seam_slab(dn_mine, up_mine, kSeamFluxTag, false);
+            ex.x1_seam_slab(dn_mine, up_mine, kTagSeamFlux, false);
 
         auto peer = torch::cat(regrows, 0);
         auto faces = torch::zeros(_flux1.sizes().slice(1),
@@ -647,7 +646,7 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
         _face_pressure1.numel() > 0 &&
         options->eos()->type() != "shallow-water") {
       Exchange(pmb).x1_rows({_face_pressure1}, std::min(2, pmb->pcoord->il()),
-                            true, 0x7722);
+                            true, kTagFacePressure);
     }
 
     // SNAP_X1_CENTROID_EXACT: the pressure force is the r^2-weighted
@@ -691,8 +690,8 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
   sync_opts.cross_panel_only(true).interpolate(false).type(kPrimitive);
   std::vector<CommWorkPtr> works2, works3;
   Variables send_vars2, send_vars3;
-  FaceDir const dir2{DIM2, 0x7730, options->disable_flux_x2()};
-  FaceDir const dir3{DIM3, 0x7734, options->disable_flux_x3()};
+  FaceDir const dir2{DIM2, kTagFaceX2, options->disable_flux_x2()};
+  FaceDir const dir3{DIM3, kTagFaceX3, options->disable_flux_x3()};
 
   if (u.size(DIM2) > 1) {
     wtmp2 = reconstruct_faces(*this, dir2, w, split, pressure_base2);
@@ -812,7 +811,7 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
   // S step (4), row 16r: the panel seams of the cubed sphere take the owning
   // panel's face flux (replace(d, faces, peer, SeamRule::owner_copy)), then
   // boundary.prescribed on the x2/x3 faces
-  reconcile_panel_seams(freg, pmb, 0x7750);
+  reconcile_panel_seams(freg, pmb, kTagPanelSeams);
   for (int d : {2, 3})
     if (freg.total(d).defined()) freg.apply_prescribed(d);
 
@@ -1080,7 +1079,7 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
         shape.back() = pmb->pcoord->x1v.size(0);
         auto full = torch::zeros(shape, drho.options());
         full.slice(-1, is, ie).copy_(drho);
-        Exchange(pmb).x1_rows({full}, 1, false, 0x7726);
+        Exchange(pmb).x1_rows({full}, 1, false, kTagGravityWork);
         face_gravity_work += corrected_pe_work_seam(
             full, pmb->pcoord->x1f, pmb->pcoord->x1v, is, ie, grav1, measure,
             below >= 0, above >= 0, &_pe_work);

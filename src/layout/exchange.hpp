@@ -25,6 +25,25 @@ enum class FaceKind : uint8_t {
   custom,    // any other boundary function, or one with no recorded name
 };
 
+//! The message tags of the within-stage exchanges, in one place so that no
+//! two collide. An x1 relay (x1_rows, x1_seam_slab) uses tag for the up
+//! message and tag + 1 for the down one; a face-slab or seam exchange adds the
+//! receiver's side (0..3).
+enum ExchangeTag : int {
+  kTagWbRef = 0x7715,          // recon x1_reference: the reference anchor
+  kTagWbGhost = 0x7717,        // recon x1_reference: its ghost rows
+  kTagSeamFlux = 0x7720,       // hydro: x1 seam flux slab
+  kTagFacePressure = 0x7722,   // hydro: x1 face-pressure ghost faces
+  kTagPlainMeans = 0x7724,     // hydro: x1 plain-mean ghost rows
+  kTagGravityWork = 0x7726,    // hydro: x1 gravity-work density rows
+  kTagPrimGhosts = 0x772a,     // hydro: x1 primitive ghost layers
+  kTagFaceX2 = 0x7730,         // hydro: x2 face states (x1_seam_rows)
+  kTagFaceX3 = 0x7734,         // hydro: x3 face states (x1_seam_rows)
+  kTagScalarCov = 0x7740,      // hydro: scalar covariance, + 4 for x3
+  kTagPanelSeams = 0x7750,     // hydro: reconcile_panel_seams
+  kTagDiffusionSeam = 0x7760,  // diffusion cubed sphere: row 18 face slabs
+};
+
 //! The x1 transport of a block's within-stage exchanges (V3 lane S, step (3),
 //! phase 1: transport only). Exchange moves the bytes of the hand-written x1
 //! relays that hydro used to carry itself; what a received value means (a

@@ -22,7 +22,7 @@ using Variables = std::map<std::string, torch::Tensor>;
 //! what differs between the face sweeps; everything else is shared
 struct FaceDir {
   int dim;        // DIM1 = 3, DIM2 = 2, DIM3 = 1
-  int seam_tag;   // x1_seam_rows tags 0x7730 (x2), 0x7734 (x3)
+  int seam_tag;   // x1_seam_rows tag: kTagFaceX2 / kTagFaceX3 (exchange.hpp)
   bool disabled;  // disable-flux-x<n>
 };
 

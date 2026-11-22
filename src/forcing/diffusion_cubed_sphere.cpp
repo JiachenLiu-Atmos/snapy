@@ -98,8 +98,6 @@ Tensor transform(Tensor t, Stencil const &stencil, int dim) {
   }
   return result;
 }
-// row 18's face-slab messages carry this tag + the receiver's side (S M6)
-constexpr int kDiffusionSeamTag = 0x7760;
 
 // Exchange outward integrated flux, reconstructed trace, dynamic coefficients,
 // and centre-to-face normal distance. Cartesian channels require no rotation.
@@ -136,7 +134,7 @@ void share_fluxes(MeshBlockImpl const *block, std::array<Tensor, 3> &flux,
     int s0 = dir == 1 ? 0 : 2, axis = dir == 1 ? 2 : 1;  // the face's axis
     auto [below, above] =
         ex.seam_slab(dir + 1, outgoing[s0].squeeze(axis),
-                     outgoing[s0 + 1].squeeze(axis), kDiffusionSeamTag, false);
+                     outgoing[s0 + 1].squeeze(axis), kTagDiffusionSeam, false);
     if (below.defined()) others[s0] = below.unsqueeze(axis);
     if (above.defined()) others[s0 + 1] = above.unsqueeze(axis);
   }
