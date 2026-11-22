@@ -82,9 +82,13 @@ def check_moist(precision):
     for fields in (state, expected):
         fields["hydro_u"][kIPR, 0, 4, 10] = float("nan")
     assert block.check_redo(state) == ref.check_redo(expected) != 0
+    # the redo restores the owned cells; the ghost cells are the step
+    # start's, not the previous step's end, in eager too
+    sl = tuple(block.part((0, 0, 0), False))
     for k, v in before.items():
-        assert torch.equal(state[k], v), (precision, "restore", k)
-        assert torch.equal(expected[k], v), (precision, "restore eager", k)
+        assert torch.equal(state[k][sl], v[sl]), (precision, "restore", k)
+        assert torch.equal(expected[k][sl], v[sl]), (precision, "restore eager", k)
+    assert_equal(state, expected, (precision, "restored"))
     for dt in (0.5, 0.5):
         forward_both(pair, dt, sync_error=True)
         assert block.check_redo(state) == ref.check_redo(expected) == 0
