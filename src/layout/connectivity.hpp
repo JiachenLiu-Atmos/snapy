@@ -157,6 +157,19 @@ inline size_t linear_index3(int px, int py, int z, int y, int x) {
   return ((size_t)z * (size_t)py + (size_t)y) * (size_t)px + (size_t)x;
 }
 
+//! \brief Neighbour coordinate along one process-grid axis
+//!
+//! \param[in] n Neighbour coordinate (own coordinate plus an offset in
+//!              {-1, 0, 1})
+//! \param[in] p Number of tiles along the axis
+//! \param[in] periodic Whether the axis wraps
+//! \return n wrapped into [0, p) on a periodic axis; -1 off a non-periodic
+//!         axis
+inline int wrap_or_reject(int n, int p, bool periodic) {
+  if (periodic) return n < 0 ? n + p : (n >= p ? n - p : n);
+  return n < 0 || n >= p ? -1 : n;
+}
+
 /* rank_of2: array length py*px, filled with rank at (y,x) */
 //! \brief Build rank mapping for 2D coordinates
 //!

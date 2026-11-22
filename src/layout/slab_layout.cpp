@@ -43,26 +43,11 @@ int SlabLayoutImpl::neighbor_rank(std::tuple<int, int, int> iloc,
   auto [rx, ry, _1] = iloc;
   auto [dy, dx, _2] = offset;
 
-  int nx = rx + dx;
-  int ny = ry + dy;
+  int nx = wrap_or_reject(rx + dx, options->px(), options->periodic_x());
+  if (nx < 0) return -1;
 
-  if (options->periodic_x()) {
-    if (nx < 0)
-      nx += options->px();
-    else if (nx >= options->px())
-      nx -= options->px();
-  } else {
-    if (nx < 0 || nx >= options->px()) return -1;
-  }
-
-  if (options->periodic_y()) {
-    if (ny < 0)
-      ny += options->py();
-    else if (ny >= options->py())
-      ny -= options->py();
-  } else {
-    if (ny < 0 || ny >= options->py()) return -1;
-  }
+  int ny = wrap_or_reject(ry + dy, options->py(), options->periodic_y());
+  if (ny < 0) return -1;
 
   return _rankof[linear_index2(options->px(), options->py(), ny, nx)];
 }

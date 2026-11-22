@@ -263,7 +263,7 @@ class LayoutImpl {
     int pz = options->pz();
     if (rx < 0 || rx >= px || ry < 0 || ry >= py || rz < 0 || rz >= pz)
       return -1;
-    return _rankof[rz * (px * py) + ry * px + rx];
+    return _rankof[linear_index3(px, py, rz, ry, rx)];
   }
 
   virtual std::tuple<int, int, int> loc_of(int rank) const { return {0, 0, 0}; }
