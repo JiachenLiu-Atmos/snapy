@@ -43,10 +43,12 @@ struct RiemannSolverOptionsImpl {
   static std::shared_ptr<RiemannSolverOptionsImpl> create() {
     return std::make_shared<RiemannSolverOptionsImpl>();
   }
+  //! the `riemann-solver:` node under deck section `section`
   static std::shared_ptr<RiemannSolverOptionsImpl> from_yaml(
       std::string const& filename, std::string const& section);
+  //! a `riemann-solver:` node; `path` names it in a key-check error
   static std::shared_ptr<RiemannSolverOptionsImpl> from_yaml(
-      YAML::Node const& node);
+      YAML::Node const& node, std::string const& path = "riemann-solver");
 
   RiemannSolverOptionsImpl() = default;
   void report(std::ostream& os) const {

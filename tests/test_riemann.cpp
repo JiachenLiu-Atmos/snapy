@@ -7,6 +7,9 @@
 #include <functional>
 #include <regex>
 
+// POSIX
+#include <unistd.h>
+
 // external
 #include <gtest/gtest.h>
 
@@ -142,6 +145,26 @@ boundary-condition:
 )";
 
 using namespace snap;
+
+// the filename reader reads the section it is given, not always dynamics:
+// (audit 1 row R5)
+TEST(RiemannSolverOptions, from_yaml_reads_its_section) {
+  char fname[] = "/tmp/test-riemann-section-XXXXXX";
+  int fd = mkstemp(fname);
+  ASSERT_NE(fd, -1);
+  close(fd);
+  std::ofstream(fname) << "dynamics:\n  riemann-solver: {type: lmars}\n"
+                       << "other:\n  riemann-solver: {type: roe, dir: yz}\n"
+                       << "bad:\n  riemann-solver: {type: roe, typo: 1}\n";
+  auto other = RiemannSolverOptionsImpl::from_yaml(fname, "other");
+  EXPECT_EQ(other->type(), "roe");
+  EXPECT_EQ(other->dir(), "yz");
+  EXPECT_EQ(RiemannSolverOptionsImpl::from_yaml(fname, "dynamics")->type(),
+            "lmars");
+  EXPECT_ANY_THROW(RiemannSolverOptionsImpl::from_yaml(fname, "bad"))
+      << "the key check must look at the section it reads";
+  std::remove(fname);
+}
 
 TEST(RiemannSolver, hllc_writes_face_pressure_output) {
   auto config = std::regex_replace(std::string(small_ideal_gas_config),

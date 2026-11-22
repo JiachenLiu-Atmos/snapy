@@ -57,14 +57,14 @@ RiemannSolverOptions RiemannSolverOptionsImpl::from_yaml(
   auto config = YAML::LoadFile(filename);
   if (!config[section]) return op;
   if (!config[section]["riemann-solver"]) return op;
-  check_keys(config["dynamics"]["riemann-solver"], "dynamics/riemann-solver",
-             {"type", "dir"});
-  return from_yaml(config["dynamics"]["riemann-solver"]);
+  return from_yaml(config[section]["riemann-solver"],
+                   section + "/riemann-solver");
 }
 
 RiemannSolverOptions RiemannSolverOptionsImpl::from_yaml(
-    YAML::Node const& node) {
+    YAML::Node const& node, std::string const& path) {
   auto op = RiemannSolverOptionsImpl::create();
+  check_keys(node, path, {"type", "dir"});
 
   // without the key: the type of create() (hllc), as for a deck with no
   // riemann-solver block
