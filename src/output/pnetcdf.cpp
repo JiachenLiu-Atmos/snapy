@@ -79,7 +79,7 @@ void PNetcdfSink::write(MeshBlockImpl* pmb, Frame const& fr,
   int nc[3] = {fr.ie - fr.is + 1, fr.je - fr.js + 1, fr.ke - fr.ks + 1};
   int nf[3];
   for (int d = 0; d < 3; ++d) nf[d] = nc[d] > 1 ? nc[d] + 1 : nc[d];
-  auto [level, lx1, lx2, lx3, nb1, nb2, nb3, face] =
+  auto [level, lx1, lx2, lx3, nb1, nb2, nb3, face, pcol, prow] =
       output_block_location(layout, layout->options->rank());
   int nb[3] = {nb1, nb2, nb3};
 
@@ -157,7 +157,7 @@ void PNetcdfSink::write(MeshBlockImpl* pmb, Frame const& fr,
                           static_cast<PINC_Offset>(nc[1]) * lx2};
   PINC_Offset off[3] = {start[1], start[3], start[2]};
   int lo[3] = {fr.is, fr.js, fr.ks};
-  double shift[3] = {0., (face % 3) * M_PI / 2., (face / 3) * M_PI / 2.};
+  double shift[3] = {0., pcol * M_PI / 2., prow * M_PI / 2.};
   auto pc = pmb->pcoord;
   torch::Tensor cv[3] = {pc->x1v, pc->x2v, pc->x3v};
   torch::Tensor cf[3] = {pc->x1f, pc->x2f, pc->x3f};

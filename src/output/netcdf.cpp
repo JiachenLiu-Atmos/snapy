@@ -97,7 +97,7 @@ void NetcdfSink::write(MeshBlockImpl* pmb, Frame const& fr,
   }
 
   auto layout = pmb->get_layout();
-  auto [level, lx1, lx2, lx3, nb1, nb2, nb3, face] =
+  auto [level, lx1, lx2, lx3, nb1, nb2, nb3, face, pcol, prow] =
       output_block_location(layout, rank);
   int loc[3] = {lx1, lx2, lx3}, nb[3] = {nb1, nb2, nb3};
   for (int d = 0; d < 3; ++d)
@@ -129,7 +129,7 @@ void NetcdfSink::write(MeshBlockImpl* pmb, Frame const& fr,
                   (sl[d] ? fr.slice_offset[d] : nc[d] * loc[d]) + 1, 0};
     pos[3] = pos[2] + nc[d] - 1;
     if (cs && d > 0 && sl[d]) {  // the panels are laid out 3 x 2
-      int offset = (d == 1 ? face % 3 : face / 3) * want.size();
+      int offset = (d == 1 ? pcol : prow) * want.size();
       pos[1] *= d == 1 ? 3 : 2;
       pos[2] += offset;
       pos[3] += offset;
@@ -199,7 +199,7 @@ void NetcdfSink::write(MeshBlockImpl* pmb, Frame const& fr,
   // coordinates: the cells (or the selected ones) and their faces; x2 and x3
   // of a cubed-sphere panel shift by its place in the 3 x 2 layout
   int lo[3] = {fr.is, fr.js, fr.ks}, hi[3] = {fr.ie, fr.je, fr.ke};
-  double shift[3] = {0., (face % 3) * M_PI / 2., (face / 3) * M_PI / 2.};
+  double shift[3] = {0., pcol * M_PI / 2., prow * M_PI / 2.};
   auto pc = pmb->pcoord;
   torch::Tensor cv[3] = {pc->x1v, pc->x2v, pc->x3v};
   torch::Tensor cf[3] = {pc->x1f, pc->x2f, pc->x3f};

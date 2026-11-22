@@ -265,12 +265,14 @@ OutputBlockLocation output_block_location(Layout const& layout, int rank) {
   loc.nb2 = layout->options->nb(2);
   loc.nb3 = layout->options->nb(3);
 
-  loc.face = 0;
+  loc.face = loc.panel_col = loc.panel_row = 0;
   if (layout->options->is_cubed_sphere()) {
     loc.face = loc.lx1;
     loc.lx1 = 0;
-    loc.lx2 += (loc.face % 3) * loc.nb2;
-    loc.lx3 += (loc.face / 3) * loc.nb3;
+    loc.panel_col = loc.face % 3;
+    loc.panel_row = loc.face / 3;
+    loc.lx2 += loc.panel_col * loc.nb2;
+    loc.lx3 += loc.panel_row * loc.nb3;
     loc.nb2 *= 3;
     loc.nb3 *= 2;
   }

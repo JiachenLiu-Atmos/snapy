@@ -101,6 +101,7 @@ struct OutputBlockLocation {
   int level, lx1, lx2, lx3;  //!< refinement level, block indices
   int nb1, nb2, nb3;         //!< blocks per direction
   int face;                  //!< cubed-sphere panel (0 otherwise)
+  int panel_col, panel_row;  //!< its place in the 3 x 2 panel layout
 };
 
 //! the location of `rank`; cubed-sphere panels are laid out 3 x 2 in (x2, x3)
