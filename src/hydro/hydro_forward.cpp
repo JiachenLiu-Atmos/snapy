@@ -309,8 +309,6 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   // R's register; R applies them after reconcile and after the implicit step
   supply_prescribed(freg, pmb, has_solid ? other.at("solid") : torch::Tensor(),
                     {IVX, IVX + 1, IVX + 2});
-  // R-7: the solid side of boundary(dim)'s solid faces (R.rst 4.2 O)
-  freg.set_solid(has_solid ? other.at("solid") : torch::Tensor());
 
   //// ------------ (1) Calculate Primitives ------------ ////
   auto const& w = other.at("hydro_w");

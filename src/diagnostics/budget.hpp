@@ -31,7 +31,7 @@ struct BudgetRecord {
 };
 
 //! The budget consumer (O.rst section 3.2) without the fixer, source and
-//! residual columns (O8-cols, after lane R's R-7). Per block, in FP64:
+//! residual columns (O8-cols). Per block, in FP64:
 //! the row totals of the conserved state, the outward register transfer
 //! through the fluid domain's boundary (S's wall, outflow and custom faces
 //! whose interior cell is fluid, and every face of an immersed solid with

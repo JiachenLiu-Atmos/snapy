@@ -1,6 +1,6 @@
 // The budget consumer and the cycle line (V3 lane O step O8, its budget
 // part; O.rst section 3.2 and the O8 row). The fixer, source and residual
-// columns follow lane R's amounts (R-7) as O8-cols.
+// columns are O8-cols.
 
 #include "budget.hpp"
 
