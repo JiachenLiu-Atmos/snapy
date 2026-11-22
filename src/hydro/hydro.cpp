@@ -331,13 +331,7 @@ std::pair<int, int> HydroImpl::x1_neighbors() const {
 double HydroImpl::max_time_step(torch::Tensor w, torch::Tensor solid) const {
   auto sub3 = pmb->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
 
-  torch::Tensor cs;
-  if (options->eos()->type() == "aneos") {
-    cs = peos->compute("W->L", {w});
-  } else {
-    auto gamma = peos->compute("W->A", {w});
-    cs = peos->compute("WA->L", {w, gamma});
-  }
+  auto cs = peos->sound_speed(w);
 
   if (solid.defined()) {
     cs = torch::where(solid, 1.e-8, cs);
@@ -465,16 +459,9 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
     du = du.to(torch::kFloat32);
     wi = wi.to(torch::kFloat32);
   }
-  auto gamma_for = [&](torch::Tensor const& state) {
-    if (options->eos()->type() == "aneos") {
-      auto cs = peos->compute("W->L", {w});
-      return peos->compute("WL->A", {w, cs});
-    }
-    return peos->compute("W->A", {state});
-  };
   auto solid = other.count("solid") ? other.at("solid") : torch::Tensor();
-  auto correction =
-      picorr->forward_masked(du, wi, gamma_for(wi), dt, solid, reg, post_dt);
+  auto correction = picorr->forward_masked(du, wi, peos->adiabatic_index(wi),
+                                           dt, solid, reg, post_dt);
   // V3 I-6: the predicated FP64 stage, always run with the FP32 solve and
   // its fallback: only the columns whose FP32 solve failed are solved again,
   // from rhs64 and wi64, and no host read decides it; the other columns keep
@@ -482,8 +469,8 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
   torch::Tensor retry;
   if (solve_float && options->icorr()->fallback_fp64()) {
     retry = picorr->stage_failed();
-    picorr->forward_masked(rhs64, wi64, gamma_for(wi64), dt, solid, reg,
-                           post_dt, retry);
+    picorr->forward_masked(rhs64, wi64, peos->adiabatic_index(wi64), dt, solid,
+                           reg, post_dt, retry);
     correction = picorr->merge_fp64(retry);
     picorr->count_fp64_columns(retry);
     freg.monitor().count("implicit.fp64_columns", retry);

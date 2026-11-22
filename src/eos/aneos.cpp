@@ -41,6 +41,21 @@ torch::Tensor ANEOSImpl::compute(std::string ab,
   }
 }
 
+std::pair<torch::Tensor, torch::Tensor> ANEOSImpl::gamma_sound_speed(
+    torch::Tensor const &w) {
+  auto c = compute("W->L", {w});
+  auto gamma = compute("WL->A", {w, c});
+  return {gamma, c};
+}
+
+torch::Tensor ANEOSImpl::adiabatic_index(torch::Tensor const &w) {
+  return gamma_sound_speed(w).first;
+}
+
+torch::Tensor ANEOSImpl::sound_speed(torch::Tensor const &w) {
+  return compute("W->L", {w});
+}
+
 void ANEOSImpl::_prim2cons(torch::Tensor prim, torch::Tensor &cons) {
   apply_primitive_limiter_(prim);
 

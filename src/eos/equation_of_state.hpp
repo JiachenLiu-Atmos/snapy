@@ -151,6 +151,17 @@ class EquationOfStateImpl {
   virtual torch::Tensor compute(std::string ab,
                                 std::vector<torch::Tensor> const& args = {});
 
+  //! adiabatic index and sound speed of the primitive state w, {gamma, c}:
+  //! "W->A", then "WA->L" (ANEOS: "W->L", then "WL->A")
+  virtual std::pair<torch::Tensor, torch::Tensor> gamma_sound_speed(
+      torch::Tensor const& w);
+
+  //! adiabatic index of w alone: "W->A" (ANEOS: "W->L", then "WL->A")
+  virtual torch::Tensor adiabatic_index(torch::Tensor const& w);
+
+  //! sound speed of w alone: "W->A", then "WA->L" (ANEOS: "W->L")
+  virtual torch::Tensor sound_speed(torch::Tensor const& w);
+
   torch::Tensor forward(torch::Tensor cons,
                         torch::optional<torch::Tensor> out = torch::nullopt);
 

@@ -223,7 +223,6 @@ torch::Tensor RiemannSolverImpl::solve(torch::Tensor wl, torch::Tensor wr,
                                        torch::Tensor central) {
   auto pcoord = phydro->pmb->pcoord;
   auto peos = phydro->peos;
-  bool aneos = peos->options->type() == "aneos";
   RiemannParams params;
   torch::Tensor inv_mu_ratio_m1, cv_ratio_m1, u0;
 
@@ -249,24 +248,15 @@ torch::Tensor RiemannSolverImpl::solve(torch::Tensor wl, torch::Tensor wr,
     for (auto [side, w] :
          {std::pair{ILT, wl_total}, std::pair{IRT, wr_total}}) {
       elr[side] = peos->compute("W->I", {w});
-      if (aneos) {
-        clr[side] = peos->compute("W->L", {w});
-        glr[side] = peos->compute("WL->A", {w, clr[side]});
-      } else {
-        glr[side] = peos->compute("W->A", {w});
-        clr[side] = peos->compute("WA->L", {w, glr[side]});
-      }
+      auto [g, cs] = peos->gamma_sound_speed(w);
+      glr[side] = g;
+      clr[side] = cs;
     }
     e = elr, gamma = glr, c = clr;
   } else if (kind == RiemannKind::lmars) {
     for (auto [side, w] : {std::pair{ILT, wl}, std::pair{IRT, wr}}) {
       elr[side] = peos->compute("W->I", {w}) / w[IDN];
-      if (aneos) {
-        clr[side] = peos->compute("W->L", {w});
-        glr[side] = peos->compute("WL->A", {w, clr[side]});
-      } else {
-        glr[side] = peos->compute("W->A", {w});
-      }
+      glr[side] = peos->adiabatic_index(w);
     }
     e = elr, gamma = glr;
   } else if (kind == RiemannKind::roe) {
@@ -283,10 +273,8 @@ torch::Tensor RiemannSolverImpl::solve(torch::Tensor wl, torch::Tensor wr,
 
     auto eil = peos->compute("W->I", {wl});
     auto eir = peos->compute("W->I", {wr});
-    auto gammal = peos->compute("W->A", {wl});
-    auto gammar = peos->compute("W->A", {wr});
-    auto cl = peos->compute("WA->L", {wl, gammal});
-    auto cr = peos->compute("WA->L", {wr, gammar});
+    auto [gammal, cl] = peos->gamma_sound_speed(wl);
+    auto [gammar, cr] = peos->gamma_sound_speed(wr);
     e = torch::stack({eil, eir});
     gamma = torch::stack({gammal, gammar});
     c = torch::stack({cl, cr});

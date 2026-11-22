@@ -5,6 +5,8 @@
 enable_testing()
 
 setup_test(test_eos)
+# the implicit index under ANEOS takes the state being solved (audit 1 E1)
+setup_test(test_aneos_gamma)
 # ideal-gas refuses a moist card; the output frame keeps float32 values
 setup_test(test_eos_io_core)
 setup_test(test_split_reference)

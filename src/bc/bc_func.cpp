@@ -152,8 +152,7 @@ void radiating(torch::Tensor const& var, int dim, BoundaryFuncOptions op,
     in_plane = in_plane & keep;
   }
   auto sound = [&](torch::Tensor t, bool background) {
-    auto a = op.eos->compute("W->A", {t});
-    auto c = op.eos->compute("WA->L", {t, a});
+    auto c = op.eos->sound_speed(t);
     // EOS sound speed has spatial axes only, unlike the 4D hydro tensor.
     c = c.narrow(dim - 1, src, 1);
     auto ok = torch::isfinite(c) & (c > 0);

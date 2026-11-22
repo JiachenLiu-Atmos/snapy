@@ -219,6 +219,21 @@ torch::Tensor EquationOfStateImpl::compute(
               "Please use this method in a derived class.");
 }
 
+std::pair<torch::Tensor, torch::Tensor> EquationOfStateImpl::gamma_sound_speed(
+    torch::Tensor const& w) {
+  auto gamma = compute("W->A", {w});
+  auto c = compute("WA->L", {w, gamma});
+  return {gamma, c};
+}
+
+torch::Tensor EquationOfStateImpl::adiabatic_index(torch::Tensor const& w) {
+  return compute("W->A", {w});
+}
+
+torch::Tensor EquationOfStateImpl::sound_speed(torch::Tensor const& w) {
+  return gamma_sound_speed(w).second;
+}
+
 bool EquationOfStateImpl::convert_(std::string const& ab,
                                    std::vector<torch::Tensor> const& args,
                                    torch::Tensor* out) {
