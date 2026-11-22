@@ -1,9 +1,7 @@
 // snap
 #include <snap/snap.h>
 
-#include <snap/coord/cubed_sphere_utils.hpp>
 #include <snap/hydro/hydro.hpp>
-#include <snap/layout/cubed_sphere_layout.hpp>
 #include <snap/mesh/meshblock.hpp>
 
 #include "output_type.hpp"
@@ -140,20 +138,11 @@ void OutputType::loadHydroOutputData(MeshBlockImpl* pmb,
   // lat/lon grid for cubed sphere
   if (shouldOutputPrimitive() || shouldOutputConserved()) {
     if (pcoord->options->type() == "gnomonic-equiangle") {
-      int r = pmb->options->layout()->rank();
-      auto [rx, ry, face_id] = pmb->get_layout()->loc_of(r);
-      auto face = CS_FACE_NAMES[face_id];
-
-      auto mesh = torch::meshgrid({pcoord->x3v, pcoord->x2v}, "ij");
-      auto alpha = mesh[1];
-      auto beta = mesh[0];
-      auto [lon, lat] = cs_ab_to_lonlat(face, alpha, beta);
-
-      // longitude
-      appendTensorOutput("lon", lon);
-
-      // latitude
-      appendTensorOutput("lat", lat);
+      // the panel's lon/lat, which the coordinate registers at reset
+      auto buffers =
+          std::dynamic_pointer_cast<torch::nn::Module>(pcoord)->named_buffers();
+      appendTensorOutput("lon", buffers["longitude"].squeeze(-1));
+      appendTensorOutput("lat", buffers["latitude"].squeeze(-1));
     }
   }
 }
