@@ -225,6 +225,11 @@ class EquationOfStateImpl {
   static torch::Tensor ideal_sound_speed_(torch::Tensor const& w,
                                           torch::Tensor const& gamma);
 
+  //! kinetic energy 1/2 v . m from the primitive velocity rows of prim and
+  //! the matching (lowered velocity or momentum) rows m
+  static torch::Tensor kinetic_energy_(torch::Tensor const& prim,
+                                       torch::Tensor const& m);
+
   //! kinetic energy of the conserved state, 1/2 m . raise(m) / rho, with
   //! rho = dry + the first ny species (species_total order)
   torch::Tensor cons_kinetic_energy_(torch::Tensor const& cons,

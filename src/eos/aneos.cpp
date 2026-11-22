@@ -67,7 +67,7 @@ void ANEOSImpl::_prim2cons(torch::Tensor prim, torch::Tensor &cons) {
   torch::mul_out(out, prim.narrow(0, IVX, 3), prim[IDN]);
 
   // KE
-  auto ke = 0.5 * (prim.narrow(0, IVX, 3) * cons.narrow(0, IVX, 3)).sum(0);
+  auto ke = kinetic_energy_(prim, cons.narrow(0, IVX, 3));
 
   // IE
   cons[IPR] = _prim2intEng(prim);
@@ -87,7 +87,7 @@ void ANEOSImpl::_cons2prim(torch::Tensor cons, torch::Tensor &prim) {
   torch::div_out(out, cons.narrow(0, IVX, 3), prim[IDN]);
 
   // KE
-  auto ke = 0.5 * (prim.narrow(0, IVX, 3) * cons.narrow(0, IVX, 3)).sum(0);
+  auto ke = kinetic_energy_(prim, cons.narrow(0, IVX, 3));
   auto ie = cons[IPR] - ke;
 
   auto [P, T, L] = pthermo->compute("DU->PTL", {cons[IDN], ie});

@@ -121,7 +121,7 @@ torch::Tensor MoistMixtureImpl::species_enthalpy(torch::Tensor prim) {
   h *= kintera::constants::Rgas * pthermo->inv_mu;
   auto vel = prim.narrow(0, IVX, 3).clone();
   coord_vec_lower_(vel, pcoord->cosine_cell_kj);
-  auto ke = 0.5 * (prim.narrow(0, IVX, 3) * vel).sum(0);
+  auto ke = kinetic_energy_(prim, vel);
   return h.narrow(-1, 1, ny).permute({3, 0, 1, 2}) + ke;
 }
 

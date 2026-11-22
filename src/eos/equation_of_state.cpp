@@ -237,6 +237,11 @@ torch::Tensor EquationOfStateImpl::ideal_sound_speed_(
   return torch::sqrt(gamma * w[IPR] / w[IDN]);
 }
 
+torch::Tensor EquationOfStateImpl::kinetic_energy_(torch::Tensor const& prim,
+                                                   torch::Tensor const& m) {
+  return 0.5 * (prim.narrow(0, IVX, 3) * m).sum(0);
+}
+
 torch::Tensor EquationOfStateImpl::cons_kinetic_energy_(
     torch::Tensor const& cons, torch::Tensor const& dry, int ny) const {
   // (species_total accumulates in species order, see species_sum.hpp)

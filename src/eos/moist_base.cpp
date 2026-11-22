@@ -90,7 +90,7 @@ void MoistEOSImpl::_prim2cons(torch::Tensor prim, torch::Tensor& cons) {
   _mom_from_vel_(prim, cons);
 
   // KE
-  auto ke = 0.5 * (prim.narrow(0, IVX, 3) * cons.narrow(0, IVX, 3)).sum(0);
+  auto ke = kinetic_energy_(prim, cons.narrow(0, IVX, 3));
 
   // IE
   cons[IPR] = _prim2intEng(prim);
@@ -120,7 +120,7 @@ torch::Tensor MoistEOSImpl::_cons2prim_layout(torch::Tensor cons,
 
   coord_vec_raise_(out, pcoord->cosine_cell_kj);
 
-  auto ke = 0.5 * (prim.narrow(0, IVX, 3) * cons.narrow(0, IVX, 3)).sum(0);
+  auto ke = kinetic_energy_(prim, cons.narrow(0, IVX, 3));
   return cons[IPR] - ke;
 }
 
