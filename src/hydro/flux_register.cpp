@@ -243,10 +243,7 @@ bool FluxRegister::keeps(int dim, std::string const& part) const {
 }
 
 torch::Tensor FluxRegister::part_slot(int dim, std::string const& part) {
-  auto key = part + "@" + std::to_string(dim);
-  TORCH_CHECK(_parts.count(key), "[FluxRegister] part '", key,
-              "' was not requested in RegisterRequest::keep");
-  return _parts.at(key);
+  return kept(dim, part);
 }
 
 torch::Tensor FluxRegister::kept(int dim, std::string const& part) const {
