@@ -44,6 +44,16 @@ static torch::Tensor d1_pressure(torch::Tensor const& p,
   return d;
 }
 
+// #289 x1 face-centroid shift, as `like`; undefined where identically zero
+static torch::Tensor centroid_shift_x1(CoordinateImpl const& coord,
+                                       torch::Tensor const& like) {
+  if (coord.face_centroid_shift_zero()) return torch::Tensor();
+  return coord.face_centroid_shift_x1()
+      .to(like.device(), like.scalar_type())
+      .unsqueeze(0)
+      .unsqueeze(1);
+}
+
 torch::Tensor HydroImpl::_flux_covariance(torch::Tensor const& wl,
                                           torch::Tensor const& wr,
                                           int dim) const {
@@ -128,12 +138,8 @@ torch::Tensor HydroImpl::_flux_covariance(torch::Tensor const& wl,
   // docs/derivations/289-covariance-x3-curved.md.
   // Cartesian (face_centroid_shift_zero): the shift is identically zero, so
   // every centroid part below is an exact zero and is not computed
-  bool centroid = !pcoord->face_centroid_shift_zero();
-  auto ds = centroid ? pcoord->face_centroid_shift_x1()
-                           .to(p.device(), p.scalar_type())
-                           .unsqueeze(0)
-                           .unsqueeze(1)
-                     : torch::Tensor();
+  auto ds = centroid_shift_x1(*pcoord, p);
+  bool centroid = ds.defined();
   auto rho = wbar[IDN];
   auto dx1 = (x1v.narrow(0, 2, n1 - 2) - x1v.narrow(0, 0, n1 - 2));
 
@@ -272,12 +278,8 @@ torch::Tensor HydroImpl::scalar_flux_covariance(torch::Tensor const& rl,
                 .to(un.device(), un.scalar_type())
                 .unsqueeze(0)
                 .unsqueeze(1);
-  bool centroid = !pcoord->face_centroid_shift_zero();
-  auto ds = centroid ? pcoord->face_centroid_shift_x1()
-                           .to(un.device(), un.scalar_type())
-                           .unsqueeze(0)
-                           .unsqueeze(1)
-                     : torch::Tensor();
+  auto ds = centroid_shift_x1(*pcoord, un);
+  bool centroid = ds.defined();
   auto rho = wbar[IDN];
   auto dx1 = (x1v.narrow(0, 2, n1 - 2) - x1v.narrow(0, 0, n1 - 2));
   auto cell = [&](torch::Tensor const& a) { return a.narrow(-1, 1, n1 - 2); };
