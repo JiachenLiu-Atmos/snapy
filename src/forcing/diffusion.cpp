@@ -433,7 +433,7 @@ void DiffusionImpl::reset() {
                 "[Diffusion] Cubed sphere requires positive radii, nghost >= 2 "
                 "and at least max(4, nghost) active cells per direction.");
     TORCH_CHECK(
-        phydro->pmb->options->layout()->type() == "cubed-sphere" &&
+        phydro->pmb->options->layout()->is_cubed_sphere() &&
             phydro->pmb->options->layout()->nb(1) == 1,
         "[Diffusion] Cubed sphere requires cubed-sphere layout and nb1=1.");
     auto const& names = phydro->pmb->options->bcnames();

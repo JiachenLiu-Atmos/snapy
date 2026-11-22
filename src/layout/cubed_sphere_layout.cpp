@@ -184,7 +184,7 @@ torch::Tensor const& CubedSphereLayoutImpl::_velocity_transform(
 
   // the panel's components to the global Cartesian frame and back (V3 S
   // step (1)): no atan2, so the matrix is a function of the point alone
-  int face_id = std::get<2>(loc_of(options->rank()));
+  int face_id = panel_of(options->rank());
   auto matrix = PanelRotation().matrix(
       face_id, alpha, beta, to_global,
       opts.type() == kConserved ? cosine : torch::Tensor());
@@ -569,7 +569,7 @@ void CubedSphereLayoutImpl::serialize(MeshBlockImpl const* pmb, Variables& vars,
       if (nb < 0) return;  // no neighbor
 
       // skip inter-panel neighbors
-      if (std::get<2>(iloc) != std::get<2>(loc_of(nb))) return;
+      if (std::get<2>(iloc) != panel_of(nb)) return;
 
       // Get the interior part for this direction
       auto sub = pmb->part(offset, PartOptions().exterior(false));
@@ -620,7 +620,7 @@ void CubedSphereLayoutImpl::serialize(MeshBlockImpl const* pmb, Variables& vars,
     if (nb < 0) return;  // no neighbor
 
     // skip intra-panel neighbors
-    if (std::get<2>(iloc) == std::get<2>(loc_of(nb))) return;
+    if (std::get<2>(iloc) == panel_of(nb)) return;
 
     // Get the interior part for this direction, widened by cs_interp_margin
     // for an interpolating receiver (the halo is fresh only because phase 1
@@ -747,7 +747,7 @@ void CubedSphereLayoutImpl::deserialize(MeshBlockImpl const* pmb,
       if (nb < 0) return;  // no neighbor
 
       // skip inter-panel neighbors
-      if (std::get<2>(iloc) != std::get<2>(loc_of(nb))) return;
+      if (std::get<2>(iloc) != panel_of(nb)) return;
 
       // Get the exterior (ghost zone) part for this direction
       auto sub = pmb->part(offset, PartOptions().exterior(true));
@@ -775,7 +775,7 @@ void CubedSphereLayoutImpl::deserialize(MeshBlockImpl const* pmb,
     if (nb < 0) return;  // no neighbor
 
     // skip intra-panel neighbors
-    if (std::get<2>(iloc) == std::get<2>(loc_of(nb))) return;
+    if (std::get<2>(iloc) == panel_of(nb)) return;
 
     // Get the exterior (ghost zone) part for this direction
     auto part_opts = strip_part(pmb, opts, dy, dx, /*exterior=*/true,

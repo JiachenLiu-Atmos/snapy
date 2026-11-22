@@ -122,7 +122,7 @@ torch::Tensor ScalarImpl::forward(StepDt dt, torch::Tensor u,
 
   // cubed sphere: DIRECTION-SUFFIXED keys, as the hydro's, resolve the L/R
   // roles across a panel edge (an un-suffixed key swapped them at flip_flag)
-  bool cubed = pmb->get_layout()->options->type() == "cubed-sphere";
+  bool cubed = pmb->get_layout()->options->is_cubed_sphere();
   Variables send[3];
   std::vector<CommWorkPtr> works[3];
   SyncOptions so;

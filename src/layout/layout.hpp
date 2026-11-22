@@ -117,6 +117,9 @@ struct LayoutOptionsImpl {
   //! number of blocks in the process grid, px * py * pz
   int nblocks() const { return px() * py() * pz(); }
 
+  //! whether this is the six-panel cubed-sphere layout
+  bool is_cubed_sphere() const { return type() == "cubed-sphere"; }
+
   //! periodicity in X
   ADD_ARG(bool, periodic_x) = false;
 
@@ -267,6 +270,9 @@ class LayoutImpl {
   }
 
   virtual std::tuple<int, int, int> loc_of(int rank) const { return {0, 0, 0}; }
+
+  //! panel of a rank on the cubed-sphere layout (the third loc_of entry)
+  int panel_of(int rank) const { return std::get<2>(loc_of(rank)); }
 
   //! \brief Neighbor -> Z-order rank (3D)
   /*!

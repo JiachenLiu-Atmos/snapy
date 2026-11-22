@@ -183,7 +183,7 @@ CoordinateOptions CoordinateOptionsImpl::from_yaml(
   int rank = playout->options->rank();
   auto [lx2, lx3, lx1] = playout->loc_of(rank);
 
-  if (playout->options->type() == "cubed-sphere") lx1 = 0;
+  if (playout->options->is_cubed_sphere()) lx1 = 0;
 
   int nb1 = playout->options->nb(1);
   int nb2 = playout->options->nb(2);
@@ -343,7 +343,7 @@ void CoordinateOptionsImpl::repartition(LayoutOptions const& layout) {
   int rank = layout->rank();
   auto [lx2, lx3, lx1] = playout->loc_of(rank);
 
-  if (layout->type() == "cubed-sphere") lx1 = 0;
+  if (layout->is_cubed_sphere()) lx1 = 0;
 
   int nb1 = layout->nb(1);
   int nb2 = layout->nb(2);

@@ -218,7 +218,7 @@ bool LayoutImpl::_skips_direction(MeshBlockImpl const* pmb,
 bool LayoutImpl::_in_phase(std::tuple<int, int, int> iloc, int nb,
                            SyncOptions const& opts) const {
   if (!opts.cross_panel_only() && !opts.intra_panel_only()) return true;
-  bool same_panel = std::get<2>(iloc) == std::get<2>(loc_of(nb));
+  bool same_panel = std::get<2>(iloc) == panel_of(nb);
   return opts.cross_panel_only() ? !same_panel : same_panel;
 }
 

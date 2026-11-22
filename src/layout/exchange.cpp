@@ -44,8 +44,8 @@ FaceKind Exchange::kind(int face) const {
   int nb = layout->neighbor_rank(iloc, {dy, dx, dz});
   if (nb < 0) return FaceKind::interior;
   if (nb == rank) return FaceKind::periodic;
-  if (layout->options->type() == "cubed-sphere" &&
-      std::get<2>(layout->loc_of(nb)) != std::get<2>(iloc))
+  if (layout->options->is_cubed_sphere() &&
+      layout->panel_of(nb) != std::get<2>(iloc))
     return FaceKind::panel;
   if (dz != 0) return FaceKind::seam_x1;
   // the neighbour past a domain edge is the wrapped one
@@ -202,7 +202,7 @@ std::pair<torch::Tensor, torch::Tensor> Exchange::seam_slab(
       sd.peer = -1;
       continue;
     }
-    if (cubed && std::get<2>(layout->loc_of(sd.peer)) != panel) {
+    if (cubed && layout->panel_of(sd.peer) != panel) {
       auto e = CS_FACE_EDGES[panel][sd.side];
       sd.peer_side = e.nside;
       sd.reversed = e.rev != 0;

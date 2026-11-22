@@ -266,7 +266,7 @@ OutputBlockLocation output_block_location(Layout const& layout, int rank) {
   loc.nb3 = layout->options->nb(3);
 
   loc.face = 0;
-  if (layout->options->type() == "cubed-sphere") {
+  if (layout->options->is_cubed_sphere()) {
     loc.face = loc.lx1;
     loc.lx1 = 0;
     loc.lx2 += (loc.face % 3) * loc.nb2;

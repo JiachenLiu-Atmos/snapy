@@ -698,7 +698,7 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
     wtmp2 = reconstruct_faces(*this, dir2, w, split, pressure_base2);
 
     // sync left/right states across faces for cubed sphere layout
-    if (playout->options->type() == "cubed-sphere") {
+    if (playout->options->is_cubed_sphere()) {
       send_vars2["hydro_wl:+"] = wtmp2[ILT];
       send_vars2["hydro_wr:-"] = wtmp2[IRT];
       pmb->begin_exchange(send_vars2, sync_opts.dim(DIM2));
@@ -710,14 +710,14 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
     wtmp3 = reconstruct_faces(*this, dir3, w, split, pressure_base3);
 
     // sync left/right states across faces for cubed sphere layout
-    if (playout->options->type() == "cubed-sphere") {
+    if (playout->options->is_cubed_sphere()) {
       send_vars3["hydro_wl:+"] = wtmp3[ILT];
       send_vars3["hydro_wr:-"] = wtmp3[IRT];
       pmb->begin_exchange(send_vars3, sync_opts.dim(DIM3));
     }
   }
 
-  if (playout->options->type() == "cubed-sphere") {
+  if (playout->options->is_cubed_sphere()) {
     bool exchange_dim2 = u.size(DIM2) > 1;
     bool exchange_dim3 = u.size(DIM3) > 1;
     if (exchange_dim2) {
@@ -849,7 +849,7 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
       // of the face: carry each donor's velocity as a face state, synced
       // across the seam like them and taken to that basis, so both copies
       // withhold the same momentum
-      if (playout && playout->options->type() == "cubed-sphere") {
+      if (playout && playout->options->is_cubed_sphere()) {
         std::vector<int> dims;
         if (_flux2.defined() && u.size(DIM2) > 1) dims.push_back(DIM2);
         if (_flux3.defined() && u.size(DIM3) > 1) dims.push_back(DIM3);

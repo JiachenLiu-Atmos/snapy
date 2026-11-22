@@ -37,7 +37,7 @@ void MeshBlockImpl::exchange(Variables &vars, SyncOptions const &opts) const {
   // from the edge strips, so they come after both.
   auto const &lo = *options->layout();
   if (opts.interpolate() && !opts.intra_panel_only() &&
-      !opts.cross_panel_only() && lo.type() == "cubed-sphere" &&
+      !opts.cross_panel_only() && lo.is_cubed_sphere() &&
       (lo.px() > 1 || lo.py() > 1)) {
     SyncOptions intra = opts, cross = opts;
     _exchange_once(vars, intra.intra_panel_only(true).interpolate(false));
@@ -116,7 +116,7 @@ void MeshBlockImpl::exchange_ghost_zones(Variables &vars) {
       // Cubed-sphere horizontal custom callbacks are built-in no-ops:
       // exchange owns these faces and their radial wall intersections.
       // Check callback identity, not its name, to retain genuine custom BCs.
-      if (options->layout()->type() == "cubed-sphere" && face >= 2 &&
+      if (options->layout()->is_cubed_sphere() && face >= 2 &&
           is_custom_noop(fns[face]))
         return false;
       return !(static_cast<size_t>(face) < names.size() &&

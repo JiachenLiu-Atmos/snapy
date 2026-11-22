@@ -50,7 +50,7 @@ void reconcile_panel_seams(FluxRegister& reg, MeshBlockImpl const* pmb,
     if (!reg.total(dim).defined()) continue;
     int nb =
         layout->neighbor_rank(iloc, {kSideOffset[s][0], kSideOffset[s][1], 0});
-    if (nb < 0 || std::get<2>(layout->loc_of(nb)) == panel) continue;
+    if (nb < 0 || layout->panel_of(nb) == panel) continue;
     auto e = CS_FACE_EDGES[panel][s];
     sides.push_back(
         {s, dim, nb, e.nside, e.rev != 0, (s % 2) == (e.nside % 2), rank < nb});

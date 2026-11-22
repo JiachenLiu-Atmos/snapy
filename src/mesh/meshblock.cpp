@@ -118,7 +118,7 @@ void MeshBlockImpl::reset() {
   int pz = options->layout()->pz();
 
   int nranks = px * py * pz;
-  if (options->layout()->type() == "cubed-sphere") {
+  if (options->layout()->is_cubed_sphere()) {
     nranks *= 6;
   }
   int rank = options->layout()->rank();
@@ -128,7 +128,7 @@ void MeshBlockImpl::reset() {
               ") does not match layout partitioning (", nranks, ").");
 
   //// ---- (2) reset internal block boundaries ---- ////
-  if (options->layout()->type() != "cubed-sphere") {  // slab or cubed layout
+  if (!options->layout()->is_cubed_sphere()) {  // slab or cubed layout
     auto [lx2, lx3, lx1] = _playout->loc_of(rank);
 
     // a face inside the layout (or periodic) has no external boundary:

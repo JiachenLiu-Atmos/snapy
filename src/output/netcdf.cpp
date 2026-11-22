@@ -102,7 +102,7 @@ void NetcdfSink::write(MeshBlockImpl* pmb, Frame const& fr,
   int loc[3] = {lx1, lx2, lx3}, nb[3] = {nb1, nb2, nb3};
   for (int d = 0; d < 3; ++d)
     if (sl[d]) loc[d] = 0, nb[d] = 1;
-  bool cs = layout->options->type() == "cubed-sphere";
+  bool cs = layout->options->is_cubed_sphere();
 
   Values val{op.double_precision()};
   const nc_type nctype = val.dbl ? NC_DOUBLE : NC_FLOAT;

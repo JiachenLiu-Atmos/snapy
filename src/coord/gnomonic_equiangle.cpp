@@ -76,8 +76,8 @@ void GnomonicEquiangleImpl::reset() {
 
   auto mesh = torch::meshgrid({x3v, x2v}, "ij");
   auto rank = pmb->options->layout()->rank();
-  auto face_id = pmb->options->layout()->type() == "cubed-sphere"
-                     ? std::get<2>(pmb->get_layout()->loc_of(rank))
+  auto face_id = pmb->options->layout()->is_cubed_sphere()
+                     ? pmb->get_layout()->panel_of(rank)
                      : 0;
   auto [longitude, latitude] =
       cs_ab_to_lonlat(CS_FACE_NAMES[face_id], mesh[1], mesh[0]);
