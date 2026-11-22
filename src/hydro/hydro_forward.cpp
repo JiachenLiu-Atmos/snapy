@@ -10,6 +10,7 @@
 
 #include <snap/coord/x1_centroid.hpp>
 #include <snap/eos/ideal_moist.hpp>
+#include <snap/eos/species_sum.hpp>
 #include <snap/layout/exchange.hpp>
 #include <snap/layout/seam_register.hpp>
 #include <snap/mesh/meshblock.hpp>
@@ -248,9 +249,7 @@ torch::Tensor HydroImpl::scalar_flux_covariance(torch::Tensor const& rl,
   int n1 = wl.size(-1);
   int ny = wl.size(0) - ICY;
   auto dry_fraction = [&](torch::Tensor const& w) {
-    auto rd = torch::ones_like(w[IDN]);
-    for (int n = 0; n < ny; ++n) rd = rd - w[ICY + n];
-    return rd;
+    return species_complement(w[IDN], w.narrow(0, ICY, ny));
   };
   // past an x1 seam wl/wr hold the neighbour's rows (x1_seam_rows in
   // forward()); the scalar's own face states take the same rows

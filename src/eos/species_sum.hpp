@@ -26,4 +26,15 @@ inline torch::Tensor species_total(torch::Tensor const& y) {
   return acc;
 }
 
+// 1 - sum_k y[k] over the leading (species) axis, subtracted one species at a
+// time like the kernels' dry_fraction (ideal_moist_impl.h); `like` sets the
+// shape and dtype of the 1. Not 1 - species_total(y): that associates
+// differently.
+inline torch::Tensor species_complement(torch::Tensor const& like,
+                                        torch::Tensor const& y) {
+  auto rd = torch::ones_like(like);
+  for (int64_t k = 0; k < y.size(0); ++k) rd = rd - y[k];
+  return rd;
+}
+
 }  // namespace snap

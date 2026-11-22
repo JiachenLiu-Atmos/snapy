@@ -139,11 +139,8 @@ void DISPATCH_MACRO hllc_impl(T* flx, T* wl, T* wr, T el, T er, T gammal,
     vxr = WR(ivx) - bp;
   }
 
-  T rdl = T(1.), rdr = T(1.);
-  for (int n = 0; n < ny; ++n) {
-    rdl -= WL(ICY + n);
-    rdr -= WR(ICY + n);
-  }
+  T rdl = dry_fraction(&WL(ICY), ny, stride_w);
+  T rdr = dry_fraction(&WR(ICY), ny, stride_w);
 
   T fl[ICY], fr[ICY];
 
@@ -236,12 +233,10 @@ void DISPATCH_MACRO lmars_impl(T* flx, T* wl, T* wr, T hl, T hr, T gammal,
            T(0.5) / (rhobar * cbar) * (wli[IPR] - wri[IPR]);
 
   // Compute fluxes depending on the sign of ubar
-  T rd = T(1.0);
+  T rd;
   if (ubar > T(0)) {
     // Left side flux
-    for (int n = 0; n < ny; n++) {
-      rd -= WL(ICY + n);
-    }
+    rd = dry_fraction(&WL(ICY), ny, stride_w);
 
     FLX(IDN) = ubar * wli[IDN] * rd;
     for (int n = 0; n < ny; n++) {
@@ -254,9 +249,7 @@ void DISPATCH_MACRO lmars_impl(T* flx, T* wl, T* wr, T hl, T hr, T gammal,
     FLX(IPR) = ubar * wli[IDN] * hl;
   } else {
     // Right side flux
-    for (int n = 0; n < ny; n++) {
-      rd -= WR(ICY + n);
-    }
+    rd = dry_fraction(&WR(ICY), ny, stride_w);
 
     FLX(IDN) = ubar * wri[IDN] * rd;
     for (int n = 0; n < ny; n++) {
@@ -313,12 +306,8 @@ void DISPATCH_MACRO roe_impl(T* flx, T const* wl, T const* wr, T el, T er,
   T hr = (etr + WR(IPR)) / WR(IDN);
   T h = (hl * sqrtdl + hr * sqrtdr) * isdlpdr;
 
-  T dryl = T(1);
-  T dryr = T(1);
-  for (int n = 0; n < ny; ++n) {
-    dryl -= WL(ICY + n);
-    dryr -= WR(ICY + n);
-  }
+  T dryl = dry_fraction(&WL(ICY), ny, stride_w);
+  T dryr = dry_fraction(&WR(ICY), ny, stride_w);
 
   T rhol0 = WL(IDN) * dryl;
   T rhor0 = WR(IDN) * dryr;
@@ -574,13 +563,11 @@ DISPATCH_MACRO void riemann_central(T* cen, T const* wl, T const* wr,
     int ivx = face_axes(a.dim).x;
     auto ml = wl[IDN * s] * wl[ivx * s];
     auto mr = wr[IDN * s] * wr[ivx * s];
-    T rdl = T(1), rdr = T(1);
-    for (int n = 0; n < a.ny; ++n) {
-      rdl -= wl[(ICY + n) * s];
-      rdr -= wr[(ICY + n) * s];
+    T rdl = dry_fraction(wl + ICY * s, a.ny, s);
+    T rdr = dry_fraction(wr + ICY * s, a.ny, s);
+    for (int n = 0; n < a.ny; ++n)
       cen[(ICY + n) * s] =
           T(0.5) * (ml * wl[(ICY + n) * s] + mr * wr[(ICY + n) * s]);
-    }
     cen[IDN * s] = T(0.5) * (ml * rdl + mr * rdr);
   }
 }

@@ -8,6 +8,15 @@
 
 namespace snap {
 
+//! dry fraction 1 - sum_n y[n * stride] of ny species rows, subtracted one
+//! species at a time (the torch twin is species_complement, species_sum.hpp)
+template <typename T>
+inline DISPATCH_MACRO T dry_fraction(T const* y, int ny, int stride) {
+  T rd = T(1);
+  for (int n = 0; n < ny; ++n) rd -= y[n * stride];
+  return rd;
+}
+
 template <typename T>
 inline DISPATCH_MACRO T ideal_moist_feps(T const* y, int ny, int nvapor,
                                          T const* inv_mu_ratio_m1) {
