@@ -2,6 +2,7 @@
 #include <chrono>
 #include <limits>
 #include <numeric>
+#include <string>
 #include <typeinfo>
 
 // snap
@@ -299,6 +300,14 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
   enum { DIM1 = 3, DIM2 = 2, DIM3 = 1 };
   bool has_solid = other.count("solid");
   auto start = std::chrono::high_resolution_clock::now();
+  // verbose: the time since the last report, then restart the clock
+  auto report_time = [&](std::string const& label) {
+    if (!options->verbose()) return;
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    SINFO(Hydro) << label << " time (s): " << elapsed.count() << "\n";
+    start = std::chrono::high_resolution_clock::now();
+  };
   _check_stretched_x1(u);
 
   auto playout = pmb->get_layout();
@@ -378,12 +387,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
           (bop.reference.defined() || !is_outflow(mo->bfuncs()[f])))
         mo->bfuncs()[f](w, 3 - f / 2, bop);
   }
-  if (options->verbose()) {
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = end - start;
-    SINFO(Hydro) << "EOS time (s): " << elapsed.count() << "\n";
-    start = std::chrono::high_resolution_clock::now();
-  }
+  report_time("EOS");
 
   if (split_flux && raw_primitive.defined()) {
     // Conversion and its admissibility/ghost decisions remain FP64. Apply its
@@ -559,12 +563,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       riemann_solve(*this, wlr1, DIM1, freg.slot(1, "riemann"), face_pressure1,
                     pressure_base1, split);
       freg.post_slot(1, "riemann");
-      if (options->verbose()) {
-        auto end = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double> elapsed = end - start;
-        SINFO(Hydro) << "Flux-x1 time (s): " << elapsed.count() << "\n";
-        start = std::chrono::high_resolution_clock::now();
-      }
+      report_time("Flux-x1");
     }
 
     // sedimentation flux (P1); skipped when x1 flux is off (_flux1 not
@@ -804,13 +803,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     solve_faces(*this, dir, faces, other, split, background, c2, covariance);
     if (dir.disabled) return false;
     if (dcov.defined()) add_cov(flux, dcov);
-    if (options->verbose()) {
-      auto end = std::chrono::high_resolution_clock::now();
-      std::chrono::duration<double> elapsed = end - start;
-      SINFO(Hydro) << "Flux-x" << 4 - dir.dim
-                   << " time (s): " << elapsed.count() << "\n";
-      start = std::chrono::high_resolution_clock::now();
-    }
+    report_time("Flux-x" + std::to_string(4 - dir.dim));
     return dcov.defined();
   };
   if (u.size(DIM2) > 1) cov2 = sweep(dir2, wtmp2, pressure_base2, _flux2, 0);
@@ -901,12 +894,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     PositivityLimiter(pmb, pmb->pefs.get(), EfStatus::kPosHits)
         .apply(freg, in, "hydro", "positivity.withhold");
 
-    if (options->verbose()) {
-      auto end = std::chrono::high_resolution_clock::now();
-      std::chrono::duration<double> elapsed = end - start;
-      SINFO(Hydro) << "Positivity time (s): " << elapsed.count() << "\n";
-      start = std::chrono::high_resolution_clock::now();
-    }
+    report_time("Positivity");
   }
 
   // R-5: limit ends; the Scalar module's dry-mass flux is row IDN of each
@@ -964,12 +952,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
                     options->disable_flux_x2() ? torch::Tensor() : _flux2,
                     options->disable_flux_x3() ? torch::Tensor() : _flux3);
   }
-  if (options->verbose()) {
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = end - start;
-    SINFO(Hydro) << "Divergence time (s): " << elapsed.count() << "\n";
-    start = std::chrono::high_resolution_clock::now();
-  }
+  report_time("Divergence");
 
   //// ------------ (6) Calculate external forcing ------------ ////
   auto du = torch::zeros_like(_div);
@@ -1127,12 +1110,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
         dt * w[IVX] * rho_grav * (1. - options->grav()->non_hydrostatic());
   }
 
-  if (options->verbose()) {
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = end - start;
-    SINFO(Hydro) << "Forcing time (s): " << elapsed.count() << "\n";
-    start = std::chrono::high_resolution_clock::now();
-  }
+  report_time("Forcing");
 
   //// ------------ (7) Perform implicit correction ------------ ////
   if (picorr) {
@@ -1174,12 +1152,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     }
     _apply_implicit_correction(du, w, dt_corr, other, dt);
 
-    if (options->verbose()) {
-      auto end = std::chrono::high_resolution_clock::now();
-      std::chrono::duration<double> elapsed = end - start;
-      SINFO(Hydro) << "Implicit time (s): " << elapsed.count() << "\n";
-      start = std::chrono::high_resolution_clock::now();
-    }
+    report_time("Implicit");
   }
 
   if (gravity_energy_correction.defined()) {
