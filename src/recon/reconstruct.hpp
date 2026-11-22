@@ -116,8 +116,8 @@ struct ReconstructOptionsImpl {
     os << "* shock = " << (shock() ? "true" : "false") << "\n";
   }
 
-  //! configure options
-  ADD_ARG(bool, shock) = true;
+  //! configure options; false as in the YAML reader (V3 C10)
+  ADD_ARG(bool, shock) = false;
 
   //! abstract submodules
   ADD_ARG(InterpOptions, interp) = nullptr;

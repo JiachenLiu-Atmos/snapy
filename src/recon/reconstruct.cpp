@@ -279,34 +279,42 @@ torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
     y.clamp_min_(0.);
   };
 
+  // density and pressure are floored with the eos limiter, on both paths
+  auto eos = phydro->options->eos();
+  bool floors = eos->limiter() && floor;
+  auto floor_density = [&] {
+    if (!floors) return;
+    auto d = result.select(1, IDN);
+    floored[0].add_(faces(d < eos->density_floor()).sum());
+    d.clamp_min_(eos->density_floor());
+  };
+  auto floor_pressure = [&] {
+    if (!floors || result.size(1) <= IPR) return;
+    auto pr = result.select(1, IPR);
+    floored[1].add_(faces(pr < eos->pressure_floor()).sum());
+    pr.clamp_min_(eos->pressure_floor());
+  };
+
   if (options->shock()) {
     _apply_inplace(dim, il, iu, w, pinterp1, result);
-    // the species faces get the floor of the non-shock path below: a WENO
-    // undershoot would otherwise carry vapor up the gradient
-    floor_species(phydro->options->eos()->limiter());
+    // the floors of the non-shock path below (V3 C10); for the species, a
+    // WENO undershoot would otherwise carry vapor up the gradient
+    floor_density();
+    floor_pressure();
+    floor_species(eos->limiter());
     return result;
   }
-
-  auto eos = phydro->options->eos();
 
   // density
   _apply_inplace(dim, il, iu, w.narrow(0, IDN, 1), pinterp1,
                  result.narrow(1, IDN, 1));
-  if (eos->limiter() && floor) {
-    auto d = result.select(1, IDN);
-    floored[0].add_(faces(d < eos->density_floor()).sum());
-    d.clamp_min_(eos->density_floor());
-  }
+  floor_density();
 
   // velocity/pressure
   int len = std::min((int)IPR, nvar - 1);
   _apply_inplace(dim, il, iu, w.narrow(0, IVX, len), pinterp2,
                  result.narrow(1, IVX, len));
-  if (eos->limiter() && floor && result.size(1) > IPR) {
-    auto pr = result.select(1, IPR);
-    floored[1].add_(faces(pr < eos->pressure_floor()).sum());
-    pr.clamp_min_(eos->pressure_floor());
-  }
+  floor_pressure();
 
   int ny = nvar - ICY;
   if (ny <= 0) return result;

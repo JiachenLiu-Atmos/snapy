@@ -4,6 +4,7 @@
 
 // external
 #include <gtest/gtest.h>
+#include <yaml-cpp/yaml.h>
 
 #include "cuda_test_gate.hpp"
 
@@ -101,11 +102,14 @@ void face_floor_fires_on_an_unresolved_column(torch::Device device) {
 // C5, FaceFloor (C.rst 3.7, section 5 "floor counts equal the faces
 // changed"): the reconstruction's floors count exactly the faces they
 // change. One cell has a negative density and another a negative pressure,
-// so their faces reconstruct below the floors.
-void floor_counts_equal_the_faces_changed(torch::Device device) {
+// so their faces reconstruct below the floors. V3 C10: the shock path
+// (one scheme for every variable) floors density and pressure too.
+void floor_counts_equal_the_faces_changed(torch::Device device,
+                                          bool shock = false) {
   constexpr int kX1 = 3;  // the x1 axis of w (nvar, nc3, nc2, nc1)
   auto options = MeshBlockOptionsImpl::from_yaml("test_face_floor.yaml");
   options->hydro()->eos()->limiter() = true;
+  options->hydro()->recon1()->shock() = shock;
   auto block = std::make_shared<MeshBlockImpl>(options);
   block->to(device, torch::kFloat64);
   auto coord = block->pcoord;
@@ -183,6 +187,25 @@ TEST(hydro, face_floor_fires_on_an_unresolved_column_cuda) {
 
 TEST(hydro, floor_counts_equal_the_faces_changed) {
   floor_counts_equal_the_faces_changed(torch::kCPU);
+}
+
+TEST(hydro, shock_path_floors_density_and_pressure) {
+  floor_counts_equal_the_faces_changed(torch::kCPU, /*shock=*/true);
+}
+
+TEST(hydro, shock_path_floors_density_and_pressure_cuda) {
+  if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
+  floor_counts_equal_the_faces_changed(torch::Device(torch::kCUDA, 0),
+                                       /*shock=*/true);
+}
+
+// V3 C10: one shock default, false, in code as in YAML (a deck with no
+// reconstruct section, or no shock key, reads false)
+TEST(hydro, shock_defaults_to_false) {
+  EXPECT_FALSE(ReconstructOptionsImpl::create()->shock());
+  auto node = YAML::Load("vertical: {type: weno5}");
+  EXPECT_FALSE(ReconstructOptionsImpl::from_yaml(node, "vertical")->shock());
+  EXPECT_FALSE(ReconstructOptionsImpl::from_yaml(node, "horizontal")->shock());
 }
 
 TEST(hydro, face_floor_counter_sees_the_fallback) {
