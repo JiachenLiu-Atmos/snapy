@@ -2,6 +2,7 @@
 
 // C/C++
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <functional>
 #include <iosfwd>
@@ -292,6 +293,36 @@ class CoordinateImpl {
    * and recovers it exactly as `h/rbar -> 0`.
    */
   static torch::Tensor radial_face_moment2_(torch::Tensor const& x1f, int nc1);
+
+  //! the x1 cells' lower and upper faces rm, rp, width h = rp - rm and
+  //! midpoint rbar = 0.5 (rm + rp)
+  static std::array<torch::Tensor, 4> radial_cells_(torch::Tensor const& x1f,
+                                                    int nc1);
+
+  //! a degenerate x1 cell (a ghost that reaches r <= 0): rbar <= h / 2
+  static torch::Tensor radial_regular_(torch::Tensor const& h,
+                                       torch::Tensor const& rbar) {
+    return rbar > 0.5 * h;
+  }
+
+  //! spherical shell volume per unit solid angle, (rp^3 - rm^3) / 3
+  static torch::Tensor shell_volume_(torch::Tensor const& rm,
+                                     torch::Tensor const& rp) {
+    return (rp.pow(3) - rm.pow(3)) / 3.0;
+  }
+
+  //! spherical shell area per unit polar angle, (rp^2 - rm^2) / 2
+  static torch::Tensor shell_area_(torch::Tensor const& rm,
+                                   torch::Tensor const& rp) {
+    return 0.5 * (rp.square() - rm.square());
+  }
+
+  //! polar measure of a cell between theta_m and theta_p,
+  //! |cos theta_m - cos theta_p|
+  static torch::Tensor polar_measure_(torch::Tensor const& theta_m,
+                                      torch::Tensor const& theta_p) {
+    return torch::abs(theta_m.cos() - theta_p.cos());
+  }
 
   //! x1 offset between where a CELL average lives and where a FACE average does
   /*!

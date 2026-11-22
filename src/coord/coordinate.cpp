@@ -565,18 +565,25 @@ torch::Tensor CoordinateImpl::face_moment2_x1() const {
   return dx1f.square() / 12.;
 }
 
-torch::Tensor CoordinateImpl::radial_face_moment2_(torch::Tensor const& x1f,
-                                                   int nc1) {
+std::array<torch::Tensor, 4> CoordinateImpl::radial_cells_(
+    torch::Tensor const& x1f, int nc1) {
   auto rm = x1f.slice(0, 0, nc1);
   auto rp = x1f.slice(0, 1, nc1 + 1);
   auto h = rp - rm;
   auto rbar = 0.5 * (rm + rp);
+  return {rm, rp, h, rbar};
+}
+
+torch::Tensor CoordinateImpl::radial_face_moment2_(torch::Tensor const& x1f,
+                                                   int nc1) {
+  auto [rm, rp, h, rbar] = radial_cells_(x1f, nc1);
   // rbar <= h/2 is a degenerate face (an x1 ghost that reaches r <= 0): the
   // r-weighted moment is not defined there, and neither is the rest of the
   // metric. Drop the correction rather than divide by a vanishing radius.
-  auto frac = torch::where(
-      rbar > 0.5 * h, h.square() / (12. * rbar.square().clamp_min(1.e-300)),
-      torch::zeros_like(h));
+  auto frac =
+      torch::where(radial_regular_(h, rbar),
+                   h.square() / (12. * rbar.square().clamp_min(1.e-300)),
+                   torch::zeros_like(h));
   return h.square() / 12. * (1. - frac);
 }
 
@@ -588,10 +595,7 @@ torch::Tensor CoordinateImpl::face_centroid_shift_x1() const {
 
 torch::Tensor CoordinateImpl::radial_face_centroid_shift_(
     torch::Tensor const& x1f, int nc1) {
-  auto rm = x1f.slice(0, 0, nc1);
-  auto rp = x1f.slice(0, 1, nc1 + 1);
-  auto h = rp - rm;
-  auto rbar = 0.5 * (rm + rp);
+  auto [rm, rp, h, rbar] = radial_cells_(x1f, nc1);
   // r_v - r_c: the VOLUME centroid (weight r^2 -- where a cell average lives)
   // minus the AREA centroid (weight r -- where the face average lives):
   //   r_v = (3/4)(rp^4-rm^4)/(rp^3-rm^3)
@@ -606,7 +610,7 @@ torch::Tensor CoordinateImpl::radial_face_centroid_shift_(
   auto shift = h2 * (twelve_r2 - h2) /
                (12. * rbar * (twelve_r2 + h2)).clamp_min(1.e-300);
   // degenerate face (an x1 ghost reaching r <= 0): no meaningful centroid
-  return torch::where(rbar > 0.5 * h, shift, torch::zeros_like(h));
+  return torch::where(radial_regular_(h, rbar), shift, torch::zeros_like(h));
 }
 
 torch::Tensor CoordinateImpl::divergence(torch::Tensor flux1,

@@ -77,14 +77,14 @@ void SphericalPolarImpl::reset() {
 
   auto rm = x1f.slice(0, 0, op->nc1());
   auto rp = x1f.slice(0, 1, op->nc1() + 1);
-  auto radial_volume = (rp.pow(3) - rm.pow(3)) / 3.0;
-  auto radial_area23 = 0.5 * (rp.pow(2) - rm.pow(2));
+  auto radial_volume = shell_volume_(rm, rp);
+  auto radial_area23 = shell_area_(rm, rp);
 
   auto theta_m = x2f.slice(0, 0, op->nc2());
   auto theta_p = x2f.slice(0, 1, op->nc2() + 1);
   auto sin_m = theta_m.sin().abs();
   auto sin_p = theta_p.sin().abs();
-  auto polar_volume = torch::abs(theta_m.cos() - theta_p.cos());
+  auto polar_volume = polar_measure_(theta_m, theta_p);
 
   coord_src1_i = register_buffer(
       "coord_src1_i",
@@ -129,35 +129,34 @@ torch::Tensor SphericalPolarImpl::center_distance3() const {
 }
 
 torch::Tensor SphericalPolarImpl::face_area1() const {
-  auto polar = torch::abs(x2f.slice(0, 0, options->nc2()).cos() -
-                          x2f.slice(0, 1, options->nc2() + 1).cos());
+  auto polar = polar_measure_(x2f.slice(0, 0, options->nc2()),
+                              x2f.slice(0, 1, options->nc2() + 1));
   return x1f.square().unsqueeze(0).unsqueeze(1) *
          polar.unsqueeze(0).unsqueeze(2) * dx3f.unsqueeze(1).unsqueeze(2);
 }
 
 torch::Tensor SphericalPolarImpl::face_area2() const {
-  auto radial = 0.5 * (x1f.slice(0, 1, options->nc1() + 1).square() -
-                       x1f.slice(0, 0, options->nc1()).square());
+  auto radial = shell_area_(x1f.slice(0, 0, options->nc1()),
+                            x1f.slice(0, 1, options->nc1() + 1));
   return radial.unsqueeze(0).unsqueeze(1) *
          x2f.sin().abs().unsqueeze(0).unsqueeze(2) *
          dx3f.unsqueeze(1).unsqueeze(2);
 }
 
 torch::Tensor SphericalPolarImpl::face_area3() const {
-  auto radial = 0.5 * (x1f.slice(0, 1, options->nc1() + 1).square() -
-                       x1f.slice(0, 0, options->nc1()).square());
+  auto radial = shell_area_(x1f.slice(0, 0, options->nc1()),
+                            x1f.slice(0, 1, options->nc1() + 1));
   return (radial.unsqueeze(0).unsqueeze(1) * dx2f.unsqueeze(0).unsqueeze(2))
       .expand({x3f.size(0), -1, -1});
 }
 
 torch::Tensor SphericalPolarImpl::cell_volume() const {
-  auto radial = ((x1f.slice(0, 1, options->nc1() + 1).pow(3) -
-                  x1f.slice(0, 0, options->nc1()).pow(3)) /
-                 3.0)
+  auto radial = shell_volume_(x1f.slice(0, 0, options->nc1()),
+                              x1f.slice(0, 1, options->nc1() + 1))
                     .unsqueeze(0)
                     .unsqueeze(1);
-  auto polar = torch::abs(x2f.slice(0, 0, options->nc2()).cos() -
-                          x2f.slice(0, 1, options->nc2() + 1).cos())
+  auto polar = polar_measure_(x2f.slice(0, 0, options->nc2()),
+                              x2f.slice(0, 1, options->nc2() + 1))
                    .unsqueeze(0)
                    .unsqueeze(2);
   return radial * polar * dx3f.unsqueeze(1).unsqueeze(2);
