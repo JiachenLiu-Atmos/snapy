@@ -11,6 +11,8 @@
 
 namespace snap {
 
+#include <snap_options/internal_boundary_read.inc>
+
 InternalBoundaryOptions InternalBoundaryOptionsImpl::from_yaml(
     std::string const &filename) {
   YAML::Node config = YAML::LoadFile(filename);
@@ -24,14 +26,8 @@ InternalBoundaryOptions InternalBoundaryOptionsImpl::from_yaml(
 
 InternalBoundaryOptions InternalBoundaryOptionsImpl::from_yaml(
     const YAML::Node &node) {
-  check_keys(node, "boundary-condition/internal",
-             {"max-iter", "solid-density", "solid-pressure"});
   auto op = InternalBoundaryOptionsImpl::create();
-
-  op->max_iter() = node["max-iter"].as<int>(5);
-  op->solid_density() = node["solid-density"].as<double>(1.e3);
-  op->solid_pressure() = node["solid-pressure"].as<double>(1.e9);
-
+  read_internal_boundary_rows(*op, node, "boundary-condition/internal");
   return op;
 }
 

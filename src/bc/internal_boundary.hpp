@@ -46,9 +46,7 @@ struct InternalBoundaryOptionsImpl {
        << "* solid_pressure = " << solid_pressure() << "\n";
   }
 
-  ADD_ARG(int, max_iter) = 5;
-  ADD_ARG(double, solid_density) = 1.e3;
-  ADD_ARG(double, solid_pressure) = 1.e9;
+#include <snap_options/internal_boundary_members.inc>
 };
 using InternalBoundaryOptions = std::shared_ptr<InternalBoundaryOptionsImpl>;
 

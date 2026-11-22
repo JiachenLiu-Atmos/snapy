@@ -48,9 +48,9 @@ void bind_bc(py::module &m) {
              a->report(ss);
              return fmt::format("InternalBoundaryOptions(\n{})", ss.str());
            })
-      .ADD_OPTION(int, snap::InternalBoundaryOptionsImpl, max_iter)
-      .ADD_OPTION(double, snap::InternalBoundaryOptionsImpl, solid_density)
-      .ADD_OPTION(double, snap::InternalBoundaryOptionsImpl, solid_pressure);
+  // the rows of src/options/internal_boundary.yaml
+#include <snap_options/internal_boundary_pybind.inc>
+      ;  // NOLINT(whitespace/semicolon)
 
   ADD_SNAP_MODULE(InternalBoundary, InternalBoundaryOptions)
       .def(py::init<snap::InternalBoundaryOptions, torch::nn::Module *>(),
