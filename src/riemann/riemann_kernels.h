@@ -12,7 +12,7 @@
 
 #include "../eos/ideal_moist_impl.h"
 #include "../eos/shallow_water_impl.h"
-#include "riemann_dispatch.hpp"
+#include "riemann.hpp"
 
 // The Riemann face functions (V3 C.rst 3.6): hllc, lmars, roe and
 // shallow-roe, one definition each for CPU and CUDA (MPS runs the CPU loop
@@ -555,11 +555,7 @@ struct RiemannArgs {
   int dir_yz;
 };
 
-//! riemann.central's mass rows at one face (C.rst 3.6, section 4): 1/2 (F(w_L)
-//! + F(w_R)) of the dry row and of each species row, from the face-frame
-//! states the solve used; u is the face-normal velocity, rd = 1 - sum q.
-//! Shallow-roe has the one row 1/2 (h_L u_L + h_R u_R). The other rows are
-//! not written.
+//! riemann.central's mass rows at one face (lane-c-notes.md)
 template <RiemannKind K, typename T>
 DISPATCH_MACRO void riemann_central(T* cen, T const* wl, T const* wr,
                                     RiemannArgs<T> const& a) {
@@ -583,12 +579,8 @@ DISPATCH_MACRO void riemann_central(T* cen, T const* wl, T const* wr,
   }
 }
 
-//! one face of kind K. p holds the iterator's operands at the face, in the
-//! order of call_riemann (riemann_dispatch.hpp): the outputs (flux, the face
-//! pressure except for shallow-roe, riemann.central if C, roe's LLF flag if
-//! E), then wl, wr, e, gamma and c, (2, ...) with the right side one output
-//! stride after the left, and p0. C and E are template parameters so that
-//! the face functions compile as before when neither is requested.
+//! one face of kind K; p holds the operands of call_riemann
+//! (lane-c-notes.md)
 template <RiemannKind K, bool C, bool E, typename T>
 DISPATCH_MACRO void riemann_face(T* const* p, RiemannArgs<T> const& a) {
   auto s = a.stride;

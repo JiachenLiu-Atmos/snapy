@@ -1,11 +1,11 @@
 #pragma once
 
 // torch
+#include <ATen/TensorIterator.h>
+#include <ATen/native/DispatchStub.h>
 #include <torch/nn/cloneable.h>
 #include <torch/nn/module.h>
 #include <torch/nn/modules/common.h>
-
-#include "riemann_dispatch.hpp"
 
 // arg
 #include <snap/add_arg.h>
@@ -15,6 +15,30 @@ class Node;
 }  // namespace YAML
 
 namespace snap {
+//! the Riemann solver kinds: four face functions (riemann_kernels.h) and two
+//! torch formulas, upwind and plume-roe (riemann.cpp)
+enum class RiemannKind : int {
+  hllc,
+  lmars,
+  roe,
+  shallow_roe,
+  upwind,
+  plume_roe
+};
+
+//! the scalars a face function reads: roe's ideal-moist switch, vapor count
+//! and dry gamma, shallow-roe's direction
+struct RiemannParams {
+  bool ideal_moist = false;
+  int nvapor = 0;
+  double gammad = 0.;
+  bool dir_yz = false;
+  //! the iterator carries riemann.central (an output after the face pressure)
+  bool central = false;
+  //! roe: the iterator carries the LLF flag (an output after central)
+  bool llf = false;
+};
+
 struct RiemannSolverOptionsImpl {
   static std::shared_ptr<RiemannSolverOptionsImpl> create() {
     return std::make_shared<RiemannSolverOptionsImpl>();
@@ -62,16 +86,7 @@ RiemannKind parse_riemann_kind(std::string const& type);
 //! elr, clr and glr.
 class RiemannSolverImpl : public torch::nn::Cloneable<RiemannSolverImpl> {
  public:
-  //! Create and register a RiemannSolver module
-  /*!
-   * This function registers the created module as a submodule
-   * of the given parent module `p`.
-   *
-   * \param[in] opts      options for creating the `RiemannSolver` module
-   * \param[in] p         parent module for registering the created module
-   * \param[in] name      name for the created module
-   * \return created      `RiemannSolver` module
-   */
+  //! Create the module and register it as submodule `name` of `p`
   static std::shared_ptr<RiemannSolverImpl> create(
       RiemannSolverOptions const& opts, torch::nn::Module* p,
       std::string const& name = "riemann");
@@ -100,32 +115,15 @@ class RiemannSolverImpl : public torch::nn::Cloneable<RiemannSolverImpl> {
                     torch::nn::Module* p);
   void reset() override;
 
-  //! Solve the Riemann problem
-  /*!
-   * upwind: vel_or_flux is the face velocity or mass flux and the upwind
-   * flux is returned. plume-roe (dim 1 only) returns its Lax-Friedrichs
-   * flux of the plume equations. The other kinds write the flux into
-   * vel_or_flux and return it.
-   *
-   * central, if defined (hllc, lmars, roe, shallow-roe): the kernel writes
-   * riemann.central there, the mass rows (IDN and the species) of
-   * 1/2 (F(w_L) + F(w_R)) from the face states it solved; other rows are
-   * left as they are.
-   */
+  //! Solve the Riemann problem; vel_or_flux and central per kind in
+  //! lane-c-notes.md
   torch::Tensor forward(torch::Tensor wl, torch::Tensor wr, int dim,
                         torch::Tensor vel_or_flux,
                         torch::Tensor face_pressure = torch::Tensor(),
                         torch::Tensor central = torch::Tensor());
 
-  //! hllc only. Pressure rows are perturbations about one shared face
-  //! background. Returns perturbation normal-momentum flux and contact
-  //! pressure; energy flux includes the total pressure. Other primitive rows
-  //! retain their normal meanings. This is separate from the total-state
-  //! forward contract.
-  //!
-  //! central, if defined: riemann.central as in forward. Its mass rows read
-  //! only the density, normal velocity and species rows, which are totals
-  //! here too, so it is the total-state central.
+  //! hllc only: pressure rows are perturbations about one face background
+  //! (lane-c-notes.md); central as in forward
   torch::Tensor forward_perturbations(
       torch::Tensor wl, torch::Tensor wr, int dim, torch::Tensor out,
       torch::Tensor reference_pressure,
@@ -160,5 +158,19 @@ SNAP_RIEMANN_KIND_MODULE(LmarsSolver, lmars);
 SNAP_RIEMANN_KIND_MODULE(ShallowRoeSolver, shallow_roe);
 #undef SNAP_RIEMANN_KIND_MODULE
 }  // namespace snap
+
+namespace at::native {
+
+// one stub for hllc, lmars, roe and shallow-roe; operands in
+// lane-c-notes.md
+using riemann_fn = void (*)(at::TensorIterator& iter, int kind, int dim,
+                            snap::RiemannParams const& params,
+                            at::Tensor const& inv_mu_ratio_m1,
+                            at::Tensor const& cv_ratio_m1,
+                            at::Tensor const& u0);
+
+DECLARE_DISPATCH(riemann_fn, call_riemann);
+
+}  // namespace at::native
 
 #undef ADD_ARG

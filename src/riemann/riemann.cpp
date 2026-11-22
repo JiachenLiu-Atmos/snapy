@@ -125,15 +125,7 @@ void RiemannSolverImpl::reset() {
   }
 }
 
-//! calculate flux for plume equations
-/*!
- * w = [R, W, B, V]
- *
- * F1 = (1 - 1/e) * R^2 * W
- * F2 = 1/2 * R^2 * W * W - 1/2 * R^3 * V - 1/8 * R^2 * V^2
- * F3 = 1/2 * R^2 * B * W
- * F4 = 1/4 * R^3 * V * W + 1/2 * R^4 * W
- */
+//! flux of the plume equations, w = [R, W, B, V] (lane-c-notes.md)
 static void plume_flux(torch::Tensor& flx, torch::Tensor const& prim) {
   auto R = prim[0];
   auto W = prim[1];

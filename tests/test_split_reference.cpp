@@ -2,7 +2,7 @@
 #include <snap/snap.h>
 #include <torch/torch.h>
 
-#include <snap/hydro/hydro_reference.hpp>
+#include <snap/recon/x1_reference.hpp>
 
 #include "device_testing.hpp"
 using snap::IDN;

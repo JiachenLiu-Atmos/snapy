@@ -10,20 +10,12 @@ namespace snap {
 
 class EquationOfStateImpl;
 
-//! dynamics/conversion-order 4's per-cell fallback test: true where `a` is
-//! admissible -- finite, rho above the density floor and, with `limiter` on,
-//! no species below zero (u - L u, prim false), and p above the pressure
-//! floor too (its primitives, prim true). The floors are zero with `limiter`
-//! off.
+//! conversion-order 4's per-cell fallback test (lane-c-notes.md)
 torch::Tensor conv4_admissible(torch::Tensor const& a, bool prim,
                                EquationOfStateImpl* eos, bool limiter);
 
-//! Cell averages to primitives along x1 at conversion order 4, the one stage
-//! of the solver (HydroImpl::forward) and of balance_column, so that the key-4
-//! rest state balance_column finds is the solver's own fixed point:
-//! w = W(u - L u) + L W(u), fourth order where W(u) is second, and W(u) in a
-//! cell where u - L u or its primitives are not admissible. At a reflecting
-//! x1 wall the ghosts come from the owned cells (wall4_rows).
+//! Cell averages to primitives along x1 at conversion order 4, shared by
+//! the solver and balance_column (lane-c-notes.md)
 class Conversion {
  public:
   Conversion() = default;

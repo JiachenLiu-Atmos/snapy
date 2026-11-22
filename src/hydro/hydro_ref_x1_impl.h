@@ -79,12 +79,8 @@ inline DISPATCH_MACRO void hydro_ref_x1_scan_impl(T const* w, T const* dx1f,
                                            grav);
 }
 
-//! rho/p k cells past a wall, from the wall cell r0 and its neighbour r1:
-//! linear, r0 + k (r0 - r1), where rho/p rises towards the wall (r1 <= r0),
-//! and ln-linear, r0 (r0 / r1)^k, where it falls (r1 > r0). Each is the
-//! branch that stays closer to r0, so the continuation lies within
-//! [r0 (r0 / r1)^k, r0 (1 + k)] for r1 >= 0: positive, and bounded above when
-//! r1 is nearly empty. A non-positive value keeps the wall cell.
+//! rho/p k cells past a wall from r0 (wall) and r1: linear where it rises
+//! to the wall, ln-linear where it falls (lane-c-notes.md)
 template <typename T>
 inline DISPATCH_MACRO T hydro_ref_x1_wall_rop(T r0, T r1, T k) {
   T q = r0 / r1, qk = k == floor(k) ? q : pow(q, k);
@@ -104,19 +100,8 @@ inline DISPATCH_MACRO T hydro_ref_x1_wall_steps(T const* dx1f, int jw, int dir,
   return d / (T(0.5) * (dx1f[jw] + dx1f[jw - dir]));
 }
 
-//! rho/p for the cell density reference. In the interior it is the cell's
-//! own rho/p: an index-space binomial preserves functions linear in index,
-//! not in x, so at a width change it leaves an O(dz) kink in rho - dref that
-//! no face density can undo (the face density is now the x1 reconstruction's
-//! own linear rows applied to dref, hydro.cpp). A cell whose 5-point stencil
-//! reaches past a clamped wall keeps the 5-point binomial below, unchanged.
-//! Past a clamped wall (ext_lo/ext_hi: the wall side owns at least two cells)
-//! the stencil continues rho/p from the two cells next to the wall instead of
-//! repeating the wall cell (hydro_ref_x1_wall_rop). Either continuation is
-//! linear in index to O(dz^2), so the wall cells keep the interior's O(dz^2)
-//! bias; a repeated wall cell is exact only for constant rho/p and leaves an
-//! O(dz) error at the first faces (docs/derivations/wb-ref-wall.md). Only
-//! owned cells are read.
+//! rho/p for the cell density reference: the cell's own in the interior,
+//! continued linearly past a clamped wall (lane-c-notes.md)
 template <typename T>
 inline DISPATCH_MACRO T hydro_ref_x1_rop_smooth(
     T const* w, int ncells, int flat, int nc1, int i, int jlo, int jhi,
@@ -177,19 +162,10 @@ inline DISPATCH_MACRO void hydro_ref_x1_cell_impl(
   int ncells = ncolumns * nc1;
   int flat = column * nc1;
   int il = nc1 - 1 - iu;
-  // the six-face stencil never crosses a physical wall
-  // A one-sided row spans SIX faces, so on a block with fewer than five x1
-  // cells it reaches one face past the owned range -- at the OPPOSITE end from
-  // the wall it is protecting. That is a seam face, i.e. the neighbour's own
-  // data, and reading it is right; it is only unreadable when that end is a
-  // physical wall too, which means the whole column is under five cells.
+  // the six-face stencil never crosses a physical wall; a thin block may
+  // read one seam face at the far end (lane-c-notes.md)
   bool thin = (iu - il + 1) < 5;
-  // and the row has to FIT THE ARRAY. The inner row reads faces il..il+5, the
-  // outer iu-4..iu+1, and with nc1 == il + iu + 1 both fit exactly when
-  // iu >= 4. Below that the outer row's start goes negative -- and
-  // hydro_ref_x1_face saturates above nc1 but has no lower guard, so it would
-  // read before this column. nx1 >= 5 always satisfies it; a block thin enough
-  // to fail it has fewer cells than it has ghosts.
+  // the row must fit the array: iu >= 4 (lane-c-notes.md)
   bool fits = iu >= 4;
   bool wall_in = wall_clamp && phys_in && i >= il && i < il + 2;
   bool wall_out = wall_clamp && phys_out && i > iu - 2 && i <= iu;

@@ -58,7 +58,7 @@ because the cell pressure reference is bitwise the same either way. Raises if it
 does not converge. `wall_clamp` must be true and must match
 `dynamics/wb-wall-clamp` in the card that will run the result, so a card that
 turns the clamp off cannot use this primitive. See
-src/hydro/balance_column.hpp for the caller's two obligations (physical x1
+docs/derivations/lane-c-notes.md for the caller's two obligations (physical x1
 boundaries; >= 5 x1 cells per block). Under SNAP_X1_CENTROID_EXACT pass
 geometry='cartesian'; any other geometry is refused. On a stretched x1 grid
 key (#280) pass stretched=True (the coordinate's stretched_x1()), so the

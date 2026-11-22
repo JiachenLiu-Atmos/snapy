@@ -6,13 +6,8 @@
 // base
 #include <configure.h>
 
-// One definition of each reconstruction at one face, shared by the CPU line
-// loop (recon_dispatch.cpp) and the CUDA line kernel (recon_line.cuh). src
-// points at the first of the stencil's inputs, which are stride apart; c holds
-// the scheme's coefficient rows. With scale, the stencil is divided by its
-// mean absolute value before the nonlinear weights and multiplied back after;
-// a stencil of zeros gives 0. Every constant is typed T (V3 C9), so a float
-// instantiation computes in FP32 throughout; FP64 is unchanged.
+// One definition of each reconstruction at one face, for the CPU and CUDA
+// line loops; constants typed T (V3 C9). See lane-c-notes.md.
 
 #define SNAP_SQR(x) ((x) * (x))
 

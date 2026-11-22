@@ -10,7 +10,7 @@
 
 #include <snap/utils/on_host.hpp>
 
-#include "riemann_dispatch.hpp"
+#include "riemann.hpp"
 #include "riemann_kernels.h"
 
 namespace snap {

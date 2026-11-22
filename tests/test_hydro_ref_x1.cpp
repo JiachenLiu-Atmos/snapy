@@ -17,7 +17,7 @@
 #include <snap/snap.h>
 
 #include <snap/hydro/hydro_dispatch.hpp>
-#include <snap/hydro/hydro_reference.hpp>
+#include <snap/recon/x1_reference.hpp>
 #include <snap/recon/x1_rows.hpp>
 
 namespace {

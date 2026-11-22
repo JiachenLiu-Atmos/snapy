@@ -7,7 +7,7 @@
 // snap
 #include <snap/utils/loops.cuh>
 
-#include "riemann_dispatch.hpp"
+#include "riemann.hpp"
 #include "riemann_kernels.h"
 
 namespace snap {

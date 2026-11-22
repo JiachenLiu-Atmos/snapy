@@ -15,13 +15,8 @@
 
 namespace snap {
 
-// One launcher for every stencil scheme: a line that fits one CUDA block (1024
-// threads, the block limit) keeps the one-block kernel, split into launches of
-// at most `per` variables when their shared memory does not fit; a longer line
-// is walked in tiles (recon_line_tiled). Uniform: the table goes to shared
-// memory. Nu: the per-face rows stay in global memory, indexed by face, so
-// each part reads the same rows. Every output is the same point function
-// either way.
+// One launcher for every stencil scheme: one block per line, or tiles
+// for a long line (lane-c-notes.md)
 template <Scheme S, bool Nu>
 void recon_line_cuda(at::TensorIterator& iter, at::Tensor rows, int dim,
                      bool scale, char const* what) {
@@ -91,8 +86,7 @@ void call_recon_cuda(at::TensorIterator& iter, at::Tensor rows, int dim,
                      int scheme, bool scale, int64_t row_stride) {
   switch (static_cast<Scheme>(scheme)) {
     case Scheme::cp3:
-      return recon_line_cuda<Scheme::cp3, false>(iter, rows, dim, false,
-                                                 "cp3");
+      return recon_line_cuda<Scheme::cp3, false>(iter, rows, dim, false, "cp3");
     case Scheme::weno3:
       return recon_line_cuda<Scheme::weno3, false>(iter, rows, dim, scale,
                                                    "weno3");
@@ -101,8 +95,7 @@ void call_recon_cuda(at::TensorIterator& iter, at::Tensor rows, int dim,
         return recon_line_cuda<Scheme::cp5, true>(iter, rows, dim, false,
                                                   "poly5_nu");
       }
-      return recon_line_cuda<Scheme::cp5, false>(iter, rows, dim, false,
-                                                 "cp5");
+      return recon_line_cuda<Scheme::cp5, false>(iter, rows, dim, false, "cp5");
     case Scheme::weno5:
       if (row_stride) {
         return recon_line_cuda<Scheme::weno5, true>(iter, rows, dim, scale,
