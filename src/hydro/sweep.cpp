@@ -11,6 +11,15 @@
 
 namespace snap {
 
+// the static face gauge: the mean pressure0 of the two cells beside each face
+// along `axis` (the first face repeats the first cell)
+static torch::Tensor static_face_gauge(torch::Tensor const& p0, int axis) {
+  int n = p0.size(axis);
+  auto below =
+      torch::cat({p0.narrow(axis, 0, 1), p0.narrow(axis, 0, n - 1)}, axis);
+  return 0.5 * (p0 + below);
+}
+
 void post_face_floors(ReconstructImpl const& recon, RegisterMonitor& monitor) {
   if (!recon.floored.defined()) return;
   monitor.count("face_floor.rho", recon.floored[0]);
@@ -56,12 +65,7 @@ torch::Tensor reconstruct_faces(HydroImpl& hydro, FaceDir const& dir,
   bool active_horizontal = (dim == DIM2 && !hydro.options->disable_flux_x2()) ||
                            (dim == DIM3 && !hydro.options->disable_flux_x3());
   if (active_horizontal && !hydro.flux_covariance()) {
-    int axis = dim - 1;
-    auto p0 = perturb->pressure0;
-    int n = p0.size(axis);
-    auto below =
-        torch::cat({p0.narrow(axis, 0, 1), p0.narrow(axis, 0, n - 1)}, axis);
-    background = 0.5 * (p0 + below);
+    background = static_face_gauge(perturb->pressure0, dim - 1);
     auto pressure = lr.select(1, IPR).to(torch::kFloat64);
     pressure += gauge;
     monitor.count(
@@ -115,12 +119,7 @@ void riemann_solve(HydroImpl& hydro, torch::Tensor lr, int dim,
     // be hydrostatic. Its full gradient is retained in the momentum source.
     // A static gauge keeps physical pressure increments in the Riemann
     // flux instead of moving them into a difference of large backgrounds.
-    int axis = dim - 1;
-    auto p0 = perturb->pressure0;
-    int n = p0.size(axis);
-    auto below =
-        torch::cat({p0.narrow(axis, 0, 1), p0.narrow(axis, 0, n - 1)}, axis);
-    background = 0.5 * (p0 + below);
+    background = static_face_gauge(perturb->pressure0, dim - 1);
     lr = lr.clone();
     lr[ILT][IPR] -= background;
     lr[IRT][IPR] -= background;
