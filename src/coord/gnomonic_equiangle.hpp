@@ -10,7 +10,6 @@ class GnomonicEquiangleImpl
       public CoordinateImpl {
  public:
   // geometry data
-  torch::Tensor sine_cell_kj, sine_face2_kj, sine_face3_kj;
   torch::Tensor x_ov_rD_kji, y_ov_rC_kji;
   torch::Tensor dx2f_ang_kj, dx3f_ang_kj;
   torch::Tensor dx2f_ang_face3_kj, dx3f_ang_face2_kj;

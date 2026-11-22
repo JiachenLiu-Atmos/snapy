@@ -166,6 +166,8 @@ class CoordinateImpl {
 
   //! data
   torch::Tensor cosine_cell_kj, cosine_face2_kj, cosine_face3_kj;
+  //! the exact sines of the same angles (ones for orthogonal types)
+  torch::Tensor sine_cell_kj, sine_face2_kj, sine_face3_kj;
 
   //! options with which this `Coordinate` was constructed
   CoordinateOptions options;

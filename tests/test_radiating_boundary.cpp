@@ -106,6 +106,9 @@ TEST_P(DeviceTest, radiating_background_and_coordinate_roundtrip) {
       torch::linspace(-0.6, 0.6, 14, b->pcoord->x1v.options())
           .view({1, 14, 1})
           .expand({14, 14, 1}));
+  // the sine is stored next to the cosine (G4): set the matching one
+  b->pcoord->sine_cell_kj.copy_(
+      (1. - b->pcoord->cosine_cell_kj.square()).sqrt());
   auto ref = background(b);
   ref[IDN].mul_(torch::linspace(0.8, 1.2, 14, ref.options()));
   ref[IPR].mul_(torch::linspace(1.3, 0.7, 14, ref.options()));

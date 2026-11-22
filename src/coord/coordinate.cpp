@@ -717,7 +717,7 @@ void CoordinateImpl::boundary_velocity_(torch::Tensor const& w, int axis,
                                         bool inverse) const {
   TORCH_CHECK(axis >= 1 && axis <= 3, "Invalid boundary axis");
   auto c = cosine_cell_kj;
-  auto s = (1. - c.square()).sqrt();
+  auto s = sine_cell_kj;
   // g22 = g33 = 1 and g23 = c, so |v|^2 = vx^2 + vy^2 + vz^2 + 2*c*vy*vz.
   // On x2/x3 the unmixed tangential component has unit scale, not s.
   // The only nonorthogonal metric is g23. Velocities in orthogonal

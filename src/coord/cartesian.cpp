@@ -13,6 +13,9 @@ void CartesianImpl::reset() {
   cosine_cell_kj = register_buffer("cosine_cell_kj", cc);
   cosine_face2_kj = register_buffer("cosine_face2_kj", c2);
   cosine_face3_kj = register_buffer("cosine_face3_kj", c3);
+  sine_cell_kj = register_buffer("sine_cell_kj", torch::ones_like(cc));
+  sine_face2_kj = register_buffer("sine_face2_kj", torch::ones_like(c2));
+  sine_face3_kj = register_buffer("sine_face3_kj", torch::ones_like(c3));
 
   // dimension 1
   auto [df, xv, dv] = x1_metrics_();
