@@ -1035,11 +1035,13 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     auto area1 = pmb->pcoord->face_area1();
     auto volume = pmb->pcoord->cell_volume();
     auto phi_cell = -grav1 * pmb->pcoord->x1v;
-    auto vertical_mass_div =
-        (area1.slice(-1, is + 1, ie + 1) *
-             vertical_mass_flux1.slice(-1, is + 1, ie + 1) -
-         area1.slice(-1, is, ie) * vertical_mass_flux1.slice(-1, is, ie)) /
-        volume.slice(-1, is, ie);
+    // the x1 term of CoordinateImpl::divergence over the interior cells
+    auto x1div = [&](torch::Tensor const& f) {
+      return (area1.slice(-1, is + 1, ie + 1) * f.slice(-1, is + 1, ie + 1) -
+              area1.slice(-1, is, ie) * f.slice(-1, is, ie)) /
+             volume.slice(-1, is, ie);
+    };
+    auto vertical_mass_div = x1div(vertical_mass_flux1);
     torch::Tensor face_gravity_work;
     if (pmb->pcoord->options->type() == "cartesian") {
       auto face_mass = area1.narrow(-1, 0, vertical_mass_flux1.size(-1)) *
@@ -1052,11 +1054,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       auto potential_flux1 =
           vertical_mass_flux1 *
           phi_face.narrow(0, 0, vertical_mass_flux1.size(-1));
-      auto potential_flux_div =
-          (area1.slice(-1, is + 1, ie + 1) *
-               potential_flux1.slice(-1, is + 1, ie + 1) -
-           area1.slice(-1, is, ie) * potential_flux1.slice(-1, is, ie)) /
-          volume.slice(-1, is, ie);
+      auto potential_flux_div = x1div(potential_flux1);
       face_gravity_work = dt * (phi_cell.slice(0, is, ie) * vertical_mass_div -
                                 potential_flux_div);
     }
