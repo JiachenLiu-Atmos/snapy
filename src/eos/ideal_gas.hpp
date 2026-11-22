@@ -16,7 +16,6 @@ class IdealGasImpl final : public torch::nn::Cloneable<IdealGasImpl>,
     reset();
   }
   void reset() override;
-  // void pretty_print(std::ostream& os) const override;
   using EquationOfStateImpl::forward;
 
   int nvar() const override { return 5; }
@@ -24,10 +23,6 @@ class IdealGasImpl final : public torch::nn::Cloneable<IdealGasImpl>,
   double species_cv_ref(int n = 0) const override;
   torch::Tensor specific_heat_cv(torch::Tensor prim,
                                  torch::Tensor temp) override;
-
-  /*torch::Tensor get_buffer(std::string var) const override {
-    return named_buffers()[var];
-  }*/
 
   //! \brief Implementation of ideal gas equation of state.
   torch::Tensor compute(std::string ab,

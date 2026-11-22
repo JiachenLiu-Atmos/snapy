@@ -151,8 +151,6 @@ class EquationOfStateImpl {
   virtual torch::Tensor compute(std::string ab,
                                 std::vector<torch::Tensor> const& args = {});
 
-  // virtual torch::Tensor get_buffer(std::string) const;
-
   torch::Tensor forward(torch::Tensor cons,
                         torch::optional<torch::Tensor> out = torch::nullopt);
 

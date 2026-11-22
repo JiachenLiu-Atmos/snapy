@@ -19,16 +19,11 @@ class MoistMixtureImpl final : public torch::nn::Cloneable<MoistMixtureImpl>,
     reset();
   }
   void reset() override;
-  // void pretty_print(std::ostream& os) const override;
   using EquationOfStateImpl::forward;
 
   torch::Tensor specific_heat_cv(torch::Tensor prim,
                                  torch::Tensor temp) override;
   torch::Tensor species_enthalpy(torch::Tensor prim) override;
-
-  /*torch::Tensor get_buffer(std::string var) const override {
-    return named_buffers()[var];
-  }*/
 
   //! \brief Implementation of moist mixture equation of state.
   /*!

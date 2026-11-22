@@ -219,11 +219,6 @@ torch::Tensor EquationOfStateImpl::compute(
               "Please use this method in a derived class.");
 }
 
-/*torch::Tensor EquationOfStateImpl::get_buffer(std::string) const {
-  TORCH_CHECK(false, "[EquationOfState] get_buffer() is not implemented.",
-              "Please use this method in a derived class.");
-}*/
-
 bool EquationOfStateImpl::convert_(std::string const& ab,
                                    std::vector<torch::Tensor> const& args,
                                    torch::Tensor* out) {
@@ -300,12 +295,6 @@ void EquationOfStateImpl::apply_conserved_limiter_(torch::Tensor const& cons,
   auto before = mark ? dens_energy() : torch::Tensor();
   floor_row_(cons[IDN], options->density_floor(),
              anom ? ref[0] : torch::Tensor(), float_anomaly);
-
-  // for (int i = ICY; i < ICY + nvapor; ++i)
-  //   cons.index(interior)[i] = pull_neighbors3(cons.index(interior)[i]);
-  //  batched
-  // cons.index(interior).narrow(0, ICY, nvapor) =
-  //    pull_neighbors4(cons.index(interior).narrow(0, ICY, nvapor));
 
   int ny = 0;
   int nvapor = 0;

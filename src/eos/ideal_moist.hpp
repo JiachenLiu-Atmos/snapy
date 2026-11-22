@@ -24,7 +24,6 @@ class IdealMoistImpl final : public torch::nn::Cloneable<IdealMoistImpl>,
     reset();
   }
   void reset() override;
-  // void pretty_print(std::ostream& os) const override;
   using EquationOfStateImpl::forward;
 
   torch::Tensor specific_heat_cv(torch::Tensor prim,
@@ -46,10 +45,6 @@ class IdealMoistImpl final : public torch::nn::Cloneable<IdealMoistImpl>,
   void clear_heat_capacity_failure() {
     ef_status().clear(EfStatus::kHeatCapacity);
   }
-
-  /*torch::Tensor get_buffer(std::string var) const override {
-    return named_buffers()[var];
-  }*/
 
   //! \brief Implementation of ideal gas equation of state.
   torch::Tensor compute(std::string ab,

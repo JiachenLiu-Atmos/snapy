@@ -521,7 +521,6 @@ int CubedSphereLayoutImpl::neighbor_rank(
 
   if ((dx + lx <= 1) && (dx + lx >= -1)) {
     // do (dx,0) and then (0,dy)
-    // printf("lx = %d, ly = %d, dx = %d, dy = %d\n", lx, ly, dx, dy);
     int f1, x1, y1;
     _step_one(face, rx, ry, dx, 0, &f1, &x1, &y1);
 

@@ -16,14 +16,9 @@ class ShallowWaterImpl final : public torch::nn::Cloneable<ShallowWaterImpl>,
     reset();
   }
   void reset() override;
-  // void pretty_print(std::ostream& os) const override;
   using EquationOfStateImpl::forward;
 
   int nvar() const override { return 4; }
-
-  /*torch::Tensor get_buffer(std::string var) const override {
-    return named_buffers()[var];
-  }*/
 
   //! \brief Implementation of shallow water equation of state.
   torch::Tensor compute(std::string ab,
