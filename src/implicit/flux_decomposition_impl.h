@@ -8,8 +8,7 @@
 
 // snap
 #include <snap/snap.h>
-
-#define SQR(x) ((x) * (x))
+#include <snap/utils/sqr.h>
 
 namespace snap {
 
@@ -52,18 +51,18 @@ void DISPATCH_MACRO RoeAverage(T* prim, T gm1, T* wl, T* wr) {
 
   // Etot of the left side.
   T el = wl[IPR] / gm1 +
-         0.5 * wl[IDN] * (SQR(wl[IVX]) + SQR(wl[IVY]) + SQR(wl[IVZ]));
+         0.5 * wl[IDN] * (sqr(wl[IVX]) + sqr(wl[IVY]) + sqr(wl[IVZ]));
 
   // Etot of the right side.
   T er = wr[IPR] / gm1 +
-         0.5 * wr[IDN] * (SQR(wr[IVX]) + SQR(wr[IVY]) + SQR(wr[IVZ]));
+         0.5 * wr[IDN] * (sqr(wr[IVX]) + sqr(wr[IVY]) + sqr(wr[IVZ]));
 
   // Enthalpy divided by the density.
   T hbar = ((el + wl[IPR]) / sqrtdl + (er + wr[IPR]) / sqrtdr) * isdlpdr;
 
   // Roe averaged pressure
   prim[IPR] =
-      (hbar - 0.5 * (SQR(prim[IVX]) + SQR(prim[IVY]) + SQR(prim[IVZ]))) * gm1 /
+      (hbar - 0.5 * (sqr(prim[IVX]) + sqr(prim[IVY]) + sqr(prim[IVZ]))) * gm1 /
       (gm1 + 1.) * prim[IDN];
 }
 
@@ -126,5 +125,3 @@ void DISPATCH_MACRO FluxJacobian(Eigen::Matrix<T, 5, 5>& dfdq, T gm1, T* w,
 }
 
 }  // namespace snap
-
-#undef SQR
