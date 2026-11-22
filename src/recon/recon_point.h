@@ -60,6 +60,28 @@ DISPATCH_MACRO inline T poly_point(T const* src, int stride, T const* c) {
   return out;
 }
 
+//! the WENO weight epsilon
+template <typename T>
+DISPATCH_MACRO constexpr T weno_eps() {
+  return T(1e-6);
+}
+
+//! WENO's scale-invariant prologue: vscale = mean |src| over the N points
+//! (1 without scale), and phi = src / vscale unless vscale is 0
+template <int N, typename T>
+DISPATCH_MACRO inline T weno_scale(T const* src, int stride, bool scale,
+                                   T* phi) {
+  T vscale = T(1.0);
+  if (scale) {
+    T sum = std::fabs(src[0]);
+    for (int k = 1; k < N; ++k) sum += std::fabs(src[k * stride]);
+    vscale = sum / T(N);
+  }
+  if (vscale != T(0))
+    for (int k = 0; k < N; ++k) phi[k] = src[k * stride] / vscale;
+  return vscale;
+}
+
 //! WENO3: c = two candidate rows, then two smoothness rows (3 each)
 template <typename T>
 DISPATCH_MACRO inline T weno3_point(T const* src, int stride, T const* c,
@@ -68,17 +90,9 @@ DISPATCH_MACRO inline T weno3_point(T const* src, int stride, T const* c,
   T const* c2 = c1 + 3;
   T const* c3 = c2 + 3;
   T const* c4 = c3 + 3;
-  T vscale = scale ? (std::fabs(src[0]) + std::fabs(src[stride]) +
-                      std::fabs(src[2 * stride])) /
-                         T(3.0)
-                   : T(1.0);
-
-  if (vscale == T(0)) return T(0);
-
   T phi[3];
-  for (int k = 0; k < 3; ++k) {
-    phi[k] = src[k * stride] / vscale;
-  }
+  T vscale = weno_scale<3>(src, stride, scale, phi);
+  if (vscale == T(0)) return T(0);
 
   T p0 = _vvdot<3>(phi, c1);
   T p1 = _vvdot<3>(phi, c2);
@@ -86,8 +100,8 @@ DISPATCH_MACRO inline T weno3_point(T const* src, int stride, T const* c,
   T beta0 = sqr(_vvdot<3>(phi, c3));
   T beta1 = sqr(_vvdot<3>(phi, c4));
 
-  T alpha0 = T(2.0 / 3.0) / sqr(beta0 + T(1e-6));
-  T alpha1 = T(1.0 / 3.0) / sqr(beta1 + T(1e-6));
+  T alpha0 = T(2.0 / 3.0) / sqr(beta0 + weno_eps<T>());
+  T alpha1 = T(1.0 / 3.0) / sqr(beta1 + weno_eps<T>());
 
   return (alpha0 * p0 + alpha1 * p1) / (alpha0 + alpha1) * vscale;
 }
@@ -108,18 +122,9 @@ DISPATCH_MACRO inline T weno5_point(T const* src, int stride, T const* c,
   T const* c7 = c6 + 5;
   T const* c8 = c7 + 5;
   T const* c9 = c8 + 5;
-  T vscale = scale ? (std::fabs(src[0]) + std::fabs(src[stride]) +
-                      std::fabs(src[2 * stride]) + std::fabs(src[3 * stride]) +
-                      std::fabs(src[4 * stride])) /
-                         T(5.0)
-                   : T(1.0);
-
-  if (vscale == T(0)) return T(0);
-
   T phi[5];
-  for (int k = 0; k < 5; ++k) {
-    phi[k] = src[k * stride] / vscale;
-  }
+  T vscale = weno_scale<5>(src, stride, scale, phi);
+  if (vscale == T(0)) return T(0);
 
   T p0 = _vvdot<5>(phi, c1);
   T p1 = _vvdot<5>(phi, c2);
@@ -133,9 +138,9 @@ DISPATCH_MACRO inline T weno5_point(T const* src, int stride, T const* c,
       T(13. / 12.) * sqr(_vvdot<5>(phi, c8)) + T(.25) * sqr(_vvdot<5>(phi, c9));
 
   T const* d = c9 + 5;
-  T alpha0 = d[0] / sqr(beta0 + T(1e-6));
-  T alpha1 = d[1] / sqr(beta1 + T(1e-6));
-  T alpha2 = d[2] / sqr(beta2 + T(1e-6));
+  T alpha0 = d[0] / sqr(beta0 + weno_eps<T>());
+  T alpha1 = d[1] / sqr(beta1 + weno_eps<T>());
+  T alpha2 = d[2] / sqr(beta2 + weno_eps<T>());
 
   return vscale * (alpha0 * p0 + alpha1 * p1 + alpha2 * p2) /
          (alpha0 + alpha1 + alpha2);
