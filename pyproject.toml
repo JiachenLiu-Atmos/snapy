@@ -4,7 +4,7 @@ requires = [
   "setuptools-scm>=8",
   "wheel",
   "build",
-  "kintera>=2.6.11",
+  "kintera>=2.6.13",
   "commux>=0.1.4; platform_system == 'Linux'",
   "pinc>=0.2.0; platform_system == 'Linux'",
   "torch==2.10.0",
@@ -26,7 +26,7 @@ requires-python = ">=3.10"
 dependencies = [
   "numpy",
   "pyyaml",
-  "kintera>=2.6.11",
+  "kintera>=2.6.13",
   "commux>=0.1.4; platform_system == 'Linux'",
   "pinc>=0.2.0; platform_system == 'Linux'",
 ]

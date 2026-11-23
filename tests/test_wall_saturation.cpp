@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <kintera/constants.h>
 #include <torch/torch.h>
 
 #include <cmath>
@@ -29,7 +30,8 @@ TEST_P(WallSaturation, phase_change_preserves_energy_and_water) {
                        torch::dtype(torch::kFloat64).device(device));
       double q0 = condense ? 2.7e-3 : 0.005;
       double temp = condense ? 278.15 : 320.;
-      auto rgas = 8.31446 * ((1. - q0) / 0.0289700 + q0 / 0.01801528);
+      auto rgas =
+          kintera::constants::Rgas * ((1. - q0) / 0.0289700 + q0 / 0.01801528);
       w[IPR].fill_(1.e5);
       w[IDN].fill_(1.e5 / (rgas * temp));
       auto z = b->pcoord->x1v;

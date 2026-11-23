@@ -45,7 +45,7 @@ problem: {{Ps: {ps}, Ts: {ts}, Tmin: 1.}}
 """
 
 N, G, PS, TS = 64, 22.0, 1.0e7, 600.0
-RGAS = 8.31446  # kintera::constants::Rgas
+RGAS = 8.31446261815324  # kintera::constants::Rgas, exact SI since kintera 2.6.13
 
 
 def column(exe, workdir, q):

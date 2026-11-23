@@ -119,10 +119,12 @@ int main() {
   // and +7%, and the face densities next to them by 0.5-5%. With the
   // binomial-smoothed reference the sums were 99901.855127834307 and
   // 499161.89154918579 (and, with the vapour withheld, 99901.819827557352 and
-  // 493328.12156816921).
+  // 493328.12156816921). The energy sum is recorded with kintera 2.6.13's
+  // exact SI Rgas (8.31446261815324 J/mol/K); with 2.6.12's 8.31446 it was
+  // 342168.95387051086, while the momentum sum is unchanged to 1e-11.
   bool mixed_carry_correct =
       std::abs(seam_flux_momentum1 - 99901.762718125392) < 1.e-7 &&
-      std::abs(seam_flux_energy - 342168.95387051086) < 5.e-3;
+      std::abs(seam_flux_energy - 342168.69510693091) < 5.e-3;
   double mass_after = global_sum(layout, condensate_mass(block, vars[0]));
   bool conserved = std::abs(mass_after - mass_before) <= 1.e-12 * mass_before;
   double limiter_hits = global_sum(

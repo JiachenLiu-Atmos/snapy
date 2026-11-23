@@ -46,7 +46,7 @@ pkill -9 XXXXX
 - Python 3.9 or higher
 - PyTorch 2.10.x
 - NumPy
-- kintera >= 2.6.11
+- kintera >= 2.6.13
 
 ### Build from Source (Advanced)
 
@@ -62,7 +62,7 @@ Building from source is recommended only for advanced users who need to:
 - Autoconf, Automake, Libtool, and pkg-config on Linux (for fetched UCX)
 - PyTorch 2.10.x with C++ libraries
 - NetCDF C library
-- kintera >= 2.6.11
+- kintera >= 2.6.13
 
 **Build steps:**
 
@@ -74,14 +74,14 @@ cd snapy
 
 2. Install dependencies:
 ```bash
-pip install numpy "kintera>=2.6.11" torch==2.10.0
+pip install numpy "kintera>=2.6.13" torch==2.10.0
 ```
 
-Kintera 2.6.11 introduces the `compute_into` solves required by this
-branch. Until a compatible wheel is published, build and install tag `v2.6.11`
-from source before building snapy, using the commands in
-[V3_PROGRESS.md](V3_PROGRESS.md). CI builds the pinned source commit;
-package releases still require a compatible published or preinstalled dependency.
+Kintera 2.6.11 introduced the `compute_into` solves required by this
+branch; 2.6.13 is the floor because the recorded test references use its
+exact SI gas constant (8.31446261815324 J/mol/K). The 2.6.13 wheel is on
+PyPI and is what CI installs; to build it from source instead, install tag
+`v2.6.13` of [chengcli/kintera](https://github.com/chengcli/kintera) first.
 
 3. Install NetCDF:
    - **Linux (Ubuntu/Debian):**
