@@ -297,6 +297,13 @@ struct CutCapture {
   }
 };
 thread_local CutCapture* g_cut = nullptr;
+// a cut's host step is running on this thread (capture or replay)
+thread_local bool g_in_cut_host = false;
+struct CutHostScope {
+  bool prev;
+  CutHostScope() : prev(g_in_cut_host) { g_in_cut_host = true; }
+  ~CutHostScope() { g_in_cut_host = prev; }
+};
 
 // sets g_cut for a scope, restored by an exception too
 struct CutScope {
@@ -317,6 +324,7 @@ void exchange_cut(std::function<void()> host) {
   c->close();
   c->in_host = true;
   try {
+    CutHostScope host_step;
     host();
   } catch (...) {
     c->in_host = false;
@@ -327,6 +335,80 @@ void exchange_cut(std::function<void()> host) {
   c->begin();
 #else
   host();
+#endif
+}
+
+bool in_cut_host_step() {
+#ifdef USE_CUDA
+  return g_in_cut_host;
+#else
+  return false;
+#endif
+}
+
+#ifdef USE_CUDA
+//! a rendezvous's seam-copy graphs, one per signature: two exchanges can
+//! share a rendezvous (the same sync options, other variables, e.g. the
+//! positivity limiter's theta and species syncs) and take turns
+struct SeamCopies {
+  std::map<std::vector<int64_t>, GraphPtr> graphs;
+};
+#else
+struct SeamCopies {};
+#endif
+
+namespace {
+// the process's seam-copy graphs: captured, replayed (execution_report)
+std::atomic<int64_t> g_seam_captures{0}, g_seam_replays{0};
+// past this many signatures a rendezvous's addresses keep moving: its old
+// graphs are dropped
+constexpr size_t kMaxSeamGraphs = 16;
+}  // namespace
+
+void run_seam_copies(std::shared_ptr<SeamCopies>& cache,
+                     std::vector<int64_t> const& signature,
+                     std::function<void()> const& copies) {
+#ifdef USE_CUDA
+  if (!g_in_cut_host) {
+    copies();
+    return;
+  }
+  if (!cache) cache = std::make_shared<SeamCopies>();
+  auto it = cache->graphs.find(signature);
+  if (it == cache->graphs.end()) {
+    // dropped graphs are destroyed at the end of this block, outside the
+    // graph lock (their deleter takes it)
+    std::map<std::vector<int64_t>, GraphPtr> dropped;
+    if (cache->graphs.size() >= kMaxSeamGraphs) dropped.swap(cache->graphs);
+    GraphPtr g;
+    {
+      std::lock_guard<std::mutex> lock(g_graph_mutex);
+      g.reset(new at::cuda::CUDAGraph());
+      // its own pool: the copies allocate nothing
+      g->capture_begin(at::cuda::graph_pool_handle(),
+                       cudaStreamCaptureModeThreadLocal);
+      try {
+        copies();
+      } catch (...) {
+        try {
+          g->capture_end();
+        } catch (...) {
+        }
+        g.release();  // leaked on this error path, as a failed stage capture
+        throw;
+      }
+      g->capture_end();
+    }
+    it = cache->graphs.emplace(signature, std::move(g)).first;
+    ++g_seam_captures;
+  }
+  {
+    std::lock_guard<std::mutex> lock(g_graph_mutex);
+    it->second->replay();
+  }
+  ++g_seam_replays;
+#else
+  copies();
 #endif
 }
 
@@ -836,6 +918,7 @@ void StageExecutor::replay(int block, int segment, Variables& vars, double dt,
       std::lock_guard<std::mutex> lock(g_graph_mutex);
       step.graph->replay();
     } else {  // a cut's host step: the exchange's rendezvous or communicator
+      CutHostScope host_step;
       step.host();
     }
   }
@@ -874,6 +957,9 @@ std::map<std::string, int64_t> StageExecutor::report() const {
           {"host", _host.load()},
           {"graphs", ngraphs},
           {"cuts", ncuts},
+          // the same-process seam copies' graphs, process-wide (B3)
+          {"seam_captures", g_seam_captures.load()},
+          {"seam_replays", g_seam_replays.load()},
           {"pools", static_cast<int64_t>(std::count_if(
                         _pools.begin(), _pools.end(), [](auto const& p) {
                           return p != std::pair<uint64_t, uint64_t>{0, 0};

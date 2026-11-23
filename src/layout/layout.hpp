@@ -13,6 +13,8 @@
 // snap
 #include <snap/snap.h>
 
+#include <snap/mesh/exchange_cut.hpp>
+
 #include "connectivity.hpp"
 #include "process_group.hpp"
 
@@ -358,8 +360,11 @@ class LayoutImpl {
   virtual std::tuple<int, int, int> _peer_exchange_offset(
       int peer_rank, int target_rank, SyncOptions const& opts,
       std::tuple<int, int, int> offset) const;
+  //! the same-process seam copies of a rendezvous; `cache` is its copy
+  //! graph (B3: replayed inside a cut's host step, run_seam_copies)
   virtual void _copy_local_exchange_buffers(
-      std::vector<LayoutImpl*> const& layouts, SyncOptions const& opts) const;
+      std::vector<LayoutImpl*> const& layouts, SyncOptions const& opts,
+      std::shared_ptr<SeamCopies>& cache) const;
   //! The exchange skips this direction before asking for a neighbour: a
   //! physical boundary of the block.
   virtual bool _skips_direction(MeshBlockImpl const* pmb,

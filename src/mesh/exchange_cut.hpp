@@ -1,7 +1,10 @@
 #pragma once
 
 // C/C++
+#include <cstdint>
 #include <functional>
+#include <memory>
+#include <vector>
 
 namespace snap {
 
@@ -33,5 +36,19 @@ bool in_segment_capture();
 //! throws when called inside a segment capture: `what` is a cross-block
 //! exchange that has no cut yet
 void refuse_in_segment_capture(char const* what);
+
+//! true while a cut's host step runs, at its capture or at a replay
+bool in_cut_host_step();
+
+//! V3 B3: a rendezvous's same-process seam copies as a CUDA graph. Inside a
+//! cut's host step, `copies` (device copies between fixed buffers, nothing
+//! else) is captured once into `cache` and replayed while `signature` (the
+//! buffers' addresses and sizes) holds, recaptured when it moves; anywhere
+//! else it runs eagerly. `cache` belongs to the rendezvous (one per
+//! exchange), whose last block to arrive runs it on its stream
+struct SeamCopies;
+void run_seam_copies(std::shared_ptr<SeamCopies>& cache,
+                     std::vector<int64_t> const& signature,
+                     std::function<void()> const& copies);
 
 }  // namespace snap

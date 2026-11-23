@@ -85,6 +85,8 @@ struct LocalExchangeState {
   std::vector<std::shared_ptr<at::cuda::CUDAEvent>> arrival_events;
   std::shared_ptr<at::cuda::CUDAEvent> completion_event;
 #endif
+  //! the seam copies as a graph (B3), used inside a cut's host step
+  std::shared_ptr<SeamCopies> seam_copies;
 };
 
 struct RemoteExchangeOp {
@@ -369,7 +371,7 @@ void LayoutImpl::_prepare_local_exchange(MeshBlockImpl const* pmb,
         }
       }
 #endif
-      _copy_local_exchange_buffers(layouts, opts);
+      _copy_local_exchange_buffers(layouts, opts, state.seam_copies);
 #ifdef USE_CUDA
       if (current_stream && completion_event) {
         completion_event->record(*current_stream);
@@ -458,7 +460,12 @@ std::tuple<int, int, int> LayoutImpl::_peer_exchange_offset(
 }
 
 void LayoutImpl::_copy_local_exchange_buffers(
-    std::vector<LayoutImpl*> const& layouts, SyncOptions const& opts) const {
+    std::vector<LayoutImpl*> const& layouts, SyncOptions const& opts,
+    std::shared_ptr<SeamCopies>& cache) const {
+  // (receiving view, sending buffer) pairs, checked, then copied: eagerly,
+  // or as the rendezvous's copy graph inside a cut's host step (B3)
+  std::vector<std::pair<torch::Tensor, torch::Tensor>> pairs;
+  std::vector<int64_t> signature;
   for (auto* layout : layouts) {
     auto rank = layout->options->rank();
     auto iloc = layout->loc_of(rank);
@@ -499,11 +506,19 @@ void LayoutImpl::_copy_local_exchange_buffers(
             std::get<2>(peer_offset),
             ") send_shape=", send_bufs[bid][n].sizes(),
             " recv_shape=", peer_recv_bufs[peer_bid][n].sizes());
-        peer_recv_bufs[peer_bid][n].view({-1}).copy_(
-            send_bufs[bid][n].reshape({-1}));
+        pairs.emplace_back(peer_recv_bufs[peer_bid][n].view({-1}),
+                           send_bufs[bid][n].reshape({-1}));
       }
     });
   }
+  for (auto const& [dst, src] : pairs) {
+    signature.push_back(reinterpret_cast<int64_t>(dst.data_ptr()));
+    signature.push_back(reinterpret_cast<int64_t>(src.data_ptr()));
+    signature.push_back(dst.numel());
+  }
+  run_seam_copies(cache, signature, [&pairs]() {
+    for (auto& [dst, src] : pairs) dst.copy_(src);
+  });
 }
 
 void LayoutImpl::serialize(MeshBlockImpl const* pmb, Variables& vars,
