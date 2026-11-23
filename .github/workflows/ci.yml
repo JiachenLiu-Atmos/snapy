@@ -75,28 +75,11 @@ jobs:
               > "$(python -c 'import site; print(site.getsitepackages()[0])')/sitecustomize.py"
           fi
 
-      - name: Install kintera 2.6.11
-        if: runner.os == 'Linux'
-        run: pip install 'kintera>=2.6.11'
-
-      # The kintera 2.6.11 macOS wheel fails snapy's MPS column cases
-      # (DispatchStub.cpp:276); a source build against the installed torch passes.
-      - name: Check out kintera
-        if: runner.os == 'macOS'
-        uses: actions/checkout@v4
-        with:
-          repository: chengcli/kintera
-          ref: 431fd1441fdc95c2bc93f7dc56e35adb1e1315fb
-          fetch-depth: 0
-          path: .ci-kintera
-
-      - name: Build and install kintera 2.6.11
-        if: runner.os == 'macOS'
-        working-directory: .ci-kintera
-        run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DBUILD_TESTS=OFF
-          cmake --build build --parallel 3
-          pip install --no-build-isolation --no-deps .
+      # 2.6.12 prepares the moist column's thermo state on MPS (kintera #158);
+      # 2.6.11 asserts in PyTorch's dispatcher at the step-start prepare() that
+      # S-K2 added, which is what the MPS column cases hit.
+      - name: Install kintera 2.6.12
+        run: pip install 'kintera>=2.6.12'
 
       - name: Install commux UCX backend
         if: runner.os == 'Linux'
@@ -171,8 +154,8 @@ jobs:
           sudo apt-get install -y libnetcdf-dev libucx-dev nco autoconf automake libtool pkg-config
           pip install 'commux>=0.1.4' 'pinc>=0.2.0'
 
-      - name: Install kintera 2.6.11
-        run: pip install 'kintera>=2.6.11'
+      - name: Install kintera 2.6.12
+        run: pip install 'kintera>=2.6.12'
 
       - name: Configure CMake
         run: |
