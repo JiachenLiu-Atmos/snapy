@@ -3,6 +3,9 @@
 // torch
 #include <torch/torch.h>
 
+// snap
+#include <snap/utils/step_dt.hpp>
+
 namespace snap {
 
 class HydroImpl;
@@ -31,7 +34,7 @@ class X1Momentum {
   //! (the x1 flux is off) phi = mc / dt (mc: the implicit transfer, may be
   //! undefined); then m1 into row IVX of wc2 = (1, m1, 0, 0); returns wc2
   torch::Tensor const& after_solve(torch::Tensor const& flux1, int ny,
-                                   torch::Tensor const& mc, double dt);
+                                   torch::Tensor const& mc, StepDt dt);
   //! m1 of the last after_solve, x1 ghosts 0
   torch::Tensor m1() const;
 

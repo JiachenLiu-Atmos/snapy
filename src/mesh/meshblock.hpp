@@ -4,6 +4,7 @@
 #include <array>
 #include <map>
 #include <string>
+#include <tuple>
 #include <vector>
 
 // torch
@@ -168,6 +169,14 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! Exchange buffers owned by the MeshBlock so Layout stays stateless.
   mutable std::vector<std::vector<torch::Tensor>> send_bufs, recv_bufs;
   mutable std::map<std::string, ExchangeBufferSet> exchange_buffer_cache;
+  //! V3 B3: fixed buffers of the block-to-block messages that are not a ghost
+  //! exchange (the cubed-sphere panel seams' register rows), keyed (tag,
+  //! side, 0 send / 1 receive): a captured segment's graphs read and write
+  //! them across a cut, so they outlive the capture
+  mutable std::map<std::tuple<int, int, int>, torch::Tensor> board_buffers;
+  //! the buffer at `key`, reallocated only when it does not match `like`
+  torch::Tensor board_buffer(std::tuple<int, int, int> key,
+                             torch::Tensor const& like) const;
 
   //! submodules
   harp::Integrator pintg = nullptr;

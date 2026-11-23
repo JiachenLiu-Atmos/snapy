@@ -14,6 +14,7 @@
 #include <torch/nn/modules/common.h>
 
 // snap
+#include <snap/utils/step_dt.hpp>
 #include <snap/utils/tensor_cast_cache.hpp>
 
 // arg
@@ -399,9 +400,10 @@ class CoordinateImpl {
   virtual torch::Tensor curl(torch::Tensor velocity) const;
 
   //! metric source terms that carry rho v1 (-u w / r), evaluated by Hydro
-  //! with m1 = rho v1 from the stage's x1 mass transfers; none by default
+  //! with m1 = rho v1 from the stage's x1 mass transfers; none by default.
+  //! dt is the stage's StepDt: the executor's device dt in a captured stage
   virtual void x1_mass_source_(torch::Tensor du, torch::Tensor const& prim,
-                               torch::Tensor const& m1, double dt) const {}
+                               torch::Tensor const& m1, StepDt dt) const {}
 
   virtual torch::Tensor forward(torch::Tensor prim, torch::Tensor flux1,
                                 torch::Tensor flux2, torch::Tensor flux3,

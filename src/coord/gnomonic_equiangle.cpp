@@ -523,13 +523,14 @@ torch::Tensor GnomonicEquiangleImpl::forward(torch::Tensor prim,
 void GnomonicEquiangleImpl::x1_mass_source_(torch::Tensor du,
                                             torch::Tensor const& prim,
                                             torch::Tensor const& m1,
-                                            double dt) const {
+                                            StepDt dt) const {
   // du[v_i] -= dt m1 v_i / r with the covariant v_2 = v2 + c v3, v_3 = v3 + c
-  // v2
+  // v2. (-dt m1 / r) first, as addcmul_(mr, v, -dt) forms (-dt mr) v: the
+  // same bits with a host dt, and a device dt (V3 B3) is read on the device
   auto c = cosine_cell_kj;
-  auto mr = m1 / x1v.unsqueeze(0).unsqueeze(1);
-  du[IVY].addcmul_(mr, torch::addcmul(prim[IVY], prim[IVZ], c), -dt);
-  du[IVZ].addcmul_(mr, torch::addcmul(prim[IVZ], prim[IVY], c), -dt);
+  auto mdt = (-dt) * (m1 / x1v.unsqueeze(0).unsqueeze(1));
+  du[IVY].addcmul_(mdt, torch::addcmul(prim[IVY], prim[IVZ], c));
+  du[IVZ].addcmul_(mdt, torch::addcmul(prim[IVZ], prim[IVY], c));
 }
 
 torch::Tensor GnomonicEquiangleImpl::_interp_ghost(torch::Tensor buf,

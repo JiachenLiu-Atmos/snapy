@@ -58,6 +58,13 @@ void MeshBlockImpl::_exchange_once(Variables &vars,
   finalize_exchange(vars, opts, works);
 }
 
+torch::Tensor MeshBlockImpl::board_buffer(std::tuple<int, int, int> key,
+                                          torch::Tensor const &like) const {
+  auto &buf = board_buffers[key];
+  if (!buffer_matches(buf, like)) buf = torch::empty_like(like);
+  return buf;
+}
+
 void MeshBlockImpl::begin_exchange(Variables &vars,
                                    SyncOptions const &opts) const {
   // the pack: device copies into the cached send buffers (captured in a

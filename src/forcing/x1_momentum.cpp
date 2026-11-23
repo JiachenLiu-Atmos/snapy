@@ -47,7 +47,7 @@ torch::Tensor const& X1Momentum::before_solve(torch::Tensor const& w) {
 
 torch::Tensor const& X1Momentum::after_solve(torch::Tensor const& flux1, int ny,
                                              torch::Tensor const& mc,
-                                             double dt) {
+                                             StepDt dt) {
   auto pc = hydro_->pmb->pcoord;
   int is = pc->il(), ie = pc->iu() + 1;
   // phi: mass transfer rate through face i (below i), explicit flux plus
@@ -61,7 +61,9 @@ torch::Tensor const& X1Momentum::after_solve(torch::Tensor const& flux1, int ny,
     torch::mul_out(phi_, area_.narrow(-1, 0, f1.size(-1)), f1);
   } else {  // the x1 flux is off: the solve posts nothing (hydro.cpp)
     phi_.zero_();
-    if (mc.defined() && mc.numel() > 0) phi_.add_(mc[IVZ], 1. / dt);
+    // a host read: the x1 flux is off only with an implicit solve, a case
+    // the stage executor refuses
+    if (mc.defined() && mc.numel() > 0) phi_.add_(mc[IVZ], 1. / dt.value());
   }
   // m1 lives in row IVX of the Coriolis input wc2 = (1, m1, 0, 0), x1
   // ghosts stay 0: only the rows driven by rho w are added here, the

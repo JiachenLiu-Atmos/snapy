@@ -413,8 +413,13 @@ std::vector<std::string> StageExecutor::capture_reasons(
   auto it = vars.find("hydro_u");
   if (it == vars.end() || !it->second.defined() || !it->second.is_cuda())
     why.push_back("the state is not on a CUDA device");
-  if (op->coord()->type() != "cartesian")
-    why.push_back("geometry is " + op->coord()->type() + ", not cartesian");
+  // B3: the cubed sphere (gnomonic-equiangle panels of a cubed-sphere
+  // layout): its in-stage panel-seam exchanges are cuts
+  bool cubed_sphere = op->coord()->type() == "gnomonic-equiangle" &&
+                      pmb->_playout->options->type() == "cubed-sphere";
+  if (op->coord()->type() != "cartesian" && !cubed_sphere)
+    why.push_back("geometry is " + op->coord()->type() +
+                  ", not cartesian or a cubed sphere");
   if (hydro->eos()->limiter()) why.push_back("the EOS limiter is on");
   if (hydro->eos()->type() != "ideal-moist")
     why.push_back("equation of state is " + hydro->eos()->type() +
