@@ -228,6 +228,16 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! the same with a StepDt: a captured stage passes the executor's device
   //! dt (V3 D), which its kernels read at every replay
   void advance_stage(Variables& vars, StepDt dt, int stage);
+  //! advance_stage in its slots (A3a): the stage through the combine, the
+  //! limiter, the scalar slot and the solid fill; then the last stage's
+  //! saturation adjustment, the bare block's chemistry step and the physical
+  //! boundaries. advance_stage runs the four in this order. Each takes the
+  //! StepDt; a slot that needs the host dt reads dt.value(), which throws on
+  //! the device dt of a capture.
+  void advance_core(Variables& vars, StepDt dt, int stage);
+  void stage_saturation(Variables& vars, StepDt dt, int stage);
+  void stage_chemistry(Variables& vars, StepDt dt, int stage);
+  void stage_boundaries(Variables& vars, StepDt dt, int stage);
 
   //! V3 S-K4 (K.rst 3.6): the chemistry step after the last stage, from a
   //! by-value copy of the reaction options; one adapter for this block,

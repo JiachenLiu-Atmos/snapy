@@ -27,11 +27,11 @@ using namespace snap;
 
 // V3 A2/A3a: a block's stage is a schedule of ops in segments: the stage-entry
 // exchange is a host-exchange segment (eager by design, a boundary), then
-// advance_local, captured as one graph per (block, stage, segment).
-// advance_local's dt reads (the RK combine's w2 dt and
-// FluxRegister::end_stage(dt)) take the block's device dt (V3 D), so the
-// segment keeps no dt in its key: a new dt replays. The result equals eager
-// bitwise.
+// advance_local in its slots (advance, saturation, chemistry, boundaries),
+// captured as one graph per (block, stage, segment). Their dt reads (the RK
+// combine's w2 dt and FluxRegister::end_stage(dt)) take the block's device dt
+// (V3 D), so the segment keeps no dt in its key: a new dt replays. The result
+// equals eager bitwise.
 namespace {
 
 std::string deck(char const* execution, bool strict) {
@@ -119,7 +119,8 @@ TEST(StageSegments, exchange_is_a_host_segment_then_one_graph) {
   EXPECT_FALSE(ex.capturable);
   EXPECT_FALSE(ex.reads_host_dt);
   auto const& seg = sched.segments()[1];
-  EXPECT_EQ(seg.names, (std::vector<std::string>{"advance_local"}));
+  EXPECT_EQ(seg.names, (std::vector<std::string>{"advance", "saturation",
+                                                 "chemistry", "boundaries"}));
   EXPECT_EQ(seg.kind, SegmentKind::compute);
   EXPECT_TRUE(seg.capturable);
   EXPECT_FALSE(seg.reads_host_dt)
@@ -148,8 +149,8 @@ TEST(StageSegments, strict_names_the_eager_segment) {
   } catch (c10::Error const& e) {
     std::string msg = e.what();
     EXPECT_NE(msg.find("cannot run as a CUDA graph"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("segment 1 (advance_local) of block 0, "
-                       "stage 0 runs eager"),
+    EXPECT_NE(msg.find("segment 1 (advance, saturation, chemistry, "
+                       "boundaries) of block 0, stage 0 runs eager"),
               std::string::npos)
         << msg;
     EXPECT_NE(msg.find("not on a CUDA device"), std::string::npos) << msg;

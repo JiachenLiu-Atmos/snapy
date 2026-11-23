@@ -107,7 +107,7 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   advance_stage(vars, dt, stage);
 }
 
-void MeshBlockImpl::advance_stage(Variables &vars, StepDt dt, int stage) {
+void MeshBlockImpl::advance_core(Variables &vars, StepDt dt, int stage) {
   TORCH_CHECK(stage >= 0 && stage < pintg->stages.size(),
               "Invalid stage: ", stage);
   DeferVaporCheck defer(phydro->peos.get());
@@ -300,6 +300,19 @@ void MeshBlockImpl::advance_stage(Variables &vars, StepDt dt, int stage) {
     pib->fill_cons_solid_(hydro_u, vars.at("solid"),
                           vars.at("fill_solid_hydro_u"));
   }
+}
+
+void MeshBlockImpl::advance_stage(Variables &vars, StepDt dt, int stage) {
+  advance_core(vars, dt, stage);
+  stage_saturation(vars, dt, stage);
+  stage_chemistry(vars, dt, stage);
+  stage_boundaries(vars, dt, stage);
+}
+
+void MeshBlockImpl::stage_saturation(Variables &vars, StepDt dt, int stage) {
+  DeferVaporCheck defer(phydro->peos.get());
+  auto &freg = phydro->flux_register();
+  auto hydro_u = vars.at("hydro_u");
 
   // -------- (6) saturation adjustment --------
   if (stage == pintg->stages.size() - 1 && phydro->options->eos()->thermo() &&
@@ -332,13 +345,22 @@ void MeshBlockImpl::advance_stage(Variables &vars, StepDt dt, int stage) {
     freg.monitor().count("thermo.temp_solve", fails[1]);
     freg.monitor().count("thermo.pres_solve", fails[2]);
   }
+}
 
+void MeshBlockImpl::stage_chemistry(Variables &vars, StepDt dt, int stage) {
+  DeferVaporCheck defer(phydro->peos.get());
   // S-K4 (K.rst 3.5): the chemistry step, the last op of the last stage of a
   // bare block (a Mesh runs it over its blocks before its final exchange)
   if (stage == pintg->stages.size() - 1 && _chemistry && !defer_chemistry)
     _chemistry->forward(*this, vars, dt.value());
+}
 
+void MeshBlockImpl::stage_boundaries(Variables &vars, StepDt dt, int stage) {
+  DeferVaporCheck defer(phydro->peos.get());
   // Physical ghosts must include the final-stage species adjustment.
+  auto hydro_u = vars.at("hydro_u");
+  auto scalar_s =
+      vars.count("scalar_s") ? vars.at("scalar_s") : torch::Tensor();
   apply_boundaries(vars, hydro_u, scalar_s);
 }
 

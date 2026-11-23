@@ -70,7 +70,7 @@ StageExecutor::~StageExecutor() = default;
 
 void StageExecutor::build_schedule(int block) {
   // A3a: the stage-entry exchange is its own host-exchange segment (eager by
-  // design, a segment boundary), then advance_local as one graph
+  // design, a segment boundary), then advance_local in its slots as one graph
   StageSchedule s;
   Op exchange;
   exchange.name = "exchange";
@@ -81,7 +81,7 @@ void StageExecutor::build_schedule(int block) {
   s.add(std::move(exchange), SegmentKind::host_exchange);
 
   Op stage;
-  stage.name = "advance_local";
+  stage.name = "advance";
   // the RK combine's w2 dt and FluxRegister::end_stage(w2 dt) read the
   // block's device dt (V3 D: a StepDt), not the host dt, so this segment keeps
   // no dt in its key; a host read under capture throws (StepDt::value)
@@ -96,9 +96,37 @@ void StageExecutor::build_schedule(int block) {
     pmb->register_flux_storage();
   };
   stage.run = [this, block](Variables& vars, StageContext const& ctx) {
-    block_at(block)->advance_stage(vars, ctx.dt, ctx.stage);
+    block_at(block)->advance_core(vars, ctx.dt, ctx.stage);
   };
   s.add(std::move(stage));
+
+  // the end-of-stage slots, in the pin's order (A3a)
+  Op saturation;
+  saturation.name = "saturation";
+  saturation.run = [this, block](Variables& vars, StageContext const& ctx) {
+    block_at(block)->stage_saturation(vars, ctx.dt, ctx.stage);
+  };
+  s.add(std::move(saturation));
+
+  Op chemistry;
+  chemistry.name = "chemistry";
+  // ChemistrySource::forward takes the host dt (dt.value()), but only when a
+  // chemistry step is registered, and that case is eager as a whole
+  // (capture_reasons), so the op never runs in a captured segment with it.
+  // Without one the op reads no dt: no host-dt key, and a dt change replays
+  // (V3 D). Were that refusal lifted, dt.value() on the device dt throws.
+  chemistry.reads_host_dt = false;
+  chemistry.run = [this, block](Variables& vars, StageContext const& ctx) {
+    block_at(block)->stage_chemistry(vars, ctx.dt, ctx.stage);
+  };
+  s.add(std::move(chemistry));
+
+  Op boundaries;
+  boundaries.name = "boundaries";
+  boundaries.run = [this, block](Variables& vars, StageContext const& ctx) {
+    block_at(block)->stage_boundaries(vars, ctx.dt, ctx.stage);
+  };
+  s.add(std::move(boundaries));
   _schedules[block] = std::move(s);
 }
 
@@ -377,7 +405,7 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
   // first capture; from then on no kintera table is built inside the
   // warm-up or the capture (a missing one throws)
   // The segment's ops prepare (Op::prepare, outside capture) with the
-  // state's device, dtype and shape: advance_local's prepares the thermo and
+  // state's device, dtype and shape: advance's prepares the thermo and
   // the monitor's amounts (still on the host before a block's first step),
   // so the save list below holds them from the first capture on.
   {
