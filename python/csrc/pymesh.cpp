@@ -305,6 +305,7 @@ without its closure (the flux-form Coriolis torque only).)doc")
               r["kind"] = s.kind;
               r["capturable"] = s.capturable;
               r["reads_host_dt"] = s.reads_host_dt;
+              r["host"] = s.host;
               r["ops"] = s.ops;
               r["reasons"] = s.reasons;
               rows.append(r);

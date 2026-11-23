@@ -25,10 +25,11 @@
 
 using namespace snap;
 
-// V3 A2: a block's stage is a schedule of ops in segments, one segment per
-// stage for now (the exchange and advance_local), captured as one graph per
-// (block, stage, segment). advance_local's dt reads (the RK combine's w2 dt
-// and FluxRegister::end_stage(dt)) take the block's device dt (V3 D), so the
+// V3 A2/A3a: a block's stage is a schedule of ops in segments: the stage-entry
+// exchange is a host-exchange segment (eager by design, a boundary), then
+// advance_local, captured as one graph per (block, stage, segment).
+// advance_local's dt reads (the RK combine's w2 dt and
+// FluxRegister::end_stage(dt)) take the block's device dt (V3 D), so the
 // segment keeps no dt in its key: a new dt replays. The result equals eager
 // bitwise.
 namespace {
@@ -107,25 +108,34 @@ MeshBlock make_block(torch::Device device, char const* execution, bool strict,
 
 }  // namespace
 
-TEST(StageSegments, one_segment_per_stage_reads_the_device_dt) {
+TEST(StageSegments, exchange_is_a_host_segment_then_one_graph) {
   Variables vars;
   auto block = make_block(torch::kCPU, "cuda-graph", false, vars);
   auto const& sched = block->executor()->schedule(0);
-  ASSERT_EQ(sched.segments().size(), 1u);
-  auto const& seg = sched.segments()[0];
-  EXPECT_EQ(seg.names, (std::vector<std::string>{"exchange", "advance_local"}));
+  ASSERT_EQ(sched.segments().size(), 2u);
+  auto const& ex = sched.segments()[0];
+  EXPECT_EQ(ex.names, (std::vector<std::string>{"exchange"}));
+  EXPECT_EQ(ex.kind, SegmentKind::host_exchange);
+  EXPECT_FALSE(ex.capturable);
+  EXPECT_FALSE(ex.reads_host_dt);
+  auto const& seg = sched.segments()[1];
+  EXPECT_EQ(seg.names, (std::vector<std::string>{"advance_local"}));
   EXPECT_EQ(seg.kind, SegmentKind::compute);
   EXPECT_TRUE(seg.capturable);
   EXPECT_FALSE(seg.reads_host_dt)
       << "the RK combine (w2 dt) and end_stage(dt) read the device dt (V3 D)";
 
-  // on CPU the case is eager: the one row carries the case's reason
+  // on CPU the case is eager: the graph row carries the case's reason; the
+  // host-exchange row is a boundary, not a refusal
   auto c = block->execution_capability(vars);
-  ASSERT_EQ(c.segments.size(), 1u);
-  EXPECT_FALSE(c.segments[0].capturable);
-  EXPECT_FALSE(c.segments[0].reads_host_dt);
-  EXPECT_EQ(c.segments[0].ops, seg.names);
-  EXPECT_EQ(c.segments[0].reasons, c.eager_reasons);
+  ASSERT_EQ(c.segments.size(), 2u);
+  EXPECT_TRUE(c.segments[0].host);
+  EXPECT_TRUE(c.segments[0].reasons.empty());
+  EXPECT_FALSE(c.segments[1].host);
+  EXPECT_FALSE(c.segments[1].capturable);
+  EXPECT_FALSE(c.segments[1].reads_host_dt);
+  EXPECT_EQ(c.segments[1].ops, seg.names);
+  EXPECT_EQ(c.segments[1].reasons, c.eager_reasons);
   EXPECT_FALSE(c.eager_reasons.empty());
 }
 
@@ -138,7 +148,7 @@ TEST(StageSegments, strict_names_the_eager_segment) {
   } catch (c10::Error const& e) {
     std::string msg = e.what();
     EXPECT_NE(msg.find("cannot run as a CUDA graph"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("segment 0 (exchange, advance_local) of block 0, "
+    EXPECT_NE(msg.find("segment 1 (advance_local) of block 0, "
                        "stage 0 runs eager"),
               std::string::npos)
         << msg;
@@ -153,9 +163,11 @@ TEST(StageSegments, graph_equals_eager_and_a_new_dt_replays) {
   auto graph = make_block(cuda, "cuda-graph", true, gvars);
   auto eager = make_block(cuda, "eager", false, evars);
   auto c = graph->execution_capability(gvars);
-  ASSERT_TRUE(c.eager_reasons.empty());
-  ASSERT_EQ(c.segments.size(), 1u);
-  EXPECT_TRUE(c.segments[0].capturable);
+  ASSERT_TRUE(c.eager_reasons.empty())
+      << "the host-exchange segment is no reason for eager";
+  ASSERT_EQ(c.segments.size(), 2u);
+  EXPECT_TRUE(c.segments[0].host);
+  EXPECT_TRUE(c.segments[1].capturable);
 
   int nstage = graph->pintg->stages.size();
   double dt0 = eager->max_time_step(evars);
@@ -181,4 +193,5 @@ TEST(StageSegments, graph_equals_eager_and_a_new_dt_replays) {
   EXPECT_EQ(r.at("replays"), 6 * nstage);
   EXPECT_EQ(r.at("graphs"), nstage);
   EXPECT_EQ(r.at("eager"), 0);
+  EXPECT_EQ(r.at("host"), 6 * nstage) << "one exchange per stage, on the host";
 }

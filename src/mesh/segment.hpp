@@ -29,6 +29,10 @@ enum class SegmentKind : uint8_t {
   eager
 };
 char const* to_string(SegmentKind kind);
+//! host_exchange and global: a segment that runs on the host by design (a
+//! segment boundary), never a refusal: strict does not refuse it and it is
+//! not a reason for eager
+bool runs_on_host(SegmentKind kind);
 
 //! what an op's run sees besides the variables
 struct StageContext {

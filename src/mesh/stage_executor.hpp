@@ -66,6 +66,7 @@ struct Capability {
     std::string kind;
     bool capturable = false;     //!< runs as a graph in this case
     bool reads_host_dt = false;  //!< dt is in its graph key
+    bool host = false;  //!< a host-exchange or global segment (a boundary)
     std::vector<std::string> ops;
     std::vector<std::string> reasons;  //!< why it runs eager
   };
@@ -138,6 +139,8 @@ class StageExecutor {
   int _config_generation = 0;
   //! run_local runs on the block worker pool
   std::atomic<int64_t> _captures{0}, _replays{0}, _eager{0};
+  //! host-exchange and global segments run under cuda-graph (boundaries)
+  std::atomic<int64_t> _host{0};
 };
 
 }  // namespace snap

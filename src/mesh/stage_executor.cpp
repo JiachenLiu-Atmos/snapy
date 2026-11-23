@@ -69,15 +69,16 @@ StageExecutor::StageExecutor(std::vector<MeshBlockImpl*> blocks)
 StageExecutor::~StageExecutor() = default;
 
 void StageExecutor::build_schedule(int block) {
-  // A2: one segment per stage, the pin's stage as two ops. A3a moves the
-  // exchange into its own host-exchange segment and splits advance_local.
+  // A3a: the stage-entry exchange is its own host-exchange segment (eager by
+  // design, a segment boundary), then advance_local as one graph
   StageSchedule s;
   Op exchange;
   exchange.name = "exchange";
+  exchange.eager_reason = "the stage-entry ghost exchange";
   exchange.run = [this, block](Variables& vars, StageContext const&) {
     block_at(block)->exchange_ghost_zones(vars);
   };
-  s.add(std::move(exchange));
+  s.add(std::move(exchange), SegmentKind::host_exchange);
 
   Op stage;
   stage.name = "advance_local";
@@ -203,6 +204,11 @@ Capability StageExecutor::capability(int block, Variables const& vars) const {
     row.kind = to_string(seg.kind);
     row.reads_host_dt = seg.reads_host_dt;
     row.ops = seg.names;
+    if (runs_on_host(seg.kind)) {  // a boundary, not a refusal
+      row.host = true;
+      c.segments.push_back(row);
+      continue;
+    }
     row.reasons = why;
     for (auto const& r : seg.eager_reasons) {
       row.reasons.push_back(r);
@@ -292,6 +298,7 @@ void StageExecutor::run_stage(int block, Variables& vars, double dt,
   auto const& segs = schedule(block).segments();
   auto why = capture_reasons(block, vars);
   for (int i = 0; i < static_cast<int>(segs.size()); ++i) {
+    if (runs_on_host(segs[i].kind)) continue;  // a boundary, not a refusal
     auto reasons = why;
     for (auto const& r : segs[i].eager_reasons) reasons.push_back(r);
     if (reasons.empty()) continue;
@@ -314,7 +321,12 @@ void StageExecutor::run_stage(int block, Variables& vars, double dt,
   pmb->_state.adopt(vars);  // a rebound tensor bumps the generation
   pmb->register_flux_storage();
   for (int i = 0; i < static_cast<int>(segs.size()); ++i) {
-    if (!segs[i].capturable) {  // an eager op's segment (none in A2)
+    if (runs_on_host(segs[i].kind)) {  // the exchange: a boundary
+      ++_host;
+      run_eager(block, vars, dt, stage, i);
+      continue;
+    }
+    if (!segs[i].capturable) {  // an eager op's segment
       ++_eager;
       run_eager(block, vars, dt, stage, i);
       continue;
@@ -469,6 +481,7 @@ std::map<std::string, int64_t> StageExecutor::report() const {
   return {{"captures", _captures.load()},
           {"replays", _replays.load()},
           {"eager", _eager.load()},
+          {"host", _host.load()},
           {"graphs", static_cast<int64_t>(_graphs.size())}};
 }
 

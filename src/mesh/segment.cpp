@@ -21,6 +21,10 @@ char const* to_string(SegmentKind kind) {
   return "?";
 }
 
+bool runs_on_host(SegmentKind kind) {
+  return kind == SegmentKind::host_exchange || kind == SegmentKind::global;
+}
+
 namespace {
 // host_exchange, global and eager ops never run inside a graph
 bool always_eager(SegmentKind kind) {
