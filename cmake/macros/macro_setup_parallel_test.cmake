@@ -26,6 +26,13 @@ macro(setup_parallel_test namel cores)
             $<IF:$<BOOL:${CUDAToolkit_FOUND}>,snapy::snap_cu,>
             gtest_main)
 
+  # as in setup_test: the CUDA kernels register through static initializers
+  # in snap_cu, which --as-needed drops when the test references none of its
+  # symbols (then a CUDA dispatch has no kernel)
+  if (UNIX AND NOT APPLE)
+    target_link_options(${namel}.${buildl} PRIVATE -Wl,--no-as-needed)
+  endif()
+
   add_test(NAME ${namel}.${buildl}
            COMMAND torchrun
                    --no-python
