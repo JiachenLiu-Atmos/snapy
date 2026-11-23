@@ -491,6 +491,8 @@ snapy_add_python_test(test_mesh_capture_moist TIMEOUT 900 LABELS "python;hydro;e
 # #314: an outflow boundary is refused before a capture; CPU part on every build
 snapy_add_python_test(test_graph_outflow_refused TIMEOUT 300 LABELS "python;hydro")
 snapy_add_python_test(test_sk3_capture_moist TIMEOUT 600 LABELS "python;hydro;eos;fp32-science")
+# V3 C4: an implicit scheme captures; one capture per stage serves every dt
+snapy_add_python_test(test_graph_implicit_dt TIMEOUT 900 LABELS "python;hydro;implicit")
 snapy_add_python_test(test_fp32_restart TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-restart")
 snapy_add_python_test(test_fp32_policy TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
 snapy_add_python_test(test_fp32_implicit TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
