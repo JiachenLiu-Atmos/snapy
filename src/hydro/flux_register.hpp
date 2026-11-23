@@ -90,6 +90,10 @@ class RegisterMonitor {
             torch::Tensor const& amount, double weight, bool in_stage);
   //! A <- w1 A + w2 dt a_s + p_s, then a_s, p_s <- 0 (FluxRegister::end_stage)
   void end_stage(double w1, StepDt w2dt);
+  //! the amount tensors (step amounts, stage rates, stage posts), placed on
+  //! `device` first; empty before reset_amounts. Every stage writes them, so
+  //! the stage executor's save list holds them (X: warm-up and capture)
+  std::vector<torch::Tensor> amount_storage(torch::Device device);
 
   std::vector<std::string> const& row_names() const { return _rows; }
   std::vector<std::string> const& counter_names() const { return _counter; }

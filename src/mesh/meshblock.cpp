@@ -440,6 +440,15 @@ void MeshBlockImpl::register_flux_storage() {
         {"freg.minima", mon.minima},
         {"freg.retry_flags", mon.retry_flags}})
     if (t.defined()) _state.register_storage(name, t);
+  // the amounts, on the register's device (they are placed there at the first
+  // step anyway): a warm-up or capture pass books and folds them like a stage
+  if (mon.counters.defined()) {
+    auto amounts = mon.amount_storage(mon.counters.device());
+    char const *names[] = {"freg.amount.step", "freg.amount.stage",
+                           "freg.amount.post"};
+    for (size_t i = 0; i < amounts.size(); ++i)
+      _state.register_storage(names[i], amounts[i]);
+  }
 }
 
 std::shared_ptr<kintera::ThermoYImpl> MeshBlockImpl::thermo() const {
