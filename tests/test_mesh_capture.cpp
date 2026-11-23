@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <map>
 #include <string>
 
 // POSIX
@@ -27,16 +28,19 @@ using namespace snap;
 
 // V3 B2: a Mesh's blocks run their stages as CUDA graphs, one graph per
 // (block, stage, segment), captured on the block worker pool (thread-local
-// capture mode, one capture at a time), with the Mesh's own exchange, global
-// phase and chemistry between them as before. Two Cartesian blocks along x2
-// (a dry deck: no scalar or species, so no exchange runs inside a stage)
-// equal an eager Mesh bitwise, FP64 and FP32, with dt changing. A case with a
-// within-stage cross-block exchange (the positivity limiter's theta sync,
-// switched on by a scalar with flux-covariance) is refused by name.
+// capture mode), with the Mesh's own exchange, global phase and chemistry
+// between them as before. Two Cartesian blocks along x2 (a dry deck: no
+// scalar or species, so no exchange runs inside a stage) equal an eager Mesh
+// bitwise, FP64 and FP32, with dt changing.
+// V3 B3: a within-stage cross-block exchange is a cut (pack and unpack in
+// the segment's graphs, the same-process rendezvous on the host between
+// them): the scalar positivity limiter's theta sync (a scalar with
+// flux-covariance) and conversion-order 4's primitive ghosts capture, all
+// blocks together, and equal an eager Mesh bitwise, FP64 and FP32.
 namespace {
 
 std::string deck(char const* execution, bool strict, char const* precision,
-                 bool scalar) {
+                 bool scalar, int conversion_order = 2) {
   char buf[2560];
   std::snprintf(buf, sizeof(buf), R"(
 reference-state: {Tref: 0., Pref: 1.e5}
@@ -53,6 +57,7 @@ dynamics:
   precision: %s
   anomaly: true
   perturbation-flux: true
+  conversion-order: %d
   equation-of-state:
     type: ideal-moist
     limiter: false
@@ -81,18 +86,20 @@ integration:
 forcing:
   const-gravity: {grav1: -9.8}
 %s)",
-                precision, execution, strict ? "true" : "false",
+                precision, conversion_order, execution,
+                strict ? "true" : "false",
                 scalar ? "scalar:\n  nvar: 1\n  names: [tracer]\n" : "");
   return buf;
 }
 
 Mesh make_mesh(char const* execution, bool strict, char const* precision,
-               bool scalar, MeshVariables& vars) {
+               bool scalar, MeshVariables& vars, int conversion_order = 2) {
   char fname[] = "/tmp/test-mesh-capture-XXXXXX";
   int fd = mkstemp(fname);
   EXPECT_NE(fd, -1);
   if (fd != -1) close(fd);
-  std::ofstream(fname) << deck(execution, strict, precision, scalar);
+  std::ofstream(fname) << deck(execution, strict, precision, scalar,
+                               conversion_order);
   auto bo = MeshBlockOptionsImpl::from_yaml(fname);
   std::remove(fname);
   auto mo = MeshOptionsImpl::create();
@@ -165,22 +172,57 @@ TEST(MeshCapture, two_blocks_capture_and_equal_an_eager_mesh) {
   }
 }
 
-TEST(MeshCapture, a_within_stage_cross_block_exchange_is_refused_by_name) {
+// graph vs eager over 6 steps (2 at one dt, then a new dt every step),
+// bitwise after each; returns the graph Mesh's execution report
+std::map<std::string, int64_t> graph_equals_eager(char const* precision,
+                                                  bool scalar, int co) {
+  MeshVariables gv, ev;
+  auto graph = make_mesh("cuda-graph", true, precision, scalar, gv, co);
+  auto eager = make_mesh("eager", false, precision, scalar, ev, co);
+  for (size_t i = 0; i < graph->blocks.size(); ++i) {
+    auto c = graph->blocks[i]->execution_capability(gv[i]);
+    std::string why;
+    for (auto const& r : c.eager_reasons) why += "\n  - " + r;
+    EXPECT_TRUE(c.eager_reasons.empty()) << precision << ": block " << i << why;
+  }
+  double dt0 = eager->max_time_step(ev);
+  for (int n = 0; n < 6; ++n) {
+    double dt = n < 2 ? 0.3 * dt0 : 0.3 * dt0 * (1. + 0.05 * n);
+    step(graph, gv, dt);
+    step(eager, ev, dt);
+    for (size_t i = 0; i < gv.size(); ++i)
+      for (auto name : {"hydro_u", "hydro_w", "scalar_s", "scalar_r"}) {
+        if (!gv[i].count(name)) continue;
+        EXPECT_TRUE(torch::equal(gv[i].at(name), ev[i].at(name)))
+            << precision << " step " << n << " block " << i << " " << name
+            << ": max |graph - eager| "
+            << (gv[i].at(name).to(torch::kFloat64) -
+                ev[i].at(name).to(torch::kFloat64))
+                   .abs()
+                   .max()
+                   .item<double>();
+      }
+  }
+  return graph->execution_report();
+}
+
+TEST(MeshCapture, a_within_stage_theta_sync_is_a_cut_and_equals_eager) {
   if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
-  MeshVariables gv;
-  auto graph = make_mesh("cuda-graph", true, "float64", true, gv);
-  auto c = graph->blocks.front()->execution_capability(gv[0]);
-  bool named = false;
-  for (auto const& r : c.eager_reasons)
-    named |= r.find("theta sync") != std::string::npos;
-  EXPECT_TRUE(named) << "the scalar positivity limiter's theta sync "
-                        "exchanges across blocks inside the stage";
-  try {
-    step(graph, gv, 0.1);
-    FAIL() << "a strict two-block Mesh with a within-stage exchange ran";
-  } catch (c10::Error const& e) {
-    std::string msg = e.what();
-    EXPECT_NE(msg.find("cannot run as a CUDA graph"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("theta sync"), std::string::npos) << msg;
+  for (auto precision : {"float64", "float32"}) {
+    auto r = graph_equals_eager(precision, /*scalar=*/true, /*co=*/2);
+    // one capture per (block, stage, segment), all blocks together; dt is a
+    // graph input, so the new dts replay
+    EXPECT_EQ(r.at("captures"), 2 * 3) << precision;
+    EXPECT_EQ(r.at("replays"), 2 * 3 * 6) << precision;
+    EXPECT_EQ(r.at("eager"), 0) << precision;
+  }
+}
+
+TEST(MeshCapture, conversion_order_4_primitive_ghosts_are_a_cut) {
+  if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
+  for (auto precision : {"float64", "float32"}) {
+    auto r = graph_equals_eager(precision, /*scalar=*/false, /*co=*/4);
+    EXPECT_EQ(r.at("captures"), 2 * 3) << precision;
+    EXPECT_EQ(r.at("eager"), 0) << precision;
   }
 }
