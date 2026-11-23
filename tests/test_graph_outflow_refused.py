@@ -1,9 +1,12 @@
 """#314: an outflow boundary under integration/execution: cuda-graph.
 
 The outflow (radiating) ghost fill checks its inputs on the host, which a CUDA
-graph capture cannot do. The pre-capture check (the block's capability row)
-names the outflow boundary, so a strict case is refused before its first
-launch and a non-strict case runs eagerly. The case is the dry Straka deck of
+graph capture cannot do. Since V3 A3a it is a per-op refusal: the stage's
+boundaries op runs eagerly after the graph, the rest of the stage captures.
+The pre-capture check (the block's capability row) names the outflow
+boundary, so a strict case is refused before its first launch, naming the
+boundaries segment, and a non-strict case runs as graph plus eager segments,
+bitwise to an eager block. The case is the dry Straka deck of
 run_fp32_straka.make_case with x2 outflow; the same deck with its reflecting
 walls is the control. The capability row is checked on every build (CPU
 too); the launch part needs a CUDA device and is skipped without one.
@@ -79,11 +82,13 @@ def check_launch():
         block.forward(state, 0.1, 0)
     except RuntimeError as e:
         assert "cannot run as a CUDA graph" in str(e) and REASON in str(e), str(e)
+        assert "(boundaries)" in str(e), str(e)
     else:
         raise AssertionError("a strict cuda-graph case with an outflow boundary ran")
     for k, v in before.items():
         assert torch.equal(state[k], v), k
-    # not strict: eager, bitwise to an eager block
+    # not strict: the stage captures, its boundaries op runs eagerly after the
+    # graph, bitwise to an eager block
     block, state = make(cuda, True)
     ref, expected = make(cuda, True, execution="eager")
     step(block, state)
@@ -92,7 +97,13 @@ def check_launch():
         if k in state:
             assert torch.equal(state[k], expected[k]), k
     report = block.execution_report()
-    assert report["captures"] == 0 and report["eager"] == 3, report
+    assert report["captures"] == 3 and report["eager"] == 3, report
+    assert report["host"] == 3 and report["graphs"] == 3, report
+    rows = block.execution_capability(state)["segments"]
+    assert [r["ops"] for r in rows] == [
+        ["exchange"], ["advance", "saturation", "chemistry"], ["boundaries"]], rows
+    assert rows[1]["capturable"] and not rows[2]["capturable"], rows
+    assert rows[2]["reasons"] == [REASON], rows
     # the reflecting control still captures
     block, state = make(cuda, False)
     assert block.execution_capability(state)["eager_reasons"] == []
@@ -109,7 +120,8 @@ def main():
         return
     check_row(torch.device("cuda"))
     check_launch()
-    print("cuda-graph: outflow refused before launch (strict) or eager; reflecting captures")
+    print("cuda-graph: outflow refused before launch (strict) or its boundaries op "
+          "eager after the graph; reflecting captures")
 
 
 if __name__ == "__main__":

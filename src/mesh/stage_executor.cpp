@@ -64,11 +64,19 @@ StageExecutor::StageExecutor(std::vector<MeshBlockImpl*> blocks)
   for (auto* b : _blocks) TORCH_CHECK(b, "StageExecutor: a null block");
   _dt.resize(_blocks.size());
   _schedules.resize(_blocks.size());
+  _schedule_outflow.assign(_blocks.size(), -1);
+  _schedule_rebuilt.assign(_blocks.size(), 0);
   for (int b = 0; b < num_blocks(); ++b) build_schedule(b);
 }
 StageExecutor::~StageExecutor() = default;
 
-void StageExecutor::build_schedule(int block) {
+bool StageExecutor::outflow_boundary(int block) const {
+  for (auto const& fn : block_at(block)->options->bfuncs())
+    if (fn && is_outflow(fn)) return true;
+  return false;
+}
+
+void StageExecutor::build_schedule(int block) const {
   // A3a: the stage-entry exchange is its own host-exchange segment (eager by
   // design, a segment boundary), then advance_local in its slots as one graph
   StageSchedule s;
@@ -121,17 +129,28 @@ void StageExecutor::build_schedule(int block) {
   };
   s.add(std::move(chemistry));
 
+  // an outflow (radiating) ghost fill checks its inputs on the host (#314):
+  // the boundaries op runs eagerly after the graph, the rest still captures
+  bool outflow = outflow_boundary(block);
   Op boundaries;
   boundaries.name = "boundaries";
+  if (outflow) {
+    boundaries.capturable = false;
+    boundaries.eager_reason = "an outflow boundary is set";
+  }
   boundaries.run = [this, block](Variables& vars, StageContext const& ctx) {
     block_at(block)->stage_boundaries(vars, ctx.dt, ctx.stage);
   };
   s.add(std::move(boundaries));
   _schedules[block] = std::move(s);
+  if (_schedule_outflow[block] >= 0) _schedule_rebuilt[block] = 1;
+  _schedule_outflow[block] = outflow;
 }
 
 StageSchedule const& StageExecutor::schedule(int block) const {
   block_at(block);  // checked
+  if (_schedule_outflow[block] != static_cast<int>(outflow_boundary(block)))
+    build_schedule(block);
   return _schedules[block];
 }
 
@@ -204,12 +223,13 @@ std::vector<std::string> StageExecutor::capture_reasons(
       !pmb->user_stage_forcings.empty())
     why.push_back("forcing is not const-gravity alone");
   if (vars.count("solid")) why.push_back("a solid mask is set");
-  // an outflow (radiating) ghost fill checks its inputs on the host (#314)
-  for (auto const& fn : op->bfuncs())
-    if (fn && is_outflow(fn)) {
-      why.push_back("an outflow boundary is set");
-      break;
-    }
+  // an outflow (radiating) ghost fill checks its inputs on the host (#314):
+  // per op (the boundaries op, eager) unless conversion-order 4 also fills
+  // the primitive ghosts with it inside the hydro step (hydro_forward.cpp)
+  if (hydro->conversion_order() == 4 && outflow_boundary(block))
+    why.push_back(
+        "an outflow boundary is set with conversion-order 4 (the hydro step "
+        "refills its primitive ghosts with it)");
   // S-K4: the chemistry step runs inside the last stage; whether kintera's
   // kinetics path captures is not verified, so a block with one runs eagerly
   if (pmb->_chemistry) why.push_back("a chemistry step is registered");
@@ -324,6 +344,10 @@ void StageExecutor::run_stage(int block, Variables& vars, double dt,
   // the case's reasons make every segment eager; strict names the first
   // eager segment and its reasons
   auto const& segs = schedule(block).segments();
+  if (_schedule_rebuilt[block]) {  // its segments moved: drop its graphs
+    invalidate(block);
+    _schedule_rebuilt[block] = 0;
+  }
   auto why = capture_reasons(block, vars);
   for (int i = 0; i < static_cast<int>(segs.size()); ++i) {
     if (runs_on_host(segs[i].kind)) continue;  // a boundary, not a refusal
