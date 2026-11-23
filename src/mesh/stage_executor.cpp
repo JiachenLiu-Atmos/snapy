@@ -64,12 +64,20 @@ StageExecutor::StageExecutor(std::vector<MeshBlockImpl*> blocks)
   for (auto* b : _blocks) TORCH_CHECK(b, "StageExecutor: a null block");
   _dt.resize(_blocks.size());
   _schedules.resize(_blocks.size());
-  _schedule_outflow.assign(_blocks.size(), -1);
+  _schedule_sig.assign(_blocks.size(), -1);
   _schedule_rebuilt.assign(_blocks.size(), 0);
   _pools.assign(_blocks.size(), {0, 0});
   for (int b = 0; b < num_blocks(); ++b) build_schedule(b);
 }
 StageExecutor::~StageExecutor() = default;
+
+bool StageExecutor::user_forcing(int block) const {
+  return !block_at(block)->user_stage_forcings.empty();
+}
+
+int StageExecutor::schedule_signature(int block) const {
+  return (outflow_boundary(block) ? 1 : 0) | (user_forcing(block) ? 2 : 0);
+}
 
 bool StageExecutor::outflow_boundary(int block) const {
   for (auto const& fn : block_at(block)->options->bfuncs())
@@ -112,10 +120,18 @@ void StageExecutor::build_schedule(int block) const {
   // the user stage forcings (A3b), between the tendencies and the combine
   Op forcing;
   forcing.name = "forcing";
-  // a user forcing is called with the host dt (dt.value()), but a case with
-  // one is eager ("forcing is not const-gravity alone"); without one the op
-  // reads no dt, so it keeps none in its key (V3 D)
-  forcing.reads_host_dt = false;
+  // a user TorchScript forcing is opaque (X.rst section 7: an eager segment);
+  // the stage's other ops still capture, the tendencies cross in stage.du/ds
+  bool user = user_forcing(block);
+  if (user) {
+    forcing.capturable = false;
+    forcing.eager_reason = "a user TorchScript stage forcing is set";
+  }
+  // a user forcing is called with the host dt (dt.value()); its op is then
+  // eager, so it runs with the host dt and keys no graph. Without one the op
+  // reads no dt. Either way the graph segments around it read the device dt
+  // and keep no dt in their keys (V3 D).
+  forcing.reads_host_dt = user;
   forcing.run = [this, block](Variables& vars, StageContext const& ctx) {
     block_at(block)->stage_forcing(vars, ctx.dt, ctx.stage);
   };
@@ -165,14 +181,13 @@ void StageExecutor::build_schedule(int block) const {
   };
   s.add(std::move(boundaries));
   _schedules[block] = std::move(s);
-  if (_schedule_outflow[block] >= 0) _schedule_rebuilt[block] = 1;
-  _schedule_outflow[block] = outflow;
+  if (_schedule_sig[block] >= 0) _schedule_rebuilt[block] = 1;
+  _schedule_sig[block] = schedule_signature(block);
 }
 
 StageSchedule const& StageExecutor::schedule(int block) const {
   block_at(block);  // checked
-  if (_schedule_outflow[block] != static_cast<int>(outflow_boundary(block)))
-    build_schedule(block);
+  if (_schedule_sig[block] != schedule_signature(block)) build_schedule(block);
   return _schedules[block];
 }
 
@@ -241,8 +256,7 @@ std::vector<std::string> StageExecutor::capture_reasons(
   if (!hydro->grav() || hydro->coriolis() || hydro->diffusion() ||
       hydro->bodyHeat() || hydro->botHeat() || hydro->topCool() ||
       hydro->relaxBotComp() || hydro->relaxBotTemp() || hydro->relaxBotVelo() ||
-      hydro->topSpongeLyr() || hydro->botSpongeLyr() || hydro->plumeForcing() ||
-      !pmb->user_stage_forcings.empty())
+      hydro->topSpongeLyr() || hydro->botSpongeLyr() || hydro->plumeForcing())
     why.push_back("forcing is not const-gravity alone");
   if (vars.count("solid")) why.push_back("a solid mask is set");
   // an outflow (radiating) ghost fill checks its inputs on the host (#314):
