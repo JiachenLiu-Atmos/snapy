@@ -47,6 +47,9 @@ def check(precision):
                 assert torch.equal(gstate[k], estate[k]), (precision, n, k)
     r = graph.execution_report()
     assert r["captures"] == 2 * nst and r["graphs"] == nst, r
+    # a bare block's exchanges involve no other block: no cut (V3 B3), its
+    # tracer's theta sync stays inside the one graph per stage
+    assert r["cuts"] == 0, r
     print(precision, "recaptured after the block's graphs were dropped:", r)
 
 
