@@ -31,6 +31,8 @@ void RestartOutput::write_output_file(MeshBlockImpl* pmb, Variables const& vars,
     if (skip_scalar_r && name == "scalar_r") {
       continue;
     }
+    // a per-step diagnostic, overwritten every step, is not state
+    if (name == "saturation_adjustment_dy") continue;
     if (var.defined()) {
       out_vars[name] = var.to(torch::kCPU);
     }

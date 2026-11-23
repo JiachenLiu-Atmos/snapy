@@ -958,12 +958,27 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
     auto m = named_modules()["hydro.eos.thermo"];
     auto pthermo = std::dynamic_pointer_cast<kintera::ThermoYImpl>(m);
 
+    // Optional diagnostic: a caller that puts "saturation_adjustment_dy"
+    // (shape of the species rows of hydro_u) in vars gets this step's species
+    // change from the adjustment, after - before, in kg/m^3. It is
+    // overwritten, not summed, so a redo cannot count twice.
+    auto dy_it = vars.find("saturation_adjustment_dy");
+    bool want_dy = dy_it != vars.end() && dy_it->second.defined();
+    if (want_dy)
+      TORCH_CHECK(dy_it->second.sizes() == hydro_u.narrow(0, ICY, ny).sizes(),
+                  "saturation_adjustment_dy has shape ", dy_it->second.sizes(),
+                  ", expected ", hydro_u.narrow(0, ICY, ny).sizes());
+    auto y_before =
+        want_dy ? hydro_u.narrow(0, ICY, ny).clone() : torch::Tensor();
+
     auto sub = part({0, 0, 0}, PartOptions().exterior(false));
     auto sub3 = part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
     pthermo->forward(rho.index(sub3), ie.index(sub3), yfrac.index(sub),
                      /*warm_start=*/true);
 
     hydro_u.narrow(0, ICY, ny) = yfrac * rho;
+    if (want_dy)
+      dy_it->second.copy_(hydro_u.narrow(0, ICY, ny) - y_before);
     if (options->verbose()) {
       auto end = std::chrono::high_resolution_clock::now();
       std::chrono::duration<double> elapsed = end - start;
