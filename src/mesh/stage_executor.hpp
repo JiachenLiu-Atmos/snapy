@@ -2,10 +2,12 @@
 
 // C/C++
 #include <atomic>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 // torch
@@ -145,6 +147,10 @@ class StageExecutor {
   //! V3 D: one persistent 0-dim FP64 dt per block on its device, shared by
   //! every graph of that block
   std::vector<torch::Tensor> _dt;
+  //! one CUDA graph memory pool per block, shared by its segments' graphs
+  //! (a block's graphs replay one after another on one stream); {0, 0}
+  //! until its first capture
+  std::vector<std::pair<uint64_t, uint64_t>> _pools;
   int _config_generation = 0;
   //! run_local runs on the block worker pool
   std::atomic<int64_t> _captures{0}, _replays{0}, _eager{0};

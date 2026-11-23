@@ -66,6 +66,7 @@ StageExecutor::StageExecutor(std::vector<MeshBlockImpl*> blocks)
   _schedules.resize(_blocks.size());
   _schedule_outflow.assign(_blocks.size(), -1);
   _schedule_rebuilt.assign(_blocks.size(), 0);
+  _pools.assign(_blocks.size(), {0, 0});
   for (int b = 0; b < num_blocks(); ++b) build_schedule(b);
 }
 StageExecutor::~StageExecutor() = default;
@@ -473,9 +474,15 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
   restored.record(current);
   restored.block(side);
   entry->graph = std::make_unique<at::cuda::CUDAGraph>();
+  // the block's shared pool: its graphs replay in turn on one stream, so a
+  // graph's dead temporaries may be another's (CUDAGraph.h: pool handle)
+  if (_pools[block] == std::pair<uint64_t, uint64_t>{0, 0}) {
+    auto id = at::cuda::graph_pool_handle();
+    _pools[block] = {id.first, id.second};
+  }
   {
     c10::cuda::CUDAStreamGuard guard(side);
-    entry->graph->capture_begin();
+    entry->graph->capture_begin({_pools[block].first, _pools[block].second});
     run_eager(block, vars, wdt, stage, segment);
     entry->graph->capture_end();
   }
@@ -534,7 +541,11 @@ std::map<std::string, int64_t> StageExecutor::report() const {
           {"replays", _replays.load()},
           {"eager", _eager.load()},
           {"host", _host.load()},
-          {"graphs", static_cast<int64_t>(_graphs.size())}};
+          {"graphs", static_cast<int64_t>(_graphs.size())},
+          {"pools", static_cast<int64_t>(std::count_if(
+                        _pools.begin(), _pools.end(), [](auto const& p) {
+                          return p != std::pair<uint64_t, uint64_t>{0, 0};
+                        }))}};
 }
 
 }  // namespace snap

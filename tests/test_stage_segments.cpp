@@ -195,4 +195,5 @@ TEST(StageSegments, graph_equals_eager_and_a_new_dt_replays) {
   EXPECT_EQ(r.at("graphs"), nstage);
   EXPECT_EQ(r.at("eager"), 0);
   EXPECT_EQ(r.at("host"), 6 * nstage) << "one exchange per stage, on the host";
+  EXPECT_EQ(r.at("pools"), 1) << "the block's graphs share one memory pool";
 }
