@@ -219,10 +219,41 @@ StepDt StageExecutor::device_dt(int block, Variables const& vars, double dt) {
   return StepDt::device(t);
 }
 
+namespace {
+thread_local bool g_multi_block_capture = false;
+// marks this thread as warming up or capturing a multi-block segment
+struct MultiBlockCapture {
+  bool prev;
+  explicit MultiBlockCapture(bool on) : prev(g_multi_block_capture) {
+    g_multi_block_capture = prev || on;
+  }
+  ~MultiBlockCapture() { g_multi_block_capture = prev; }
+};
+}  // namespace
+
+bool in_multi_block_capture() { return g_multi_block_capture; }
+
 void StageExecutor::run_local(int block, Variables& vars, double dt,
                               int stage) {
-  ++_eager;
-  block_at(block)->advance_local(vars, dt, stage);
+  auto* pmb = block_at(block);
+  if (pmb->options->execution() != "cuda-graph") {
+    ++_eager;
+    pmb->advance_local(vars, dt, stage);
+    return;
+  }
+  schedule(block);                 // rebuilt if its signature moved
+  if (_schedule_rebuilt[block]) {  // its segments moved: drop its graphs
+    invalidate(block);
+    _schedule_rebuilt[block] = 0;
+  }
+  check_strict(block, vars, stage);
+  if (!capture_reasons(block, vars).empty()) {
+    ++_eager;
+    pmb->advance_local(vars, dt, stage);
+    return;
+  }
+  // the stage without its entry exchange: the Mesh exchanges last
+  run_segments(block, vars, dt, stage, /*with_host=*/false);
 }
 
 std::vector<std::string> StageExecutor::capture_reasons(
@@ -250,9 +281,35 @@ std::vector<std::string> StageExecutor::capture_reasons(
   if (hydro->icorr()) why.push_back("implicit-scheme is not 0");
   if (op->intg()->type() != "rk3")
     why.push_back("integration type is " + op->intg()->type() + ", not rk3");
+  // N blocks (B2): the blocks of one process capture; what still exchanges
+  // inside a stage across blocks or ranks does not yet
   auto const& lo = pmb->_playout->options;
-  if (lo->nblocks() != 1 || pmb->_playout->has_process_group())
-    why.push_back("more than one block");
+  if (pmb->_playout->has_process_group())
+    why.push_back(
+        "more than one process: multi-rank capture is not done yet (its "
+        "exchanges run on the host between segments, P1)");
+  if (lo->pz() > 1)
+    why.push_back(
+        "an x1 split (pz > 1): its relays inside the stage are not cut into "
+        "segments yet (P2, P3)");
+  if (lo->nblocks() > 1) {
+    if (hydro->conversion_order() == 4)
+      why.push_back(
+          "conversion-order 4 with more than one block: the hydro step "
+          "exchanges primitive ghosts across blocks inside the stage");
+    bool species = pmb->phydro->peos->nvar() > ICY;
+    if (species && hydro->flux_covariance())
+      why.push_back(
+          "species with flux-covariance and more than one block: the hydro "
+          "positivity limiter's theta sync exchanges across blocks inside the "
+          "stage");
+    if (pmb->pscalar->nvar() > 0 &&
+        (hydro->flux_covariance() || pmb->pscalar->options->upper_bound() > 0.))
+      why.push_back(
+          "a scalar with flux-covariance or an upper bound and more than one "
+          "block: the scalar positivity limiter's theta sync exchanges across "
+          "blocks inside the stage");
+  }
   if (!hydro->grav() || hydro->coriolis() || hydro->diffusion() ||
       hydro->bodyHeat() || hydro->botHeat() || hydro->topCool() ||
       hydro->relaxBotComp() || hydro->relaxBotTemp() || hydro->relaxBotVelo() ||
@@ -367,6 +424,30 @@ std::shared_ptr<kintera::ThermoYImpl> StageExecutor::thermo_of(
   return block_at(block)->thermo();
 }
 
+void StageExecutor::check_strict(int block, Variables const& vars,
+                                 int stage) const {
+  auto const& op = block_at(block)->options;
+  if (op->execution() != "cuda-graph" || !op->execution_strict()) return;
+  // the case's reasons make every segment eager; strict names the first
+  // eager segment and its reasons (host segments are boundaries)
+  auto const& segs = schedule(block).segments();
+  auto why = capture_reasons(block, vars);
+  for (int i = 0; i < static_cast<int>(segs.size()); ++i) {
+    if (runs_on_host(segs[i].kind)) continue;  // a boundary, not a refusal
+    auto reasons = why;
+    for (auto const& r : segs[i].eager_reasons) reasons.push_back(r);
+    if (reasons.empty()) continue;
+    std::string list, ops;
+    for (auto const& w : reasons) list += "\n  - " + w;
+    for (auto const& n : segs[i].names) ops += (ops.empty() ? "" : ", ") + n;
+    TORCH_CHECK(false,
+                "integration/execution-strict: this case cannot run as a "
+                "CUDA graph: segment ",
+                i, " (", ops, ") of block ", block, ", stage ", stage,
+                " runs eager:", list);
+  }
+}
+
 void StageExecutor::run_stage(int block, Variables& vars, double dt,
                               int stage) {
   auto* pmb = block_at(block);
@@ -377,39 +458,37 @@ void StageExecutor::run_stage(int block, Variables& vars, double dt,
     return;
   }
 
-  // the case's reasons make every segment eager; strict names the first
-  // eager segment and its reasons
-  auto const& segs = schedule(block).segments();
+  schedule(block);                 // rebuilt if its signature moved
   if (_schedule_rebuilt[block]) {  // its segments moved: drop its graphs
     invalidate(block);
     _schedule_rebuilt[block] = 0;
   }
-  auto why = capture_reasons(block, vars);
-  for (int i = 0; i < static_cast<int>(segs.size()); ++i) {
-    if (runs_on_host(segs[i].kind)) continue;  // a boundary, not a refusal
-    auto reasons = why;
-    for (auto const& r : segs[i].eager_reasons) reasons.push_back(r);
-    if (reasons.empty()) continue;
-    std::string list, ops;
-    for (auto const& w : reasons) list += "\n  - " + w;
-    for (auto const& n : segs[i].names) ops += (ops.empty() ? "" : ", ") + n;
-    TORCH_CHECK(!op->execution_strict(),
-                "integration/execution-strict: this case cannot run as a "
-                "CUDA graph: segment ",
-                i, " (", ops, ") of block ", block, ", stage ", stage,
-                " runs eager:", list);
-  }
-  if (!why.empty()) {
+  check_strict(block, vars, stage);
+  if (!capture_reasons(block, vars).empty()) {
     ++_eager;
     run_eager(block, vars, dt, stage);
     return;
   }
+  run_segments(block, vars, dt, stage, /*with_host=*/true);
+}
 
+std::shared_ptr<StageExecutor::Captured> StageExecutor::graph_at(
+    Slot const& slot) const {
+  std::lock_guard<std::mutex> lock(_graphs_mutex);
+  auto it = _graphs.find(slot);
+  return it == _graphs.end() ? nullptr : it->second;
+}
+
+void StageExecutor::run_segments(int block, Variables& vars, double dt,
+                                 int stage, bool with_host) {
 #ifdef USE_CUDA
+  auto* pmb = block_at(block);
+  auto const& segs = schedule(block).segments();
   pmb->_state.adopt(vars);  // a rebound tensor bumps the generation
   pmb->register_flux_storage();
   for (int i = 0; i < static_cast<int>(segs.size()); ++i) {
     if (runs_on_host(segs[i].kind)) {  // the exchange: a boundary
+      if (!with_host) continue;        // a Mesh exchanges last, itself
       ++_host;
       run_eager(block, vars, dt, stage, i);
       continue;
@@ -419,9 +498,8 @@ void StageExecutor::run_stage(int block, Variables& vars, double dt,
       run_eager(block, vars, dt, stage, i);
       continue;
     }
-    auto it = _graphs.find({block, stage, i});
-    if (it == _graphs.end() ||
-        it->second->key != make_key(block, i, vars, dt, stage))
+    auto g = graph_at({block, stage, i});
+    if (!g || g->key != make_key(block, i, vars, dt, stage))
       capture(block, i, vars, dt, stage);
     replay(block, i, vars, dt, stage);
   }
@@ -446,8 +524,19 @@ struct SyncDebugOff {
 void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
                             int stage) {
 #ifdef USE_CUDA
+  // one capture at a time: its warm-up toggles the process-wide sync-debug
+  // mode, and a Mesh's blocks reach here from the worker pool (B2)
+  std::lock_guard<std::mutex> one_capture(_capture_mutex);
   auto* pmb = block_at(block);
-  _graphs.erase({block, stage, segment});
+  {
+    std::lock_guard<std::mutex> lock(_graphs_mutex);
+    _graphs.erase({block, stage, segment});
+  }
+  // a block of a multi-block executor or process: an exchange inside its
+  // warm-up or capture would wait for blocks not running it (it throws)
+  bool multi = num_blocks() > 1 ||
+               pmb->_playout->options->blocks_per_process() > 1 ||
+               pmb->_playout->has_process_group();
   auto const& sched = schedule(block);
   auto const& seg = sched.segments().at(segment);
   auto device = vars.at("hydro_u").device().index();
@@ -492,6 +581,7 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
   ready.block(side);
   {
     SyncDebugOff off;
+    MultiBlockCapture guard_exchange(multi);
     c10::cuda::CUDAStreamGuard guard(side);
     for (int i = 0; i < 3; ++i) run_eager(block, vars, wdt, stage, segment);
   }
@@ -517,15 +607,23 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
   // again trips the caching allocator: start a fresh pool; the old one is
   // freed with its last tensor.
   bool live = false;
-  for (auto const& [slot, g] : _graphs)
-    if (std::get<0>(slot) == block) live = true;
+  {
+    std::lock_guard<std::mutex> lock(_graphs_mutex);
+    for (auto const& kv : _graphs)
+      if (std::get<0>(kv.first) == block) live = true;
+  }
   if (!live || _pools[block] == std::pair<uint64_t, uint64_t>{0, 0}) {
     auto id = at::cuda::graph_pool_handle();
     _pools[block] = {id.first, id.second};
   }
   {
+    MultiBlockCapture guard_exchange(multi);
     c10::cuda::CUDAStreamGuard guard(side);
-    entry->graph->capture_begin({_pools[block].first, _pools[block].second});
+    // a multi-block executor's other blocks keep launching from their worker
+    // threads meanwhile: thread-local mode confines the capture to this one
+    entry->graph->capture_begin(
+        {_pools[block].first, _pools[block].second},
+        multi ? cudaStreamCaptureModeThreadLocal : cudaStreamCaptureModeGlobal);
     run_eager(block, vars, wdt, stage, segment);
     entry->graph->capture_end();
   }
@@ -545,7 +643,10 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
   }
 
   entry->key = make_key(block, segment, vars, dt, stage);
-  _graphs[{block, stage, segment}] = entry;
+  {
+    std::lock_guard<std::mutex> lock(_graphs_mutex);
+    _graphs[{block, stage, segment}] = entry;
+  }
   ++_captures;
 #else
   TORCH_CHECK(false, "StageExecutor: snapy was built without CUDA");
@@ -557,7 +658,10 @@ void StageExecutor::replay(int block, int segment, Variables& vars, double dt,
 #ifdef USE_CUDA
   auto* pmb = block_at(block);
   device_dt(block, vars, dt);  // the graph's kernels read it
-  auto& entry = *_graphs.at({block, stage, segment});
+  auto g = graph_at({block, stage, segment});
+  TORCH_CHECK(g, "StageExecutor: no graph for block ", block, ", stage ", stage,
+              ", segment ", segment);
+  auto& entry = *g;
   for (auto const& [name, in] : entry.inputs) {
     auto const& t = vars.at(name);
     if (t.data_ptr() != in.data_ptr()) in.copy_(t);
@@ -572,19 +676,28 @@ void StageExecutor::replay(int block, int segment, Variables& vars, double dt,
 #endif
 }
 
-void StageExecutor::invalidate() { _graphs.clear(); }
+void StageExecutor::invalidate() {
+  std::lock_guard<std::mutex> lock(_graphs_mutex);
+  _graphs.clear();
+}
 
 void StageExecutor::invalidate(int block) {
+  std::lock_guard<std::mutex> lock(_graphs_mutex);
   for (auto it = _graphs.begin(); it != _graphs.end();)
     it = std::get<0>(it->first) == block ? _graphs.erase(it) : std::next(it);
 }
 
 std::map<std::string, int64_t> StageExecutor::report() const {
+  int64_t ngraphs;
+  {
+    std::lock_guard<std::mutex> lock(_graphs_mutex);
+    ngraphs = static_cast<int64_t>(_graphs.size());
+  }
   return {{"captures", _captures.load()},
           {"replays", _replays.load()},
           {"eager", _eager.load()},
           {"host", _host.load()},
-          {"graphs", static_cast<int64_t>(_graphs.size())},
+          {"graphs", ngraphs},
           {"pools", static_cast<int64_t>(std::count_if(
                         _pools.begin(), _pools.end(), [](auto const& p) {
                           return p != std::pair<uint64_t, uint64_t>{0, 0};

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -55,6 +56,11 @@ struct GraphKey {
   bool operator!=(GraphKey const& other) const { return !(*this == other); }
 };
 
+//! true on a thread warming up or capturing a segment of a multi-block
+//! executor (B2): an exchange there would wait at the same-process
+//! rendezvous for blocks that are not running it, so it throws instead
+bool in_multi_block_capture();
+
 //! the capability matrix (X.rst section 10) for one block as configured:
 //! numerical support is the eager row, graph support is separate
 struct Capability {
@@ -95,9 +101,15 @@ class StageExecutor {
   //! a bare block's stage: exchange_ghost_zones, then advance_local, eager or
   //! replayed
   void run_stage(int block, Variables& vars, double dt, int stage);
-  //! a Mesh block's local stage (advance_local, eager): the Mesh exchanges
-  //! last and runs the global phase itself. Safe on the block worker pool.
+  //! a Mesh block's local stage (advance_local, eager or its segments'
+  //! graphs, B2): the Mesh exchanges last and runs the global phase itself,
+  //! so the stage-entry host-exchange segment is skipped. Safe on the block
+  //! worker pool: blocks capture one at a time (thread-local capture mode)
+  //! and replay concurrently on their streams.
   void run_local(int block, Variables& vars, double dt, int stage);
+  //! strict refuses a block whose stage has a non-host eager segment, naming
+  //! it; called before any launch (Mesh::forward: on the calling thread)
+  void check_strict(int block, Variables const& vars, int stage) const;
 
   //! why this block cannot be captured; empty: it can
   std::vector<std::string> capture_reasons(int block,
@@ -137,6 +149,11 @@ class StageExecutor {
   //! the save list: the state, the registered storage and hydro_w
   std::map<std::string, torch::Tensor> save_list(int block,
                                                  Variables& vars) const;
+  //! the stage's segments: host ones only with_host (a bare block's
+  //! exchange), eager ones eagerly, the rest captured or replayed
+  void run_segments(int block, Variables& vars, double dt, int stage,
+                    bool with_host);
+  std::shared_ptr<Captured> graph_at(Slot const& slot) const;
   void capture(int block, int segment, Variables& vars, double dt, int stage);
   void replay(int block, int segment, Variables& vars, double dt, int stage);
 
@@ -147,9 +164,13 @@ class StageExecutor {
   mutable std::vector<StageSchedule> _schedules;
   mutable std::vector<int> _schedule_sig;
   mutable std::vector<char> _schedule_rebuilt;
-  std::map<Slot, std::shared_ptr<Captured>> _graphs;
+  std::map<Slot, std::shared_ptr<Captured>> _graphs;  // under _graphs_mutex
+  mutable std::mutex _graphs_mutex;
+  //! one capture at a time (its warm-up toggles the process-wide sync-debug
+  //! mode); replays of other blocks run meanwhile
+  std::mutex _capture_mutex;
   //! V3 D: one persistent 0-dim FP64 dt per block on its device, shared by
-  //! every graph of that block
+  //! every graph of that block (each block's worker writes only its own)
   std::vector<torch::Tensor> _dt;
   //! one CUDA graph memory pool per block, shared by its segments' graphs
   //! (a block's graphs replay one after another on one stream); {0, 0}

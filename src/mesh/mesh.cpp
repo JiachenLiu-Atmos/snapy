@@ -365,11 +365,10 @@ double MeshImpl::max_time_step(MeshVariables const& vars) {
 void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
   TORCH_CHECK(vars.size() == blocks.size(),
               "Mesh::forward expects one Variables map per local MeshBlock");
-  // the blocks of a Mesh run eager in V3 X3 (N-block graphs come with X4)
-  for (auto& b : blocks)
-    TORCH_CHECK(!b->options->execution_strict(),
-                "integration/execution-strict: a Mesh runs its blocks eagerly "
-                "(CUDA graphs cover a single MeshBlock only)");
+  // V3 B2: the blocks' stages run as graphs on the worker pool; strict
+  // refuses a block that cannot capture here, before any launch
+  for (int i = 0; i < static_cast<int>(blocks.size()); ++i)
+    executor_->check_strict(i, vars[i], stage);
   if (stage == 0)
     for (auto& b : blocks) b->step_dt = dt;
 

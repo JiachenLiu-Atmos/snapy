@@ -29,7 +29,20 @@
 
 namespace snap {
 
+namespace {
+// B2: an exchange inside a captured segment of a multi-block mesh waits at
+// the same-process rendezvous for blocks that are not running it
+void refuse_exchange_in_capture() {
+  TORCH_CHECK(!in_multi_block_capture(),
+              "StageExecutor: an exchange inside a captured segment of a "
+              "multi-block mesh (a within-stage cross-block exchange): this "
+              "case should have been refused before capture; please report "
+              "the deck");
+}
+}  // namespace
+
 void MeshBlockImpl::exchange(Variables &vars, SyncOptions const &opts) const {
+  refuse_exchange_in_capture();
   // A subdivided cubed-sphere panel packs its cross-panel strip EXTENDED into
   // its own tangential halo (cs_interp_margin), and that halo is only written
   // by deserialize(). So the intra-panel round must COMPLETE before the
@@ -59,6 +72,7 @@ void MeshBlockImpl::_exchange_once(Variables &vars,
 
 void MeshBlockImpl::begin_exchange(Variables &vars,
                                    SyncOptions const &opts) const {
+  refuse_exchange_in_capture();
   _playout->serialize(this, vars, opts);
 }
 
