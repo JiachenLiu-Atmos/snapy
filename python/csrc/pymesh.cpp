@@ -298,6 +298,18 @@ without its closure (the flux-form Coriolis torque only).)doc")
             d["graph_fp64"] = c.graph_fp64;
             d["graph_fp32"] = c.graph_fp32;
             d["eager_reasons"] = c.eager_reasons;
+            py::list rows;
+            for (auto const& s : c.segments) {
+              py::dict r;
+              r["index"] = s.index;
+              r["kind"] = s.kind;
+              r["capturable"] = s.capturable;
+              r["reads_host_dt"] = s.reads_host_dt;
+              r["ops"] = s.ops;
+              r["reasons"] = s.reasons;
+              rows.append(r);
+            }
+            d["segments"] = rows;
             return d;
           },
           py::arg("vars"))

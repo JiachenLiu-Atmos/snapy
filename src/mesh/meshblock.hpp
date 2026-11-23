@@ -334,6 +334,9 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! K.rst 3.5: the ThermoY prepared for the interior shape (idempotent) and
   //! _active_set0 made for it; at stage 0 and before a graph warm-up
   void prepare_thermo(torch::Tensor const& hydro_u);
+  //! the same from the state's device, dtype and shape (an Op's prepare)
+  void prepare_thermo(torch::Device device, torch::Dtype dtype,
+                      at::IntArrayRef shape);
 
   //! distribution layout
   Layout _playout;

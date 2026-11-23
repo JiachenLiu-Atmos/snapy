@@ -10,6 +10,9 @@
 // torch
 #include <torch/torch.h>
 
+// snap
+#include <snap/utils/step_dt.hpp>
+
 namespace snap {
 
 using Variables = std::map<std::string, torch::Tensor>;
@@ -31,7 +34,9 @@ char const* to_string(SegmentKind kind);
 struct StageContext {
   int block = 0;
   int stage = 0;
-  double dt = 0.;  //!< host dt; a captured op that reads it sets reads_host_dt
+  //! the step's dt: the block's device dt in a captured segment (V3 D), the
+  //! host dt in an eager one or one with an op that sets reads_host_dt
+  StepDt dt{0.};
 };
 
 //! one device op of a stage, declared by its owner
@@ -40,8 +45,9 @@ struct Op {
   //! false: the op runs eagerly, and eager_reason says why (required)
   bool capturable = true;
   std::string eager_reason;
-  //! until dt is a graph input (C4/D): an op that reads the host dt. A
-  //! segment holding one keeps dt in its graph key, so a new dt recaptures
+  //! an op that reads the host dt (StepDt::value) even when its segment is
+  //! captured. A segment holding one captures with the host dt and keeps dt
+  //! in its graph key, so a new dt recaptures; all others read the device dt
   bool reads_host_dt = false;
   //! runs outside capture, before the save list and the warm-up, with the
   //! state's device, dtype and shape (may be empty)

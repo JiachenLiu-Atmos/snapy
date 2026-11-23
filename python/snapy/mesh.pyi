@@ -170,7 +170,9 @@ class MeshBlock:
     def execution_capability(self, vars: Variables) -> dict:
         """This block's row of the capability matrix: eager_fp64/eager_fp32
         (its precision), graph_fp64/graph_fp32 (it can run as CUDA graphs) and
-        eager_reasons (why its stages run eager)."""
+        eager_reasons (why its stages run eager), and segments: one row per
+        segment of its stage schedule (index, kind, capturable, reads_host_dt,
+        ops, reasons)."""
         ...
     def bump_config_generation(self) -> None:
         """Recapture every CUDA graph at the next stage."""

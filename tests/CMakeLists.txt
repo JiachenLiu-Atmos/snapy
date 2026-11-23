@@ -235,6 +235,8 @@ setup_test(test_mesh_executor)
 setup_test(test_graph_monitor_amounts)
 # V3 A2: the segment types of the graph interface
 setup_test(test_stage_schedule)
+# V3 A2: one segment per stage, keyed (block, stage, segment)
+setup_test(test_stage_segments)
 setup_test(test_vapor_column_nb1)
 setup_test(test_wall_saturation)
 setup_test(test_cloud_parent_slots)
