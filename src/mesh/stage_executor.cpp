@@ -106,8 +106,13 @@ bool StageExecutor::user_forcing(int block) const {
   return !block_at(block)->user_stage_forcings.empty();
 }
 
+bool StageExecutor::chemistry_slot(int block) const {
+  return block_at(block)->_chemistry != nullptr;
+}
+
 int StageExecutor::schedule_signature(int block) const {
-  return (outflow_boundary(block) ? 1 : 0) | (user_forcing(block) ? 2 : 0);
+  return (outflow_boundary(block) ? 1 : 0) | (user_forcing(block) ? 2 : 0) |
+         (chemistry_slot(block) ? 4 : 0);
 }
 
 bool StageExecutor::outflow_boundary(int block) const {
@@ -189,12 +194,21 @@ void StageExecutor::build_schedule(int block) const {
 
   Op chemistry;
   chemistry.name = "chemistry";
-  // ChemistrySource::forward takes the host dt (dt.value()), but only when a
-  // chemistry step is registered, and that case is eager as a whole
-  // (capture_reasons), so the op never runs in a captured segment with it.
-  // Without one the op reads no dt: no host-dt key, and a dt change replays
-  // (V3 D). Were that refusal lifted, dt.value() on the device dt throws.
-  chemistry.reads_host_dt = false;
+  // ChemistrySource::forward takes the host dt (dt.value()), only when a
+  // chemistry step is registered. V3 C2: that step is then an eager FP64
+  // segment (X.rst section 3, K 3.6): its kintera Kinetics and ThermoX build
+  // their tables on first use, which a capture refuses (NoTableBuild). It
+  // runs eagerly with the host dt, as a user forcing does, and keys no graph;
+  // the ops before it and the boundaries after it still capture with the
+  // device dt (V3 D). It reads and writes hydro_u and hydro_w, the fixed
+  // StateStore buffers the graphs replay into. Without one the op reads no dt
+  bool chem = chemistry_slot(block);
+  if (chem) {
+    chemistry.capturable = false;
+    chemistry.eager_reason =
+        "a chemistry step is registered (eager FP64 kinetics, V3 C2)";
+  }
+  chemistry.reads_host_dt = chem;
   chemistry.run = [this, block](Variables& vars, StageContext const& ctx) {
     block_at(block)->stage_chemistry(vars, ctx.dt, ctx.stage);
   };
@@ -541,9 +555,13 @@ std::vector<std::string> StageExecutor::capture_reasons(
     why.push_back(
         "an outflow boundary is set with conversion-order 4 (the hydro step "
         "refills its primitive ghosts with it)");
-  // S-K4: the chemistry step runs inside the last stage; whether kintera's
-  // kinetics path captures is not verified, so a block with one runs eagerly
-  if (pmb->_chemistry) why.push_back("a chemistry step is registered");
+  // V3 C2: a bare block's chemistry step is its own eager op (the schedule's
+  // chemistry slot). A Mesh runs its blocks' chemistry in its global phase,
+  // after the stages (Mesh::forward); that path is not captured yet (C5)
+  if (pmb->_chemistry && pmb->_mesh_executor)
+    why.push_back(
+        "a chemistry step is registered on a Mesh block: the Mesh's chemistry "
+        "phase is not captured yet (C5)");
   return why;
 }
 

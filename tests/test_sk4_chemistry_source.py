@@ -155,17 +155,23 @@ def main():
         changed = int((av["hydro_u"][kICY:] != bvv["hydro_u"][kICY:]).sum()) if failures else 0
         print("%s: %d steps, registered step equals the pin's %s" % (
             precision, args.steps, "bitwise" if not failures else "NOT (%d species cells differ)" % changed))
-    # a registered chemistry step is a capture reason: the strict cuda-graph
-    # executor refuses the block before its first launch and names it
+    # a registered chemistry step is an eager op (V3 C2): the strict
+    # cuda-graph executor refuses the block before its first launch, and the
+    # block's capability names the chemistry step among its eager reasons
+    # (strict names the first eager segment, which on this deck is already
+    # eager for the case's own reasons)
     c, cv, _, _ = make("float64", device, True, execution="cuda-graph")
+    reasons = c.execution_capability(cv)["eager_reasons"]
+    if not any("a chemistry step is registered" in r for r in reasons):
+        failures.append("capability does not name the chemistry step: %s" % reasons)
     try:
         c.forward(cv, 0.1, 0)
         failures.append("strict cuda-graph with a chemistry step was not refused")
     except RuntimeError as e:
-        if "a chemistry step is registered" not in str(e):
-            failures.append("refusal does not name the chemistry step: %s" % str(e).splitlines()[0])
+        if "execution-strict" not in str(e):
+            failures.append("refusal is not the strict one: %s" % str(e).splitlines()[0])
         else:
-            print("strict cuda-graph: refused, 'a chemistry step is registered'")
+            print("strict cuda-graph: refused; capability names 'a chemistry step is registered'")
     for f in failures:
         print("FAIL:", f)
     print("PASSED" if not failures else "FAILED (%d)" % len(failures))

@@ -140,7 +140,9 @@ class StageExecutor {
   bool outflow_boundary(int block) const;
   //! whether the block has user TorchScript stage forcings
   bool user_forcing(int block) const;
-  //! what an op's mode follows: outflow (1), user forcings (2)
+  //! V3 C2: a chemistry step is registered on the block (its slot is eager)
+  bool chemistry_slot(int block) const;
+  //! what an op's mode follows: outflow (1), user forcings (2), chemistry (4)
   int schedule_signature(int block) const;
   //! the ops of a segment (all segments: -1), in order, eagerly
   void run_eager(int block, Variables& vars, StepDt dt, int stage,
