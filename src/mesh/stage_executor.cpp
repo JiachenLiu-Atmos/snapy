@@ -107,7 +107,11 @@ bool StageExecutor::user_forcing(int block) const {
 }
 
 bool StageExecutor::chemistry_slot(int block) const {
-  return block_at(block)->_chemistry != nullptr;
+  // V3 C5: a Mesh's block defers its chemistry to the Mesh's global phase
+  // (Mesh::forward runs it after the stages, eagerly, before the final
+  // exchange), so its chemistry op does nothing and stays in the graph
+  auto* pmb = block_at(block);
+  return pmb->_chemistry != nullptr && !pmb->_mesh_executor;
 }
 
 int StageExecutor::schedule_signature(int block) const {
@@ -555,13 +559,6 @@ std::vector<std::string> StageExecutor::capture_reasons(
     why.push_back(
         "an outflow boundary is set with conversion-order 4 (the hydro step "
         "refills its primitive ghosts with it)");
-  // V3 C2: a bare block's chemistry step is its own eager op (the schedule's
-  // chemistry slot). A Mesh runs its blocks' chemistry in its global phase,
-  // after the stages (Mesh::forward); that path is not captured yet (C5)
-  if (pmb->_chemistry && pmb->_mesh_executor)
-    why.push_back(
-        "a chemistry step is registered on a Mesh block: the Mesh's chemistry "
-        "phase is not captured yet (C5)");
   return why;
 }
 

@@ -140,7 +140,8 @@ class StageExecutor {
   bool outflow_boundary(int block) const;
   //! whether the block has user TorchScript stage forcings
   bool user_forcing(int block) const;
-  //! V3 C2: a chemistry step is registered on the block (its slot is eager)
+  //! V3 C2: a chemistry step is registered on a bare block (its slot is
+  //! eager); a Mesh's block runs its step in the Mesh's global phase (C5)
   bool chemistry_slot(int block) const;
   //! what an op's mode follows: outflow (1), user forcings (2), chemistry (4)
   int schedule_signature(int block) const;
