@@ -97,11 +97,11 @@ DISPATCH_MACRO inline T weno3_point(T const* src, int stride, T const* c,
   T p0 = _vvdot<3>(phi, c1);
   T p1 = _vvdot<3>(phi, c2);
 
-  T beta0 = sqr(_vvdot<3>(phi, c3));
-  T beta1 = sqr(_vvdot<3>(phi, c4));
+  T beta0 = SNAP_SQR(_vvdot<3>(phi, c3));
+  T beta1 = SNAP_SQR(_vvdot<3>(phi, c4));
 
-  T alpha0 = T(2.0 / 3.0) / sqr(beta0 + weno_eps<T>());
-  T alpha1 = T(1.0 / 3.0) / sqr(beta1 + weno_eps<T>());
+  T alpha0 = T(2.0 / 3.0) / SNAP_SQR(beta0 + weno_eps<T>());
+  T alpha1 = T(1.0 / 3.0) / SNAP_SQR(beta1 + weno_eps<T>());
 
   return (alpha0 * p0 + alpha1 * p1) / (alpha0 + alpha1) * vscale;
 }
@@ -130,17 +130,17 @@ DISPATCH_MACRO inline T weno5_point(T const* src, int stride, T const* c,
   T p1 = _vvdot<5>(phi, c2);
   T p2 = _vvdot<5>(phi, c3);
 
-  T beta0 =
-      T(13. / 12.) * sqr(_vvdot<5>(phi, c4)) + T(.25) * sqr(_vvdot<5>(phi, c5));
-  T beta1 =
-      T(13. / 12.) * sqr(_vvdot<5>(phi, c6)) + T(.25) * sqr(_vvdot<5>(phi, c7));
-  T beta2 =
-      T(13. / 12.) * sqr(_vvdot<5>(phi, c8)) + T(.25) * sqr(_vvdot<5>(phi, c9));
+  T beta0 = T(13. / 12.) * SNAP_SQR(_vvdot<5>(phi, c4)) +
+            T(.25) * SNAP_SQR(_vvdot<5>(phi, c5));
+  T beta1 = T(13. / 12.) * SNAP_SQR(_vvdot<5>(phi, c6)) +
+            T(.25) * SNAP_SQR(_vvdot<5>(phi, c7));
+  T beta2 = T(13. / 12.) * SNAP_SQR(_vvdot<5>(phi, c8)) +
+            T(.25) * SNAP_SQR(_vvdot<5>(phi, c9));
 
   T const* d = c9 + 5;
-  T alpha0 = d[0] / sqr(beta0 + weno_eps<T>());
-  T alpha1 = d[1] / sqr(beta1 + weno_eps<T>());
-  T alpha2 = d[2] / sqr(beta2 + weno_eps<T>());
+  T alpha0 = d[0] / SNAP_SQR(beta0 + weno_eps<T>());
+  T alpha1 = d[1] / SNAP_SQR(beta1 + weno_eps<T>());
+  T alpha2 = d[2] / SNAP_SQR(beta2 + weno_eps<T>());
 
   return vscale * (alpha0 * p0 + alpha1 * p1 + alpha2 * p2) /
          (alpha0 + alpha1 + alpha2);

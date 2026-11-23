@@ -71,8 +71,10 @@ void DISPATCH_MACRO hllc_impl(T* flx, T* wl, T* wr, T el, T er, T gammal,
 
   //--- Step 2.  Compute middle state estimates with PVRS (Toro 10.5.2)
 
-  el += T(0.5) * WL(IDN) * (sqr(WL(IVX)) + sqr(WL(IVY)) + sqr(WL(IVZ)));
-  er += T(0.5) * WR(IDN) * (sqr(WR(IVX)) + sqr(WR(IVY)) + sqr(WR(IVZ)));
+  el += T(0.5) * WL(IDN) *
+        (SNAP_SQR(WL(IVX)) + SNAP_SQR(WL(IVY)) + SNAP_SQR(WL(IVZ)));
+  er += T(0.5) * WR(IDN) *
+        (SNAP_SQR(WR(IVX)) + SNAP_SQR(WR(IVY)) + SNAP_SQR(WR(IVZ)));
 
   auto rhoa = T(0.5) * (WL(IDN) + WR(IDN));  // average density
   auto ca = T(0.5) * (cl + cr);              // average sound speed
@@ -202,10 +204,12 @@ void DISPATCH_MACRO lmars_impl(T* flx, T* wl, T* wr, T hl, T hr, T gammal,
 
   // Enthalpies. Typed constants (V3 C9) keep a float instantiation on FP32
   // arithmetic throughout; FP64 is unchanged.
-  hl += T(0.5) * (sqr(wli[IVX]) + sqr(wli[IVY]) + sqr(wli[IVZ])) +
-        wli[IPR] / wli[IDN];
-  hr += T(0.5) * (sqr(wri[IVX]) + sqr(wri[IVY]) + sqr(wri[IVZ])) +
-        wri[IPR] / wri[IDN];
+  hl +=
+      T(0.5) * (SNAP_SQR(wli[IVX]) + SNAP_SQR(wli[IVY]) + SNAP_SQR(wli[IVZ])) +
+      wli[IPR] / wli[IDN];
+  hr +=
+      T(0.5) * (SNAP_SQR(wri[IVX]) + SNAP_SQR(wri[IVY]) + SNAP_SQR(wri[IVZ])) +
+      wri[IPR] / wri[IDN];
 
   // Average density, average sound speed, pressure, velocity
   T rhobar = T(0.5) * (wli[IDN] + wri[IDN]);
@@ -264,8 +268,10 @@ void DISPATCH_MACRO roe_impl(T* flx, T const* wl, T const* wr, T el, T er,
                              T* face_pressure = nullptr, T* llf = nullptr) {
   auto [ivx, ivy, ivz] = face_axes(dim);
 
-  T etl = el + T(0.5) * WL(IDN) * (sqr(WL(IVX)) + sqr(WL(IVY)) + sqr(WL(IVZ)));
-  T etr = er + T(0.5) * WR(IDN) * (sqr(WR(IVX)) + sqr(WR(IVY)) + sqr(WR(IVZ)));
+  T etl = el + T(0.5) * WL(IDN) *
+                   (SNAP_SQR(WL(IVX)) + SNAP_SQR(WL(IVY)) + SNAP_SQR(WL(IVZ)));
+  T etr = er + T(0.5) * WR(IDN) *
+                   (SNAP_SQR(WR(IVX)) + SNAP_SQR(WR(IVY)) + SNAP_SQR(WR(IVZ)));
 
   T sqrtdl = sqrt(WL(IDN));
   T sqrtdr = sqrt(WR(IDN));

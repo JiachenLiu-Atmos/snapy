@@ -51,19 +51,21 @@ void DISPATCH_MACRO RoeAverage(T* prim, T gm1, T* wl, T* wr) {
 
   // Etot of the left side.
   T el = wl[IPR] / gm1 +
-         0.5 * wl[IDN] * (sqr(wl[IVX]) + sqr(wl[IVY]) + sqr(wl[IVZ]));
+         0.5 * wl[IDN] *
+             (SNAP_SQR(wl[IVX]) + SNAP_SQR(wl[IVY]) + SNAP_SQR(wl[IVZ]));
 
   // Etot of the right side.
   T er = wr[IPR] / gm1 +
-         0.5 * wr[IDN] * (sqr(wr[IVX]) + sqr(wr[IVY]) + sqr(wr[IVZ]));
+         0.5 * wr[IDN] *
+             (SNAP_SQR(wr[IVX]) + SNAP_SQR(wr[IVY]) + SNAP_SQR(wr[IVZ]));
 
   // Enthalpy divided by the density.
   T hbar = ((el + wl[IPR]) / sqrtdl + (er + wr[IPR]) / sqrtdr) * isdlpdr;
 
   // Roe averaged pressure
-  prim[IPR] =
-      (hbar - 0.5 * (sqr(prim[IVX]) + sqr(prim[IVY]) + sqr(prim[IVZ]))) * gm1 /
-      (gm1 + 1.) * prim[IDN];
+  prim[IPR] = (hbar - 0.5 * (SNAP_SQR(prim[IVX]) + SNAP_SQR(prim[IVY]) +
+                             SNAP_SQR(prim[IVZ]))) *
+              gm1 / (gm1 + 1.) * prim[IDN];
 }
 
 template <typename T>
