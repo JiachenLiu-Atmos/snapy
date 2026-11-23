@@ -101,7 +101,8 @@ def check_launch():
     assert report["host"] == 3 and report["graphs"] == 3, report
     rows = block.execution_capability(state)["segments"]
     assert [r["ops"] for r in rows] == [
-        ["exchange"], ["advance", "saturation", "chemistry"], ["boundaries"]], rows
+        ["exchange"], ["advance", "forcing", "combine", "saturation", "chemistry"],
+        ["boundaries"]], rows
     assert rows[1]["capturable"] and not rows[2]["capturable"], rows
     assert rows[2]["reasons"] == [REASON], rows
     # the reflecting control still captures

@@ -107,7 +107,47 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   advance_stage(vars, dt, stage);
 }
 
+void MeshBlockImpl::keep_stage_tendency(char const *name, torch::Tensor &slot,
+                                        torch::Tensor const &value) {
+  // allocated once (eager: a first stage or a capture's warm-up), then
+  // written in place; a new one bumps the store generation
+  if (!buffer_matches(slot, value)) {
+    slot = torch::empty_like(value);
+    _state.register_storage(name, slot);
+  }
+  slot.copy_(value);
+}
+
+// A dry source is inside the RK tendency. Addition carries the ratio at
+// source entry; removal carries the complete source-free stage result so it
+// cannot amplify a ratio that transport or the implicit solve just changed.
+void MeshBlockImpl::carry_dry_source(Variables &vars, int stage,
+                                     torch::Tensor const &dry,
+                                     torch::Tensor const &scalar_base) {
+  if (!dry.defined() || !vars.count("scalar_r")) return;
+  auto hydro_u = vars.at("hydro_u");
+  auto scalar_s = vars.at("scalar_s");
+  auto rho_base = pintg->forward(stage, _state.u0()[IDN], hydro_u[IDN],
+                                 _stage_du[IDN] - dry);
+  // anomaly storage: the stage weights of the two states sum to one, so
+  // the total is the combined anomaly plus the reference
+  if (phydro->has_reference())
+    rho_base = rho_base + phydro->u_ref_like(hydro_u)[0];
+  auto s_base = pintg->forward(stage, _state.s0(), scalar_s, scalar_base);
+  auto remove_r = torch::where(rho_base.unsqueeze(0) == 0., vars.at("scalar_r"),
+                               s_base / rho_base.unsqueeze(0));
+  auto carry_r =
+      torch::where(dry.unsqueeze(0) < 0., remove_r, vars.at("scalar_r"));
+  _stage_ds.add_(carry_r * dry.unsqueeze(0));
+}
+
 void MeshBlockImpl::advance_core(Variables &vars, StepDt dt, int stage) {
+  stage_advance(vars, dt, stage);
+  stage_forcing(vars, dt, stage);
+  stage_combine(vars, dt, stage);
+}
+
+void MeshBlockImpl::stage_advance(Variables &vars, StepDt dt, int stage) {
   TORCH_CHECK(stage >= 0 && stage < pintg->stages.size(),
               "Invalid stage: ", stage);
   DeferVaporCheck defer(phydro->peos.get());
@@ -156,36 +196,20 @@ void MeshBlockImpl::advance_core(Variables &vars, StepDt dt, int stage) {
   freg.begin_stage(stage, pintg->stages[stage]);
 
   // -------- (2) set containers for future results --------
-  torch::Tensor fut_hydro_du, fut_scalar_ds;
-
-  // A dry source is inside the RK tendency. Addition carries the ratio at
-  // source entry; removal carries the complete source-free stage result so it
-  // cannot amplify a ratio that transport or the implicit solve just changed.
-  auto carry_dry_source = [&](torch::Tensor const &dry,
-                              torch::Tensor const &scalar_base) {
-    if (!dry.defined() || !vars.count("scalar_r")) return;
-    auto rho_base = pintg->forward(stage, _state.u0()[IDN], hydro_u[IDN],
-                                   fut_hydro_du[IDN] - dry);
-    // anomaly storage: the stage weights of the two states sum to one, so
-    // the total is the combined anomaly plus the reference
-    if (phydro->has_reference())
-      rho_base = rho_base + phydro->u_ref_like(hydro_u)[0];
-    auto s_base = pintg->forward(stage, _state.s0(), scalar_s, scalar_base);
-    auto remove_r =
-        torch::where(rho_base.unsqueeze(0) == 0., vars.at("scalar_r"),
-                     s_base / rho_base.unsqueeze(0));
-    auto carry_r =
-        torch::where(dry.unsqueeze(0) < 0., remove_r, vars.at("scalar_r"));
-    fut_scalar_ds.add_(carry_r * dry.unsqueeze(0));
-  };
+  // the stage tendencies are fixed block storage (A3b): the forcing and
+  // combine ops read them across a segment boundary
+  auto &fut_hydro_du = _stage_du;
+  auto &fut_scalar_ds = _stage_ds;
 
   // -------- (3) launch all jobs --------
   // (3.A) hydro forward
-  fut_hydro_du = phydro->forward(dt, hydro_u, vars);
+  keep_stage_tendency("stage.du", _stage_du,
+                      phydro->forward(dt, hydro_u, vars));
 
   // (3.B) scalar forward
   if (pscalar->nvar() > 0) {
-    fut_scalar_ds = pscalar->forward(dt, scalar_s, vars);
+    keep_stage_tendency("stage.ds", _stage_ds,
+                        pscalar->forward(dt, scalar_s, vars));
     auto mass_corr = phydro->implicit_mass_correction();
     if (mass_corr.defined() && mass_corr.numel() > 0 &&
         vars.count("scalar_r")) {
@@ -207,8 +231,16 @@ void MeshBlockImpl::advance_core(Variables &vars, StepDt dt, int stage) {
       fut_scalar_ds.add_((P - P_above) / pcoord->cell_volume());
     }
     // Native dry sources follow transport and the implicit tracer transfer.
-    carry_dry_source(phydro->forcing_dry_increment(), fut_scalar_ds);
+    carry_dry_source(vars, stage, phydro->forcing_dry_increment(),
+                     fut_scalar_ds);
   }
+}
+
+void MeshBlockImpl::stage_forcing(Variables &vars, StepDt dt, int stage) {
+  DeferVaporCheck defer(phydro->peos.get());
+  auto hydro_u = vars.at("hydro_u");
+  auto &fut_hydro_du = _stage_du;
+  auto &fut_scalar_ds = _stage_ds;
 
   // (3.C) user stage forcings
   auto apply_extra_forcing = [&](Variables const &extra_forcing,
@@ -273,8 +305,19 @@ void MeshBlockImpl::advance_core(Variables &vars, StepDt dt, int stage) {
   }
 
   if (user_dry_before.defined()) {
-    carry_dry_source(fut_hydro_du[IDN] - user_dry_before, user_scalar_before);
+    carry_dry_source(vars, stage, fut_hydro_du[IDN] - user_dry_before,
+                     user_scalar_before);
   }
+}
+
+void MeshBlockImpl::stage_combine(Variables &vars, StepDt dt, int stage) {
+  DeferVaporCheck defer(phydro->peos.get());
+  auto &freg = phydro->flux_register();
+  auto hydro_u = vars.at("hydro_u");
+  auto scalar_s =
+      vars.count("scalar_s") ? vars.at("scalar_s") : torch::Tensor();
+  auto &fut_hydro_du = _stage_du;
+  auto &fut_scalar_ds = _stage_ds;
 
   // the stage total is final: S_d <- w1 S_d + w2 dt T_d
   freg.end_stage(dt);

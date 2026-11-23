@@ -235,6 +235,13 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! StepDt; a slot that needs the host dt reads dt.value(), which throws on
   //! the device dt of a capture.
   void advance_core(Variables& vars, StepDt dt, int stage);
+  //! advance_core in its ops (A3b): the stage's tendencies (begin, hydro,
+  //! scalar, native dry carry), the user stage forcings (species clip, user
+  //! dry carry), then the combine (end_stage, RK combine, limiter, scalar
+  //! combine, solid fill). advance_core runs the three in this order.
+  void stage_advance(Variables& vars, StepDt dt, int stage);
+  void stage_forcing(Variables& vars, StepDt dt, int stage);
+  void stage_combine(Variables& vars, StepDt dt, int stage);
   void stage_saturation(Variables& vars, StepDt dt, int stage);
   void stage_chemistry(Variables& vars, StepDt dt, int stage);
   void stage_boundaries(Variables& vars, StepDt dt, int stage);
@@ -364,7 +371,15 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! runs each stage of forward() eagerly or as a captured graph (X3); a
   //! Mesh's when the block is one of its blocks (B), else the block's own
   std::shared_ptr<StageExecutor> _executor;
-  int _executor_index = 0;      //!< this block in _executor
+  int _executor_index = 0;  //!< this block in _executor
+  //! the stage's hydro and scalar tendencies (A3b), fixed storage registered
+  //! as stage.du / stage.ds: written by stage_advance, read by stage_forcing
+  //! and stage_combine, possibly across a segment boundary
+  torch::Tensor _stage_du, _stage_ds;
+  void keep_stage_tendency(char const* name, torch::Tensor& slot,
+                           torch::Tensor const& value);
+  void carry_dry_source(Variables& vars, int stage, torch::Tensor const& dry,
+                        torch::Tensor const& scalar_base);
   bool _mesh_executor = false;  //!< _executor is a Mesh's: reset keeps it
 };
 

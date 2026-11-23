@@ -119,7 +119,8 @@ TEST(StageSegments, exchange_is_a_host_segment_then_one_graph) {
   EXPECT_FALSE(ex.capturable);
   EXPECT_FALSE(ex.reads_host_dt);
   auto const& seg = sched.segments()[1];
-  EXPECT_EQ(seg.names, (std::vector<std::string>{"advance", "saturation",
+  EXPECT_EQ(seg.names, (std::vector<std::string>{"advance", "forcing",
+                                                 "combine", "saturation",
                                                  "chemistry", "boundaries"}));
   EXPECT_EQ(seg.kind, SegmentKind::compute);
   EXPECT_TRUE(seg.capturable);
@@ -149,8 +150,8 @@ TEST(StageSegments, strict_names_the_eager_segment) {
   } catch (c10::Error const& e) {
     std::string msg = e.what();
     EXPECT_NE(msg.find("cannot run as a CUDA graph"), std::string::npos) << msg;
-    EXPECT_NE(msg.find("segment 1 (advance, saturation, chemistry, "
-                       "boundaries) of block 0, stage 0 runs eager"),
+    EXPECT_NE(msg.find("segment 1 (advance, forcing, combine, saturation, "
+                       "chemistry, boundaries) of block 0, stage 0 runs eager"),
               std::string::npos)
         << msg;
     EXPECT_NE(msg.find("not on a CUDA device"), std::string::npos) << msg;
