@@ -7,10 +7,22 @@
 // promoted to double through untyped constants, so the bits differ on many
 // faces. The FP64 cases check that the double results are the pre-C9
 // formulas, bit for bit.
+//
+// Bits compare only if the library does not fuse multiply-adds: GCC with
+// -ffp-contract=fast on an FMA target (e.g. a toolchain that defaults to
+// x86-64-v3) fuses each translation unit by its own choice, so the library
+// and an identical formula compiled here can differ in the last bits. The
+// test asks the library itself (the cp3 probe below). If it fuses, a WENO
+// case must be within kUlps of the reference on every face, and a float
+// result must also differ from the FP64 result rounded to float on at least
+// a quarter of the faces, which an FP64 computation cannot do. An unfused
+// build (the bitwise-cpu CI job) keeps the bit-for-bit check.
 
 // C/C++
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <vector>
 
@@ -135,33 +147,98 @@ std::vector<T> cast(std::vector<double> const& v) {
 bool same_bits(float a, float b) { return std::memcmp(&a, &b, 4) == 0; }
 bool same_bits(double a, double b) { return std::memcmp(&a, &b, 8) == 0; }
 
-// count faces where Interp(type) on w differs in bits from ref(window, table)
-template <typename T, typename Ref>
-int count_differing(std::string const& type, int width, bool scale,
-                    std::vector<double> const& left, int nrow, Ref ref,
-                    torch::Tensor const& w) {
+// position on the number line: neighbouring values differ by 1
+int64_t ord(float x) {
+  int32_t i;
+  std::memcpy(&i, &x, 4);
+  return i < 0 ? -int64_t(i & 0x7fffffff) : i;
+}
+int64_t ord(double x) {
+  int64_t i;
+  std::memcpy(&i, &x, 8);
+  return i < 0 ? -(i & INT64_MAX) : i;
+}
+
+constexpr int64_t kUlps = 8;  // fused vs unfused WENO: at most 5 measured
+
+torch::Tensor interp_out(std::string const& type, int width, bool scale,
+                         torch::Tensor const& x, bool left) {
   auto opts = std::make_shared<InterpOptionsImpl>(type);
   opts->scale() = scale;
   auto interp = std::make_shared<InterpImpl>(opts);
+  interp->to(torch::kCPU, x.scalar_type());
+  auto out = torch::zeros({x.size(0) - (width - 1)}, x.options());
+  left ? interp->left(x, 0, out) : interp->right(x, 0, out);
+  return out;
+}
+
+// Does the library fuse multiply-adds? cp3 is a 3-term dot product with the
+// same typed table, so its bits are either the unfused sum or the one fma
+// chain; the library must match one of the two on every face.
+template <typename T>
+bool library_fuses(torch::Tensor const& x) {
+  auto out = interp_out("cp3", 3, false, x, true);
+  auto c = cast<T>({1. / 3., 5. / 6., -1. / 6.});
+  auto const* px = x.template data_ptr<T>();
+  int n = out.size(0), plain = 0, fused = 0;
+  for (int i = 0; i < n; ++i) {
+    volatile T acc = c[0] * px[i];  // volatile: no fusing here
+    volatile T p1 = c[1] * px[i + 1];
+    acc = acc + p1;
+    volatile T p2 = c[2] * px[i + 2];
+    acc = acc + p2;
+    T f = std::fma(c[2], px[i + 2], std::fma(c[1], px[i + 1], c[0] * px[i]));
+    T lib = out.template data_ptr<T>()[i];
+    plain += same_bits(lib, static_cast<T>(acc));
+    fused += same_bits(lib, f);
+  }
+  EXPECT_TRUE(plain == n || fused == n)
+      << "cp3 is neither the unfused nor the fused sum: " << plain << ", "
+      << fused << " of " << n;
+  return plain != n;
+}
+
+// Interp(type) on w against ref(window, table), both faces. Bit for bit; if
+// the library fuses multiply-adds, within kUlps instead, and a float result
+// must differ from the FP64 one (ref64 on the same inputs and float table,
+// rounded to float) on at least a quarter of the faces.
+template <typename T, typename Ref, typename Ref64>
+void expect_matches(std::string const& type, int width, bool scale,
+                    std::vector<double> const& left, int nrow, Ref ref,
+                    Ref64 ref64, torch::Tensor const& w) {
   auto dtype = std::is_same_v<T, float> ? torch::kFloat32 : torch::kFloat64;
-  interp->to(torch::kCPU, dtype);
   auto x = w.to(dtype).contiguous();
-  int nout = x.size(0) - (width - 1);
-  auto outl = torch::zeros({nout}, x.options());
-  auto outr = torch::zeros({nout}, x.options());
-  interp->left(x, 0, outl);
-  interp->right(x, 0, outr);
+  auto const* px = x.template data_ptr<T>();
   auto cl = cast<T>(left);
   auto cr = cast<T>(flip_rows(left, nrow, width));
-  auto const* px = x.template data_ptr<T>();
-  int bad = 0;
-  for (int i = 0; i < nout; ++i) {
-    bad += !same_bits(outl.template data_ptr<T>()[i],
-                      ref(px + i, cl.data(), scale));
-    bad += !same_bits(outr.template data_ptr<T>()[i],
-                      ref(px + i, cr.data(), scale));
+  int nface = 0, bad = 0, unlike64 = 0;
+  int64_t gap = 0;
+  for (bool is_left : {true, false}) {
+    auto out = interp_out(type, width, scale, x, is_left);
+    auto const& c = is_left ? cl : cr;
+    std::vector<double> c64(c.begin(), c.end());
+    for (int i = 0; i < out.size(0); ++i, ++nface) {
+      T lib = out.template data_ptr<T>()[i], r = ref(px + i, c.data(), scale);
+      bad += !same_bits(lib, r);
+      gap = std::max(gap, std::abs(ord(lib) - ord(r)));
+      double s64[5];
+      for (int k = 0; k < width; ++k) s64[k] = px[i + k];
+      unlike64 +=
+          !same_bits(lib, static_cast<T>(ref64(s64, c64.data(), scale)));
+    }
   }
-  return bad;
+  std::string what = type + " scale=" + std::to_string(scale);
+  if (bad == 0 || !library_fuses<T>(x)) {
+    EXPECT_EQ(bad, 0) << what;
+    return;
+  }
+  std::printf("[ fused    ] %s: %d of %d faces differ, at most %lld ulp\n",
+              what.c_str(), bad, nface, static_cast<long long>(gap));
+  EXPECT_LE(gap, kUlps) << what;
+  if constexpr (std::is_same_v<T, float>) {
+    EXPECT_GE(4 * unlike64, nface)
+        << what << ": FP64 result on " << nface - unlike64 << " faces";
+  }
 }
 
 torch::Tensor wavy(int n) {
@@ -187,32 +264,26 @@ TEST(Fp32TypedConstants, uniform_weno5_table_holds_its_weights) {
 TEST(Fp32TypedConstants, weno5_float_computes_in_fp32) {
   auto w = wavy(4004);
   for (bool scale : {false, true}) {
-    EXPECT_EQ((count_differing<float>("weno5", 5, scale, weno5_left(), 9,
-                                      ref_weno5<float>, w)),
-              0)
-        << "scale=" << scale;
+    expect_matches<float>("weno5", 5, scale, weno5_left(), 9, ref_weno5<float>,
+                          ref_weno5<double>, w);
   }
 }
 
 TEST(Fp32TypedConstants, weno3_float_computes_in_fp32) {
   auto w = wavy(4002);
   for (bool scale : {false, true}) {
-    EXPECT_EQ((count_differing<float>("weno3", 3, scale, weno3_left(), 4,
-                                      ref_weno3<float>, w)),
-              0)
-        << "scale=" << scale;
+    expect_matches<float>("weno3", 3, scale, weno3_left(), 4, ref_weno3<float>,
+                          ref_weno3<double>, w);
   }
 }
 
 TEST(Fp32TypedConstants, weno_double_is_unchanged) {
   auto w = wavy(4004);
   for (bool scale : {false, true}) {
-    EXPECT_EQ((count_differing<double>("weno5", 5, scale, weno5_left(), 9,
-                                       old_weno5, w)),
-              0);
-    EXPECT_EQ((count_differing<double>("weno3", 3, scale, weno3_left(), 4,
-                                       ref_weno3<double>, w)),
-              0);
+    expect_matches<double>("weno5", 5, scale, weno5_left(), 9, old_weno5,
+                           old_weno5, w);
+    expect_matches<double>("weno3", 3, scale, weno3_left(), 4,
+                           ref_weno3<double>, ref_weno3<double>, w);
   }
 }
 
