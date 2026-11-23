@@ -486,6 +486,7 @@ snapy_add_python_test(test_stage_executor_capture TIMEOUT 300 LABELS "python;hyd
 snapy_add_python_test(test_execution_capability TIMEOUT 120 LABELS "python;hydro")
 snapy_add_python_test(test_graph_pool_recapture TIMEOUT 600 LABELS "python;hydro")
 snapy_add_python_test(test_graph_user_forcing TIMEOUT 600 LABELS "python;hydro;forcing")
+snapy_add_python_test(test_cubed_sphere_capture TIMEOUT 900 LABELS "python;hydro")
 # #314: an outflow boundary is refused before a capture; CPU part on every build
 snapy_add_python_test(test_graph_outflow_refused TIMEOUT 300 LABELS "python;hydro")
 snapy_add_python_test(test_sk3_capture_moist TIMEOUT 600 LABELS "python;hydro;eos;fp32-science")
