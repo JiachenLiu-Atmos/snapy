@@ -231,6 +231,8 @@ setup_test(test_global_phase)
 setup_test(test_global_phase_closure)
 # lane B: a Mesh owns one stage executor; Mesh::forward runs through it
 setup_test(test_mesh_executor)
+# the capture save list holds the register monitor's amounts
+setup_test(test_graph_monitor_amounts)
 setup_test(test_vapor_column_nb1)
 setup_test(test_wall_saturation)
 setup_test(test_cloud_parent_slots)
