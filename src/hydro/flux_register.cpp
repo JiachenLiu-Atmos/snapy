@@ -176,6 +176,10 @@ void FluxRegister::reset(int nvar, std::array<int64_t, 3> const& cells,
   }
   _pmask = {};
   _pvalue = {};
+  _pwall = {};  // E's wall planes go with the mask: S supplies again
+  _pfree = {};
+  _prow = {};
+  _pwall_set = {false, false, false};
   _coord = nullptr;
   _slot = {};
   _monitor.reset(req);

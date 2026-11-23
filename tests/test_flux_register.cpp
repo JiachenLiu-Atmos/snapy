@@ -494,6 +494,28 @@ TEST(FluxRegister, wall_prescription_works_on_the_wall_planes_only) {
   EXPECT_LE(rel(got, ref), 1.e-15);
 }
 
+// reset() starts with no prescription: S's wall planes from before the
+// reset are gone, as its full mask is, so apply_prescribed is a no-op until
+// S supplies again
+TEST(FluxRegister, reset_drops_the_wall_planes) {
+  Seam s;
+  auto reg = s.make({}, 10);
+  s.stage(reg);
+  supply_prescribed(reg, s.block.get(), torch::Tensor(),
+                    {IVX, IVX + 1, IVX + 2});
+  reg.reset(s.block->pcoord.get(), PrecisionPolicy("float64"), s.nvar, {});
+  for (int d : {1, 2}) reg.total(d).copy_(torch::randn_like(reg.total(d)));
+  s.stage(reg);
+  auto t0 = reg.total(1).clone();
+  reg.apply_prescribed(1);
+  EXPECT_TRUE(torch::equal(reg.total(1), t0))
+      << "apply_prescribed after reset() changed the total";
+  reg.end_stage(1.);
+  EXPECT_EQ(
+      reg.monitor().amounts("boundary.prescribed").abs().sum().item<double>(),
+      0.);
+}
+
 // G-R14 (flux corrections only): the amounts' recursion equals
 // sum_s w2_s prod_{t>s} w1_t dt a_s over rk3; a rollback clears them
 TEST(FluxRegister, amounts_fold_like_the_step_field) {
