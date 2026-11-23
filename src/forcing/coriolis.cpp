@@ -109,7 +109,7 @@ void CoriolisImpl::reset() {
 
 void CoriolisImpl::add(torch::Tensor du, StageState const &s) {
   auto w = s.wc.defined() ? s.wc : s.w;
-  double dt = s.dt;
+  double dt = s.dt.value();
   if (options->type() == "123") {  // the x3 row only in 3D
     if (options->omega1() == 0.0 && options->omega2() == 0.0 &&
         options->omega3() == 0.0)

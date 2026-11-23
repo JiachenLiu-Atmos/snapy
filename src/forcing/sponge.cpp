@@ -56,7 +56,8 @@ void SpongeImpl::add(torch::Tensor du, StageState const& s) {
   // the force from contravariant velocities is lowered to du's covariant
   // momenta, or the drag rotates the wind (#168); the identity on an
   // orthogonal grid, with the operand order kept bit-identical
-  auto force = s.w[IDN] * s.w.narrow(0, IVX, 3) / options->tau() * scale * s.dt;
+  auto force =
+      s.w[IDN] * s.w.narrow(0, IVX, 3) / options->tau() * scale * s.dt.value();
   coord_vec_lower_(force, pcoord->cosine_cell_kj);
   du.narrow(0, IVX, 3) -= force;
 }

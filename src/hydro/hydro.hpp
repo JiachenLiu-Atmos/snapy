@@ -122,7 +122,7 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
                        torch::Tensor solid = torch::Tensor()) const;
 
   //! Advance the conserved variables by one time step.
-  torch::Tensor forward(double dt, torch::Tensor hydro_u,
+  torch::Tensor forward(StepDt dt, torch::Tensor hydro_u,
                         Variables const& other);
 
   //! In perturbation-flux mode normal momentum excludes the shared face

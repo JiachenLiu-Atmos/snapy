@@ -65,7 +65,8 @@ void RelaxBotTempImpl::add(torch::Tensor du, StageState const& s) {
     target = (1. + a) * T0 - a * T1;
     gain = 1.0 / (1. + a);
   }
-  auto heating = s.dt / options->tau() * rho * cv * (options->btemp() - target);
+  auto heating =
+      s.dt.value() / options->tau() * rho * cv * (options->btemp() - target);
   if (gain.defined()) heating *= gain;
   du[IPR].index(bottom) += heating;
 }

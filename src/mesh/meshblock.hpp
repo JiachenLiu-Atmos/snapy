@@ -225,6 +225,9 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! advance the variables by one stage of the integrator
   void forward(Variables& vars, double dt, int stage);
   void advance_local(Variables& vars, double dt, int stage);
+  //! the same with a StepDt: a captured stage passes the executor's device
+  //! dt (V3 D), which its kernels read at every replay
+  void advance_stage(Variables& vars, StepDt dt, int stage);
 
   //! V3 S-K4 (K.rst 3.6): the chemistry step after the last stage, from a
   //! by-value copy of the reaction options; one adapter for this block,

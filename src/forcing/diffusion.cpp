@@ -550,7 +550,7 @@ void DiffusionImpl::profiles_on(torch::Tensor const& w) {
 
 void DiffusionImpl::add(torch::Tensor du, StageState const& s) {
   auto w = s.w, temp = s.temp;
-  double dt = s.dt;
+  double dt = s.dt.value();
   auto coord = phydro->pmb->pcoord;
 
   check_profiles();

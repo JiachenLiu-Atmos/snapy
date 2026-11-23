@@ -12,6 +12,9 @@
 // torch
 #include <torch/nn/module.h>
 
+// snap
+#include <snap/utils/step_dt.hpp>
+
 namespace snap {
 
 class FluxRegister;
@@ -44,7 +47,7 @@ struct SourceDeclaration {
 //! under the x1 mass-flux gate, m1 = 0 before the solve (#355)
 struct StageState {
   torch::Tensor w, temp;
-  double dt = 0.;
+  StepDt dt;  // V3 D: a captured stage's is on the device
   torch::Tensor wc;
 };
 

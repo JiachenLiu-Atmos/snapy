@@ -23,7 +23,7 @@ void RelaxBotVeloImpl::add(torch::Tensor du, StageState const& s) {
   auto bottom = phydro->pmb->part(
       {0, 0, -1}, PartOptions().exterior(false).depth(1).ndim(3));
   auto rho = w[IDN].index(bottom);
-  auto scale = s.dt / options->tau() * rho;
+  auto scale = s.dt.value() / options->tau() * rho;
 
   // The force is built from CONTRAVARIANT primitive velocities, but `du` holds
   // COVARIANT momenta, so it must be lowered before it is added -- otherwise

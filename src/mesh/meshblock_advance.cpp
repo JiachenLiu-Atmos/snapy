@@ -104,6 +104,10 @@ void MeshBlockImpl::forward(Variables &vars, double dt, int stage) {
 }
 
 void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
+  advance_stage(vars, dt, stage);
+}
+
+void MeshBlockImpl::advance_stage(Variables &vars, StepDt dt, int stage) {
   TORCH_CHECK(stage >= 0 && stage < pintg->stages.size(),
               "Invalid stage: ", stage);
   DeferVaporCheck defer(phydro->peos.get());
@@ -125,7 +129,7 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
     // survive into the step
     freg.begin_step();
     auto splits = phydro->sources.splits();
-    for (auto &s : splits) s->begin_split(hydro_u, dt, freg);
+    for (auto &s : splits) s->begin_split(hydro_u, dt.value(), freg);
     if (!splits.empty()) {
       apply_boundaries(vars, hydro_u, scalar_s);
       exchange_ghost_zones(vars);
@@ -255,7 +259,8 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   if (!user_stage_forcings.empty()) {
     auto inputs = stage_forcing_variables(*this, vars);
     for (size_t i = 0; i < user_stage_forcings.size(); ++i) {
-      auto result = user_stage_forcings[i]->forward({inputs, dt, stage});
+      auto result =
+          user_stage_forcings[i]->forward({inputs, dt.value(), stage});
       apply_extra_forcing(stage_forcing_result(result, i),
                           "User stage forcing " + std::to_string(i));
     }
@@ -277,7 +282,8 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   // -------- (4) multi-stage averaging --------
   pintg->forward(stage, _state.u0(), hydro_u, fut_hydro_du, hydro_u);
   if (stage + 1 == static_cast<int>(pintg->stages.size()))
-    for (auto &s : phydro->sources.splits()) s->finish_split(hydro_u, dt, freg);
+    for (auto &s : phydro->sources.splits())
+      s->finish_split(hydro_u, dt.value(), freg);
   // skipped dry and scalar-free before the last stage: next U->W applies it
   if (hydro_u.size(0) > ICY || pscalar->nvar() > 0 ||
       stage + 1 == static_cast<int>(pintg->stages.size()))
@@ -330,7 +336,7 @@ void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
   // S-K4 (K.rst 3.5): the chemistry step, the last op of the last stage of a
   // bare block (a Mesh runs it over its blocks before its final exchange)
   if (stage == pintg->stages.size() - 1 && _chemistry && !defer_chemistry)
-    _chemistry->forward(*this, vars, dt);
+    _chemistry->forward(*this, vars, dt.value());
 
   // Physical ghosts must include the final-stage species adjustment.
   apply_boundaries(vars, hydro_u, scalar_s);

@@ -5,8 +5,9 @@ Like kintera's K-G3 gate, every forward() of the graph block runs under
 torch.cuda.set_sync_debug_mode("error"): its captures and replays must not
 synchronize the host (the eager warm-up inside a capture is exempt, as eager
 stages are: a block's first eager stage syncs once). The eager reference runs
-under the default mode. The run changes dt, rebinds hydro_u/scalar_s between
-steps, edits the state in place and forces a retry. On CPU only the setup
+under the default mode. The run changes dt (one capture serves every dt,
+V3 D), rebinds hydro_u/scalar_s between steps (which recaptures), edits the
+state in place and forces a retry. On CPU only the setup
 rules are checked: eager plus strict is refused at setup, and a strict
 cuda-graph case that cannot be captured is refused before its first launch.
 """
@@ -82,7 +83,7 @@ def check_capture(precision):
                 fields["hydro_u"] = fields["hydro_u"].clone()
                 fields["scalar_s"] = fields["scalar_s"].clone()
             recaptures += 1
-        elif dt != last_dt:
+        elif last_dt is None:  # the first step captures; a new dt does not (V3 D)
             recaptures += 1
         if step == 30:  # an in-place edit reaches the captured inputs
             for fields in (state, expected):
@@ -92,7 +93,7 @@ def check_capture(precision):
         assert block.check_redo(state) == ref.check_redo(expected) == 0
         assert_equal(state, expected, (precision, step))
 
-    # a forced retry restores the step; the smaller dt recaptures
+    # a forced retry restores the step; the smaller dt replays the same graphs
     before = {k: state[k].clone() for k in ("hydro_u", "scalar_s")}
     forward_both(pair, 0.1)
     for fields in (state, expected):
@@ -105,7 +106,6 @@ def check_capture(precision):
         forward_both(pair, dt)
         assert block.check_redo(state) == ref.check_redo(expected) == 0
         assert_equal(state, expected, (precision, "after retry"))
-    recaptures += 1
 
     report = block.execution_report()
     assert report["eager"] == 0, report
@@ -114,12 +114,34 @@ def check_capture(precision):
     print(precision, "graph equals eager over 43 steps:", report)
 
 
+def check_one_capture_many_dt(precision):
+    """V3 D: dt is a graph input, not part of the key. One capture per stage
+    replays at every dt, and each step equals eager at that dt, bitwise."""
+    cuda = torch.device("cuda")
+    block, state, *_ = make_case(precision, cuda, "cuda-graph", True)
+    ref, expected, *_ = make_case(precision, cuda)
+    pair = ((block, state), (ref, expected))
+    nstages = len(block.intg.stages)
+    dts = (0.1, 0.05, 0.075, 0.1, 0.0625, 0.05)
+    for step, dt in enumerate(dts):
+        forward_both(pair, dt)
+        assert block.check_redo(state) == ref.check_redo(expected) == 0
+        assert_equal(state, expected, (precision, "dt", step, dt))
+    report = block.execution_report()
+    assert report["captures"] == nstages, (precision, report)
+    assert report["graphs"] == nstages, (precision, report)
+    assert report["replays"] == nstages * len(dts), (precision, report)
+    assert report["eager"] == 0, (precision, report)
+    print(precision, f"one capture per stage, {len(set(dts))} dt values bitwise:", report)
+
+
 def main():
     check_setup()
     if not torch.cuda.is_available():
         print("SKIP: CUDA unavailable (capture part)")
         return
     for precision in ("float64", "float32"):
+        check_one_capture_many_dt(precision)
         check_capture(precision)
 
 

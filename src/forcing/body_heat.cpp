@@ -36,16 +36,16 @@ void BodyHeatImpl::add(torch::Tensor du, StageState const& s) {
   auto mask =
       torch::logical_and(pres >= options->pmin(), pres <= options->pmax());
   du[IPR].index(interior) += torch::where(
-      mask, s.dt * options->dTdt() * rho * cv, torch::zeros_like(pres));
+      mask, s.dt.value() * options->dTdt() * rho * cv, torch::zeros_like(pres));
 }
 
 void PlumeForcingImpl::add(torch::Tensor du, StageState const& s) {
   auto R = s.w[0];
   auto W = s.w[1];
   auto B = s.w[2];
-  du[0] -= 2. * R * options->entrainment() * s.dt;
-  du[1] += R * R * B * s.dt;
-  du[2] -= options->N2() * R * R * W * s.dt;
+  du[0] -= 2. * R * options->entrainment() * s.dt.value();
+  du[1] += R * R * B * s.dt.value();
+  du[2] -= options->N2() * R * R * W * s.dt.value();
 }
 
 }  // namespace snap

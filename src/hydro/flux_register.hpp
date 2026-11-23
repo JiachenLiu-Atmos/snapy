@@ -10,6 +10,9 @@
 // torch
 #include <torch/torch.h>
 
+// snap
+#include <snap/utils/step_dt.hpp>
+
 namespace harp {
 struct IntegratorWeight;
 }  // namespace harp
@@ -86,7 +89,7 @@ class RegisterMonitor {
   void post(std::string const& name, AmountKind kind,
             torch::Tensor const& amount, double weight, bool in_stage);
   //! A <- w1 A + w2 dt a_s + p_s, then a_s, p_s <- 0 (FluxRegister::end_stage)
-  void end_stage(double w1, double w2dt);
+  void end_stage(double w1, StepDt w2dt);
 
   std::vector<std::string> const& row_names() const { return _rows; }
   std::vector<std::string> const& counter_names() const { return _counter; }
@@ -201,7 +204,7 @@ class FluxRegister {
 
   //! S_d <- w1_s S_d + w2_s dt T_d for every requested direction; the
   //! monitor's amounts likewise
-  void end_stage(double dt);
+  void end_stage(StepDt dt);
   //! X's decide_retry: zero the step fields and the monitor
   void rollback();
   //! R.rst 3.4, outside the stages (the radial split halves: after

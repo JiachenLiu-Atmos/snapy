@@ -9,6 +9,9 @@
 // torch
 #include <torch/torch.h>
 
+// snap
+#include <snap/utils/step_dt.hpp>
+
 namespace kintera {
 class ThermoYImpl;
 }
@@ -33,7 +36,7 @@ struct GraphKey {
   int store_generation = 0;        // StateStore::generation(): addresses
   int config_generation = 0;       // StageExecutor::bump_config_generation()
   int stage = -1;
-  double dt = 0.;  // host double: a new dt recaptures
+  // no dt (V3 D): a captured stage reads it from the executor's device dt
   //! kintera::alloc_epoch of the EOS thermo (K.rst 3.3): its counter,
   //! active set or table reallocated (reset(), a new shape) recaptures
   int64_t thermo_epoch = 0;
@@ -71,17 +74,22 @@ class StageExecutor {
  private:
   struct Captured;
 
-  void run_eager(Variables& vars, double dt, int stage);
-  GraphKey make_key(Variables const& vars, double dt, int stage) const;
+  void run_eager(Variables& vars, StepDt dt, int stage);
+  GraphKey make_key(Variables const& vars, int stage) const;
+  //! the device dt every graph of this block reads, set to dt (stream order)
+  StepDt device_dt(Variables const& vars, double dt);
   //! the EOS's kintera ThermoY (hydro.eos.thermo), or null
   std::shared_ptr<kintera::ThermoYImpl> thermo_of() const;
   //! the save list: the state, the registered storage and hydro_w
   std::map<std::string, torch::Tensor> save_list(Variables& vars) const;
   void capture(Variables& vars, double dt, int stage);
-  void replay(Variables& vars, int stage);
+  void replay(Variables& vars, double dt, int stage);
 
   MeshBlockImpl* _block;
   std::map<int, std::shared_ptr<Captured>> _graphs;  // one per stage
+  //! V3 D: one persistent 0-dim FP64 dt on the block's device, shared by
+  //! every graph (a future per-segment graph reads the same one)
+  torch::Tensor _dt;
   int _config_generation = 0;
   int64_t _captures = 0, _replays = 0, _eager = 0;
 };

@@ -38,7 +38,7 @@ bool GraphKey::operator==(GraphKey const& other) const {
   return device_index == other.device_index && names == other.names &&
          layout == other.layout && store_generation == other.store_generation &&
          config_generation == other.config_generation && stage == other.stage &&
-         dt == other.dt && thermo_epoch == other.thermo_epoch;
+         thermo_epoch == other.thermo_epoch;
 }
 
 struct StageExecutor::Captured {
@@ -55,9 +55,19 @@ struct StageExecutor::Captured {
 StageExecutor::StageExecutor(MeshBlockImpl* block) : _block(block) {}
 StageExecutor::~StageExecutor() = default;
 
-void StageExecutor::run_eager(Variables& vars, double dt, int stage) {
+void StageExecutor::run_eager(Variables& vars, StepDt dt, int stage) {
   _block->exchange_ghost_zones(vars);
-  _block->advance_local(vars, dt, stage);
+  _block->advance_stage(vars, dt, stage);
+}
+
+StepDt StageExecutor::device_dt(Variables const& vars, double dt) {
+  auto device = vars.at("hydro_u").device();
+  if (!_dt.defined() || _dt.device() != device) {
+    _graphs.clear();  // they read the old buffer
+    _dt = torch::empty({}, torch::dtype(torch::kFloat64).device(device));
+  }
+  _dt.fill_(dt);
+  return StepDt::device(_dt);
 }
 
 std::vector<std::string> StageExecutor::capture_reasons(
@@ -119,8 +129,7 @@ Capability StageExecutor::capability(Variables const& vars) const {
   return c;
 }
 
-GraphKey StageExecutor::make_key(Variables const& vars, double dt,
-                                 int stage) const {
+GraphKey StageExecutor::make_key(Variables const& vars, int stage) const {
   GraphKey key;
   key.device_index = vars.at("hydro_u").device().index();
   for (auto const& [name, t] : vars) {
@@ -134,7 +143,6 @@ GraphKey StageExecutor::make_key(Variables const& vars, double dt,
   key.store_generation = _block->_state.generation();
   key.config_generation = _config_generation;
   key.stage = stage;
-  key.dt = dt;
   if (auto pthermo = thermo_of())
     key.thermo_epoch = kintera::alloc_epoch(*pthermo);
   return key;
@@ -195,9 +203,9 @@ void StageExecutor::run_stage(Variables& vars, double dt, int stage) {
   _block->_state.adopt(vars);  // a rebound tensor bumps the generation
   _block->register_flux_storage();
   auto it = _graphs.find(stage);
-  if (it == _graphs.end() || it->second->key != make_key(vars, dt, stage))
+  if (it == _graphs.end() || it->second->key != make_key(vars, stage))
     capture(vars, dt, stage);
-  replay(vars, stage);
+  replay(vars, dt, stage);
 #endif
 }
 
@@ -222,6 +230,8 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
   auto device = vars.at("hydro_u").device().index();
   auto current = at::cuda::getCurrentCUDAStream(device);
   auto side = at::cuda::getStreamFromPool(false, device);
+  // the device dt, set on the current stream before the side stream waits
+  auto sdt = device_dt(vars, dt);
 
   // K.rst 3.5, 7: the thermo is prepared first, under the sync-exempt mode
   // the warm-up uses (its table upload is a synchronizing copy), so the save
@@ -250,7 +260,7 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
   {
     SyncDebugOff off;
     c10::cuda::CUDAStreamGuard guard(side);
-    for (int i = 0; i < 3; ++i) run_eager(vars, dt, stage);
+    for (int i = 0; i < 3; ++i) run_eager(vars, sdt, stage);
   }
   at::cuda::CUDAEvent warm;
   warm.record(side);
@@ -269,7 +279,7 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
   {
     c10::cuda::CUDAStreamGuard guard(side);
     entry->graph->capture_begin();
-    run_eager(vars, dt, stage);
+    run_eager(vars, sdt, stage);
     entry->graph->capture_end();
   }
   at::cuda::CUDAEvent captured;
@@ -287,7 +297,7 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
       t.copy_(saved.at(h->first));
   }
 
-  entry->key = make_key(vars, dt, stage);
+  entry->key = make_key(vars, stage);
   _graphs[stage] = entry;
   ++_captures;
 #else
@@ -295,8 +305,9 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
 #endif
 }
 
-void StageExecutor::replay(Variables& vars, int stage) {
+void StageExecutor::replay(Variables& vars, double dt, int stage) {
 #ifdef USE_CUDA
+  device_dt(vars, dt);  // the graph's kernels read it
   auto& entry = *_graphs.at(stage);
   for (auto const& [name, in] : entry.inputs) {
     auto const& t = vars.at(name);

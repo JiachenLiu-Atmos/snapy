@@ -297,7 +297,7 @@ torch::Tensor HydroImpl::scalar_flux_covariance(torch::Tensor const& rl,
   return dflx;
 }
 
-torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
+torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
                                  Variables const& other) {
   enum { DIM1 = 3, DIM2 = 2, DIM3 = 1 };
   bool has_solid = other.count("solid");
@@ -1122,7 +1122,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // the forcings stay at the full dt, or this becomes a different operator.
     // Applied for integrators of 3+ stages (rk3, rk3s4), matching the behaviour
     // already in production; generalising would change rk1/rk2 results.
-    double dt_corr = dt;
+    double dt_corr = dt.value();
     if (pmb->pintg->stages.size() >= 3) {
       if (rk_stage >= 0 && rk_stage < pmb->pintg->stages.size()) {
         dt_corr *= pmb->pintg->stages[rk_stage].wght2();
@@ -1146,7 +1146,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       du[IPR].slice(-1, is, ie) += gravity_energy_correction;
       gravity_energy_correction = torch::Tensor();
     }
-    _apply_implicit_correction(du, w, dt_corr, other, dt);
+    _apply_implicit_correction(du, w, dt_corr, other, dt.value());
 
     report_time("Implicit");
   }
@@ -1170,12 +1170,12 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     auto const& wc2 = px1m->after_solve(
         _flux1.defined() && !options->disable_flux_x1() ? _flux1
                                                         : torch::Tensor(),
-        ny, implicit_mass_correction(), dt);
+        ny, implicit_mass_correction(), dt.value());
     auto m1 = px1m->m1();
     for (auto const& r : sources.runs(SourcePhase::post_implicit))
       sources.run(r, du, {w, temp, dt, wc2});
     if (!aam) {
-      pc->x1_mass_source_(du, w, m1, dt);
+      pc->x1_mass_source_(du, w, m1, dt.value());
     } else {
       // The explicit x1 faces are already in the flux form of step 5 (their
       // AAM flux carries r_f, which is -rho w u / r for the K component), so
@@ -1185,7 +1185,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
       //   r k . src V = (r_lo - r) P_lo - (r_hi - r) P_hi .
       // The component orthogonal to K keeps -m1 v / r.
       auto src = torch::zeros_like(du);
-      pc->x1_mass_source_(src, w, m1, dt);
+      pc->x1_mass_source_(src, w, m1, dt.value());
       paam->x1_source(src[IVY], src[IVZ],
                       picorr ? picorr->correction() : torch::Tensor());
       du.narrow(0, IVY, 2) += src.narrow(0, IVY, 2);
@@ -1194,7 +1194,7 @@ torch::Tensor HydroImpl::forward(double dt, torch::Tensor u,
     // no x1 mass-flux w (nc1 == 1, shallow water): m1 = rho w. Only the
     // gnomonic grid has an x1_mass_source_; the others add nothing
     auto src = torch::zeros_like(du);
-    pmb->pcoord->x1_mass_source_(src, w, w[IDN] * w[IVX], dt);
+    pmb->pcoord->x1_mass_source_(src, w, w[IDN] * w[IVX], dt.value());
     // conserve-axial-momentum: no K component, as in the branch above
     if (aam) paam->x1_source(src[IVY], src[IVZ], torch::Tensor());
     du.index(interior) += src.index(interior);

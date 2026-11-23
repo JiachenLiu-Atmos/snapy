@@ -87,7 +87,7 @@ static void put(torch::Tensor& buf, torch::Tensor const& value) {
   buf.copy_(value);
 }
 
-torch::Tensor ScalarImpl::forward(double dt, torch::Tensor u,
+torch::Tensor ScalarImpl::forward(StepDt dt, torch::Tensor u,
                                   Variables const& other) {
   enum { DIM1 = 3, DIM2 = 2, DIM3 = 1 };
   TORCH_CHECK(pmb != nullptr, "[Scalar] Parent MeshBlock is null");

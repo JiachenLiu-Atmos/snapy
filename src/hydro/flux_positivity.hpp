@@ -6,6 +6,7 @@
 // snap
 #include <snap/coord/coordinate.hpp>
 #include <snap/eos/ef_status.hpp>
+#include <snap/utils/step_dt.hpp>
 
 namespace snap {
 
@@ -61,7 +62,7 @@ torch::Tensor flux_positivity_theta(torch::Tensor const& u,
                                     torch::Tensor const& flux1,
                                     torch::Tensor const& flux2,
                                     torch::Tensor const& flux3,
-                                    Coordinate const& pcoord, double dt,
+                                    Coordinate const& pcoord, StepDt dt,
                                     torch::Tensor* drain = nullptr);
 
 //! \brief phi = clamp(min of the neighbours' q along every resolved dimension
@@ -116,7 +117,7 @@ struct PositivityInputs {
   torch::Tensor vel;      //!< donor momentum per unit mass, with hspec
   torch::Tensor vface[2];  //!< x2/x3 seam donor velocity per face (#370)
   int first = 0;           //!< the register row of channel 0
-  double dt = 0.;
+  StepDt dt;
 };
 
 //! \brief One driver for the hydro species (step 4.C) and the scalars (D7).

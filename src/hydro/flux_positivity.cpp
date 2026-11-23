@@ -43,7 +43,7 @@ torch::Tensor flux_positivity_theta(torch::Tensor const& u,
                                     torch::Tensor const& flux1,
                                     torch::Tensor const& flux2,
                                     torch::Tensor const& flux3,
-                                    Coordinate const& pcoord, double dt,
+                                    Coordinate const& pcoord, StepDt dt,
                                     torch::Tensor* drain_out) {
   auto out = torch::zeros_like(u);
 
@@ -66,7 +66,7 @@ torch::Tensor flux_positivity_theta(torch::Tensor const& u,
   // 1 where nothing drains, ghosts included; stop 4096 ulp short of zero
   double margin = kPositivityRoundoffUlp * machine_epsilon(u.scalar_type());
   auto avail = u.relu() * pcoord->cell_volume() * (1. - margin);
-  auto drain = out.mul_(dt);
+  auto drain = dt.mul_into(out);
   if (drain_out) *drain_out = drain;
   // finfo(dtype).tiny: 1e-300 was 0 in float32 (only where() discards it)
   double tiny = drain.scalar_type() == torch::kFloat
