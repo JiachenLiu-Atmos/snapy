@@ -77,9 +77,11 @@ jobs:
 
       # 2.6.12 prepares the moist column's thermo state on MPS (kintera #158);
       # 2.6.11 asserts in PyTorch's dispatcher at the step-start prepare() that
-      # S-K2 added, which is what the MPS column cases hit.
+      # S-K2 added, which is what the MPS column cases hit. Pinned exactly:
+      # 2.6.13 (kintera #159) changes Rgas to the exact SI value, which moves
+      # the moist numbers; every leg moves to 2.6.13 in one commit.
       - name: Install kintera 2.6.12
-        run: pip install 'kintera>=2.6.12'
+        run: pip install 'kintera==2.6.12'
 
       - name: Install commux UCX backend
         if: runner.os == 'Linux'
@@ -155,7 +157,7 @@ jobs:
           pip install 'commux>=0.1.4' 'pinc>=0.2.0'
 
       - name: Install kintera 2.6.12
-        run: pip install 'kintera>=2.6.12'
+        run: pip install 'kintera==2.6.12'
 
       - name: Configure CMake
         run: |
