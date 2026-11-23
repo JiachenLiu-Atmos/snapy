@@ -35,15 +35,16 @@ Numerical support is the eager columns; graph support is separate.
    "Cartesian dry, 1 block", "yes", "yes", "yes (below)", "yes (below)"
    "Cartesian, N blocks, UCX ranks", "yes", "yes", "no (G4)", "no (G4)"
    "kintera moist", "yes", "partly", "no (G2)", "no (G2)"
-   "vertical implicit correction", "yes", "Cartesian ideal-moist", "no (G3)", "no (G3)"
+   "vertical implicit correction", "yes", "Cartesian ideal-moist", "yes (below)", "yes (below)"
    "cubed sphere", "yes", "no (G5)", "no (G6)", "no (G6)"
    "user TorchScript forcing", "yes", "yes", "no", "no"
    "radiation (pyharp/pydisort)", "not on the step path", "no", "no", "no"
 
 CPU and MPS run eager only. The graph rows that say yes cover the dry Straka
 case: a CUDA device, Cartesian geometry, one species, no reactions, the EOS
-limiter off, an ideal-moist EOS, the hllc Riemann solver, no implicit
-scheme, rk3, one block, const-gravity as the only forcing and no solid mask.
+limiter off, an ideal-moist EOS, the hllc Riemann solver, rk3, one block,
+const-gravity as the only forcing and no solid mask. A vertical implicit
+scheme captures on that case: its solve reads the block's device ``dt``.
 
 ``MeshBlock.execution_capability(vars)`` returns a block's row for its own
 configuration and variables: ``eager_fp64``/``eager_fp32`` (its precision),

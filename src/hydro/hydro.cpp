@@ -418,9 +418,9 @@ torch::Tensor HydroImpl::implicit_mass_correction() const {
 
 torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
                                                     torch::Tensor const& w,
-                                                    double dt,
+                                                    StepDt dt,
                                                     Variables const& other,
-                                                    double post_dt) {
+                                                    StepDt post_dt) {
   if (!picorr) return torch::Tensor();
   // V3 I-4: the solve posts its face transfers into total(1), which the
   // Riemann slot rewrites each stage; with the x1 flux off nothing does, so

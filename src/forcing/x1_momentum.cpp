@@ -61,9 +61,14 @@ torch::Tensor const& X1Momentum::after_solve(torch::Tensor const& flux1, int ny,
     torch::mul_out(phi_, area_.narrow(-1, 0, f1.size(-1)), f1);
   } else {  // the x1 flux is off: the solve posts nothing (hydro.cpp)
     phi_.zero_();
-    // a host read: the x1 flux is off only with an implicit solve, a case
-    // the stage executor refuses
-    if (mc.defined() && mc.numel() > 0) phi_.add_(mc[IVZ], 1. / dt.value());
+    // the x1 flux is off only with an implicit solve, which captures since
+    // V3 C4: a device dt's 1/dt is formed on the device (the same FP64
+    // quotient) and added as add's alpha (axpy_), so no host dt is read
+    if (mc.defined() && mc.numel() > 0) {
+      StepDt rate = dt.on_device() ? StepDt::device(dt.tensor().reciprocal())
+                                   : StepDt(1. / dt.value());
+      axpy_(phi_, mc[IVZ], rate);
+    }
   }
   // m1 lives in row IVX of the Coriolis input wc2 = (1, m1, 0, 0), x1
   // ghosts stay 0: only the rows driven by rho w are added here, the

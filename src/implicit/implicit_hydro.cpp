@@ -251,12 +251,12 @@ void ImplicitHydroImpl::report_failure(std::ostream& os) const {
 
 torch::Tensor ImplicitHydroImpl::forward(torch::Tensor du, torch::Tensor w,
                                          torch::Tensor gamma, double dt) {
-  return forward_masked(du, w, gamma, dt, torch::Tensor());
+  return forward_masked(du, w, gamma, StepDt(dt), torch::Tensor());
 }
 
 torch::Tensor ImplicitHydroImpl::forward_masked(
-    torch::Tensor du, torch::Tensor w, torch::Tensor gamma, double dt,
-    torch::Tensor solid, FluxRegister* reg, double post_dt,
+    torch::Tensor du, torch::Tensor w, torch::Tensor gamma, StepDt dt,
+    torch::Tensor solid, FluxRegister* reg, StepDt post_dt,
     torch::Tensor const& retry) {
   TORCH_CHECK(phydro->options->grav(),
               "[ImplicitHydro] forcing does not have const-gravity");
@@ -399,13 +399,13 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
       return t.view({nx3, nx2, nx1, m, m}).select(-2, 0).select(-1, m - 1);
     };
     if (no_solid) {  // 1 * x == x
-      entry(_a).sub_(rx_mid / dt);
-      entry(_b).sub_(rx_lo / dt);
-      entry(_c).sub_(rx_hi / dt);
+      entry(_a).sub_(dt.divide(rx_mid));
+      entry(_b).sub_(dt.divide(rx_lo));
+      entry(_c).sub_(dt.divide(rx_hi));
     } else {
-      entry(_a).sub_(rx_fluid * rx_mid / dt);
-      entry(_b).sub_(rx_fluid * rx_lo / dt);
-      entry(_c).sub_(rx_fluid * rx_hi / dt);
+      entry(_a).sub_(dt.divide(rx_fluid * rx_mid));
+      entry(_b).sub_(dt.divide(rx_fluid * rx_lo));
+      entry(_c).sub_(dt.divide(rx_fluid * rx_hi));
     }
     rx_mass0 = _du0[IDN].index(in3).clone();
     if (du.size(0) > ICY)
@@ -420,7 +420,15 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
     prm.stage = s;
     prm.n = options->size();
     prm.woodbury = woodbury;
-    prm.dt = dt;
+    // V3 C4: a device dt is read by the kernels (vic_stage_run); a host dt
+    // is passed by value
+    if (dt.on_device()) {
+      TORCH_CHECK(dt.tensor().device() == du.device(),
+                  "[ImplicitHydro] the device dt is not on the solve's device");
+      prm.dt_device = dt.tensor().data_ptr<double>();
+    } else {
+      prm.dt = dt.value();
+    }
     prm.grav = grav1;
     prm.dir = dir;
     return prm;
@@ -462,12 +470,14 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
   // V3 I-4: the face transfers go to the register. A face i of total(1) is
   // the face below cell i, as MASS(IVX+dir, i); the posts are M_f / (A_f dt)
   // with the step's dt (I.rst section 4, "Frame and units")
-  bool post = reg != nullptr && post_dt > 0. && reg->keeps(1, "vic.mass_total");
+  // a device post_dt is the step's dt (> 0): a captured stage always posts
+  bool post = reg != nullptr && (post_dt.on_device() || post_dt.value() > 0.) &&
+              reg->keeps(1, "vic.mass_total");
   bool partial = options->matrix() == VicMatrix::partial;
   torch::Tensor kdt, ptan;
   if (post) {
-    kdt = pcoord->face_area1().narrow(-1, 0, nc1).to(_mass_corr.options()) *
-          post_dt;
+    kdt = post_dt *
+          pcoord->face_area1().narrow(-1, 0, nc1).to(_mass_corr.options());
     // partial matrix: the donor-cell tangential transfers of
     // vic_tangential_momentum_column, q w_t(donor), in the local frame
     if (partial) {

@@ -129,8 +129,10 @@ void StageExecutor::build_schedule(int block) const {
   Op stage;
   stage.name = "advance";
   // the RK combine's w2 dt and FluxRegister::end_stage(w2 dt) read the
-  // block's device dt (V3 D: a StepDt), not the host dt, so this segment keeps
-  // no dt in its key; a host read under capture throws (StepDt::value)
+  // block's device dt (V3 D: a StepDt), not the host dt, and so does the
+  // vertical implicit solve (C4: its kernels, its I/dt rows and its posts),
+  // so this segment keeps no dt in its key; a host read under capture
+  // throws (StepDt::value)
   stage.reads_host_dt = false;
   // the thermo's tables and buffers, and the register monitor's amounts on
   // the register's device, before the save list (K.rst 3.5; 86a1e571)
@@ -509,7 +511,6 @@ std::vector<std::string> StageExecutor::capture_reasons(
   if (hydro->riemann()->type() != "hllc")
     why.push_back("riemann solver is " + hydro->riemann()->type() +
                   ", not hllc");
-  if (hydro->icorr()) why.push_back("implicit-scheme is not 0");
   if (op->intg()->type() != "rk3")
     why.push_back("integration type is " + op->intg()->type() + ", not rk3");
   // N blocks (B2): the blocks of one process capture. Their exchanges inside

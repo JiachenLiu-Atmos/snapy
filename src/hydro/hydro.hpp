@@ -282,9 +282,9 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
                                torch::Tensor const& dw = torch::Tensor()) const;
   //! post_dt: the step's dt, for the solve's register posts (V3 I-4)
   torch::Tensor _apply_implicit_correction(torch::Tensor& du,
-                                           torch::Tensor const& w, double dt,
+                                           torch::Tensor const& w, StepDt dt,
                                            Variables const& other,
-                                           double post_dt = 0.);
+                                           StepDt post_dt = StepDt(0.));
 
  private:
   //! Register all forcing modules

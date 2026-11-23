@@ -36,6 +36,10 @@ struct VicParams {
   int n = 3;
   bool woodbury = false;
   double dt = 0., grav = 0.;
+  //! V3 C4: a captured stage's device dt (a 0-dim FP64 tensor's data on the
+  //! iterator's device), which the kernels read in place of dt, so one graph
+  //! serves every dt; null: the host dt above
+  double const* dt_device = nullptr;
   int dir = 0;
 };
 

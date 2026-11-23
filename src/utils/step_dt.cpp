@@ -22,6 +22,12 @@ torch::Tensor StepDt::operator*(torch::Tensor const& x) const {
   return _t.defined() ? _t * x : _v * x;
 }
 
+torch::Tensor StepDt::divide(torch::Tensor const& x) const {
+  if (!_t.defined()) return x / _v;
+  if (x.is_cuda()) return x * _t.reciprocal().to(x.scalar_type());
+  return x / _t.item<double>();  // a device dt off CUDA: no graph runs there
+}
+
 StepDt StepDt::operator-() const {
   if (!_t.defined()) return StepDt(-_v);
   return device(_t.neg());

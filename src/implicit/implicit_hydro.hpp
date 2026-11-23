@@ -9,6 +9,7 @@
 #include <snap/forcing/forcing.hpp>
 #include <snap/hydro/flux_register.hpp>
 #include <snap/hydro/gravity_work.hpp>
+#include <snap/utils/step_dt.hpp>
 
 // arg
 #include <snap/add_arg.h>
@@ -95,10 +96,14 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
   //! V3 I-6: with retry ([nc3, nc2] bool) defined, the predicated FP64
   //! stage: only those columns are solved, every other one is left as it
   //! came in (and posts -0)
+  //! V3 C4: dt and post_dt are StepDt: in a captured stage both are the
+  //! block's device dt (dt scaled by the stage weight), which the kernels and
+  //! the posts read, so no host dt is read and one graph serves every dt; a
+  //! host post_dt of 0 posts nothing
   torch::Tensor forward_masked(torch::Tensor du, torch::Tensor w,
-                               torch::Tensor gamma, double dt,
+                               torch::Tensor gamma, StepDt dt,
                                torch::Tensor solid, FluxRegister* reg = nullptr,
-                               double post_dt = 0.,
+                               StepDt post_dt = StepDt(0.),
                                torch::Tensor const& retry = {});
 
   //! I-6: the columns the last FP32 (or only) stage failed, [nc3, nc2] bool

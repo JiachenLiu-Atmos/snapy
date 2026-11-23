@@ -260,12 +260,16 @@ DISPATCH_MACRO void vic_redistribute_one(char* const* p, VicLayout const& L,
 template <class Launch, typename T, int N>
 void vic_stage_run(at::TensorIterator& iter, VicLayout L,
                    VicParams const& prm) {
-  double dt = prm.dt, grav = prm.grav;
+  double host_dt = prm.dt, grav = prm.grav;
+  // V3 C4: a captured stage's kernels read the device dt (the same double),
+  // so its graph replays with whatever dt the executor wrote there
+  double const* dt_device = prm.dt_device;
   int dir = prm.dir;
   switch (prm.stage) {
     case VicStage::assemble:
       Launch::template cells<14>(
           iter, L.nlayer, [=] DISPATCH_MACRO(char* const* p, int i) {
+            double dt = dt_device ? *dt_device : host_dt;
             vic_assemble_cell<T, N>(p, L, i, dt, grav, dir);
           });
       break;
@@ -273,11 +277,13 @@ void vic_stage_run(at::TensorIterator& iter, VicLayout L,
       if (prm.woodbury)  // 64 threads per block: more registers per thread
         Launch::template columns<20, 64>(
             iter, [=] DISPATCH_MACRO(char* const* p) {
+              double dt = dt_device ? *dt_device : host_dt;
               vic_solve_column<T, N, 2>(p, L, dt, dir);
             });
       else
         Launch::template columns<14, 128>(
             iter, [=] DISPATCH_MACRO(char* const* p) {
+              double dt = dt_device ? *dt_device : host_dt;
               vic_solve_column<T, N, 0>(p, L, dt, dir);
             });
       break;

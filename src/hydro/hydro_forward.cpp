@@ -1120,10 +1120,13 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
     // the forcings stay at the full dt, or this becomes a different operator.
     // Applied for integrators of 3+ stages (rk3, rk3s4), matching the behaviour
     // already in production; generalising would change rk1/rk2 results.
-    double dt_corr = dt.value();
+    // V3 C4: dt_corr and the posts' dt are StepDt; in a captured stage they
+    // are the block's device dt (scaled on the device, bitwise the host
+    // product), so the solve reads no host dt and a dt change replays
+    StepDt dt_corr = dt;
     if (pmb->pintg->stages.size() >= 3) {
       if (rk_stage >= 0 && rk_stage < pmb->pintg->stages.size()) {
-        dt_corr *= pmb->pintg->stages[rk_stage].wght2();
+        dt_corr = dt.scaled(pmb->pintg->stages[rk_stage].wght2());
       } else {
         // Loud, but not fatal: some callers drive HydroImpl::forward directly
         // without the stage loop (tests/test_forcing.cpp), and those must keep
@@ -1144,7 +1147,7 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
       du[IPR].slice(-1, is, ie) += gravity_energy_correction;
       gravity_energy_correction = torch::Tensor();
     }
-    _apply_implicit_correction(du, w, dt_corr, other, dt.value());
+    _apply_implicit_correction(du, w, dt_corr, other, dt);
 
     report_time("Implicit");
   }

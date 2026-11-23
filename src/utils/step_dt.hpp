@@ -27,6 +27,10 @@ class StepDt {
   torch::Tensor const& tensor() const { return _t; }  // undefined if host
 
   torch::Tensor operator*(torch::Tensor const& x) const;
+  //! x / dt. On CUDA torch divides a tensor by a host scalar as x * (1/dt),
+  //! 1/dt formed in FP64 and rounded to x's dtype; a device dt on CUDA takes
+  //! that path, so the quotient is bitwise the host dt's
+  torch::Tensor divide(torch::Tensor const& x) const;
   StepDt operator-() const;
   StepDt scaled(double a) const;  // a * dt
   //! x *= dt in place
