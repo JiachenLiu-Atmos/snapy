@@ -17,6 +17,7 @@
 // snap
 #include <snap/utils/step_dt.hpp>
 
+#include "exchange_cut.hpp"
 #include "segment.hpp"
 
 namespace kintera {
@@ -55,11 +56,6 @@ struct GraphKey {
   bool operator==(GraphKey const& other) const;
   bool operator!=(GraphKey const& other) const { return !(*this == other); }
 };
-
-//! true on a thread warming up or capturing a segment of a multi-block
-//! executor (B2): an exchange there would wait at the same-process
-//! rendezvous for blocks that are not running it, so it throws instead
-bool in_multi_block_capture();
 
 //! the capability matrix (X.rst section 10) for one block as configured:
 //! numerical support is the eager row, graph support is separate
@@ -104,9 +100,15 @@ class StageExecutor {
   //! a Mesh block's local stage (advance_local, eager or its segments'
   //! graphs, B2): the Mesh exchanges last and runs the global phase itself,
   //! so the stage-entry host-exchange segment is skipped. Safe on the block
-  //! worker pool: blocks capture one at a time (thread-local capture mode)
-  //! and replay concurrently on their streams.
+  //! worker pool: blocks capture together (thread-local capture mode, after
+  //! align_captures) and replay concurrently on their streams.
   void run_local(int block, Variables& vars, double dt, int stage);
+  //! a multi-block executor's captures are collective (B3): its blocks meet
+  //! at the same-process rendezvous inside a segment with a cut at an
+  //! exchange, in the warm-up and the capture alike. Called on the calling
+  //! thread before the blocks' run_local (Mesh::forward): a segment that one
+  //! block must (re)capture is dropped on every block, so all capture it
+  void align_captures(std::vector<Variables>& vars, double dt, int stage);
   //! strict refuses a block whose stage has a non-host eager segment, naming
   //! it; called before any launch (Mesh::forward: on the calling thread)
   void check_strict(int block, Variables const& vars, int stage) const;
@@ -166,8 +168,8 @@ class StageExecutor {
   mutable std::vector<char> _schedule_rebuilt;
   std::map<Slot, std::shared_ptr<Captured>> _graphs;  // under _graphs_mutex
   mutable std::mutex _graphs_mutex;
-  //! one capture at a time (its warm-up toggles the process-wide sync-debug
-  //! mode); replays of other blocks run meanwhile
+  //! a lone block's captures one at a time; a multi-block executor's are
+  //! collective and concurrent (align_captures)
   std::mutex _capture_mutex;
   //! V3 D: one persistent 0-dim FP64 dt per block on its device, shared by
   //! every graph of that block (each block's worker writes only its own)

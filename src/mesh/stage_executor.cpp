@@ -1,5 +1,7 @@
 // C/C++
 #include <algorithm>
+#include <functional>
+#include <set>
 
 // base
 #include <configure.h>
@@ -16,6 +18,7 @@
 #include <kintera/thermo/thermo.hpp>
 
 // snap
+#include "exchange_cut.hpp"
 #include "meshblock.hpp"
 #include "stage_executor.hpp"
 
@@ -45,10 +48,36 @@ bool GraphKey::operator==(GraphKey const& other) const {
          thermo_epoch == other.thermo_epoch;
 }
 
+#ifdef USE_CUDA
+namespace {
+// a CUDAGraph registers with the CUDA generator's state at capture_begin and
+// unregisters when destroyed (an unordered_set, unlocked: CUDAGeneratorImpl.h
+// registered_graphs_), and capture_end and replay touch that state too. A
+// Mesh's blocks capture and replay on their worker threads, so every one of
+// these host calls takes this lock (the GPU work stays concurrent)
+std::mutex g_graph_mutex;
+struct GraphDeleter {
+  void operator()(at::cuda::CUDAGraph* g) const {
+    std::lock_guard<std::mutex> lock(g_graph_mutex);
+    delete g;
+  }
+};
+using GraphPtr = std::unique_ptr<at::cuda::CUDAGraph, GraphDeleter>;
+
+//! a step of a captured segment: a graph, or the host step of a cut
+struct SegmentStep {
+  GraphPtr graph;
+  std::function<void()> host;
+};
+}  // namespace
+#endif
+
 struct StageExecutor::Captured {
   GraphKey key;
 #ifdef USE_CUDA
-  std::unique_ptr<at::cuda::CUDAGraph> graph;
+  //! the segment as run: graphs and, between them, the host steps of its
+  //! cuts at an exchange (B3), in order; without a cut, one graph
+  std::vector<SegmentStep> steps;
 #endif
   //! per vars key, an alias of the storage the graph reads (inputs) and
   //! writes (outputs): a handle rebound by set_data is copied in before a
@@ -219,19 +248,102 @@ StepDt StageExecutor::device_dt(int block, Variables const& vars, double dt) {
   return StepDt::device(t);
 }
 
+#ifdef USE_CUDA
 namespace {
-thread_local bool g_multi_block_capture = false;
-// marks this thread as warming up or capturing a multi-block segment
-struct MultiBlockCapture {
-  bool prev;
-  explicit MultiBlockCapture(bool on) : prev(g_multi_block_capture) {
-    g_multi_block_capture = prev || on;
+// B3: the segment this thread captures, while StageExecutor::capture runs its
+// ops under capture; exchange_cut closes the open graph there and opens the
+// next one in the same pool and mode
+struct CutCapture {
+  std::vector<SegmentStep>* steps = nullptr;
+  GraphPtr open;  // the graph being captured
+  at::cuda::MempoolId_t pool;
+  cudaStreamCaptureMode mode = cudaStreamCaptureModeGlobal;
+  bool in_host = false;  // running a cut's host step (not capturing)
+
+  void begin() {
+    std::lock_guard<std::mutex> lock(g_graph_mutex);
+    open = GraphPtr(new at::cuda::CUDAGraph());
+    open->capture_begin(pool, mode);
   }
-  ~MultiBlockCapture() { g_multi_block_capture = prev; }
+  // ends the open capture; keeps the graph unless it captured nothing (a cut
+  // right at the start, or two cuts in a row), whose "graph is empty"
+  // warning is expected here and silenced
+  void close() {
+    size_t nodes = 1;
+    cudaStreamCaptureStatus status;
+    cudaGraph_t g = nullptr;
+    auto stream = at::cuda::getCurrentCUDAStream();
+    if (cudaStreamGetCaptureInfo(stream, &status, nullptr, &g, nullptr,
+                                 nullptr) == cudaSuccess &&
+        status == cudaStreamCaptureStatusActive && g != nullptr)
+      C10_CUDA_CHECK(cudaGraphGetNodes(g, nullptr, &nodes));
+    if (nodes > 0) {
+      {
+        std::lock_guard<std::mutex> lock(g_graph_mutex);
+        open->capture_end();
+      }
+      steps->push_back({std::move(open), nullptr});
+      return;
+    }
+    struct Silent : c10::WarningHandler {
+      void process(c10::Warning const&) override {}
+    } silent;
+    c10::WarningUtils::WarningHandlerGuard guard(&silent);
+    {
+      std::lock_guard<std::mutex> lock(g_graph_mutex);
+      open->capture_end();
+    }
+    open.reset();
+  }
+};
+thread_local CutCapture* g_cut = nullptr;
+
+// sets g_cut for a scope, restored by an exception too
+struct CutScope {
+  CutCapture* prev;
+  explicit CutScope(CutCapture* c) : prev(g_cut) { g_cut = c; }
+  ~CutScope() { g_cut = prev; }
 };
 }  // namespace
+#endif
 
-bool in_multi_block_capture() { return g_multi_block_capture; }
+void exchange_cut(std::function<void()> host) {
+#ifdef USE_CUDA
+  auto* c = g_cut;
+  if (c == nullptr || c->in_host) {
+    host();
+    return;
+  }
+  c->close();
+  c->in_host = true;
+  try {
+    host();
+  } catch (...) {
+    c->in_host = false;
+    throw;
+  }
+  c->in_host = false;
+  c->steps->push_back({nullptr, host});
+  c->begin();
+#else
+  host();
+#endif
+}
+
+bool in_segment_capture() {
+#ifdef USE_CUDA
+  return g_cut != nullptr && !g_cut->in_host;
+#else
+  return false;
+#endif
+}
+
+void refuse_in_segment_capture(char const* what) {
+  TORCH_CHECK(!in_segment_capture(), "StageExecutor: ", what,
+              " inside a captured segment has no cut at its exchange (B3): "
+              "this case should have been refused before capture; please "
+              "report the deck");
+}
 
 void StageExecutor::run_local(int block, Variables& vars, double dt,
                               int stage) {
@@ -254,6 +366,38 @@ void StageExecutor::run_local(int block, Variables& vars, double dt,
   }
   // the stage without its entry exchange: the Mesh exchanges last
   run_segments(block, vars, dt, stage, /*with_host=*/false);
+}
+
+void StageExecutor::align_captures(std::vector<Variables>& vars, double dt,
+                                   int stage) {
+#ifdef USE_CUDA
+  if (num_blocks() < 2) return;
+  TORCH_CHECK(static_cast<int>(vars.size()) == num_blocks(),
+              "StageExecutor::align_captures: one Variables map per block");
+  std::set<int> stale;  // segments some block must (re)capture
+  for (int b = 0; b < num_blocks(); ++b) {
+    auto* pmb = block_at(b);
+    if (pmb->options->execution() != "cuda-graph") return;
+    schedule(b);  // rebuilt if its signature moved
+    if (_schedule_rebuilt[b]) {
+      invalidate(b);
+      _schedule_rebuilt[b] = 0;
+    }
+    if (!capture_reasons(b, vars[b]).empty()) continue;
+    pmb->_state.adopt(vars[b]);  // as run_segments, before its keys
+    pmb->register_flux_storage();
+    auto const& segs = schedule(b).segments();
+    for (int i = 0; i < static_cast<int>(segs.size()); ++i) {
+      if (runs_on_host(segs[i].kind) || !segs[i].capturable) continue;
+      auto g = graph_at({b, stage, i});
+      if (!g || g->key != make_key(b, i, vars[b], dt, stage)) stale.insert(i);
+    }
+  }
+  if (stale.empty()) return;
+  std::lock_guard<std::mutex> lock(_graphs_mutex);
+  for (int b = 0; b < num_blocks(); ++b)
+    for (int i : stale) _graphs.erase({b, stage, i});
+#endif
 }
 
 std::vector<std::string> StageExecutor::capture_reasons(
@@ -281,8 +425,10 @@ std::vector<std::string> StageExecutor::capture_reasons(
   if (hydro->icorr()) why.push_back("implicit-scheme is not 0");
   if (op->intg()->type() != "rk3")
     why.push_back("integration type is " + op->intg()->type() + ", not rk3");
-  // N blocks (B2): the blocks of one process capture; what still exchanges
-  // inside a stage across blocks or ranks does not yet
+  // N blocks (B2): the blocks of one process capture. Their exchanges inside
+  // a stage (conversion-order 4's primitive ghosts, the positivity limiters'
+  // theta sync) are cuts (B3: pack and unpack captured, the rendezvous on the
+  // host between the graphs). Ranks and x1 splits are not cut yet
   auto const& lo = pmb->_playout->options;
   if (pmb->_playout->has_process_group())
     why.push_back(
@@ -292,24 +438,6 @@ std::vector<std::string> StageExecutor::capture_reasons(
     why.push_back(
         "an x1 split (pz > 1): its relays inside the stage are not cut into "
         "segments yet (P2, P3)");
-  if (lo->nblocks() > 1) {
-    if (hydro->conversion_order() == 4)
-      why.push_back(
-          "conversion-order 4 with more than one block: the hydro step "
-          "exchanges primitive ghosts across blocks inside the stage");
-    bool species = pmb->phydro->peos->nvar() > ICY;
-    if (species && hydro->flux_covariance())
-      why.push_back(
-          "species with flux-covariance and more than one block: the hydro "
-          "positivity limiter's theta sync exchanges across blocks inside the "
-          "stage");
-    if (pmb->pscalar->nvar() > 0 &&
-        (hydro->flux_covariance() || pmb->pscalar->options->upper_bound() > 0.))
-      why.push_back(
-          "a scalar with flux-covariance or an upper bound and more than one "
-          "block: the scalar positivity limiter's theta sync exchanges across "
-          "blocks inside the stage");
-  }
   if (!hydro->grav() || hydro->coriolis() || hydro->diffusion() ||
       hydro->bodyHeat() || hydro->botHeat() || hydro->topCool() ||
       hydro->relaxBotComp() || hydro->relaxBotTemp() || hydro->relaxBotVelo() ||
@@ -509,14 +637,27 @@ void StageExecutor::run_segments(int block, Variables& vars, double dt,
 #ifdef USE_CUDA
 namespace {
 // the CUDA sync-debug mode off for a scope; the caller's mode is restored on
-// exit, by an exception too
+// exit, by an exception too. The mode is process-wide and a Mesh's blocks
+// warm up together on their worker threads (B3), so the scopes are counted:
+// the first one in turns it off, the last one out restores it
+std::mutex g_sync_debug_mutex;
+int g_sync_debug_off = 0;
+c10::cuda::SyncDebugMode g_sync_debug_saved =
+    c10::cuda::SyncDebugMode::L_DISABLED;
 struct SyncDebugOff {
-  c10::cuda::WarningState& warn = c10::cuda::warning_state();
-  c10::cuda::SyncDebugMode mode = warn.get_sync_debug_mode();
   SyncDebugOff() {
-    warn.set_sync_debug_mode(c10::cuda::SyncDebugMode::L_DISABLED);
+    std::lock_guard<std::mutex> lock(g_sync_debug_mutex);
+    auto& warn = c10::cuda::warning_state();
+    if (g_sync_debug_off++ == 0) {
+      g_sync_debug_saved = warn.get_sync_debug_mode();
+      warn.set_sync_debug_mode(c10::cuda::SyncDebugMode::L_DISABLED);
+    }
   }
-  ~SyncDebugOff() { warn.set_sync_debug_mode(mode); }
+  ~SyncDebugOff() {
+    std::lock_guard<std::mutex> lock(g_sync_debug_mutex);
+    if (--g_sync_debug_off == 0)
+      c10::cuda::warning_state().set_sync_debug_mode(g_sync_debug_saved);
+  }
 };
 }  // namespace
 #endif
@@ -524,19 +665,21 @@ struct SyncDebugOff {
 void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
                             int stage) {
 #ifdef USE_CUDA
-  // one capture at a time: its warm-up toggles the process-wide sync-debug
-  // mode, and a Mesh's blocks reach here from the worker pool (B2)
-  std::lock_guard<std::mutex> one_capture(_capture_mutex);
   auto* pmb = block_at(block);
+  // a block of a multi-block executor or process captures in thread-local
+  // mode: the other blocks launch from their worker threads meanwhile. They
+  // capture this segment too (align_captures: an exchange inside it meets
+  // them at the same-process rendezvous, in the warm-up and at the capture's
+  // cuts), so captures are concurrent there; a lone block's are serialized
+  bool multi = num_blocks() > 1 ||
+               pmb->_playout->options->blocks_per_process() > 1 ||
+               pmb->_playout->has_process_group();
+  std::unique_lock<std::mutex> one_capture(_capture_mutex, std::defer_lock);
+  if (!multi) one_capture.lock();
   {
     std::lock_guard<std::mutex> lock(_graphs_mutex);
     _graphs.erase({block, stage, segment});
   }
-  // a block of a multi-block executor or process: an exchange inside its
-  // warm-up or capture would wait for blocks not running it (it throws)
-  bool multi = num_blocks() > 1 ||
-               pmb->_playout->options->blocks_per_process() > 1 ||
-               pmb->_playout->has_process_group();
   auto const& sched = schedule(block);
   auto const& seg = sched.segments().at(segment);
   auto device = vars.at("hydro_u").device().index();
@@ -581,7 +724,6 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
   ready.block(side);
   {
     SyncDebugOff off;
-    MultiBlockCapture guard_exchange(multi);
     c10::cuda::CUDAStreamGuard guard(side);
     for (int i = 0; i < 3; ++i) run_eager(block, vars, wdt, stage, segment);
   }
@@ -598,7 +740,6 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
   at::cuda::CUDAEvent restored;
   restored.record(current);
   restored.block(side);
-  entry->graph = std::make_unique<at::cuda::CUDAGraph>();
   // the block's shared pool: its graphs replay in turn on one stream, so a
   // graph's dead temporaries may be another's (CUDAGraph.h: pool handle).
   // With no live graph left (all dropped: to(), a restart, a schedule
@@ -617,15 +758,33 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
     _pools[block] = {id.first, id.second};
   }
   {
-    MultiBlockCapture guard_exchange(multi);
     c10::cuda::CUDAStreamGuard guard(side);
     // a multi-block executor's other blocks keep launching from their worker
     // threads meanwhile: thread-local mode confines the capture to this one
-    entry->graph->capture_begin(
-        {_pools[block].first, _pools[block].second},
-        multi ? cudaStreamCaptureModeThreadLocal : cudaStreamCaptureModeGlobal);
-    run_eager(block, vars, wdt, stage, segment);
-    entry->graph->capture_end();
+    CutCapture cut;
+    cut.steps = &entry->steps;
+    cut.pool = {_pools[block].first, _pools[block].second};
+    cut.mode =
+        multi ? cudaStreamCaptureModeThreadLocal : cudaStreamCaptureModeGlobal;
+    cut.begin();
+    try {
+      CutScope scope(&cut);
+      run_eager(block, vars, wdt, stage, segment);
+    } catch (...) {
+      // end an open capture so the stream leaves capture mode. A graph whose
+      // capture failed is not destroyed (its generator registration may be
+      // gone): it is leaked, once, on this error path
+      if (cut.open) {
+        std::lock_guard<std::mutex> lock(g_graph_mutex);
+        try {
+          cut.open->capture_end();
+        } catch (...) {
+        }
+        cut.open.release();
+      }
+      throw;
+    }
+    cut.close();
   }
   at::cuda::CUDAEvent captured;
   captured.record(side);
@@ -667,7 +826,14 @@ void StageExecutor::replay(int block, int segment, Variables& vars, double dt,
     if (t.data_ptr() != in.data_ptr()) in.copy_(t);
   }
   pmb->phydro->rk_stage = stage;  // advance_local's host side
-  entry.graph->replay();
+  for (auto const& step : entry.steps) {
+    if (step.graph) {
+      std::lock_guard<std::mutex> lock(g_graph_mutex);
+      step.graph->replay();
+    } else {  // a cut's host step: the exchange's rendezvous or communicator
+      step.host();
+    }
+  }
   for (auto const& [name, out] : entry.outputs) {
     auto& t = vars.at(name);
     if (t.data_ptr() != out.data_ptr()) t.set_(out);
@@ -688,16 +854,21 @@ void StageExecutor::invalidate(int block) {
 }
 
 std::map<std::string, int64_t> StageExecutor::report() const {
-  int64_t ngraphs;
+  int64_t ngraphs, ncuts = 0;
   {
     std::lock_guard<std::mutex> lock(_graphs_mutex);
     ngraphs = static_cast<int64_t>(_graphs.size());
+#ifdef USE_CUDA
+    for (auto const& kv : _graphs)
+      for (auto const& step : kv.second->steps) ncuts += step.graph ? 0 : 1;
+#endif
   }
   return {{"captures", _captures.load()},
           {"replays", _replays.load()},
           {"eager", _eager.load()},
           {"host", _host.load()},
           {"graphs", ngraphs},
+          {"cuts", ncuts},
           {"pools", static_cast<int64_t>(std::count_if(
                         _pools.begin(), _pools.end(), [](auto const& p) {
                           return p != std::pair<uint64_t, uint64_t>{0, 0};

@@ -373,6 +373,9 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
     for (auto& b : blocks) b->step_dt = dt;
 
   for (auto& b : blocks) b->defer_chemistry = true;
+  // B3: a segment one block must (re)capture is captured by all of them (its
+  // exchanges meet at the same-process rendezvous)
+  executor_->align_captures(vars, dt, stage);
   run_block_jobs(
       [&](size_t i) { executor_->run_local(i, vars[i], dt, stage); });
   // conserve-axial-momentum-closure: R and I summed over the local blocks,

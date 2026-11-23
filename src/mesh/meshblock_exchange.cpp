@@ -23,26 +23,14 @@
 #include <snap/output/writer_core.hpp>
 #include <snap/utils/log.hpp>
 
+#include "exchange_cut.hpp"
 #include "meshblock.hpp"
 #include "meshblock_internal.hpp"
 #include "stage_executor.hpp"
 
 namespace snap {
 
-namespace {
-// B2: an exchange inside a captured segment of a multi-block mesh waits at
-// the same-process rendezvous for blocks that are not running it
-void refuse_exchange_in_capture() {
-  TORCH_CHECK(!in_multi_block_capture(),
-              "StageExecutor: an exchange inside a captured segment of a "
-              "multi-block mesh (a within-stage cross-block exchange): this "
-              "case should have been refused before capture; please report "
-              "the deck");
-}
-}  // namespace
-
 void MeshBlockImpl::exchange(Variables &vars, SyncOptions const &opts) const {
-  refuse_exchange_in_capture();
   // A subdivided cubed-sphere panel packs its cross-panel strip EXTENDED into
   // its own tangential halo (cs_interp_margin), and that halo is only written
   // by deserialize(). So the intra-panel round must COMPLETE before the
@@ -72,13 +60,33 @@ void MeshBlockImpl::_exchange_once(Variables &vars,
 
 void MeshBlockImpl::begin_exchange(Variables &vars,
                                    SyncOptions const &opts) const {
-  refuse_exchange_in_capture();
+  // the pack: device copies into the cached send buffers (captured in a
+  // segment, B3; the warm-up allocates them)
   _playout->serialize(this, vars, opts);
 }
 
 void MeshBlockImpl::launch_exchange(SyncOptions const &opts,
                                     std::vector<CommWorkPtr> &works) const {
-  _playout->launch_exchange(this, opts, works);
+  if (!in_segment_capture()) {
+    _playout->launch_exchange(this, opts, works);
+    return;
+  }
+  // B3: a cut. The host step is the rendezvous with this process's blocks
+  // (and their seam copies) or the communicator, waited on, so the unpack
+  // (finalize_exchange: deserialize into the ghosts) is device work in the
+  // segment's next graph. It runs again at every replay, when the pack ran
+  // inside a graph and set no host state: it restores the send and receive
+  // buffers this pack chose (serialize points them at its cache entry)
+  auto sends = send_bufs;
+  auto recvs = recv_bufs;
+  exchange_cut([this, opts, sends, recvs]() {
+    send_bufs = sends;
+    recv_bufs = recvs;
+    std::vector<CommWorkPtr> w;
+    _playout->launch_exchange(this, opts, w);
+    for (auto &x : w)
+      if (x) x->wait();
+  });
 }
 
 void MeshBlockImpl::finalize_exchange(Variables &vars, SyncOptions const &opts,

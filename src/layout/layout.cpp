@@ -20,6 +20,7 @@
 #endif
 
 // snap
+#include <snap/mesh/exchange_cut.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/utils/log.hpp>
 #include <snap_options/layout_rows.hpp>
@@ -729,6 +730,7 @@ void LayoutImpl::finalize(MeshBlockImpl const* pmb, Variables& vars,
 }
 
 torch::Tensor LayoutImpl::gather_x1(torch::Tensor const& piece) {
+  refuse_in_segment_capture("the x1 column gather");
   int pz = options->pz();
   if (pz <= 1) return piece;
   auto [rx, ry, rz] = loc_of(options->rank());
@@ -802,6 +804,7 @@ torch::Tensor LayoutImpl::gather_x1(torch::Tensor const& piece) {
 
 CommWorkPtr LayoutImpl::send_to_block(std::vector<torch::Tensor>& tensors,
                                       int block_rank, int tag) {
+  refuse_in_segment_capture("a send to a block");
   TORCH_CHECK(has_process_group(),
               "[Layout:send_to_block] a remote block requires an initialized "
               "process group");
@@ -817,6 +820,7 @@ CommWorkPtr LayoutImpl::send_to_block(std::vector<torch::Tensor>& tensors,
 
 CommWorkPtr LayoutImpl::recv_from_block(std::vector<torch::Tensor>& tensors,
                                         int block_rank, int tag) {
+  refuse_in_segment_capture("a receive from a block");
   TORCH_CHECK(has_process_group(),
               "[Layout:recv_from_block] a remote block requires an "
               "initialized process group");
@@ -832,6 +836,7 @@ CommWorkPtr LayoutImpl::recv_from_block(std::vector<torch::Tensor>& tensors,
 
 torch::Tensor LayoutImpl::take_x1_anchor(int above, torch::Tensor const& like,
                                          int tag) {
+  refuse_in_segment_capture("the x1 anchor take");
   if (above < 0) return torch::Tensor();
   if (!is_local_block(above)) {
     std::vector<torch::Tensor> rbuf = {torch::empty_like(like)};
@@ -860,6 +865,7 @@ torch::Tensor LayoutImpl::take_x1_anchor(int above, torch::Tensor const& like,
 }
 
 void LayoutImpl::pass_x1_anchor(int below, torch::Tensor const& face, int tag) {
+  refuse_in_segment_capture("the x1 anchor pass");
   if (below < 0) return;
   if (!is_local_block(below)) {
     std::vector<torch::Tensor> sbuf = {face.contiguous()};
@@ -878,6 +884,7 @@ void LayoutImpl::pass_x1_anchor(int below, torch::Tensor const& face, int tag) {
 
 void LayoutImpl::post_to_local_block(int block_rank, torch::Tensor const& t,
                                      int tag) {
+  refuse_in_segment_capture("a post to a local block");
   TORCH_CHECK(is_local_block(block_rank), "[Layout:post_to_local_block] block ",
               block_rank, " is not in this process");
   auto posted = t.contiguous();
@@ -902,6 +909,7 @@ void LayoutImpl::post_to_local_block(int block_rank, torch::Tensor const& t,
 }
 
 torch::Tensor LayoutImpl::take_from_local_block(int block_rank, int tag) {
+  refuse_in_segment_capture("a take from a local block");
   TORCH_CHECK(is_local_block(block_rank),
               "[Layout:take_from_local_block] block ", block_rank,
               " is not in this process");
