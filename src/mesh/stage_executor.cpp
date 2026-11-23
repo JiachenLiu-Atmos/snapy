@@ -475,8 +475,16 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
   restored.block(side);
   entry->graph = std::make_unique<at::cuda::CUDAGraph>();
   // the block's shared pool: its graphs replay in turn on one stream, so a
-  // graph's dead temporaries may be another's (CUDAGraph.h: pool handle)
-  if (_pools[block] == std::pair<uint64_t, uint64_t>{0, 0}) {
+  // graph's dead temporaries may be another's (CUDAGraph.h: pool handle).
+  // With no live graph left (all dropped: to(), a restart, a schedule
+  // rebuild) the old pool may still hold live tensors (a replay sets
+  // scalar_r to a graph output) at a use count of 0, and capturing into it
+  // again trips the caching allocator: start a fresh pool; the old one is
+  // freed with its last tensor.
+  bool live = false;
+  for (auto const& [slot, g] : _graphs)
+    if (std::get<0>(slot) == block) live = true;
+  if (!live || _pools[block] == std::pair<uint64_t, uint64_t>{0, 0}) {
     auto id = at::cuda::graph_pool_handle();
     _pools[block] = {id.first, id.second};
   }
