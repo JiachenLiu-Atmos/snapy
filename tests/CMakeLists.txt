@@ -231,6 +231,8 @@ setup_test(test_global_phase)
 setup_test(test_global_phase_closure)
 # lane B: a Mesh owns one stage executor; Mesh::forward runs through it
 setup_test(test_mesh_executor)
+# V3 B2: a Mesh captures its blocks' stages
+setup_test(test_mesh_capture)
 # the capture save list holds the register monitor's amounts
 setup_test(test_graph_monitor_amounts)
 # V3 A2: the segment types of the graph interface
