@@ -344,6 +344,9 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! registers the flux register's tensors in _state (a moved one bumps
   //! the store generation)
   void register_flux_storage();
+  //! moves the monitor's amounts to the register's device (a synchronizing
+  //! copy, as begin_step's; the executor's sync-exempt prepare step)
+  void place_flux_storage();
 
   //! runs each stage of forward() eagerly or as a captured graph (X3); a
   //! Mesh's when the block is one of its blocks (B), else the block's own

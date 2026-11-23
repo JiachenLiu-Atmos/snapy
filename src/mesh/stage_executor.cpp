@@ -270,6 +270,10 @@ void StageExecutor::capture(int block, Variables& vars, double dt, int stage) {
   {
     SyncDebugOff off;
     pmb->prepare_thermo(vars.at("hydro_u"));
+    // the monitor's amounts too (still on the host before a block's first
+    // step), so the save list below holds them from the first capture on
+    pmb->place_flux_storage();
+    pmb->register_flux_storage();
   }
   kintera::NoTableBuild no_table_build;
   auto handles = save_list(block, vars);

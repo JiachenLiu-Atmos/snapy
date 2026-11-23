@@ -97,11 +97,13 @@ void RegisterMonitor::place_amounts(torch::Device device) {
   _stage_post = _stage_post.to(device, wide);
 }
 
-std::vector<torch::Tensor> RegisterMonitor::amount_storage(
-    torch::Device device) {
+std::vector<torch::Tensor> RegisterMonitor::amount_storage() const {
   if (!_step_amount.defined()) return {};
-  place_amounts(device);
   return {_step_amount, _stage_amount, _stage_post};
+}
+
+void RegisterMonitor::place_amount_storage(torch::Device device) {
+  if (_step_amount.defined()) place_amounts(device);
 }
 
 int RegisterMonitor::amount_index(std::string const& name) const {
