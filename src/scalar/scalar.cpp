@@ -42,8 +42,10 @@ void ScalarImpl::reset() {
   recon->interp() = std::make_shared<InterpOptionsImpl>(*recon->interp());
   recon->interp()->scale() = true;
   precon = ReconstructImpl::create(recon, this);
-  auto x1f =
-      pcoord ? pcoord->x1_row_faces(recon->interp()->type()) : torch::Tensor();
+  // the scalar reconstructs the r^2 dr averages themselves, also under
+  // SNAP_X1_CENTROID_EXACT, so it keeps the r^3/3 table
+  auto x1f = pcoord ? pcoord->x1_row_faces(recon->interp()->type(), false)
+                    : torch::Tensor();
   if (x1f.defined()) {
     precon1 = ReconstructImpl::create(recon, this, "recon1");
     precon1->set_x1_faces(x1f);

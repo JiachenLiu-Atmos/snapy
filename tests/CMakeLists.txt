@@ -46,6 +46,12 @@ setup_test(test_panel_rotation)
 setup_test(test_cp5_nghost)
 setup_test(test_stretched_x1)
 setup_test(test_deck_x1_wiring)
+# the scalar keeps the r^3/3 table under SNAP_X1_CENTROID_EXACT, hydro not
+add_test(NAME test_deck_x1_wiring_x1_centroid.${buildl}
+         COMMAND test_deck_x1_wiring.${buildl}
+                 --gtest_filter=DeckX1Wiring.spherical_scalar_x1_*)
+set_tests_properties(test_deck_x1_wiring_x1_centroid.${buildl}
+                     PROPERTIES ENVIRONMENT "SNAP_X1_CENTROID_EXACT=1")
 setup_test(test_stretched_x1_ref)
 add_test(NAME test_stretched_x1_ref_x1_centroid.${buildl}
          COMMAND test_stretched_x1_ref.${buildl}

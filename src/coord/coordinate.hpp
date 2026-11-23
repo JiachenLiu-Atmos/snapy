@@ -186,8 +186,12 @@ class CoordinateImpl {
   virtual ~CoordinateImpl() = default;
 
   //! faces for the per-face x1 rows: r^3/3 on a radial x1, whose cells hold
-  //! r^2 dr averages (#280); undefined where the shipped rows are exact
-  torch::Tensor x1_row_faces(std::string const& interp) const;
+  //! r^2 dr averages (#280); undefined where the shipped rows are exact.
+  //! plain_means: the caller converts its x1 inputs to plain means under
+  //! SNAP_X1_CENTROID_EXACT (hydro_forward.cpp), so on spherical-polar it
+  //! takes a plain grid's faces; a caller that reconstructs the r^2 dr
+  //! averages themselves (the scalar) keeps the r^3/3 table.
+  torch::Tensor x1_row_faces(std::string const& interp, bool plain_means) const;
 
   int il() const { return options->nx1() > 1 ? options->nghost() : 0; }
 

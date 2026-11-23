@@ -17,6 +17,7 @@
 #include "coordinate.hpp"
 #include "gnomonic_equiangle.hpp"
 #include "spherical_polar.hpp"
+#include "x1_centroid.hpp"
 
 namespace snap {
 
@@ -458,9 +459,13 @@ void CoordinateImpl::print(std::ostream& stream) const {
   put("x3v", x3v);
 }
 
-torch::Tensor CoordinateImpl::x1_row_faces(std::string const& interp) const {
+torch::Tensor CoordinateImpl::x1_row_faces(std::string const& interp,
+                                           bool plain_means) const {
   auto const& t = options->type();
-  bool radial = (t == "spherical-polar" || t == "gnomonic-equiangle") &&
+  bool plain =
+      plain_means && x1_centroid_exact_enabled() && t == "spherical-polar";
+  bool radial = !plain &&
+                (t == "spherical-polar" || t == "gnomonic-equiangle") &&
                 options->nx1() > 1;
   if (!radial || (interp != "weno5" && interp != "cp5"))
     return options->stretched_x1() ? x1f : torch::Tensor();

@@ -48,13 +48,9 @@ void HydroImpl::reset() {
   //// ---- (3) set up reconstruction-x1 model ---- ////
   precon1 = ReconstructImpl::create(options->recon1(), this, "recon1");
   if (pmb->pcoord) {
-    auto const& co = pmb->pcoord->options;
     // SNAP_X1_CENTROID_EXACT hands this module plain means (hydro_forward.cpp)
-    bool plain = x1_centroid_exact_enabled() && co->type() == "spherical-polar";
     auto x1f =
-        !plain ? pmb->pcoord->x1_row_faces(options->recon1()->interp()->type())
-        : co->stretched_x1() ? pmb->pcoord->x1f
-                             : torch::Tensor();
+        pmb->pcoord->x1_row_faces(options->recon1()->interp()->type(), true);
     if (x1f.defined()) precon1->set_x1_faces(x1f);
   }
   if (options->verbose()) {
