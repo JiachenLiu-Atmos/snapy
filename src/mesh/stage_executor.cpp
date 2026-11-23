@@ -52,29 +52,52 @@ struct StageExecutor::Captured {
   std::map<std::string, torch::Tensor> inputs, outputs;
 };
 
-StageExecutor::StageExecutor(MeshBlockImpl* block) : _block(block) {}
+StageExecutor::StageExecutor(MeshBlockImpl* block)
+    : StageExecutor(std::vector<MeshBlockImpl*>{block}) {}
+StageExecutor::StageExecutor(std::vector<MeshBlockImpl*> blocks)
+    : _blocks(std::move(blocks)) {
+  TORCH_CHECK(!_blocks.empty(), "StageExecutor: no blocks");
+  for (auto* b : _blocks) TORCH_CHECK(b, "StageExecutor: a null block");
+  _dt.resize(_blocks.size());
+}
 StageExecutor::~StageExecutor() = default;
 
-void StageExecutor::run_eager(Variables& vars, StepDt dt, int stage) {
-  _block->exchange_ghost_zones(vars);
-  _block->advance_stage(vars, dt, stage);
+MeshBlockImpl* StageExecutor::block_at(int block) const {
+  TORCH_CHECK(block >= 0 && block < num_blocks(), "StageExecutor: block ",
+              block, " out of range [0, ", num_blocks(), ")");
+  return _blocks[block];
 }
 
-StepDt StageExecutor::device_dt(Variables const& vars, double dt) {
+void StageExecutor::run_eager(int block, Variables& vars, StepDt dt,
+                              int stage) {
+  auto* b = block_at(block);
+  b->exchange_ghost_zones(vars);
+  b->advance_stage(vars, dt, stage);
+}
+
+StepDt StageExecutor::device_dt(int block, Variables const& vars, double dt) {
   auto device = vars.at("hydro_u").device();
-  if (!_dt.defined() || _dt.device() != device) {
-    _graphs.clear();  // they read the old buffer
-    _dt = torch::empty({}, torch::dtype(torch::kFloat64).device(device));
+  auto& t = _dt.at(block);
+  if (!t.defined() || t.device() != device) {
+    invalidate(block);  // its graphs read the old buffer
+    t = torch::empty({}, torch::dtype(torch::kFloat64).device(device));
   }
-  _dt.fill_(dt);
-  return StepDt::device(_dt);
+  t.fill_(dt);
+  return StepDt::device(t);
+}
+
+void StageExecutor::run_local(int block, Variables& vars, double dt,
+                              int stage) {
+  ++_eager;
+  block_at(block)->advance_local(vars, dt, stage);
 }
 
 std::vector<std::string> StageExecutor::capture_reasons(
-    Variables const& vars) const {
+    int block, Variables const& vars) const {
   // the prototype tests/straka_cuda_graph.py:16-31 at d6a3c00c: dry Straka
   std::vector<std::string> why;
-  auto const& op = _block->options;
+  auto* pmb = block_at(block);
+  auto const& op = pmb->options;
   auto const& hydro = op->hydro();
 #ifndef USE_CUDA
   why.push_back("snapy was built without CUDA");
@@ -94,14 +117,14 @@ std::vector<std::string> StageExecutor::capture_reasons(
   if (hydro->icorr()) why.push_back("implicit-scheme is not 0");
   if (op->intg()->type() != "rk3")
     why.push_back("integration type is " + op->intg()->type() + ", not rk3");
-  auto const& lo = _block->_playout->options;
-  if (lo->nblocks() != 1 || _block->_playout->has_process_group())
+  auto const& lo = pmb->_playout->options;
+  if (lo->nblocks() != 1 || pmb->_playout->has_process_group())
     why.push_back("more than one block");
   if (!hydro->grav() || hydro->coriolis() || hydro->diffusion() ||
       hydro->bodyHeat() || hydro->botHeat() || hydro->topCool() ||
       hydro->relaxBotComp() || hydro->relaxBotTemp() || hydro->relaxBotVelo() ||
       hydro->topSpongeLyr() || hydro->botSpongeLyr() || hydro->plumeForcing() ||
-      !_block->user_stage_forcings.empty())
+      !pmb->user_stage_forcings.empty())
     why.push_back("forcing is not const-gravity alone");
   if (vars.count("solid")) why.push_back("a solid mask is set");
   // an outflow (radiating) ghost fill checks its inputs on the host (#314)
@@ -112,23 +135,25 @@ std::vector<std::string> StageExecutor::capture_reasons(
     }
   // S-K4: the chemistry step runs inside the last stage; whether kintera's
   // kinetics path captures is not verified, so a block with one runs eagerly
-  if (_block->_chemistry) why.push_back("a chemistry step is registered");
+  if (pmb->_chemistry) why.push_back("a chemistry step is registered");
   return why;
 }
 
-Capability StageExecutor::capability(Variables const& vars) const {
+Capability StageExecutor::capability(int block, Variables const& vars) const {
   Capability c;
-  bool fp32 = _block->policy.fp32();
+  bool fp32 = block_at(block)->policy.fp32();
   c.eager_fp64 = !fp32;  // every case runs eager in its precision
   c.eager_fp32 = fp32;
-  c.eager_reasons = capture_reasons(vars);
+  c.eager_reasons = capture_reasons(block, vars);
   bool graph = c.eager_reasons.empty();
   c.graph_fp64 = graph && !fp32;
   c.graph_fp32 = graph && fp32;
   return c;
 }
 
-GraphKey StageExecutor::make_key(Variables const& vars, int stage) const {
+GraphKey StageExecutor::make_key(int block, Variables const& vars,
+                                 int stage) const {
+  auto* pmb = block_at(block);
   GraphKey key;
   key.device_index = vars.at("hydro_u").device().index();
   for (auto const& [name, t] : vars) {
@@ -139,29 +164,30 @@ GraphKey StageExecutor::make_key(Variables const& vars, int stage) const {
     for (auto n : t.sizes()) key.layout.push_back(n);
     for (auto n : t.strides()) key.layout.push_back(n);
   }
-  key.store_generation = _block->_state.generation();
+  key.store_generation = pmb->_state.generation();
   key.config_generation = _config_generation;
   key.stage = stage;
-  if (auto pthermo = thermo_of())
+  if (auto pthermo = thermo_of(block))
     key.thermo_epoch = kintera::alloc_epoch(*pthermo);
   return key;
 }
 
 std::map<std::string, torch::Tensor> StageExecutor::save_list(
-    Variables& vars) const {
+    int block, Variables& vars) const {
+  auto* pmb = block_at(block);
   std::map<std::string, torch::Tensor> list;
   for (auto name : {"hydro_u", "scalar_s", "scalar_r", "hydro_w"}) {
     auto it = vars.find(name);
     if (it != vars.end() && it->second.defined())
       list[std::string("vars.") + name] = it->second;
   }
-  auto& state = _block->_state;
+  auto& state = pmb->_state;
   list["u0"] = state.u0();
   if (state.s0().numel() > 0) list["s0"] = state.s0();
   for (auto const& [name, t] : state.registered())
     if (t.defined()) list["storage." + name] = t;
   // K2 (K.rst 3.2): the ThermoY failure counter, so a warm-up leaves no count
-  if (auto pthermo = thermo_of()) {
+  if (auto pthermo = thermo_of(block)) {
     if (pthermo->failures().defined())
       list["thermo.failures"] = pthermo->failures();
     // K4 (K.rst 3.4): the active-set buffers too, so a warm-up leaves them
@@ -173,19 +199,22 @@ std::map<std::string, torch::Tensor> StageExecutor::save_list(
   return list;
 }
 
-std::shared_ptr<kintera::ThermoYImpl> StageExecutor::thermo_of() const {
-  return _block->thermo();
+std::shared_ptr<kintera::ThermoYImpl> StageExecutor::thermo_of(
+    int block) const {
+  return block_at(block)->thermo();
 }
 
-void StageExecutor::run_stage(Variables& vars, double dt, int stage) {
-  auto const& op = _block->options;
+void StageExecutor::run_stage(int block, Variables& vars, double dt,
+                              int stage) {
+  auto* pmb = block_at(block);
+  auto const& op = pmb->options;
   if (op->execution() != "cuda-graph") {
     ++_eager;
-    run_eager(vars, dt, stage);
+    run_eager(block, vars, dt, stage);
     return;
   }
 
-  auto why = capture_reasons(vars);
+  auto why = capture_reasons(block, vars);
   if (!why.empty()) {
     std::string list;
     for (auto const& w : why) list += "\n  - " + w;
@@ -194,17 +223,17 @@ void StageExecutor::run_stage(Variables& vars, double dt, int stage) {
                 "CUDA graph:",
                 list);
     ++_eager;
-    run_eager(vars, dt, stage);
+    run_eager(block, vars, dt, stage);
     return;
   }
 
 #ifdef USE_CUDA
-  _block->_state.adopt(vars);  // a rebound tensor bumps the generation
-  _block->register_flux_storage();
-  auto it = _graphs.find(stage);
-  if (it == _graphs.end() || it->second->key != make_key(vars, stage))
-    capture(vars, dt, stage);
-  replay(vars, dt, stage);
+  pmb->_state.adopt(vars);  // a rebound tensor bumps the generation
+  pmb->register_flux_storage();
+  auto it = _graphs.find({block, stage});
+  if (it == _graphs.end() || it->second->key != make_key(block, vars, stage))
+    capture(block, vars, dt, stage);
+  replay(block, vars, dt, stage);
 #endif
 }
 
@@ -223,14 +252,15 @@ struct SyncDebugOff {
 }  // namespace
 #endif
 
-void StageExecutor::capture(Variables& vars, double dt, int stage) {
+void StageExecutor::capture(int block, Variables& vars, double dt, int stage) {
 #ifdef USE_CUDA
-  _graphs.erase(stage);
+  auto* pmb = block_at(block);
+  _graphs.erase({block, stage});
   auto device = vars.at("hydro_u").device().index();
   auto current = at::cuda::getCurrentCUDAStream(device);
   auto side = at::cuda::getStreamFromPool(false, device);
   // the device dt, set on the current stream before the side stream waits
-  auto sdt = device_dt(vars, dt);
+  auto sdt = device_dt(block, vars, dt);
 
   // K.rst 3.5, 7: the thermo is prepared first, under the sync-exempt mode
   // the warm-up uses (its table upload is a synchronizing copy), so the save
@@ -239,10 +269,10 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
   // warm-up or the capture (a missing one throws)
   {
     SyncDebugOff off;
-    _block->prepare_thermo(vars.at("hydro_u"));
+    pmb->prepare_thermo(vars.at("hydro_u"));
   }
   kintera::NoTableBuild no_table_build;
-  auto handles = save_list(vars);
+  auto handles = save_list(block, vars);
   std::map<std::string, torch::Tensor> saved;
   for (auto const& [name, t] : handles) saved[name] = t.clone();
   auto restore = [&]() {
@@ -259,13 +289,13 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
   {
     SyncDebugOff off;
     c10::cuda::CUDAStreamGuard guard(side);
-    for (int i = 0; i < 3; ++i) run_eager(vars, sdt, stage);
+    for (int i = 0; i < 3; ++i) run_eager(block, vars, sdt, stage);
   }
   at::cuda::CUDAEvent warm;
   warm.record(side);
   warm.block(current);
   restore();
-  _block->register_flux_storage();
+  pmb->register_flux_storage();
 
   auto entry = std::make_shared<Captured>();
   for (auto const& [name, t] : vars)
@@ -278,7 +308,7 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
   {
     c10::cuda::CUDAStreamGuard guard(side);
     entry->graph->capture_begin();
-    run_eager(vars, sdt, stage);
+    run_eager(block, vars, sdt, stage);
     entry->graph->capture_end();
   }
   at::cuda::CUDAEvent captured;
@@ -296,23 +326,24 @@ void StageExecutor::capture(Variables& vars, double dt, int stage) {
       t.copy_(saved.at(h->first));
   }
 
-  entry->key = make_key(vars, stage);
-  _graphs[stage] = entry;
+  entry->key = make_key(block, vars, stage);
+  _graphs[{block, stage}] = entry;
   ++_captures;
 #else
   TORCH_CHECK(false, "StageExecutor: snapy was built without CUDA");
 #endif
 }
 
-void StageExecutor::replay(Variables& vars, double dt, int stage) {
+void StageExecutor::replay(int block, Variables& vars, double dt, int stage) {
 #ifdef USE_CUDA
-  device_dt(vars, dt);  // the graph's kernels read it
-  auto& entry = *_graphs.at(stage);
+  auto* pmb = block_at(block);
+  device_dt(block, vars, dt);  // the graph's kernels read it
+  auto& entry = *_graphs.at({block, stage});
   for (auto const& [name, in] : entry.inputs) {
     auto const& t = vars.at(name);
     if (t.data_ptr() != in.data_ptr()) in.copy_(t);
   }
-  _block->phydro->rk_stage = stage;  // advance_local's host side
+  pmb->phydro->rk_stage = stage;  // advance_local's host side
   entry.graph->replay();
   for (auto const& [name, out] : entry.outputs) {
     auto& t = vars.at(name);
@@ -324,10 +355,15 @@ void StageExecutor::replay(Variables& vars, double dt, int stage) {
 
 void StageExecutor::invalidate() { _graphs.clear(); }
 
+void StageExecutor::invalidate(int block) {
+  for (auto it = _graphs.begin(); it != _graphs.end();)
+    it = it->first.first == block ? _graphs.erase(it) : std::next(it);
+}
+
 std::map<std::string, int64_t> StageExecutor::report() const {
-  return {{"captures", _captures},
-          {"replays", _replays},
-          {"eager", _eager},
+  return {{"captures", _captures.load()},
+          {"replays", _replays.load()},
+          {"eager", _eager.load()},
           {"graphs", static_cast<int64_t>(_graphs.size())}};
 }
 

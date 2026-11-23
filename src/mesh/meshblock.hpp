@@ -243,6 +243,10 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   Capability execution_capability(Variables const& vars) const;
   //! an option or prescribed-mask change a captured stage depends on
   void bump_config_generation();
+  //! the executor that runs this block's stages: its own, or its Mesh's
+  std::shared_ptr<StageExecutor> executor() const { return _executor; }
+  //! a Mesh hands its blocks its executor; this block is its index-th block
+  void use_executor(std::shared_ptr<StageExecutor> executor, int index);
 
   //! build the anomaly reference (hydro.ref) from the initial hydro_w;
   //! called by finalize_initialization and by a restart without one
@@ -341,8 +345,11 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! the store generation)
   void register_flux_storage();
 
-  //! runs each stage of forward() eagerly or as a captured graph (X3)
+  //! runs each stage of forward() eagerly or as a captured graph (X3); a
+  //! Mesh's when the block is one of its blocks (B), else the block's own
   std::shared_ptr<StageExecutor> _executor;
+  int _executor_index = 0;      //!< this block in _executor
+  bool _mesh_executor = false;  //!< _executor is a Mesh's: reset keeps it
 };
 
 TORCH_MODULE(MeshBlock);

@@ -39,18 +39,18 @@ void MeshBlockImpl::to(torch::Device device, torch::Dtype dtype,
   else
     torch::nn::Module::to(device, dtype, non_blocking);
   _state.reallocate();  // like the moved u0 and s0
-  if (_executor) _executor->invalidate();
+  if (_executor) _executor->invalidate(_executor_index);
 }
 void MeshBlockImpl::to(torch::Dtype dtype, bool non_blocking) {
   if (policy.fp32()) return;
   torch::nn::Module::to(dtype, non_blocking);
   _state.reallocate();
-  if (_executor) _executor->invalidate();
+  if (_executor) _executor->invalidate(_executor_index);
 }
 void MeshBlockImpl::to(torch::Device device, bool non_blocking) {
   torch::nn::Module::to(device, non_blocking);
   _state.reallocate();
-  if (_executor) _executor->invalidate();
+  if (_executor) _executor->invalidate(_executor_index);
 }
 
 void set_scalar_primitive(Variables &vars, torch::Tensor const &scalar_s,
@@ -215,7 +215,16 @@ void MeshBlockImpl::reset() {
   TORCH_CHECK(!(options->execution() == "eager" && options->execution_strict()),
               "integration/execution-strict needs execution: cuda-graph "
               "(eager is never refused)");
-  _executor = std::make_shared<StageExecutor>(this);
+  // a Mesh's executor is kept only by the block it holds (a clone gets its own)
+  if (_mesh_executor && _executor &&
+      _executor_index < _executor->num_blocks() &&
+      _executor->block_at(_executor_index) == this) {
+    _executor->invalidate(_executor_index);
+  } else {
+    _executor = std::make_shared<StageExecutor>(this);
+    _executor_index = 0;
+    _mesh_executor = false;
+  }
 }
 
 std::vector<torch::indexing::TensorIndex> MeshBlockImpl::part(
@@ -399,11 +408,21 @@ std::map<std::string, int64_t> MeshBlockImpl::execution_report() const {
 }
 
 Capability MeshBlockImpl::execution_capability(Variables const &vars) const {
-  return _executor->capability(vars);
+  return _executor->capability(_executor_index, vars);
 }
 
 void MeshBlockImpl::bump_config_generation() {
   _executor->bump_config_generation();
+}
+
+void MeshBlockImpl::use_executor(std::shared_ptr<StageExecutor> executor,
+                                 int index) {
+  TORCH_CHECK(executor && index >= 0 && index < executor->num_blocks(),
+              "MeshBlock::use_executor: block index ", index,
+              " not in the executor");
+  _executor = std::move(executor);
+  _executor_index = index;
+  _mesh_executor = true;
 }
 
 void MeshBlockImpl::register_flux_storage() {

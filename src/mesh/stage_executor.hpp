@@ -1,6 +1,7 @@
 #pragma once
 
 // C/C++
+#include <atomic>
 #include <map>
 #include <memory>
 #include <string>
@@ -53,45 +54,64 @@ struct Capability {
   std::vector<std::string> eager_reasons;       // why its stages run eager
 };
 
-//! V3 lane X, X3: a bare MeshBlock's stages run eagerly (default, reference)
-//! or as CUDA graphs when capture_reasons() is empty; strict refuses the rest.
+//! V3 lane X, X3: a block's stages run eagerly (default, reference) or as CUDA
+//! graphs when capture_reasons() is empty; strict refuses the rest. A Mesh
+//! owns one executor for all its blocks (lane B); a bare MeshBlock owns a
+//! one-block one. Blocks are addressed by their index in the executor.
 class StageExecutor {
  public:
   explicit StageExecutor(MeshBlockImpl* block);
+  explicit StageExecutor(std::vector<MeshBlockImpl*> blocks);
   ~StageExecutor();
 
-  void run_stage(Variables& vars, double dt, int stage);  // eager or replayed
+  int num_blocks() const { return static_cast<int>(_blocks.size()); }
+  //! the block at index `block` (checked)
+  MeshBlockImpl* block_at(int block) const;
 
-  //! why this case cannot be captured; empty: it can
-  std::vector<std::string> capture_reasons(Variables const& vars) const;
+  //! a bare block's stage: exchange_ghost_zones, then advance_local, eager or
+  //! replayed
+  void run_stage(int block, Variables& vars, double dt, int stage);
+  //! a Mesh block's local stage (advance_local, eager): the Mesh exchanges
+  //! last and runs the global phase itself. Safe on the block worker pool.
+  void run_local(int block, Variables& vars, double dt, int stage);
+
+  //! why this block cannot be captured; empty: it can
+  std::vector<std::string> capture_reasons(int block,
+                                           Variables const& vars) const;
   //! V3 X7: this block's row of the capability matrix (G7)
-  Capability capability(Variables const& vars) const;
+  Capability capability(int block, Variables const& vars) const;
 
-  void invalidate();  // drops every graph
+  void invalidate();           // drops every graph
+  void invalidate(int block);  // drops this block's graphs
   void bump_config_generation() { ++_config_generation; }
   std::map<std::string, int64_t> report() const;
 
  private:
   struct Captured;
+  using Slot = std::pair<int, int>;  // (block, stage)
 
-  void run_eager(Variables& vars, StepDt dt, int stage);
-  GraphKey make_key(Variables const& vars, int stage) const;
-  //! the device dt every graph of this block reads, set to dt (stream order)
-  StepDt device_dt(Variables const& vars, double dt);
+  void run_eager(int block, Variables& vars, StepDt dt, int stage);
+  GraphKey make_key(int block, Variables const& vars, int stage) const;
+  //! the block's device dt, which every graph of the block reads, set to dt
+  //! in stream order (V3 D); one per block, so blocks replaying on their own
+  //! streams (a Mesh's worker pool) never write one another's
+  StepDt device_dt(int block, Variables const& vars, double dt);
   //! the EOS's kintera ThermoY (hydro.eos.thermo), or null
-  std::shared_ptr<kintera::ThermoYImpl> thermo_of() const;
+  std::shared_ptr<kintera::ThermoYImpl> thermo_of(int block) const;
   //! the save list: the state, the registered storage and hydro_w
-  std::map<std::string, torch::Tensor> save_list(Variables& vars) const;
-  void capture(Variables& vars, double dt, int stage);
-  void replay(Variables& vars, double dt, int stage);
+  std::map<std::string, torch::Tensor> save_list(int block,
+                                                 Variables& vars) const;
+  void capture(int block, Variables& vars, double dt, int stage);
+  void replay(int block, Variables& vars, double dt, int stage);
 
-  MeshBlockImpl* _block;
-  std::map<int, std::shared_ptr<Captured>> _graphs;  // one per stage
-  //! V3 D: one persistent 0-dim FP64 dt on the block's device, shared by
-  //! every graph (a future per-segment graph reads the same one)
-  torch::Tensor _dt;
+  std::vector<MeshBlockImpl*> _blocks;
+  std::map<Slot, std::shared_ptr<Captured>> _graphs;  // one per block, stage
+  //! V3 D: one persistent 0-dim FP64 dt per block on its device, shared by
+  //! every graph of that block
+  std::vector<torch::Tensor> _dt;
   int _config_generation = 0;
-  int64_t _captures = 0, _replays = 0, _eager = 0;
+  //! run_local runs on the block worker pool
+  std::atomic<int64_t> _captures{0}, _replays{0}, _eager{0};
 };
 
 }  // namespace snap

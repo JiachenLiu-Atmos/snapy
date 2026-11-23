@@ -252,6 +252,7 @@ MeshImpl::~MeshImpl() = default;
 
 void MeshImpl::reset() {
   workers_.reset();
+  executor_.reset();
   blocks.clear();
   TORCH_CHECK(options->block() != nullptr, "Mesh requires MeshBlockOptions");
 
@@ -286,10 +287,21 @@ void MeshImpl::reset() {
     blocks.push_back(block);
   }
 
+  // one stage executor for all the blocks (lane B)
+  std::vector<MeshBlockImpl*> members;
+  for (auto& b : blocks) members.push_back(b.get());
+  executor_ = std::make_shared<StageExecutor>(members);
+  for (int i = 0; i < static_cast<int>(blocks.size()); ++i)
+    blocks[i]->use_executor(executor_, i);
+
   if (blocks.size() > 1) {
     workers_ = std::make_shared<BlockWorkerPool>(
         blocks.size(), torch::Device(blocks.front()->options->device_str()));
   }
+}
+
+std::map<std::string, int64_t> MeshImpl::execution_report() const {
+  return executor_->report();
 }
 
 size_t MeshImpl::num_worker_streams() const {
@@ -363,7 +375,7 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
 
   for (auto& b : blocks) b->defer_chemistry = true;
   run_block_jobs(
-      [&](size_t i) { blocks[i]->advance_local(vars[i], dt, stage); });
+      [&](size_t i) { executor_->run_local(i, vars[i], dt, stage); });
   // conserve-axial-momentum-closure: R and I summed over the local blocks,
   // one reduction, then each block's solid-body increment
   auto root = blocks.front();

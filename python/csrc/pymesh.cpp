@@ -365,6 +365,7 @@ stage's global phase before the final exchange.)doc")
            py::arg("vars"), py::arg("time"), py::arg("dt"))
       .def("check_redo", &snap::MeshImpl::check_redo, py::arg("vars"))
       .def("set_cycle", &snap::MeshImpl::set_cycle, py::arg("cycle"))
+      .def("execution_report", &snap::MeshImpl::execution_report)
       .def("finalize", &snap::MeshImpl::finalize, py::arg("vars"),
            py::arg("time"));
 }

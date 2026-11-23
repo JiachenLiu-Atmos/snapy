@@ -229,7 +229,7 @@ double MeshBlockImpl::_init_from_restart(Variables &vars, std::string fname) {
 
   // a restart is a new state: new storage, adopted at the next step
   _state.reallocate();
-  _executor->invalidate();
+  _executor->invalidate(_executor_index);
   return current_time;
 }
 

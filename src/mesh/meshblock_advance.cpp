@@ -91,8 +91,8 @@ void MeshBlockImpl::forward(Variables &vars, double dt, int stage) {
   // (e.g. condensation on hydro_u) are then synced before use, removing a
   // one-signed seam bias on the cubed sphere.
   if (stage == 0) step_dt = dt;
-  _executor->run_stage(vars, dt, stage);  // exchange_ghost_zones, then
-                                          // advance_local, or their graph
+  // exchange_ghost_zones, then advance_local, or their graph
+  _executor->run_stage(_executor_index, vars, dt, stage);
   // the global phase of a bare block, as Mesh::forward runs it over its blocks
   if (phydro->paam->closes()) {
     apply_axial_closure(vars, dt, stage,

@@ -2,7 +2,9 @@
 
 // C/C++
 #include <functional>
+#include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 // torch
@@ -74,12 +76,18 @@ class MeshImpl : public torch::nn::Cloneable<MeshImpl> {
   //! CUDA streams of the block worker pool (0 without a CUDA pool).
   size_t num_worker_streams() const;
 
+  //! the stage executor of all this Mesh's blocks (lane B), shared with them
+  std::shared_ptr<StageExecutor> executor() const { return executor_; }
+  //! its counters: captures, replays, eager block-stages, graphs
+  std::map<std::string, int64_t> execution_report() const;
+
  private:
   class BlockWorkerPool;
 
   void run_block_jobs(std::function<void(size_t)> func);
 
   std::shared_ptr<BlockWorkerPool> workers_;
+  std::shared_ptr<StageExecutor> executor_;
 };
 
 TORCH_MODULE(Mesh);

@@ -229,6 +229,8 @@ setup_test(test_species_face_clamp)
 setup_test(test_parentless_cloud_nb1)
 setup_test(test_global_phase)
 setup_test(test_global_phase_closure)
+# lane B: a Mesh owns one stage executor; Mesh::forward runs through it
+setup_test(test_mesh_executor)
 setup_test(test_vapor_column_nb1)
 setup_test(test_wall_saturation)
 setup_test(test_cloud_parent_slots)
