@@ -313,14 +313,10 @@ class FluxRegister {
   //! the total's device; built at the first apply_wall_planes_ after
   //! set_prescribed_walls, so a stage launches no setup
   std::array<torch::Tensor, 3> _pidx, _parea, _pneg, _pwt;
-  //! round 5: the wall planes' prescribed rows as one bool mask over the
-  //! total (one masked_fill_ zeroes them), and the -area weights laid out
-  //! like the gathered planes, flattened, for the batch
-  std::array<torch::Tensor, 3> _pwmask, _pwtflat;
+  //! round 5: the -area weights laid out like the gathered planes,
+  //! flattened, for the batch
+  std::array<torch::Tensor, 3> _pwtflat;
   std::shared_ptr<WallBatch> _wall_batch;
-  //! add() / the kept parts: the row index tensors, cached per row list
-  std::map<std::vector<int>, torch::Tensor> _rows_idx;
-  torch::Tensor rows_index_(std::vector<int> const& rows, torch::Device dev);
   std::array<bool, 3> _pwall_set = {false, false, false};
   //! apply_prescribed on the wall planes: as overwrite_, plane by plane
   void apply_wall_planes_(int dim);

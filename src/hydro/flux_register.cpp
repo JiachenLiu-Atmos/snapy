@@ -450,25 +450,25 @@ void FluxRegister::add(int dim, std::string const& name,
   TORCH_CHECK(increment.size(0) == static_cast<int64_t>(rows.size()),
               "[FluxRegister] add '", name, "': ", increment.size(0),
               " increment rows for ", rows.size(), " rows");
-  // round 5: the rows in one index_add_ (and one index_copy_ for a kept
-  // part) instead of one launch per row
-  auto idx = rows_index_(rows, t.device());
-  t.index_add_(0, idx, increment.to(t.scalar_type()));
+  // round 5b: a contiguous row range is one plain add_ on a narrow; other
+  // row lists add row by row. (Round 5 used index_add_, whose CUDA kernel
+  // adds atomically: for FP64 rows that is a compare-and-swap loop per
+  // element, +0.3 ms a step on c1 and +2.9 ms on S3 for three launches.)
+  bool contiguous = true;
+  for (size_t i = 1; i < rows.size(); ++i)
+    if (rows[i] != rows[i - 1] + 1) contiguous = false;
+  if (contiguous && !rows.empty()) {
+    auto n = static_cast<int64_t>(rows.size());
+    t.narrow(0, rows[0], n).add_(increment);
+    if (keeps(dim, name))
+      part_slot(dim, name).narrow(0, rows[0], n).copy_(increment);
+    return;
+  }
+  for (size_t i = 0; i < rows.size(); ++i) t[rows[i]].add_(increment[i]);
   if (keeps(dim, name)) {
     auto part = part_slot(dim, name);
-    part.index_copy_(0, idx, increment.to(part.scalar_type()));
+    for (size_t i = 0; i < rows.size(); ++i) part[rows[i]].copy_(increment[i]);
   }
-}
-
-torch::Tensor FluxRegister::rows_index_(std::vector<int> const& rows,
-                                        torch::Device dev) {
-  auto it = _rows_idx.find(rows);
-  if (it == _rows_idx.end() || it->second.device() != dev) {
-    std::vector<int64_t> r(rows.begin(), rows.end());
-    _rows_idx[rows] = torch::tensor(r, torch::kInt64).to(dev);
-    it = _rows_idx.find(rows);
-  }
-  return it->second;
 }
 
 void FluxRegister::scale(int dim, std::string const& name,
@@ -567,8 +567,7 @@ void FluxRegister::set_prescribed_walls(int dim,
   // supply_prescribed sets the same planes every stage: the gathered-plane
   // tensors stay unless the planes or the free rows change (V3 S4)
   if (_pwall[d] != planes || _pfree[d] != free_rows)
-    _pidx[d] = _parea[d] = _pneg[d] = _pwt[d] = _pwmask[d] = _pwtflat[d] =
-        torch::Tensor();
+    _pidx[d] = _parea[d] = _pneg[d] = _pwt[d] = _pwtflat[d] = torch::Tensor();
   _pwall[d] = planes;
   _pwall_set[d] = true;
   auto& rows = _prow[d];
@@ -604,8 +603,6 @@ void FluxRegister::apply_wall_planes_(int dim) {
     _pwt[d] = _parea[d] * _pneg[d];  // -area on the prescribed rows, else 0
     // round 5: the prescribed rows of the wall planes as one mask over the
     // total, and the weights laid out like the gathered planes, flattened
-    _pwmask[d] = torch::zeros(t.sizes(), t.options().dtype(torch::kBool));
-    for (auto p : _pwall[d]) _pwmask[d].select(ax, p).logical_or_(rows);
     auto shape = t.sizes().vec();
     shape[ax] = static_cast<int64_t>(_pwall[d].size());
     _pwtflat[d] = _pwt[d].expand(shape).contiguous().reshape({-1});
@@ -620,9 +617,17 @@ void FluxRegister::apply_wall_planes_(int dim) {
   // in the stage's batch (one product and one segment sum for every
   // register and direction at the stage's end); without a batch, book now
   auto planes = t.index_select(ax, _pidx[d]).to(wide);
-  t.masked_fill_(_pwmask[d], 0.);
-  for (auto const& name : _kept[d])
-    _parts.at(name + "@" + std::to_string(dim)).masked_fill_(_pwmask[d], 0.);
+  // the zeroing touches the wall planes only (one masked_fill_ per plane):
+  // a mask over the whole total is one launch on CUDA but a full pass over
+  // the flux field on CPU, which cost the CPU cells more than the launches
+  // it saved (round 5's first timing)
+  for (auto p : _pwall[d]) {
+    t.select(ax, p).masked_fill_(rows, 0.);
+    for (auto const& name : _kept[d])
+      _parts.at(name + "@" + std::to_string(dim))
+          .select(ax, p)
+          .masked_fill_(rows, 0.);
+  }
   if (_wall_batch) {
     _wall_batch->push(planes.reshape({-1}), _pwtflat[d], &_monitor,
                       _monitor.amount_index("boundary.prescribed"),
