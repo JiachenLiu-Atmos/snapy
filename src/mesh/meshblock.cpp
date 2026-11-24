@@ -215,11 +215,12 @@ void MeshBlockImpl::reset() {
   pscalar->freg.set_wall_batch(_wall_batch);
   register_flux_storage();
 
-  //// ------- (10) stage executor (eager unless cuda-graph) ------- ////
-  TORCH_CHECK(
-      options->execution() == "eager" || options->execution() == "cuda-graph",
-      "integration/execution must be eager or cuda-graph, got '",
-      options->execution(), "'");
+  //// ------- (10) stage executor (StageExecutor::mode) ------- ////
+  TORCH_CHECK(options->execution() == "auto" ||
+                  options->execution() == "eager" ||
+                  options->execution() == "cuda-graph",
+              "integration/execution must be auto, eager or cuda-graph, got '",
+              options->execution(), "'");
   TORCH_CHECK(!(options->execution() == "eager" && options->execution_strict()),
               "integration/execution-strict needs execution: cuda-graph "
               "(eager is never refused)");

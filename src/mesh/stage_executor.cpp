@@ -95,6 +95,7 @@ StageExecutor::StageExecutor(std::vector<MeshBlockImpl*> blocks)
   for (auto* b : _blocks) TORCH_CHECK(b, "StageExecutor: a null block");
   _dt.resize(_blocks.size());
   _vars_reasons.resize(_blocks.size());
+  _logged.resize(_blocks.size());
   _schedules.resize(_blocks.size());
   _schedule_sig.assign(_blocks.size(), -1);
   _schedule_rebuilt.assign(_blocks.size(), 0);
@@ -102,6 +103,25 @@ StageExecutor::StageExecutor(std::vector<MeshBlockImpl*> blocks)
   for (int b = 0; b < num_blocks(); ++b) build_schedule(b);
 }
 StageExecutor::~StageExecutor() = default;
+
+std::string StageExecutor::mode(int block) const {
+  auto* pmb = block_at(block);
+  auto const& op = pmb->options;
+  if (op->execution() != "auto") return op->execution();
+  if (op->execution_strict()) return "cuda-graph";
+  bool cuda =
+      pmb->pcoord && pmb->pcoord->x1v.defined() && pmb->pcoord->x1v.is_cuda();
+  return cuda ? "cuda-graph" : "eager";
+}
+
+void StageExecutor::log_eager(int block, std::vector<std::string> const& why) {
+  if (why.empty() || block_at(block)->options->execution_strict()) return;
+  std::lock_guard<std::mutex> lock(_logged_mutex);
+  for (auto const& r : why)
+    if (_logged[block].insert(r).second)
+      TORCH_WARN("integration/execution: block ", block,
+                 " runs eager where it cannot be captured: ", r);
+}
 
 bool StageExecutor::user_forcing(int block) const {
   return !block_at(block)->user_stage_forcings.empty();
@@ -453,7 +473,7 @@ void refuse_in_segment_capture(char const* what) {
 void StageExecutor::run_local(int block, Variables& vars, double dt,
                               int stage) {
   auto* pmb = block_at(block);
-  if (pmb->options->execution() != "cuda-graph") {
+  if (mode(block) != "cuda-graph") {
     ++_eager;
     pmb->advance_local(vars, dt, stage);
     return;
@@ -464,7 +484,8 @@ void StageExecutor::run_local(int block, Variables& vars, double dt,
     _schedule_rebuilt[block] = 0;
   }
   check_strict(block, vars, stage);
-  if (!capture_reasons(block, vars).empty()) {
+  if (auto why = capture_reasons(block, vars); !why.empty()) {
+    log_eager(block, why);
     ++_eager;
     pmb->advance_local(vars, dt, stage);
     return;
@@ -482,7 +503,7 @@ void StageExecutor::align_captures(std::vector<Variables>& vars, double dt,
   std::set<int> stale;  // segments some block must (re)capture
   for (int b = 0; b < num_blocks(); ++b) {
     auto* pmb = block_at(b);
-    if (pmb->options->execution() != "cuda-graph") return;
+    if (mode(b) != "cuda-graph") return;
     schedule(b);  // rebuilt if its signature moved
     if (_schedule_rebuilt[b]) {
       invalidate(b);
@@ -533,14 +554,14 @@ std::vector<std::string> StageExecutor::capture_reasons(
   // eager pass), and the Mesh would hang. The other blocks' reasons are
   // their configuration's, live, and their variables' as of the last
   // agree() (Mesh::initialize and every Mesh::forward)
-  auto const& mode = block_at(block)->options->execution();
+  auto const mine = mode(block);
   for (int b = 0; b < num_blocks(); ++b) {
     if (b == block) continue;
-    auto const& other = block_at(b)->options->execution();
-    if (other != mode) {
+    auto const other = mode(b);
+    if (other != mine) {
       why.push_back("a Mesh whose blocks disagree: block " + std::to_string(b) +
                     " runs " + other + ", block " + std::to_string(block) +
-                    " runs " + mode + ", so the whole Mesh runs eager");
+                    " runs " + mine + ", so the whole Mesh runs eager");
       break;
     }
     auto theirs = config_reasons(b);
@@ -599,6 +620,12 @@ std::vector<std::string> StageExecutor::config_reasons(int block) const {
     why.push_back(
         "an x1 split (pz > 1): its relays inside the stage are not cut into "
         "segments yet (P2, P3)");
+  // a panel split into several blocks: capturing it fails (its seams inside
+  // the panel are not cut into segments), so it runs eager
+  if (cubed_sphere && (lo->px() > 1 || lo->py() > 1))
+    why.push_back(
+        "a cubed-sphere panel split into several blocks (nb2 or nb3 > 1): its "
+        "seams inside the panel are not cut into segments yet");
   // no forcing block at all captures as const-gravity does
   if (hydro->coriolis() || hydro->diffusion() || hydro->bodyHeat() ||
       hydro->botHeat() || hydro->topCool() || hydro->relaxBotComp() ||
@@ -717,7 +744,7 @@ std::shared_ptr<kintera::ThermoYImpl> StageExecutor::thermo_of(
 void StageExecutor::check_strict(int block, Variables const& vars,
                                  int stage) const {
   auto const& op = block_at(block)->options;
-  if (op->execution() != "cuda-graph" || !op->execution_strict()) return;
+  if (mode(block) != "cuda-graph" || !op->execution_strict()) return;
   // the case's reasons make every segment eager; strict names the first
   // eager segment and its reasons (host segments are boundaries)
   auto const& segs = schedule(block).segments();
@@ -740,9 +767,7 @@ void StageExecutor::check_strict(int block, Variables const& vars,
 
 void StageExecutor::run_stage(int block, Variables& vars, double dt,
                               int stage) {
-  auto* pmb = block_at(block);
-  auto const& op = pmb->options;
-  if (op->execution() != "cuda-graph") {
+  if (mode(block) != "cuda-graph") {
     ++_eager;
     run_eager(block, vars, dt, stage);
     return;
@@ -754,7 +779,8 @@ void StageExecutor::run_stage(int block, Variables& vars, double dt,
     _schedule_rebuilt[block] = 0;
   }
   check_strict(block, vars, stage);
-  if (!capture_reasons(block, vars).empty()) {
+  if (auto why = capture_reasons(block, vars); !why.empty()) {
+    log_eager(block, why);
     ++_eager;
     run_eager(block, vars, dt, stage);
     return;
@@ -784,6 +810,7 @@ void StageExecutor::run_segments(int block, Variables& vars, double dt,
       continue;
     }
     if (!segs[i].capturable) {  // an eager op's segment
+      log_eager(block, segs[i].eager_reasons);
       ++_eager;
       run_eager(block, vars, dt, stage, i);
       continue;

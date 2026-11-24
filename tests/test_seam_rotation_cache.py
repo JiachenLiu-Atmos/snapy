@@ -69,7 +69,9 @@ def deck():
             "x2-inner": "custom", "x2-outer": "custom",
             "x3-inner": "custom", "x3-outer": "custom"}},
         "integration": {"type": "rk3", "cfl": 0.5, "implicit-scheme": 0, "nlim": 1,
-                        "ncycle_out": 0},
+                        "ncycle_out": 0,
+                        # eager: the test counts the kernels each stage launches
+                        "execution": "eager"},
         "forcing": {"const-gravity": {"grav1": -9.8}},
     }
 

@@ -31,6 +31,9 @@ Mesh make_mesh(torch::Device device, torch::Dtype dtype) {
   auto block_opts =
       MeshBlockOptionsImpl::from_yaml("test_mesh_multi_block.yaml");
   block_opts->layout()->py(1);  // nb2 = 2, nb3 = 1: two blocks along x2
+  // the eager executor path against the pre-executor sequence (on CUDA the
+  // default would capture)
+  block_opts->execution("eager");
   auto mesh_opts = MeshOptionsImpl::create();
   mesh_opts->block(block_opts);
   mesh_opts->blocks_per_process(2);

@@ -156,7 +156,9 @@ the original 31.7241 s threshold, though the slowest trial does not. Full detail
 
 Stop expanding native fusion for this benchmark now that its throughput goal is
 met. General graph support for moist/implicit/distributed/limiter-enabled models
-and larger-grid scaling remain separate future work; eager remains the default.
+and larger-grid scaling remain separate future work; eager remained the
+default at the time (on a CUDA device the default is now cuda-graph, see
+docs/user_guide/execution.rst).
 
 ### Follow-up: identify the remaining FP32 graph overhead
 

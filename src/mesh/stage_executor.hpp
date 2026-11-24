@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -82,8 +83,10 @@ struct Capability {
   std::vector<SegmentRow> segments;
 };
 
-//! V3 lane X, X3: a block's stages run eagerly (default, reference) or as CUDA
-//! graphs when capture_reasons() is empty; strict refuses the rest. A Mesh
+//! V3 lane X, X3: a block's stages run eagerly or as CUDA graphs when
+//! capture_reasons() is empty (mode(): execution auto is cuda-graph on a CUDA
+//! device); a refused case runs eager and its reasons are logged once, and
+//! strict refuses it instead. A Mesh
 //! owns one executor for all its blocks (lane B); a bare MeshBlock owns a
 //! one-block one. Blocks are addressed by their index in the executor.
 class StageExecutor {
@@ -98,6 +101,11 @@ class StageExecutor {
   //! the ops and segments of the block's stages (A2: one segment per stage,
   //! the exchange and advance_local)
   StageSchedule const& schedule(int block) const;
+
+  //! the block's execution mode, "eager" or "cuda-graph":
+  //! integration.execution, with auto resolved to cuda-graph when the block is
+  //! on a CUDA device (or the case is strict) and eager otherwise
+  std::string mode(int block) const;
 
   //! a bare block's stage: exchange_ghost_zones, then advance_local, eager or
   //! replayed
@@ -202,6 +210,11 @@ class StageExecutor {
   int _config_generation = 0;
   //! run_local runs on the block worker pool
   std::atomic<int64_t> _captures{0}, _replays{0}, _eager{0};
+  //! the eager reasons already logged, per block (log_eager)
+  std::vector<std::set<std::string>> _logged;
+  std::mutex _logged_mutex;
+  //! log each of a non-strict block's eager reasons once
+  void log_eager(int block, std::vector<std::string> const& why);
   //! host-exchange and global segments run under cuda-graph (boundaries)
   std::atomic<int64_t> _host{0};
 };

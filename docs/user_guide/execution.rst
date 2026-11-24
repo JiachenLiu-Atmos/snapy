@@ -1,9 +1,9 @@
 Execution: eager and CUDA graphs
 ================================
 
-``snapy`` runs every stage eagerly by default. A single ``MeshBlock`` on a
-CUDA device can instead run each stage of ``forward()`` as one captured CUDA
-graph. Eager execution is the reference: a graph replay gives the same bits.
+On a CUDA device ``snapy`` runs each stage as captured CUDA graphs by default,
+and eagerly wherever a case cannot be captured; on CPU and MPS it runs
+eagerly. Eager execution is the reference: a graph replay gives the same bits.
 
 Selecting the execution
 -----------------------
@@ -11,16 +11,20 @@ Selecting the execution
 The deck selects it under ``integration``::
 
   integration:
-    execution: eager          # eager | cuda-graph
+    execution: auto           # auto | eager | cuda-graph
     execution-strict: false   # true: refuse a case that cannot be captured
 
 The two key names are provisional until the V3 naming is confirmed.
 
-- ``eager`` (default): every stage runs eagerly. ``execution-strict: true``
-  with ``eager`` is refused when the options are read.
+- ``auto`` (default, also when the key is absent): ``cuda-graph`` when the
+  block is on a CUDA device, ``eager`` otherwise. With
+  ``execution-strict: true`` it means ``cuda-graph``.
+- ``eager``: every stage runs eagerly, on any device. ``execution-strict:
+  true`` with ``eager`` is refused when the options are read.
 - ``cuda-graph``: a case that can be captured runs each stage as a graph; any
-  other case runs eagerly. With ``execution-strict: true`` such a case is
-  refused before its first launch, and the error lists the reasons.
+  other case runs eagerly, and each reason is logged once per block (a
+  warning). With ``execution-strict: true`` such a case is refused before its
+  first launch, and the error lists the reasons.
 - A ``Mesh`` runs its blocks eagerly; ``execution-strict: true`` is refused
   there (graphs for several blocks come with a later milestone).
 

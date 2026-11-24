@@ -90,10 +90,12 @@ struct MeshBlockOptionsImpl {
   //! verbose
   ADD_ARG(bool, verbose) = false;
 
-  //! integration.execution: eager (default) or cuda-graph; with
-  //! integration.execution-strict a case that cannot be captured is refused
-  //! (V3 X3; both names provisional, DESIGN.rst "pending Cheng's naming")
-  ADD_ARG(std::string, execution) = "eager";
+  //! integration.execution: auto (default), eager or cuda-graph. auto runs
+  //! cuda-graph when the block is on a CUDA device and eager otherwise; a
+  //! segment that cannot be captured runs eager and its reason is logged.
+  //! With integration.execution-strict a case that cannot be captured is
+  //! refused instead (auto then means cuda-graph)
+  ADD_ARG(std::string, execution) = "auto";
   ADD_ARG(bool, execution_strict) = false;
 
   //! output
