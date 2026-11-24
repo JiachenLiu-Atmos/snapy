@@ -17,13 +17,7 @@ enum class Quantity {
   kFlux,         // fluxes, du
   kReference,    // reference and geometry masters
   kPrimitive,    // hydro_w totals
-  kGauge,        // gauges, total face pressure
-  kReduction,    // dt, budget and closure sums
   kImplicit,     // vertical implicit solve
-  kThermo,       // kintera totals, saturation
-  kRegister,     // flux register step accumulator
-  kSource,       // stage-local source accumulator
-  kDiagnostic,   // diagnostic sums
   kCount
 };
 
