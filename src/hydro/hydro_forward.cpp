@@ -1164,8 +1164,10 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
   // implicit correction (directly) or through the register's add, scale and
   // replace, which mark the direction: a source's post_fluxes (diffusion adds
   // its IPR row on every x1 face, walls included) and the positivity
-  // limiter's settling carry; the limiter's scale and advected carry keep the
-  // prescribed faces and do not mark. The apply runs when the implicit
+  // limiter's carry when it has a settling part (both of its posts, advected
+  // and settling, mark then); the limiter's scale, and its carry without a
+  // settling part, keep the prescribed faces and do not mark. The apply runs
+  // when the implicit
   // correction ran or the mark is set; otherwise the faces are already
   // prescribed (V3 S4 rounds 7, 7c, 7e; main's reporting bitwise)
   if (freg.total(1).defined() && (picorr || freg.written_since_prescribed(1)))

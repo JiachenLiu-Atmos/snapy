@@ -126,12 +126,15 @@ void flux_positivity_carry_(torch::Tensor const& theta,
       auto type = torch::promote_types(flux.scalar_type(), c.scalar_type());
       auto inc = torch::full(shape, -0., c.options().dtype(type));
       inc.slice(dim, lo, hi + 2).copy_(-c);
-      // the advected part comes from the register's total, which is 0 on
+      // Without a settling part the carry reads the register's total, 0 on
       // the prescribed faces after the sweep's apply, so -c is -0 there and
-      // the carry keeps them. The settling part comes from the
-      // sedimentation's own buffer, which a prescribed solid face can carry:
-      // that carry marks the direction, and the post-implicit apply
-      // re-prescribes and books it as main did (round 7e)
+      // the carry keeps them. With one, the settling buffer is the
+      // sedimentation's own and a prescribed face can carry it: the advected
+      // part F - fsed1 is then -fsed1 on that face and the settling part
+      // fsed1, each with its own donor's energy, so their sum is
+      // share |fsed1| (h_upper - h_lower), not 0. Both posts of that stage
+      // mark the direction, and the post-implicit apply re-prescribes and
+      // books it as main did (round 7e)
       reg.add(d, "positivity.carry", rows, inc,
               /*keeps_prescribed=*/!(d == 1 && fsed1.defined()));
     };
