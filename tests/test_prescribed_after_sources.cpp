@@ -111,3 +111,37 @@ TEST(FluxRegister, a_source_post_on_the_walls_is_prescribed_again) {
   auto booked = freg.monitor().amounts("boundary.prescribed")[IPR];
   EXPECT_NE(booked.item<double>(), 0.);
 }
+
+// round 7c: the mark the post-implicit apply reads. add, scale and replace
+// set it, a write that keeps the prescribed faces (the positivity limiter's)
+// does not, apply_prescribed clears it; the prescription itself and keep do
+// not set it (c3 paid one needless wall apply per block and stage)
+TEST(FluxRegister, the_written_mark_follows_the_writers) {
+  Variables vars;
+  auto block = bubble(vars);
+  auto& freg = block->phydro->flux_register();
+  auto t = freg.total(1);
+  ASSERT_TRUE(t.defined());
+  auto one = torch::ones({1, t.size(1), t.size(2), t.size(3)}, t.options());
+  freg.apply_prescribed(1);
+  EXPECT_FALSE(freg.written_since_prescribed(1));
+  freg.add(1, "test.keeps", {IPR}, one, /*keeps_prescribed=*/true);
+  EXPECT_FALSE(freg.written_since_prescribed(1));
+  freg.scale(1, "test.keeps", {IPR}, one[0], /*keeps_prescribed=*/true);
+  EXPECT_FALSE(freg.written_since_prescribed(1));
+  freg.add(1, "test.writes", {IPR}, one);
+  EXPECT_TRUE(freg.written_since_prescribed(1));
+  freg.apply_prescribed(1);
+  EXPECT_FALSE(freg.written_since_prescribed(1));
+  freg.scale(1, "test.writes", {IPR}, one[0]);
+  EXPECT_TRUE(freg.written_since_prescribed(1));
+  freg.apply_prescribed(1);
+  EXPECT_FALSE(freg.written_since_prescribed(1));
+  auto faces = torch::zeros(t.sizes().slice(1), t.options().dtype(torch::kBool));
+  faces.select(-1, 3).fill_(true);
+  std::vector<torch::Tensor> rows = {t.clone()};  // the dense peer: the
+  for (auto const& part : freg.kept_parts(1))      // total's rows, then the
+    rows.push_back(freg.kept(1, part).clone());   // kept parts'
+  freg.replace(1, faces, torch::cat(rows, 0), SeamRule::mean);
+  EXPECT_TRUE(freg.written_since_prescribed(1));
+}

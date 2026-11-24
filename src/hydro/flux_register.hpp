@@ -225,7 +225,8 @@ class FluxRegister {
   //! by the producer, which then calls post_slot with the same name
   torch::Tensor slot(int dim, std::string const& name);
   void post_slot(int dim, std::string const& name);
-  //! a writer took slot(dim) since the last apply_prescribed(dim): the
+  //! add, scale or replace wrote total(dim) since the last
+  //! apply_prescribed(dim) without keeping the prescribed faces: the
   //! post-implicit apply re-prescribes only then, or after the implicit
   //! correction, which writes total(1) directly (V3 S4 round 7)
   bool written_since_prescribed(int dim) const { return _written[dim - 1]; }
@@ -238,12 +239,16 @@ class FluxRegister {
   //! R-3: total[rows] += increment, in call order and never fused, so
   //! successive adds round as the pin's in-place ones; increment is
   //! [rows.size(), faces...]. A requested part of the same name gets a copy.
+  //! keeps_prescribed: the caller leaves the prescribed faces at their
+  //! prescribed value (S hands them as 0 on the prescribed rows and the
+  //! positivity carry adds -0 there), so the write does not mark the
+  //! direction for the post-implicit apply (round 7c)
   void add(int dim, std::string const& name, std::vector<int> const& rows,
-           torch::Tensor const& increment);
+           torch::Tensor const& increment, bool keeps_prescribed = false);
   //! total[rows] *= factor in place; factor [faces...] (every row) or
-  //! [rows.size(), faces...]
+  //! [rows.size(), faces...]; keeps_prescribed as for add (0 * factor = 0)
   void scale(int dim, std::string const& name, std::vector<int> const& rows,
-             torch::Tensor const& factor);
+             torch::Tensor const& factor, bool keeps_prescribed = false);
   //! R-4, a shared face (S): faces is a bool mask shaped like total(dim)
   //! without the row axis; peer is dense, shaped like total(dim) but with
   //! nvar * (1 + kept_parts(dim).size()) rows: the total's rows, then each

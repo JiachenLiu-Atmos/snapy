@@ -126,7 +126,9 @@ void flux_positivity_carry_(torch::Tensor const& theta,
       auto type = torch::promote_types(flux.scalar_type(), c.scalar_type());
       auto inc = torch::full(shape, -0., c.options().dtype(type));
       inc.slice(dim, lo, hi + 2).copy_(-c);
-      reg.add(d, "positivity.carry", rows, inc);
+      // the prescribed faces carry no species flux, so -c is -0 there:
+      // the carry keeps them and does not call for the post-implicit apply
+      reg.add(d, "positivity.carry", rows, inc, /*keeps_prescribed=*/true);
     };
     // each part of the face flux keeps the energy and momentum of its donor
     auto withhold = [&](torch::Tensor const& part) {
@@ -245,7 +247,7 @@ void PositivityLimiter::post_(FluxRegister& reg, PositivityInputs const& in,
       status_->slot(EfStatus::kLimFlux) += pre.index(cells).to(wide).sum();
       status_->slot(EfStatus::kLimCut) += cut.index(cells).to(wide).sum();
     }
-    reg.scale(d, withhold, rows, factor);
+    reg.scale(d, withhold, rows, factor, /*keeps_prescribed=*/true);
   }
 }
 

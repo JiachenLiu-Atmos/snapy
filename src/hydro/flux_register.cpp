@@ -467,7 +467,6 @@ torch::Tensor FluxRegister::slot(int dim, std::string const& name) {
   TORCH_CHECK(dim >= 1 && dim <= 3 && _total[dim - 1].defined(),
               "[FluxRegister] slot '", name, "' in an inactive direction ",
               dim);
-  _written[dim - 1] = true;
   return _total[dim - 1];
 }
 
@@ -492,8 +491,9 @@ torch::Tensor FluxRegister::kept(int dim, std::string const& part) const {
 
 void FluxRegister::add(int dim, std::string const& name,
                        std::vector<int> const& rows,
-                       torch::Tensor const& increment) {
+                       torch::Tensor const& increment, bool keeps_prescribed) {
   auto t = slot(dim, name);
+  if (!keeps_prescribed) _written[dim - 1] = true;
   TORCH_CHECK(increment.size(0) == static_cast<int64_t>(rows.size()),
               "[FluxRegister] add '", name, "': ", increment.size(0),
               " increment rows for ", rows.size(), " rows");
@@ -520,8 +520,9 @@ void FluxRegister::add(int dim, std::string const& name,
 
 void FluxRegister::scale(int dim, std::string const& name,
                          std::vector<int> const& rows,
-                         torch::Tensor const& factor) {
+                         torch::Tensor const& factor, bool keeps_prescribed) {
   auto t = slot(dim, name);
+  if (!keeps_prescribed) _written[dim - 1] = true;
   bool per_row = factor.dim() == t.dim();
   TORCH_CHECK(!per_row || factor.size(0) == static_cast<int64_t>(rows.size()),
               "[FluxRegister] scale '", name, "': ", factor.size(0),
@@ -536,6 +537,7 @@ void FluxRegister::overwrite_(int dim, std::string const& name,
               "' books A_f (after - before): reset the register with its "
               "coordinate");
   auto t = _total[dim - 1];
+  _written[dim - 1] = true;  // a reconcile; apply_prescribed clears it after
   auto wide = t.is_mps() ? torch::kFloat32 : torch::kFloat64;
   // A_f of face index i of T_d is face_area_d() at i (CoordinateImpl's
   // divergence pairs flux index i with area index i)
@@ -710,21 +712,28 @@ void FluxRegister::cell_amount(std::string const& name,
 
 void FluxRegister::apply_prescribed(int dim) {
   auto t = slot(dim, "boundary.prescribed");
-  _written[dim - 1] = false;  // prescribed now; a later writer sets it again
-  if (_pwall_set[dim - 1]) return apply_wall_planes_(dim);
-  auto& mask = _pmask[dim - 1];
-  if (!mask.defined()) return;
-  auto& value = _pvalue[dim - 1];
-  if (mask.device() != t.device()) mask = mask.to(t.device());
-  if (value.device() != t.device() || value.scalar_type() != t.scalar_type())
-    value = value.to(t.device(), t.scalar_type());
-  // R.rst 4.1 item 4: kept parts are prescribed too, with the total's mask
-  // and value; only the total books
-  for (auto const& name : _kept[dim - 1]) {
-    auto part = _parts.at(name + "@" + std::to_string(dim));
-    part.copy_(torch::where(mask, value, part));
+  if (_pwall_set[dim - 1]) {
+    apply_wall_planes_(dim);
+  } else {
+    auto& mask = _pmask[dim - 1];
+    if (mask.defined()) {
+      auto& value = _pvalue[dim - 1];
+      if (mask.device() != t.device()) mask = mask.to(t.device());
+      if (value.device() != t.device() ||
+          value.scalar_type() != t.scalar_type())
+        value = value.to(t.device(), t.scalar_type());
+      // R.rst 4.1 item 4: kept parts are prescribed too, with the total's
+      // mask and value; only the total books
+      for (auto const& name : _kept[dim - 1]) {
+        auto part = _parts.at(name + "@" + std::to_string(dim));
+        part.copy_(torch::where(mask, value, part));
+      }
+      overwrite_(dim, "boundary.prescribed", torch::where(mask, value, t));
+    }
   }
-  overwrite_(dim, "boundary.prescribed", torch::where(mask, value, t));
+  // prescribed now (or nothing to prescribe); the next add, scale or
+  // replace that does not keep the prescribed faces marks it again
+  _written[dim - 1] = false;
 }
 
 void FluxRegister::begin_stage(int stage, harp::IntegratorWeight const& w) {
