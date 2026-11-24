@@ -549,6 +549,36 @@ TEST(FluxRegister, amounts_fold_like_the_step_field) {
             0.);
 }
 
+// V3 S4 (ruling 2026-11-24, condition b): a rejected attempt leaves the
+// per-stage slots as if it never ran, so the redone step's amounts are those
+// of a clean step with the redo's dt, bitwise
+TEST(FluxRegister, a_rolled_back_attempt_leaves_the_amounts_of_the_redo) {
+  Seam s;
+  auto const& stages = s.block->pintg->stages;
+  auto a = s.make({}, 7), b = s.make({}, 7);
+  auto faces = torch::zeros(a.total(1).sizes().slice(1), torch::kBool);
+  faces.select(2, 3).fill_(true);
+  auto run = [&](FluxRegister& reg, double dt, int seed, int nstages) {
+    torch::manual_seed(seed);
+    for (int st = 0; st < nstages; ++st) {
+      reg.begin_stage(st, stages[st]);
+      reg.replace(1, faces, torch::randn_like(reg.total(1)), SeamRule::mean);
+      reg.end_stage(dt);
+    }
+  };
+  a.begin_step();
+  run(a, 0.41, 11, 2);  // the attempt: two stages in, then rejected
+  a.rollback();
+  a.total(1).copy_(b.total(1));  // the redo restores the step's state
+  run(a, 0.29, 23, stages.size());
+  b.begin_step();
+  run(b, 0.29, 23, stages.size());  // a clean step with the redo's dt
+  auto ra = a.monitor().amounts("reconcile.x1");
+  auto rb = b.monitor().amounts("reconcile.x1");
+  EXPECT_GT(rb.abs().sum().item<double>(), 0.);
+  EXPECT_TRUE(torch::equal(ra, rb)) << ra << " vs " << rb;
+}
+
 // R-5: keep writes a computed one-quantity part on row IDN of its nvar-row
 // part; the other rows stay zero
 TEST(FluxRegister, keep_writes_row_idn_of_the_part) {

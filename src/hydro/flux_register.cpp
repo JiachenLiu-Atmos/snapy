@@ -49,9 +49,11 @@ void RegisterMonitor::begin_step() {
   if (retry_flags.numel()) retry_flags.zero_();
   if (_step_amount.defined()) {
     _step_amount.zero_();
-    _stage_amount.zero_();
-    _stage_post.zero_();
+    _rate.zero_();
+    _post.zero_();
   }
+  _stage = 0;
+  _ended = 0;
 }
 
 int RegisterMonitor::counter_index(std::string const& name) const {
@@ -91,11 +93,48 @@ void RegisterMonitor::flag_retry(std::string const& cause,
 void RegisterMonitor::reset_amounts(int nrows) {
   _amount = {"reconcile.x1", "reconcile.panel", "boundary.prescribed"};
   _kind.assign(_amount.size(), AmountKind::flux_correction);
-  auto shape =
-      std::vector<int64_t>{static_cast<int64_t>(_amount.size()), nrows};
-  _step_amount = torch::zeros(shape, torch::kFloat64);
-  _stage_amount = torch::zeros(shape, torch::kFloat64);
-  _stage_post = torch::zeros(shape, torch::kFloat64);
+  int64_t na = static_cast<int64_t>(_amount.size());
+  int64_t ns = std::max<int64_t>(1, _rate.defined() ? _rate.size(0) : 1);
+  _step_amount = torch::zeros({na, nrows}, torch::kFloat64);
+  _rate = torch::zeros({ns, na, nrows}, torch::kFloat64);
+  _post = torch::zeros({ns, na, nrows}, torch::kFloat64);
+  _w1.assign(ns, 0.);
+  _w2dt.assign(ns, StepDt(0.));
+  _stage = 0;
+  _ended = 0;
+}
+
+void RegisterMonitor::grow_slots_(int nstage) {
+  if (!_rate.defined() || nstage <= _rate.size(0)) return;
+  auto grow = [&](torch::Tensor const& t) {
+    auto z =
+        torch::zeros({nstage - t.size(0), t.size(1), t.size(2)}, t.options());
+    return torch::cat({t, z}, 0);
+  };
+  _rate = grow(_rate);
+  _post = grow(_post);
+  _w1.resize(nstage, 0.);
+  _w2dt.resize(nstage, StepDt(0.));
+}
+
+void RegisterMonitor::set_stage_count(int nstage) {
+  TORCH_CHECK(nstage >= 1, "[FluxRegister] set_stage_count: ", nstage);
+  if (!_rate.defined()) {
+    _rate = torch::zeros({nstage, 0, 0}, torch::kFloat64);  // sized at reset
+    return;
+  }
+  if (nstage == _rate.size(0)) return;
+  if (nstage > _rate.size(0)) return grow_slots_(nstage);
+  _rate = _rate.narrow(0, 0, nstage).contiguous();
+  _post = _post.narrow(0, 0, nstage).contiguous();
+  _w1.resize(nstage);
+  _w2dt.resize(nstage);
+}
+
+void RegisterMonitor::begin_stage(int stage) {
+  TORCH_CHECK(stage >= 0, "[FluxRegister] begin_stage: ", stage);
+  if (_rate.defined() && stage >= _rate.size(0)) grow_slots_(stage + 1);
+  _stage = stage;
 }
 
 void RegisterMonitor::place_amounts(torch::Device device) {
@@ -103,13 +142,13 @@ void RegisterMonitor::place_amounts(torch::Device device) {
   if (_step_amount.device() == device && _step_amount.scalar_type() == wide)
     return;
   _step_amount = _step_amount.to(device, wide);
-  _stage_amount = _stage_amount.to(device, wide);
-  _stage_post = _stage_post.to(device, wide);
+  _rate = _rate.to(device, wide);
+  _post = _post.to(device, wide);
 }
 
 std::vector<torch::Tensor> RegisterMonitor::amount_storage() const {
   if (!_step_amount.defined()) return {};
-  return {_step_amount, _stage_amount, _stage_post};
+  return {_rate, _post, _step_amount};
 }
 
 void RegisterMonitor::place_amount_storage(torch::Device device) {
@@ -125,13 +164,39 @@ AmountKind RegisterMonitor::kind(std::string const& name) const {
 }
 
 torch::Tensor RegisterMonitor::amounts(std::string const& name) const {
-  return _step_amount[amount_index(name)];
+  return fold_()[amount_index(name)];
+}
+
+torch::Tensor RegisterMonitor::fold_() const {
+  // A = sum_s c_s (w2_s dt a_s + p_s), c_s = prod_{t>s} w1_t over the stages
+  // ended this step; the rates of a stage still open wait for its w2 dt, its
+  // posts count at once (a post outside a stage is read straight away); one
+  // device fold per read, nothing per stage
+  int S = std::min<int>(_ended, _rate.size(0));  // stages ended
+  int P = std::min<int>(std::max(S, _stage + 1), _post.size(0));  // with posts
+  if (P == 0) return _step_amount;
+  auto opts = _rate.options();
+  std::vector<double> c(P, 1.);
+  for (int s = S - 2; s >= 0; --s) c[s] = c[s + 1] * _w1[s + 1];
+  auto cpost = torch::tensor(c, torch::kFloat64).to(opts).view({P, 1, 1});
+  auto a = (cpost * _post.narrow(0, 0, P)).sum(0);
+  if (S > 0) {
+    std::vector<torch::Tensor> w;
+    for (int s = 0; s < S; ++s)
+      w.push_back(_w2dt[s].on_device() ? _w2dt[s].tensor().to(opts)
+                                       : torch::tensor(_w2dt[s].value(), opts));
+    auto crate =
+        (torch::stack(w) * cpost.view({P}).narrow(0, 0, S)).view({S, 1, 1});
+    a.add_((crate * _rate.narrow(0, 0, S)).sum(0));
+  }
+  _step_amount.copy_(a);
+  return _step_amount;
 }
 
 void RegisterMonitor::book(std::string const& name, torch::Tensor const& rate) {
   int i = amount_index(name);
   place_amounts(rate.device());
-  _stage_amount[i].add_(rate.to(_stage_amount.scalar_type()));
+  _rate[_stage][i].add_(rate.to(_rate.scalar_type()));
 }
 
 void RegisterMonitor::post(std::string const& name, AmountKind kind,
@@ -144,29 +209,29 @@ void RegisterMonitor::post(std::string const& name, AmountKind kind,
   if (it == _amount.end()) {  // created at its first post, with its kind
     _amount.push_back(name);
     _kind.push_back(kind);
-    auto row = [](torch::Tensor const& t) {
-      return torch::cat({t, torch::zeros_like(t.narrow(0, 0, 1))}, 0);
+    auto row = [](torch::Tensor const& t, int dim) {
+      return torch::cat({t, torch::zeros_like(t.narrow(dim, 0, 1))}, dim);
     };
-    _step_amount = row(_step_amount);
-    _stage_amount = row(_stage_amount);
-    _stage_post = row(_stage_post);
+    _step_amount = row(_step_amount, 0);
+    _rate = row(_rate, 1);
+    _post = row(_post, 1);
   }
   TORCH_CHECK(_kind[i] == kind, "[FluxRegister] amount '", name,
               "' was first posted with another AmountKind");
   TORCH_CHECK(amount.dim() == 1 && amount.size(0) == _step_amount.size(1),
               "[FluxRegister] amount '", name, "' must be (",
               _step_amount.size(1), ",); got ", amount.sizes());
+  (void)in_stage;  // both land in this stage's slot (scaled by later w1)
   place_amounts(amount.device());
-  auto& to = in_stage ? _stage_post : _step_amount;
-  to[i].add_(amount.to(to.scalar_type()), weight);
+  _post[_stage][i].add_(amount.to(_post.scalar_type()), weight);
 }
 
 void RegisterMonitor::end_stage(double w1, StepDt w2dt) {
   if (!_step_amount.defined()) return;
-  axpy_(_step_amount.mul_(w1), _stage_amount, w2dt);
-  _step_amount.add_(_stage_post);
-  _stage_amount.zero_();
-  _stage_post.zero_();
+  if (_stage >= _rate.size(0)) grow_slots_(_stage + 1);
+  _w1[_stage] = w1;
+  _w2dt[_stage] = w2dt;
+  _ended = std::max(_ended, _stage + 1);
 }
 
 void FluxRegister::reset(int nvar, std::array<int64_t, 3> const& cells,
@@ -383,7 +448,7 @@ void FluxRegister::set_prescribed_walls(int dim,
   // supply_prescribed sets the same planes every stage: the gathered-plane
   // tensors stay unless the planes or the free rows change (V3 S4)
   if (_pwall[d] != planes || _pfree[d] != free_rows)
-    _pidx[d] = _parea[d] = _pneg[d] = torch::Tensor();
+    _pidx[d] = _parea[d] = _pneg[d] = _pwt[d] = torch::Tensor();
   _pwall[d] = planes;
   _pwall_set[d] = true;
   auto& rows = _prow[d];
@@ -416,6 +481,7 @@ void FluxRegister::apply_wall_planes_(int dim) {
                            : _coord->face_area3().narrow(0, 0, t.size(1));
     _parea[d] = area.to(t.device(), wide).index_select(ax - 1, _pidx[d]);
     _pneg[d] = torch::where(rows, -1., 0.).to(wopts).unsqueeze(-1);
+    _pwt[d] = _parea[d] * _pneg[d];  // -area on the prescribed rows, else 0
   }
   // V3 S4: the full-mask path on every wall plane at once: after - before is
   // -T on the prescribed rows and 0 on the free rows, so the booked rate is
@@ -424,10 +490,9 @@ void FluxRegister::apply_wall_planes_(int dim) {
   // zeroes the prescribed rows of the gathered planes in one scatter
   auto planes = t.index_select(ax, _pidx[d]);
   auto rows4 = rows.unsqueeze(-1);  // [nvar, 1, 1, 1] over the gathered planes
-  std::vector<int64_t> face_dims;
-  for (int a = 1; a <= 3; ++a)
-    if (a != ax) face_dims.push_back(a);
-  auto rate = (_parea[d] * (planes.to(wide) * _pneg[d])).sum(face_dims).sum(-1);
+  // V3 S4: one product with the cached -area weights and one reduction over
+  // the planes' faces (a reported amount: its rounding may move)
+  auto rate = (planes.to(wide) * _pwt[d]).sum({1, 2, 3});
   planes.masked_fill_(rows4, 0.);
   t.index_copy_(ax, _pidx[d], planes);
   for (auto const& name : _kept[d]) {
@@ -485,6 +550,7 @@ void FluxRegister::begin_stage(int stage, harp::IntegratorWeight const& w) {
   _w1 = w.wght1();
   _w2 = w.wght2();
   _in_stage = true;
+  _monitor.begin_stage(stage);
 }
 
 void FluxRegister::end_stage(StepDt dt) {

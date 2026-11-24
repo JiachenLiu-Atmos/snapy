@@ -205,6 +205,10 @@ void MeshBlockImpl::reset() {
   register_buffer("u0", _state.u0());
   register_buffer("s0", _state.s0());
   for (auto &output_type : output_types) output_type->bind(this);
+  // V3 S4: the monitor's per-stage amount slots, sized for the integrator
+  // before the executor's save list is taken
+  phydro->flux_register().monitor().set_stage_count(
+      static_cast<int>(pintg->stages.size()));
   register_flux_storage();
 
   //// ------- (10) stage executor (eager unless cuda-graph) ------- ////
@@ -445,8 +449,8 @@ void MeshBlockImpl::register_flux_storage() {
   // (a copy would sync in a step); place_flux_storage moves them
   if (mon.counters.defined()) {
     auto amounts = mon.amount_storage();
-    char const *names[] = {"freg.amount.step", "freg.amount.stage",
-                           "freg.amount.post"};
+    char const *names[] = {"freg.amount.rate", "freg.amount.post",
+                           "freg.amount.step"};
     for (size_t i = 0; i < amounts.size(); ++i)
       if (amounts[i].device() == mon.counters.device())
         _state.register_storage(names[i], amounts[i]);

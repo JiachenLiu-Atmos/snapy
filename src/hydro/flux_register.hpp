@@ -82,17 +82,27 @@ class RegisterMonitor {
   torch::Tensor amounts(std::string const& name) const;
   //! a_s += rate, (nrows,): an area-integrated face change of this stage
   void book(std::string const& name, torch::Tensor const& rate);
-  //! R-5: amount (nrows,) times weight, into this stage's posts when
-  //! in_stage (folded at end_stage, R.rst 3.4), else straight into the step
-  //! amount (after_combine: only later stages' w1 scale it). The name is
-  //! created at its first post with that kind; another kind is an error.
+  //! R-5: amount (nrows,) times weight into this stage's posts (R.rst 3.4);
+  //! in_stage or after the combine, the post is scaled by the later stages'
+  //! w1 alone, so both land in the stage's post slot. The name is created
+  //! at its first post with that kind; another kind is an error.
   void post(std::string const& name, AmountKind kind,
             torch::Tensor const& amount, double weight, bool in_stage);
-  //! A <- w1 A + w2 dt a_s + p_s, then a_s, p_s <- 0 (FluxRegister::end_stage)
+  //! V3 S4 (ruling 2026-11-24): the stages' rates a_s and posts p_s stay in
+  //! per-stage slots and are folded once, on the device, when the amounts
+  //! are read: A = sum_s c_s (w2_s dt a_s + p_s), c_s = prod_{t>s} w1_t.
+  //! end_stage records the stage's w1 and w2 dt; it launches nothing.
   void end_stage(double w1, StepDt w2dt);
-  //! the amount tensors (step amounts, stage rates, stage posts), wherever
-  //! they are; empty before reset_amounts. Every stage writes them, so the
-  //! stage executor's save list holds them (X: warm-up and capture)
+  //! the slots are sized for the integrator's stages (the executor's save
+  //! list is taken after this; a later stage index grows them, eager only)
+  void set_stage_count(int nstage);
+  //! the slot the next book() / post() lands in (FluxRegister::begin_stage)
+  void begin_stage(int stage);
+  //! the amount tensors (stage rates [nstage, namounts, nrows], stage posts
+  //! [nstage, namounts, nrows], the folded step amounts [namounts, nrows]),
+  //! wherever they are; empty before reset_amounts. Every stage writes the
+  //! slots, so the stage executor's save list holds them (X: warm-up and
+  //! capture)
   std::vector<torch::Tensor> amount_storage() const;
   //! move them to `device` now, as begin_step would (a copy, which syncs:
   //! the executor calls it in its sync-exempt prepare step, never in a step)
@@ -111,11 +121,18 @@ class RegisterMonitor {
  private:
   std::vector<std::string> _rows, _counter, _minimum, _retry, _amount;
   std::vector<AmountKind> _kind;
-  //! [namounts, nrows]: the step amounts, this stage's booked rates a_s and
-  //! weighted posts p_s, placed on the register's device by
-  //! FluxRegister::begin_step or the first book()/post()
-  torch::Tensor _step_amount, _stage_amount, _stage_post;
+  //! [nstage, namounts, nrows]: the stages' booked rates a_s and weighted
+  //! posts p_s, placed on the register's device by FluxRegister::begin_step
+  //! or the first book()/post(); _step_amount [namounts, nrows] holds the
+  //! fold of the stages ended so far, written by amounts()
+  torch::Tensor _rate, _post;
+  mutable torch::Tensor _step_amount;
+  int _stage = 0, _ended = 0;  // the current slot; stages ended this step
+  std::vector<double> _w1;     // per stage, recorded at end_stage
+  std::vector<StepDt> _w2dt;   // per stage, recorded at end_stage
   void place_amounts(torch::Device device);
+  void grow_slots_(int nstage);
+  torch::Tensor fold_() const;
   friend class FluxRegister;
 };
 
@@ -247,7 +264,7 @@ class FluxRegister {
   //! planes and -1 on the prescribed rows (0 on the free rows), wide dtype on
   //! the total's device; built at the first apply_wall_planes_ after
   //! set_prescribed_walls, so a stage launches no setup
-  std::array<torch::Tensor, 3> _pidx, _parea, _pneg;
+  std::array<torch::Tensor, 3> _pidx, _parea, _pneg, _pwt;
   std::array<bool, 3> _pwall_set = {false, false, false};
   //! apply_prescribed on the wall planes: as overwrite_, plane by plane
   void apply_wall_planes_(int dim);
