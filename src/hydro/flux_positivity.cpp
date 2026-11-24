@@ -126,9 +126,14 @@ void flux_positivity_carry_(torch::Tensor const& theta,
       auto type = torch::promote_types(flux.scalar_type(), c.scalar_type());
       auto inc = torch::full(shape, -0., c.options().dtype(type));
       inc.slice(dim, lo, hi + 2).copy_(-c);
-      // the prescribed faces carry no species flux, so -c is -0 there:
-      // the carry keeps them and does not call for the post-implicit apply
-      reg.add(d, "positivity.carry", rows, inc, /*keeps_prescribed=*/true);
+      // the advected part comes from the register's total, which is 0 on
+      // the prescribed faces after the sweep's apply, so -c is -0 there and
+      // the carry keeps them. The settling part comes from the
+      // sedimentation's own buffer, which a prescribed solid face can carry:
+      // that carry marks the direction, and the post-implicit apply
+      // re-prescribes and books it as main did (round 7e)
+      reg.add(d, "positivity.carry", rows, inc,
+              /*keeps_prescribed=*/!(d == 1 && fsed1.defined()));
     };
     // each part of the face flux keeps the energy and momentum of its donor
     auto withhold = [&](torch::Tensor const& part) {

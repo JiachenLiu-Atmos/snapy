@@ -15,6 +15,7 @@
 
 // kintera
 #include <kintera/constants.h>
+#include <snap/hydro/flux_positivity.hpp>
 
 #include <kintera/thermo/eval_uhs.hpp>
 
@@ -231,6 +232,109 @@ TEST(flux_positivity, the_limiter_keeps_the_wall_faces_prescribed) {
                   .sum()
                   .item<double>();
   EXPECT_LT(fon, foff) << "the limiter withheld nothing: the gate is empty";
+}
+
+// V3 S4 round 7e (Tianhao's review of 7c): the settling part of the carry
+// comes from the sedimentation's own buffer, which a prescribed solid face
+// still carries after the sweep's apply, so the carry can leave an energy
+// flux on that face; the carry must then mark the direction so the
+// post-implicit apply re-prescribes it (RED at 3a2283bc: |T_IPR| ~ 1 on the
+// solid faces with the mark clear; GREEN: 0, the removal booked). The same
+// column with cloud settling at -2 m/s and a solid cell in the middle.
+TEST(flux_positivity, the_settling_carry_calls_for_the_solid_faces_apply) {
+  auto card = YAML::LoadFile(kCard);
+  card["dynamics"]["equation-of-state"]["limiter"] = true;
+  card["dynamics"]["flux-covariance"] = false;
+  card["sedimentation"] =
+      YAML::Load("{radius: {}, density: {}, const-vsed: {cloud: -2.}}");
+  std::string name = "test_flux_positivity_carry_solid.yaml";
+  {
+    std::ofstream(name) << card;
+  }
+  auto block =
+      std::make_shared<MeshBlockImpl>(MeshBlockOptionsImpl::from_yaml(name));
+  std::remove(name.c_str());
+  auto coord = block->pcoord;
+  int il = coord->il();
+  auto w = torch::zeros({block->phydro->peos->nvar(), coord->options->nc3(),
+                         coord->options->nc2(), coord->options->nc1()},
+                        torch::kFloat64);
+  w[IDN].fill_(1.);
+  w[IPR].fill_(1.e5);
+  w[IVY].fill_(3.);
+  w[ICY].fill_(0.01);      // vapor
+  w[ICY + 1].fill_(0.02);  // cloud
+  double fall[6] = {1., 0.1, 0.01, 0.01, 0.1, 1.};
+  for (int c = 0; c < 6; ++c)
+    w.narrow(0, ICY, 2).select(-1, il + c).mul_(fall[c]);
+  auto solid = torch::zeros({coord->options->nc3(), coord->options->nc2(),
+                             coord->options->nc1()},
+                            torch::kBool);
+  solid.select(-1, il + 3).fill_(true);  // one solid cell: faces il+3, il+4
+  Variables vars;
+  vars["hydro_w"] = w;
+  vars["solid"] = solid;
+  block->initialize(vars);
+  block->phydro->forward(1., vars.at("hydro_u"), vars);
+
+  auto& freg = block->phydro->flux_register();
+  auto t = freg.total(1);
+  ASSERT_TRUE(t.defined());
+  for (int p : {il + 3, il + 4})
+    for (int r = 0; r < t.size(0); ++r) {
+      if (r == IVX || r == IVY || r == IVZ) continue;  // the free rows
+      EXPECT_EQ(t[r].select(-1, p).abs().max().item<double>(), 0.)
+          << "row " << r << " on the solid face " << p;
+    }
+  EXPECT_FALSE(freg.written_since_prescribed(1));
+  // In this column the settling part reaching the solid faces is 0, so the
+  // carry leaves nothing there with or without the apply: the full path is a
+  // guard, the unit case below is the RED/GREEN pair.
+}
+
+// V3 S4 round 7e, the unit case: a settling flux through a prescribed face
+// (the reviewer's reproduction). After the face is prescribed, the carry
+// with an fsed1 that crosses it must mark the direction (RED at 3a2283bc:
+// the mark stays clear and the carry's energy flux stays on the face), and
+// the apply then clears the face and books the removal.
+TEST(flux_positivity, a_settling_carry_on_a_prescribed_face_calls_for_the_apply) {
+  auto arm = forward_once(true, [](YAML::Node&) {}, 0., 3.);
+  auto block = arm.block;
+  auto& reg = block->phydro->flux_register();
+  auto coord = block->pcoord;
+  auto t = reg.total(1);
+  ASSERT_TRUE(t.defined());
+  int il = coord->il(), face = il + 3, ny = 2;
+  reg.begin_step();
+  reg.begin_stage(0, block->pintg->stages[0]);
+  auto mask = torch::zeros(t.sizes(), t.options().dtype(torch::kBool));
+  mask.select(-1, face).fill_(true);
+  reg.set_prescribed(1, mask, torch::zeros_like(t));
+  reg.apply_prescribed(1);
+  ASSERT_FALSE(reg.written_since_prescribed(1));
+  ASSERT_EQ(t.select(-1, face).abs().max().item<double>(), 0.);
+  auto cells = std::vector<int64_t>{ny, t.size(1), t.size(2),
+                                    coord->options->nc1()};
+  auto theta = torch::full(cells, 0.5, t.options());
+  // the two parts of the settling carry (F - fsed1, then fsed1) carry the
+  // energy of their own donors, the cells below and above the face: with a
+  // uniform species energy they cancel, so give it a gradient along x1
+  auto hspec = torch::ones(cells, t.options()) *
+               (1. + 0.1 * torch::arange(coord->options->nc1(), t.options()));
+  auto vel = torch::zeros({3, t.size(1), t.size(2), coord->options->nc1()},
+                          t.options());
+  auto fsed = torch::zeros({ny, t.size(1), t.size(2), t.size(3)}, t.options());
+  fsed[1].select(-1, face).fill_(-1.);  // cloud settling through the face
+  flux_positivity_carry_(theta, hspec, vel, reg, coord, fsed);
+  ASSERT_NE(t[IPR].select(-1, face).abs().max().item<double>(), 0.)
+      << "the carry left no energy flux on the face: nothing to pin";
+  EXPECT_TRUE(reg.written_since_prescribed(1))
+      << "the settling carry must call for the post-implicit apply";
+  reg.apply_prescribed(1);
+  EXPECT_EQ(t[IPR].select(-1, face).abs().max().item<double>(), 0.);
+  reg.end_stage(1.);
+  auto booked = reg.monitor().amounts("boundary.prescribed")[IPR];
+  EXPECT_NE(booked.item<double>(), 0.) << "the removal was not booked";
 }
 
 // The same column with a uniform species ratio: the dry air is drained as hard
