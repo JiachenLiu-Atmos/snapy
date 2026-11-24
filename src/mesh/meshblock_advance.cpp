@@ -158,6 +158,7 @@ void MeshBlockImpl::stage_advance(Variables &vars, StepDt dt, int stage) {
   auto &freg = phydro->flux_register();
 
   _state.adopt(vars);  // a rebound hydro_u/scalar_s is copied in
+  if (_wall_batch) _wall_batch->begin_stage();
   auto hydro_u = vars.at("hydro_u");
   auto scalar_s =
       vars.count("scalar_s") ? vars.at("scalar_s") : torch::Tensor();

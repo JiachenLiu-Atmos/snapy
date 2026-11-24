@@ -202,6 +202,9 @@ class WallBatch {
   void flush();
   //! zero the buffer (a rejected attempt's planes)
   void clear();
+  //! the stage's pushes start at the first slot (MeshBlock::stage_advance:
+  //! every pass of the advance, the capture's warm-ups included, runs it)
+  void begin_stage() { _cursor = 0; }
   bool empty() const { return _pattern.empty(); }
   //! the buffer, for the stage executor's save list: a warm-up of the
   //! combine books and zeroes it, and the capture must read what the
@@ -209,13 +212,15 @@ class WallBatch {
   torch::Tensor storage() const { return _buf; }
 
  private:
-  //! per slot: the monitor and amount index it books, the weights it was
-  //! registered with, rows (nvar), numel and the offset into the buffer
+  //! per slot, in the stage's push order: the monitor and amount index it
+  //! books, the weights it was registered with, rows (nvar), numel and the
+  //! offset into the buffer; _cursor is the next slot of this stage
   std::vector<RegisterMonitor*> _monitor;
   std::vector<int> _index;
   std::vector<torch::Tensor> _weights;
   std::vector<int64_t> _pattern;  // per slot: rows, numel
   std::vector<int64_t> _off;
+  size_t _cursor = 0;
   //! the slots, then one zero element the dense rows are padded from
   torch::Tensor _buf;
   //! per layout: the padded weights [rows, M] and the gather index [rows, M]
@@ -223,8 +228,8 @@ class WallBatch {
   //! (index_add_) on CUDA is not, and graph must equal eager bitwise
   torch::Tensor _w, _gidx;
   int64_t _rows = 0, _M = 0;
-  //! the slot of (monitor, amount_index, nvar, numel), registered when new
-  //! or when the buffer must move with the planes (eager, never captured)
+  //! the next slot of the stage, (monitor, amount_index, nvar, numel),
+  //! registered when new (eager, never captured)
   size_t slot_(torch::Tensor const& planes_flat,
                torch::Tensor const& weights_flat, RegisterMonitor* monitor,
                int amount_index, int64_t nvar);

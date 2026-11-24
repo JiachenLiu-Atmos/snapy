@@ -295,12 +295,21 @@ size_t WallBatch::slot_(torch::Tensor const& planes_flat,
                         RegisterMonitor* monitor, int amount_index,
                         int64_t nvar) {
   int64_t numel = planes_flat.numel();
-  for (size_t k = 0; k < _monitor.size(); ++k)
-    if (_monitor[k] == monitor && _index[k] == amount_index &&
-        _pattern[2 * k] == nvar && _pattern[2 * k + 1] == numel)
-      return k;
-  // a new slot (the first push of a register and direction, eager): the
-  // buffer and the layout are built again over every slot
+  // the slots follow the stage's push order, so a register and direction
+  // applied twice in a stage (the explicit total, then the implicit
+  // correction's) books each apply's planes, as the queue did
+  size_t k = _cursor++;
+  if (k < _monitor.size() && _monitor[k] == monitor &&
+      _index[k] == amount_index && _pattern[2 * k] == nvar &&
+      _pattern[2 * k + 1] == numel)
+    return k;
+  // a new or changed slot (the first push of a stage's pattern, eager): the
+  // slots from k on are this stage's, the buffer and the layout are built
+  // again over every slot
+  _monitor.resize(k);
+  _index.resize(k);
+  _weights.resize(k);
+  _pattern.resize(2 * k);
   _monitor.push_back(monitor);
   _index.push_back(amount_index);
   _weights.push_back(weights_flat);
@@ -365,6 +374,7 @@ void WallBatch::push(torch::Tensor const& planes_flat,
 
 void WallBatch::clear() {
   if (_buf.defined()) _buf.zero_();
+  _cursor = 0;
 }
 
 void WallBatch::flush() {
@@ -378,6 +388,7 @@ void WallBatch::flush() {
     off += nvar;
   }
   _buf.zero_();
+  _cursor = 0;
 }
 
 void RegisterMonitor::post(std::string const& name, AmountKind kind,
