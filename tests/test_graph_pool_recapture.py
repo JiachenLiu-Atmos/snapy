@@ -18,6 +18,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_fp32_straka import make_case  # noqa: E402
+from cuda_build import build_has_cuda, skip  # noqa: E402
 
 KEYS = ("hydro_u", "hydro_w", "scalar_s", "scalar_r")
 
@@ -54,9 +55,8 @@ def check(precision):
 
 
 def main():
-    if not torch.cuda.is_available():
-        print("SKIP: CUDA unavailable")
-        return
+    if not build_has_cuda():
+        skip("CUDA unavailable")
     for precision in ("float64", "float32"):
         check(precision)
     print("PASSED")

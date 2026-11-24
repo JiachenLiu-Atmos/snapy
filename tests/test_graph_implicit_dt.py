@@ -33,6 +33,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from snapy import MeshBlock, MeshBlockOptions, kICY, kIDN, kIPR  # noqa: E402
 from test_stage_executor_capture import KEYS, assert_equal, forward_both  # noqa: E402
+from cuda_build import build_has_cuda, skip  # noqa: E402
 
 QVAPOR = 0.005  # kg/kg, as test_sk3_capture_moist: condenses in the bubble
 DTS = (0.1, 0.05, 0.075, 0.1, 0.0625, 0.05, 0.08, 0.1)
@@ -184,9 +185,8 @@ def check_sphere(scheme, flux_off, nsteps=6):
 
 
 def main():
-    if not torch.cuda.is_available():
-        print("SKIP: CUDA unavailable")
-        return 0
+    if not build_has_cuda():
+        skip("CUDA unavailable")
     for precision in ("float64", "float32"):
         for scheme in (1, 9):
             check(precision, scheme)

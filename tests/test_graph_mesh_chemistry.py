@@ -35,6 +35,7 @@ from snapy import Mesh, MeshOptions, kICY, kIDN, kIPR, kIV1, kIV2
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from test_graph_chemistry_slot import QVAPOR, config  # noqa: E402
+from cuda_build import build_has_cuda, skip  # noqa: E402
 
 KEYS = ("hydro_u", "hydro_w", "scalar_r")
 
@@ -130,9 +131,8 @@ def main():
         report = run(precision, torch.device("cpu"), 2)
         assert report["captures"] == 0 and report["replays"] == 0, report
         print(precision, "CPU: cuda-graph Mesh runs eager and equals eager:", report)
-    if not torch.cuda.is_available():
-        print("SKIP: CUDA unavailable (graph part)")
-        return 0
+    if not build_has_cuda():
+        skip("CUDA unavailable (graph part)")
     for precision in ("float64", "float32"):
         try:
             report = run(precision, torch.device("cuda"), 8)

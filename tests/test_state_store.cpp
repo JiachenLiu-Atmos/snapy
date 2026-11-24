@@ -13,6 +13,9 @@
 #include <snap/mesh/meshblock.hpp>
 #include <snap/mesh/state_store.hpp>
 
+// tests
+#include "cuda_test_gate.hpp"
+
 using snap::PrecisionPolicy;
 using snap::StateStore;
 using snap::Variables;
@@ -150,7 +153,7 @@ TEST(StateStore, MeshBlockAdoptsARebindBetweenSteps) {
 }
 
 TEST(StateStore, MeshBlockToDeviceReallocates) {
-  if (!torch::cuda::is_available()) GTEST_SKIP() << "no CUDA device";
+  if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "no CUDA build or device";
   Variables v;
   auto b = make_block(v);
   int g = b->state_generation();

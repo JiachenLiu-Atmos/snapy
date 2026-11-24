@@ -21,6 +21,8 @@ import yaml
 
 from snapy import MeshBlock, MeshBlockOptions
 
+from cuda_build import build_has_cuda, skip
+
 REASON = "an outflow boundary is set"
 KEYS = ("hydro_u", "hydro_w", "scalar_s", "scalar_r")
 
@@ -116,9 +118,8 @@ def check_launch():
 def main():
     check_row(torch.device("cpu"))
     print("capability row: an outflow boundary is named on CPU")
-    if not torch.cuda.is_available():
-        print("SKIP: CUDA unavailable (launch part)")
-        return
+    if not build_has_cuda():
+        skip("CUDA unavailable (launch part)")
     check_row(torch.device("cuda"))
     check_launch()
     print("cuda-graph: outflow refused before launch (strict) or its boundaries op "

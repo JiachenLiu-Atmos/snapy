@@ -20,6 +20,8 @@ import tempfile
 import torch
 import yaml
 
+from cuda_build import build_has_cuda, skip
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 QVAPOR = 0.005
 NSTEPS = 10
@@ -123,9 +125,8 @@ def check(precision, flux_covariance):
 
 
 def main():
-    if not torch.cuda.is_available() or os.environ.get("SNAPY_BUILD_CUDA", "1") == "0":
-        print("SKIP: CUDA unavailable")
-        return
+    if not build_has_cuda():
+        skip("CUDA unavailable")
     for precision in ("float64", "float32"):
         for flux_covariance in (True, False):
             check(precision, flux_covariance)

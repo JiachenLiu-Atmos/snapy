@@ -25,6 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from snapy import MeshBlock, MeshBlockOptions, kICY, kIDN, kIPR  # noqa: E402
 from test_stage_executor_capture import KEYS, assert_equal, expect_error, forward_both  # noqa: E402
+from cuda_build import build_has_cuda, skip  # noqa: E402
 
 QVAPOR = 0.005  # kg/kg, saturated below ~287 K at 1 bar: the bubble and aloft
 
@@ -140,9 +141,8 @@ def check_capture(precision):
 
 
 def main():
-    if not torch.cuda.is_available():
-        print("SKIP: CUDA unavailable")
-        return 0
+    if not build_has_cuda():
+        skip("CUDA unavailable")
     for precision in ("float64", "float32"):
         check_capture(precision)
     print("PASSED")

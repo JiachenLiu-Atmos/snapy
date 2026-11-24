@@ -25,6 +25,8 @@ import tempfile
 import torch
 import yaml
 
+from cuda_build import build_has_cuda, skip
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 NSTEPS = 10
 KEYS = ("hydro_u", "hydro_w", "scalar_s", "scalar_r")
@@ -121,9 +123,8 @@ def check(case):
 
 
 def main():
-    if not torch.cuda.is_available() or os.environ.get("SNAPY_BUILD_CUDA", "1") == "0":
-        print("SKIP: CUDA unavailable")
-        return 0
+    if not build_has_cuda():
+        skip("CUDA unavailable")
     faulthandler.dump_traceback_later(WATCHDOG_S, exit=True)  # no hang: dump and exit 1
     for case in CASES:
         check(case)

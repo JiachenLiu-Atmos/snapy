@@ -26,6 +26,8 @@ import tempfile
 import torch
 import yaml
 
+from cuda_build import build_has_cuda, skip
+
 NX, NX1, NSTEPS = 16, 8, 10
 KEYS = ("hydro_u", "hydro_w", "scalar_s", "scalar_r")
 
@@ -147,9 +149,8 @@ def check(scalar, co4):
 
 
 def main():
-    if not torch.cuda.is_available() or os.environ.get("SNAPY_BUILD_CUDA", "1") == "0":
-        print("SKIP: CUDA unavailable")
-        return
+    if not build_has_cuda():
+        skip("CUDA unavailable")
     for scalar, co4 in ((False, False), (True, False), (False, True), (True, True)):
         check(scalar, co4)
     print("PASSED")

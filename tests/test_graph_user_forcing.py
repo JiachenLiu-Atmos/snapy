@@ -20,6 +20,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_fp32_straka import make_case  # noqa: E402
+from cuda_build import build_has_cuda, skip  # noqa: E402
 
 REASON = "a user TorchScript stage forcing is set"
 KEYS = ("hydro_u", "hydro_w", "scalar_s", "scalar_r")
@@ -114,9 +115,8 @@ def check(precision, path):
 
 
 def main():
-    if not torch.cuda.is_available():
-        print("SKIP: CUDA unavailable")
-        return
+    if not build_has_cuda():
+        skip("CUDA unavailable")
     with TemporaryDirectory(prefix="snapy-graph-forcing-") as d:
         path = str(Path(d) / "heating.pt")
         torch.jit.script(_Heating().eval()).save(path)

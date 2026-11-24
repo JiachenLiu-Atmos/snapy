@@ -8,6 +8,7 @@ its variables makes it eager again, with the reason named.
 import torch
 
 from run_fp32_straka import make_case
+from cuda_build import build_has_cuda, skip
 
 
 def check(precision, device, capturable):
@@ -31,9 +32,12 @@ def check(precision, device, capturable):
 def main():
     for precision in ("float64", "float32"):
         check(precision, torch.device("cpu"), False)
-        if torch.cuda.is_available():
-            check(precision, torch.device("cuda"), True)
-    print("capability matrix rows: CPU eager only; CUDA graph in the block's precision")
+    print("capability matrix rows: CPU eager only")
+    if not build_has_cuda():
+        skip("CUDA unavailable (CUDA rows)")
+    for precision in ("float64", "float32"):
+        check(precision, torch.device("cuda"), True)
+    print("capability matrix rows: CUDA graph in the block's precision")
 
 
 if __name__ == "__main__":

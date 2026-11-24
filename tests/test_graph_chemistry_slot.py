@@ -36,6 +36,8 @@ import yaml
 import kintera as kt
 from snapy import MeshBlock, MeshBlockOptions, kICY, kIDN, kIPR, kIV1, kIV2
 
+from cuda_build import build_has_cuda, skip
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 KEYS = ("hydro_u", "hydro_w", "scalar_s", "scalar_r")
 QVAPOR = 0.005  # kg/kg, uniform: saturated above ~2 km in this column
@@ -230,9 +232,8 @@ def main():
     torch.set_num_threads(1)
     for precision in ("float64", "float32"):
         check_cpu(precision)
-    if not torch.cuda.is_available():
-        print("SKIP: CUDA unavailable (graph part)")
-        return 0
+    if not build_has_cuda():
+        skip("CUDA unavailable (graph part)")
     failed = []
     for precision in ("float64", "float32"):
         try:

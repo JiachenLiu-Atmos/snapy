@@ -15,6 +15,7 @@ cuda-graph case that cannot be captured is refused before its first launch.
 import torch
 
 from run_fp32_straka import make_case
+from cuda_build import build_has_cuda, skip
 
 KEYS = ("hydro_u", "hydro_w", "scalar_s", "scalar_r")
 
@@ -137,9 +138,8 @@ def check_one_capture_many_dt(precision):
 
 def main():
     check_setup()
-    if not torch.cuda.is_available():
-        print("SKIP: CUDA unavailable (capture part)")
-        return
+    if not build_has_cuda():
+        skip("CUDA unavailable (capture part)")
     for precision in ("float64", "float32"):
         check_one_capture_many_dt(precision)
         check_capture(precision)
