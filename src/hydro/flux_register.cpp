@@ -431,7 +431,7 @@ void FluxRegister::request_step_field(int dim) {
   _want_step[dim - 1] = true;
 }
 
-void FluxRegister::begin_step() {
+void FluxRegister::begin_attempt_() {
   for (int d = 0; d < 3; ++d) {
     if (!_want_step[d]) continue;
     auto const& t = _total[d];
@@ -449,7 +449,18 @@ void FluxRegister::begin_step() {
       _monitor.place_amounts(t.device());
       break;
     }
+}
+
+void FluxRegister::begin_step() {
+  begin_attempt_();
   _monitor.begin_step();
+}
+
+// round 7: the monitor's rollback, not its begin_step, so its host stage
+// bookkeeping survives for a graph-replayed redo (RegisterMonitor::rollback)
+void FluxRegister::rollback() {
+  begin_attempt_();
+  _monitor.rollback();
 }
 
 torch::Tensor FluxRegister::slot(int dim, std::string const& name) {
@@ -740,8 +751,6 @@ void FluxRegister::end_stage(StepDt dt) {
   _monitor.end_stage(_w1, w2dt);
   _in_stage = false;
 }
-
-void FluxRegister::rollback() { begin_step(); }
 
 void FluxRegister::post_split(int dim, std::string const& name,
                               torch::Tensor const& flux, double weight,

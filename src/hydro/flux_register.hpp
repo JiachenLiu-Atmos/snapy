@@ -339,6 +339,9 @@ class FluxRegister {
   //! total(dim) <- after; books sum A_f (after - before) per row as name
   void overwrite_(int dim, std::string const& name, torch::Tensor const& after);
   std::array<bool, 3> _want_step = {false, false, false};
+  //! the step fields, split posts and stage flag of a fresh attempt: the
+  //! shared part of begin_step and rollback
+  void begin_attempt_();
   RegisterMonitor _monitor;
   int _stage = -1;
   double _w1 = 0., _w2 = 0.;
