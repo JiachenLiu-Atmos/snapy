@@ -43,7 +43,7 @@ void RegisterMonitor::reset(RegisterRequest const& req) {
       torch::zeros({static_cast<int64_t>(_retry.size())}, torch::kInt32);
 }
 
-void RegisterMonitor::begin_step() {
+void RegisterMonitor::zero_attempt_() {
   if (counters.numel()) counters.zero_();
   if (minima.numel()) minima.fill_(std::numeric_limits<double>::infinity());
   if (retry_flags.numel()) retry_flags.zero_();
@@ -52,11 +52,17 @@ void RegisterMonitor::begin_step() {
     _rate.zero_();
     _post.zero_();
   }
-  _stage = 0;
-  _ended = 0;
   _pend.clear();  // a rejected attempt's masks count nothing
   _pend_idx.clear();
 }
+
+void RegisterMonitor::begin_step() {
+  zero_attempt_();
+  _stage = 0;
+  _ended = 0;
+}
+
+void RegisterMonitor::rollback() { zero_attempt_(); }
 
 int RegisterMonitor::counter_index(std::string const& name) const {
   return index_of(_counter, name, "counter");
@@ -450,6 +456,7 @@ torch::Tensor FluxRegister::slot(int dim, std::string const& name) {
   TORCH_CHECK(dim >= 1 && dim <= 3 && _total[dim - 1].defined(),
               "[FluxRegister] slot '", name, "' in an inactive direction ",
               dim);
+  _written[dim - 1] = true;
   return _total[dim - 1];
 }
 
@@ -692,6 +699,7 @@ void FluxRegister::cell_amount(std::string const& name,
 
 void FluxRegister::apply_prescribed(int dim) {
   auto t = slot(dim, "boundary.prescribed");
+  _written[dim - 1] = false;  // prescribed now; a later writer sets it again
   if (_pwall_set[dim - 1]) return apply_wall_planes_(dim);
   auto& mask = _pmask[dim - 1];
   if (!mask.defined()) return;

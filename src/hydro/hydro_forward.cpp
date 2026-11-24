@@ -1159,10 +1159,14 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
   }
 
   // R-5, post_implicit starts: S's prescribed x1 faces on the total and the
-  // kept x1 parts, before any reader (a no-op until S sets a mask). Only the
-  // implicit correction writes total(1) after the x1 sweep's own
-  // apply_prescribed, so without it the faces are already prescribed (V3 S4)
-  if (picorr && freg.total(1).defined()) freg.apply_prescribed(1);
+  // kept x1 parts, before any reader (a no-op until S sets a mask). After the
+  // x1 sweep's own apply_prescribed the total is written again only by the
+  // implicit correction (directly) or by a source's post_fluxes (through
+  // slot(): diffusion adds its IPR row on every x1 face, walls included), so
+  // the apply runs when either did and the faces are otherwise already
+  // prescribed (V3 S4; round 7: the source case, main's reporting bitwise)
+  if (freg.total(1).defined() && (picorr || freg.written_since_prescribed(1)))
+    freg.apply_prescribed(1);
 
   //// ------------ (8) x1 mass-flux w in Coriolis and metric sources -------
   // -2 Omega w cos(lat) and -u w / r take rho w from the stage's final x1

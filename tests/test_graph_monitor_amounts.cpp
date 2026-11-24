@@ -148,3 +148,65 @@ TEST(GraphSaveList, monitor_amounts_match_eager_bitwise) {
          "every dt";
   EXPECT_EQ(report.at("eager"), 0);
 }
+
+// V3 S4 round 7: a rolled-back attempt on the cuda-graph path. The redo
+// replays the captured stages, so the monitor's host stage bookkeeping
+// (_stage, _ended, the stage weights) must survive FluxRegister::rollback():
+// when rollback reset it, fold_ read S = 0 for the redo and for every
+// replayed step after it, dropping every rate and the later stages' posts
+// while the eager block, whose redo runs begin_stage/end_stage again, was
+// right. The redo's amounts and the next step's must equal eager's, bitwise,
+// with no eager fallback and no new capture.
+TEST(GraphSaveList, monitor_amounts_match_eager_after_a_rollback) {
+  if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
+
+  Variables gvars, evars;
+  auto graph = make_block("cuda-graph", gvars);
+  auto eager = make_block("eager", evars);
+  ASSERT_TRUE(graph->execution_capability(gvars).eager_reasons.empty())
+      << "the deck must capture, or this test gates nothing";
+
+  auto& gmon = graph->phydro->flux_register().monitor();
+  auto& emon = eager->phydro->flux_register().monitor();
+  int nstage = graph->pintg->stages.size();
+  double dt0 = eager->max_time_step(evars);
+  auto step = [&](double dt) {
+    for (int s = 0; s < nstage; ++s) {
+      graph->forward(gvars, dt, s);
+      eager->forward(evars, dt, s);
+    }
+  };
+  auto same_amounts = [&](char const* when) {
+    ASSERT_TRUE(torch::equal(gvars.at("hydro_u"), evars.at("hydro_u")))
+        << when << ": the state differs";
+    double largest = 0.;
+    for (auto const& name : emon.amount_names()) {
+      auto e = emon.amounts(name), g = gmon.amounts(name);
+      largest = std::max(largest, e.abs().max().item<double>());
+      EXPECT_TRUE(torch::equal(g, e))
+          << when << ", amount " << name << ": graph " << g.cpu()
+          << " vs eager " << e.cpu();
+    }
+    EXPECT_GT(largest, 0.) << when << ": no amount was nonzero";
+  };
+  step(0.30 * dt0);  // captured
+  step(0.33 * dt0);  // replayed
+  // a rejected attempt, in MeshBlock::check_redo's order: the register rolls
+  // back, the state is restored, the step is redone at a smaller dt
+  auto gu = gvars.at("hydro_u").clone(), eu = evars.at("hydro_u").clone();
+  auto gw = gvars.at("hydro_w").clone(), ew = evars.at("hydro_w").clone();
+  step(0.36 * dt0);
+  graph->phydro->flux_register().rollback();
+  eager->phydro->flux_register().rollback();
+  gvars.at("hydro_u").copy_(gu);
+  evars.at("hydro_u").copy_(eu);
+  gvars.at("hydro_w").copy_(gw);
+  evars.at("hydro_w").copy_(ew);
+  step(0.18 * dt0);
+  same_amounts("the redo");
+  step(0.30 * dt0);
+  same_amounts("the step after the redo");
+  auto report = graph->execution_report();
+  EXPECT_EQ(report.at("captures"), nstage) << "the redo must replay";
+  EXPECT_EQ(report.at("eager"), 0);
+}

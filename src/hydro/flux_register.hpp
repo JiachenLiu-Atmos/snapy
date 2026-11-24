@@ -64,8 +64,14 @@ class RegisterMonitor {
 
   //! zero the counters, minima, retry flags and amounts (X: step start)
   void begin_step();
-  //! drop a rejected attempt: the census counts accepted steps only
-  void rollback() { begin_step(); }
+  //! drop a rejected attempt: the census counts accepted steps only. The
+  //! device slots are zeroed as at begin_step; the host stage bookkeeping
+  //! (_stage, _ended, _w1, _w2dt) stays: on the cuda-graph path the redo
+  //! replays the captured stages, whose host begin_stage/end_stage do not
+  //! run again, and fold_ would otherwise read S = 0 (no rates, no later
+  //! stages' posts) for the redo and every replayed step after it; eager
+  //! rewrites them at the redo's own begin_stage/end_stage (V3 S4 round 7)
+  void rollback();
 
   //! += n. A reduced count (0-d) adds at once; a mask or a vector waits in
   //! the stage's batch and is reduced with the others by flush_counts()
@@ -150,6 +156,7 @@ class RegisterMonitor {
   std::vector<StepDt> _w2dt;   // per stage, recorded at end_stage
   void place_amounts(torch::Device device);
   void grow_slots_(int nstage);
+  void zero_attempt_();  // the device slots and pending masks, not the stages
   torch::Tensor fold_() const;
   friend class FluxRegister;
 };
@@ -218,6 +225,10 @@ class FluxRegister {
   //! by the producer, which then calls post_slot with the same name
   torch::Tensor slot(int dim, std::string const& name);
   void post_slot(int dim, std::string const& name);
+  //! a writer took slot(dim) since the last apply_prescribed(dim): the
+  //! post-implicit apply re-prescribes only then, or after the implicit
+  //! correction, which writes total(1) directly (V3 S4 round 7)
+  bool written_since_prescribed(int dim) const { return _written[dim - 1]; }
   //! the name of dim's last posted slot ("" before the first post)
   std::string const& slot_name(int dim) const { return _slot[dim - 1]; }
   //! a requested part, written in place by its producer (C's kernel)
@@ -321,6 +332,7 @@ class FluxRegister {
   std::array<torch::Tensor, 3> _pwtflat;
   std::shared_ptr<WallBatch> _wall_batch;
   std::array<bool, 3> _pwall_set = {false, false, false};
+  std::array<bool, 3> _written = {false, false, false};
   //! apply_prescribed on the wall planes: as overwrite_, plane by plane
   void apply_wall_planes_(int dim);
   CoordinateImpl const* _coord = nullptr;
