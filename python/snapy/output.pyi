@@ -68,15 +68,6 @@ class OutputOptions:
     def include_ghost_zones(self, value: bool) -> "OutputOptions": ...
 
     @overload
-    def cartesian_vector(self) -> bool:
-        """Write vectors in Cartesian components. Deck key
-        `outputs[]/cartesian_vector`."""
-        ...
-
-    @overload
-    def cartesian_vector(self, value: bool) -> "OutputOptions": ...
-
-    @overload
     def double_precision(self) -> bool:
         """Write netcdf variables as NC_DOUBLE instead of NC_FLOAT. Off by
         default: float halves the file size and is fine for plots. Turn it
@@ -120,14 +111,6 @@ class OutputOptions:
 
     @overload
     def file_type(self, value: str) -> "OutputOptions": ...
-
-    @overload
-    def data_format(self) -> str:
-        """Data format string. Deck key `outputs[]/data_format`."""
-        ...
-
-    @overload
-    def data_format(self, value: str) -> "OutputOptions": ...
 
     @overload
     def variables(self) -> List[str]:

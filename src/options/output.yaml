@@ -18,7 +18,6 @@ options:
   - {name: output_sumx2, key: output_sumx2, type: bool, default: false, doc: "Sum over x2."}
   - {name: output_sumx3, key: output_sumx3, type: bool, default: false, doc: "Sum over x3."}
   - {name: include_ghost_zones, key: include_ghost_zones, type: bool, default: false, doc: "Write the ghost zones too."}
-  - {name: cartesian_vector, key: cartesian_vector, type: bool, default: false, doc: "Write vectors in Cartesian components."}
   - name: double_precision
     key: double_precision
     type: bool
@@ -37,7 +36,6 @@ options:
     read: required
     error: "OutputOptions::from_yaml: output file type must be specified"
     doc: "Writer: netcdf, pnetcdf, restart or budget (the budget time series)."
-  - {name: data_format, key: data_format, type: string, read: if_present, doc: "Data format string."}
   - {name: variables, key: variables, type: "list[string]", read: if_present, doc: "Variables to write."}
   - {name: combine, key: combine, type: bool, default: true, doc: "Combine the per-block files after writing."}
   - {name: verbose, key: verbose, type: bool, default: false, doc: "Verbose writer."}

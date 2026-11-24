@@ -22,6 +22,7 @@
 #include <snap/coord/coordinate.hpp>
 #include <snap/hydro/hydro.hpp>
 #include <snap/layout/layout.hpp>
+#include <snap/mesh/meshblock.hpp>
 #include <snap/output/output_type.hpp>
 
 // generated from src/options/{coord,layout}.yaml
@@ -56,7 +57,8 @@ bool load(fs::path const& p, YAML::Node* config) {
 
 }  // namespace
 
-// The pin's members and defaults (730b3500), default-constructed.
+// The pin's members and defaults (730b3500), default-constructed, less the
+// two output rows F13 removed (cartesian_vector, data_format).
 TEST(options_table, pin_defaults) {
   OutputOptionsImpl o;
   EXPECT_EQ(o.fid(), 0);
@@ -65,12 +67,10 @@ TEST(options_table, pin_defaults) {
   EXPECT_FALSE(o.output_sumx2());
   EXPECT_FALSE(o.output_sumx3());
   EXPECT_FALSE(o.include_ghost_zones());
-  EXPECT_FALSE(o.cartesian_vector());
   EXPECT_TRUE(o.x1_slice().empty());
   EXPECT_TRUE(o.x2_slice().empty());
   EXPECT_TRUE(o.x3_slice().empty());
   EXPECT_EQ(o.file_type(), "");
-  EXPECT_EQ(o.data_format(), "");
   EXPECT_TRUE(o.variables().empty());
   EXPECT_FALSE(o.double_precision());
   EXPECT_TRUE(o.combine());
@@ -93,16 +93,16 @@ TEST(options_table, pin_defaults) {
   EXPECT_EQ(h.eos(), nullptr);
 }
 
-// The pin's report text for the defaults (730b3500).
+// The pin's report text for the defaults (730b3500), less F13's two rows.
 TEST(options_table, pin_report) {
   std::stringstream so;
   OutputOptionsImpl().report(so);
   EXPECT_EQ(so.str(),
             "-- output options --\n* fid = 0\n* dt = 0\n* output_sumx1 = 0\n"
             "* output_sumx2 = 0\n* output_sumx3 = 0\n"
-            "* include_ghost_zones = 0\n* cartesian_vector = 0\n"
+            "* include_ghost_zones = 0\n"
             "* double_precision = 0\n* x1_slice = []\n* x2_slice = []\n"
-            "* x3_slice = []\n* file_type = \n* data_format = \n"
+            "* x3_slice = []\n* file_type = \n"
             "* variables = []\n* combine = 1\n* verbose = 0\n");
   std::stringstream sh;
   HydroOptionsImpl().report(sh);
@@ -184,6 +184,41 @@ TEST(options_table, output_checks) {
   EXPECT_THROW(
       OutputOptionsImpl::from_yaml(YAML::Load("{type: netcdf, dtt: 1}"), 2),
       c10::Error);
+}
+
+// F13: outputs[]/cartesian_vector and outputs[]/data_format were read but no
+// writer used them, so they are gone; a deck that sets either is refused at
+// startup (MeshBlockOptionsImpl::from_yaml), naming the key. The same deck
+// without the key is read.
+TEST(options_table, output_removed_keys_refused) {
+  auto deck = fs::temp_directory_path() / "test_options_table_outputs.yaml";
+  auto read = [&](char const* entry) {
+    auto config = YAML::LoadFile(
+        (fs::path(SNAPY_SOURCE_DIR) / "tests" / "test_budget.yaml").string());
+    config["outputs"].push_back(YAML::Load(entry));
+    {
+      std::ofstream out(deck);
+      out << config << "\n";
+    }
+    return MeshBlockOptionsImpl::from_yaml(deck.string());
+  };
+  EXPECT_EQ(read("{type: netcdf, dt: 1.}")->outputs().size(), 1);
+  for (auto [key, entry] :
+       {std::pair{"cartesian_vector",
+                  "{type: netcdf, dt: 1., cartesian_vector: true}"},
+        std::pair{"data_format",
+                  "{type: netcdf, dt: 1., data_format: \"%12.5e\"}"}}) {
+    SCOPED_TRACE(key);
+    try {
+      read(entry);
+      ADD_FAILURE() << "the deck was read";
+    } catch (c10::Error const& e) {
+      EXPECT_NE(std::string(e.what()).find(
+                    std::string("unknown key 'outputs/0/") + key + "'"),
+                std::string::npos)
+          << e.what();
+    }
+  }
 }
 
 // O8 item sv: output.yaml's `domain` checks against the global grid, with the
