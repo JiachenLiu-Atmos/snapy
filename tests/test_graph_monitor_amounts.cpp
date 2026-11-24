@@ -4,6 +4,7 @@
 // C/C++
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <string>
 
@@ -12,6 +13,9 @@
 
 // torch
 #include <torch/torch.h>
+
+// torch
+#include <torch/script.h>
 
 // snap
 #include <snap/snap.h>
@@ -35,9 +39,10 @@ using namespace snap;
 // the passes that leak) and replayed at every dt.
 namespace {
 
-std::string deck(char const* execution) {
+std::string deck(char const* execution, bool strict) {
   char buf[2048];
-  std::snprintf(buf, sizeof(buf), R"(
+  std::snprintf(
+      buf, sizeof(buf), R"(
 reference-state: {Tref: 0., Pref: 1.e5}
 species:
   - name: dry
@@ -77,17 +82,18 @@ integration:
 forcing:
   const-gravity: {grav1: -9.8}
 )",
-                execution,
-                std::string(execution) == "cuda-graph" ? "true" : "false");
+      execution,
+      std::string(execution) == "cuda-graph" && strict ? "true" : "false");
   return buf;
 }
 
-MeshBlock make_block(char const* execution, Variables& vars) {
+MeshBlock make_block(char const* execution, Variables& vars,
+                     bool strict = true) {
   char fname[] = "/tmp/test-graph-monitor-amounts-XXXXXX";
   int fd = mkstemp(fname);
   EXPECT_NE(fd, -1);
   if (fd != -1) close(fd);
-  std::ofstream(fname) << deck(execution);
+  std::ofstream(fname) << deck(execution, strict);
   auto block = MeshBlock(MeshBlockOptionsImpl::from_yaml(fname));
   std::remove(fname);
   block->to(torch::Device(torch::kCUDA, 0));
@@ -106,6 +112,20 @@ MeshBlock make_block(char const* execution, Variables& vars) {
   vars["hydro_w"] = w;
   block->initialize(vars);
   return block;
+}
+
+//! a user stage forcing that adds nothing: it splits the stage into an
+//! eager segment between two captured ones and leaves the state alone
+std::filesystem::path zero_forcing() {
+  auto path = std::filesystem::temp_directory_path() /
+              "snapy_graph_monitor_amounts_zero_forcing.pt";
+  torch::jit::Module module("snapy_graph_monitor_amounts_zero_forcing");
+  module.define(
+      "def forward(self, variables: Dict[str, Tensor], dt: float, stage: int) "
+      "-> Dict[str, Tensor]:\n"
+      "  return {\"hydro_du\": torch.zeros_like(variables[\"hydro_u\"])}\n");
+  module.save(path.string());
+  return path;
 }
 
 }  // namespace
@@ -209,4 +229,79 @@ TEST(GraphSaveList, monitor_amounts_match_eager_after_a_rollback) {
   auto report = graph->execution_report();
   EXPECT_EQ(report.at("captures"), nstage) << "the redo must replay";
   EXPECT_EQ(report.at("eager"), 0);
+}
+
+// V3 S4: the wall batch under a split stage. A user stage forcing is an
+// eager segment between the advance and the combine, so the two are captured
+// separately. The batch is filled by the advance's apply_prescribed and
+// drained by the combine's flush, and both must be device work on fixed
+// storage: a host-side queue is drained by the combine's first warm-up, the
+// combine's capture then records no flush, and its replays never run the
+// host push or flush again, so "boundary.prescribed" stays zero on the
+// cuda-graph block while the eager block books the wall rates, step after
+// step and across a redo. The forcing adds nothing, so the state stays equal
+// and only the amounts can tell.
+TEST(GraphSaveList, user_forcing_graph_books_wall_rates_like_eager) {
+  if (!snapy_cuda_test_enabled()) GTEST_SKIP() << "CUDA is not available";
+
+  Variables gvars, evars;
+  auto graph = make_block("cuda-graph", gvars, /*strict=*/false);
+  auto eager = make_block("eager", evars);
+  auto forcing = zero_forcing();
+  graph->set_user_stage_forcings({forcing.string()});
+  eager->set_user_stage_forcings({forcing.string()});
+  std::filesystem::remove(forcing);
+  ASSERT_FALSE(graph->execution_capability(gvars).eager_reasons.empty())
+      << "the forcing must split the stage, or this test gates nothing";
+
+  auto& gmon = graph->phydro->flux_register().monitor();
+  auto& emon = eager->phydro->flux_register().monitor();
+  int nstage = graph->pintg->stages.size();
+  double dt0 = eager->max_time_step(evars);
+  auto step = [&](double dt) {
+    for (int s = 0; s < nstage; ++s) {
+      graph->forward(gvars, dt, s);
+      eager->forward(evars, dt, s);
+    }
+  };
+  auto same_amounts = [&](char const* when) {
+    ASSERT_TRUE(torch::equal(gvars.at("hydro_u"), evars.at("hydro_u")))
+        << when << ": the state differs";
+    ASSERT_EQ(gmon.amount_names(), emon.amount_names()) << when;
+    for (auto const& name : emon.amount_names()) {
+      auto e = emon.amounts(name), g = gmon.amounts(name);
+      EXPECT_TRUE(torch::equal(g, e))
+          << when << ", amount " << name << ": graph " << g.cpu()
+          << " vs eager " << e.cpu();
+    }
+    auto walls = emon.amounts("boundary.prescribed");
+    EXPECT_GT(walls.abs().max().item<double>(), 0.)
+        << when << ": the eager block booked nothing on the walls";
+    // the monitor's count masks are batched the same way (flush_counts)
+    EXPECT_TRUE(torch::equal(gmon.counters, emon.counters))
+        << when << ": counters graph " << gmon.counters.cpu() << " vs eager "
+        << emon.counters.cpu();
+  };
+  step(0.30 * dt0);  // captured
+  same_amounts("the first step");
+  step(0.33 * dt0);  // replayed
+  same_amounts("the replayed step");
+  // a rejected attempt, in MeshBlock::check_redo's order
+  auto gu = gvars.at("hydro_u").clone(), eu = evars.at("hydro_u").clone();
+  auto gw = gvars.at("hydro_w").clone(), ew = evars.at("hydro_w").clone();
+  step(0.36 * dt0);
+  graph->phydro->flux_register().rollback();
+  eager->phydro->flux_register().rollback();
+  gvars.at("hydro_u").copy_(gu);
+  evars.at("hydro_u").copy_(eu);
+  gvars.at("hydro_w").copy_(gw);
+  evars.at("hydro_w").copy_(ew);
+  step(0.18 * dt0);
+  same_amounts("the redo");
+  step(0.30 * dt0);
+  same_amounts("the step after the redo");
+  auto report = graph->execution_report();
+  EXPECT_EQ(report.at("captures"), 2 * nstage)
+      << "the advance and the combine capture separately around the forcing";
+  EXPECT_GT(report.at("eager"), 0) << "the forcing runs eagerly";
 }
