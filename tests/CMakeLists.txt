@@ -499,6 +499,9 @@ snapy_add_python_test(test_seam_rotation_cache TIMEOUT 300 LABELS "python;hydro;
 snapy_add_python_test(test_mesh_capture_moist TIMEOUT 900 LABELS "python;hydro;eos")
 # the shipped dry Straka (ideal-gas, lmars; 1 and 2 blocks; no forcing) captures
 snapy_add_python_test(test_graph_capture_lifts TIMEOUT 600 LABELS "python;hydro")
+# integration.execution defaults to cuda-graph on a CUDA device, eager on CPU
+snapy_add_python_test(test_default_execution TIMEOUT 600 LABELS "python;hydro")
+set_tests_properties(test_default_execution_python PROPERTIES SKIP_RETURN_CODE 125)
 # #314: an outflow boundary is refused before a capture; CPU part on every build
 snapy_add_python_test(test_graph_outflow_refused TIMEOUT 300 LABELS "python;hydro")
 snapy_add_python_test(test_sk3_capture_moist TIMEOUT 600 LABELS "python;hydro;eos;fp32-science")
