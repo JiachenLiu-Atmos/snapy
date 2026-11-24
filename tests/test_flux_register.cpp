@@ -15,6 +15,9 @@
 #include <snap/mesh/meshblock.hpp>
 #include <snap/mesh/precision_policy.hpp>
 
+// tests
+#include "cuda_test_gate.hpp"
+
 using namespace snap;
 
 namespace {
@@ -493,6 +496,47 @@ TEST(FluxRegister, wall_prescription_works_on_the_wall_planes_only) {
   EXPECT_TRUE(torch::isfinite(got).all().item<bool>())
       << "a face off the walls entered the booking: " << got;
   EXPECT_LE(rel(got, ref), 1.e-15);
+}
+
+// A float32 register on the device (CUDA when available): apply_prescribed
+// builds its signed row weights in the wide dtype on the total's device. A
+// where() with two Scalar operands would build them as float64 scalar
+// tensors on that device, which a device without float64 (MPS) refuses; the
+// booking must equal the FP64 reference either way
+TEST(FluxRegister, wall_prescription_books_in_float32_on_the_device) {
+  auto device = snapy_cuda_test_enabled() ? torch::Device(torch::kCUDA, 0)
+                                          : torch::Device(torch::kCPU);
+  Variables vars;
+  auto block = bubble(vars);
+  block->to(device, torch::kFloat32);
+  auto& reg = block->phydro->flux_register();
+  reg.set_wall_batch(nullptr);  // book at the call, as a register alone does
+  ASSERT_EQ(reg.total(1).scalar_type(), torch::kFloat32);
+  ASSERT_EQ(reg.total(1).device(), device);
+  torch::manual_seed(11);
+  reg.total(1).copy_(torch::randn_like(reg.total(1)));
+  reg.begin_step();
+  reg.begin_stage(0, block->pintg->stages[0]);
+  auto c = block->pcoord;
+  int il = c->il(), iw = c->iu() + 1;
+  auto t0 = reg.total(1).clone();
+  supply_prescribed(reg, block.get(), torch::Tensor(), {IVX, IVX + 1, IVX + 2});
+  reg.apply_prescribed(1);
+  auto mask = torch::zeros_like(t0, torch::kBool);
+  for (int r = 0; r < t0.size(0); ++r) {
+    if (r >= IVX && r <= IVX + 2) continue;  // free slip: momentum keeps
+    mask[r].select(2, il).fill_(true);
+    mask[r].select(2, iw).fill_(true);
+  }
+  EXPECT_TRUE(torch::equal(reg.total(1), torch::where(mask, 0.f, t0)));
+  reg.end_stage(1.);
+  auto got = reg.monitor().amounts("boundary.prescribed").cpu();
+  auto area = c->face_area1().narrow(2, 0, t0.size(3)).to(torch::kFloat64);
+  auto ref = (area * torch::where(mask, -t0.to(torch::kFloat64), 0.))
+                 .sum({1, 2, 3})
+                 .cpu();
+  EXPECT_GT(ref.abs().max().item<double>(), 0.);
+  EXPECT_LE(rel(got, ref), 1.e-12);
 }
 
 // reset() starts with no prescription: S's wall planes from before the

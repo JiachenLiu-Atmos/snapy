@@ -701,7 +701,12 @@ void FluxRegister::apply_wall_planes_(int dim) {
                 : dim == 2 ? _coord->face_area2().narrow(1, 0, t.size(2))
                            : _coord->face_area3().narrow(0, 0, t.size(1));
     _parea[d] = area.to(wide).to(t.device()).index_select(ax - 1, _pidx[d]);
-    _pneg[d] = torch::where(rows, -1., 0.).to(wopts).unsqueeze(-1);
+    // the scalar operands in the wide dtype on the device: where(mask,
+    // Scalar, Scalar) would build them as float64 scalar tensors there,
+    // which a device without float64 (MPS) refuses
+    _pneg[d] = torch::where(rows, torch::scalar_tensor(-1., wopts),
+                            torch::scalar_tensor(0., wopts))
+                   .unsqueeze(-1);
     _pwt[d] = _parea[d] * _pneg[d];  // -area on the prescribed rows, else 0
     // V3 S4: the prescribed rows of the wall planes as one mask over the
     // total, and the weights laid out like the gathered planes, flattened
