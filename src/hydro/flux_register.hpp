@@ -243,6 +243,11 @@ class FluxRegister {
   std::array<std::vector<int64_t>, 3> _pwall;
   std::array<std::vector<int>, 3> _pfree;
   std::array<torch::Tensor, 3> _prow;
+  //! V3 S4: the wall planes as an index tensor, the face areas of those
+  //! planes and -1 on the prescribed rows (0 on the free rows), wide dtype on
+  //! the total's device; built at the first apply_wall_planes_ after
+  //! set_prescribed_walls, so a stage launches no setup
+  std::array<torch::Tensor, 3> _pidx, _parea, _pneg;
   std::array<bool, 3> _pwall_set = {false, false, false};
   //! apply_prescribed on the wall planes: as overwrite_, plane by plane
   void apply_wall_planes_(int dim);

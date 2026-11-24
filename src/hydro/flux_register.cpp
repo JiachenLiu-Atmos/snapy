@@ -63,7 +63,17 @@ int RegisterMonitor::retry_index(std::string const& name) const {
 }
 
 void RegisterMonitor::count(std::string const& name, torch::Tensor const& n) {
-  counters[counter_index(name)].add_(n.sum().to(counters.scalar_type()));
+  // a reduced count (0-d) adds straight in, one launch; a mask or a vector
+  // is summed first (bool and int sums are int64 already, so the cast is
+  // a no-op unless the caller hands a float)
+  auto v = n.dim() == 0 ? n : n.sum();
+  // add_ reads an integer count into the counters in its own kernel (int64,
+  // or float64 after a Module::to(dtype)); only a float count into integer
+  // counters needs the cast
+  if (at::isFloatingType(v.scalar_type()) &&
+      !at::isFloatingType(counters.scalar_type()))
+    v = v.to(counters.scalar_type());
+  counters[counter_index(name)].add_(v);
 }
 
 void RegisterMonitor::record_min(std::string const& name,
@@ -370,6 +380,10 @@ void FluxRegister::set_prescribed_walls(int dim,
                 "[FluxRegister] set_prescribed_walls: row ", r, " of ",
                 t.size(0));
   _pmask[d] = _pvalue[d] = torch::Tensor();
+  // supply_prescribed sets the same planes every stage: the gathered-plane
+  // tensors stay unless the planes or the free rows change (V3 S4)
+  if (_pwall[d] != planes || _pfree[d] != free_rows)
+    _pidx[d] = _parea[d] = _pneg[d] = torch::Tensor();
   _pwall[d] = planes;
   _pwall_set[d] = true;
   auto& rows = _prow[d];
@@ -391,24 +405,35 @@ void FluxRegister::apply_wall_planes_(int dim) {
   auto& rows = _prow[d];
   if (rows.device() != t.device()) rows = rows.to(t.device());
   auto wide = t.is_mps() ? torch::kFloat32 : torch::kFloat64;
-  auto area = dim == 1   ? _coord->face_area1().narrow(2, 0, t.size(3))
-              : dim == 2 ? _coord->face_area2().narrow(1, 0, t.size(2))
-                         : _coord->face_area3().narrow(0, 0, t.size(1));
-  area = area.to(t.device(), wide);
-  torch::Tensor rate;
-  for (auto p : _pwall[d]) {
-    // the full-mask path restricted to one plane: the same values, written
-    // and booked on the wall faces only (elsewhere after - before is 0)
-    for (auto const& name : _kept[d]) {
-      auto part = _parts.at(name + "@" + std::to_string(dim)).select(ax, p);
-      part.masked_fill_(rows, 0.);
-    }
-    auto tp = t.select(ax, p);
-    auto after = tp.masked_fill(rows, 0.);
-    auto r =
-        (area.select(ax - 1, p) * (after.to(wide) - tp.to(wide))).sum({1, 2});
-    rate = rate.defined() ? rate + r : r;
-    tp.copy_(after);
+  auto wopts = t.options().dtype(wide);
+  if (!_pidx[d].defined() || _pidx[d].device() != t.device() ||
+      _parea[d].scalar_type() != wide) {
+    // once per set_prescribed_walls (and per device): the planes, their face
+    // areas and the signed row weights; a stage launches none of this
+    _pidx[d] = torch::tensor(_pwall[d], t.options().dtype(torch::kInt64));
+    auto area = dim == 1   ? _coord->face_area1().narrow(2, 0, t.size(3))
+                : dim == 2 ? _coord->face_area2().narrow(1, 0, t.size(2))
+                           : _coord->face_area3().narrow(0, 0, t.size(1));
+    _parea[d] = area.to(t.device(), wide).index_select(ax - 1, _pidx[d]);
+    _pneg[d] = torch::where(rows, -1., 0.).to(wopts).unsqueeze(-1);
+  }
+  // V3 S4: the full-mask path on every wall plane at once: after - before is
+  // -T on the prescribed rows and 0 on the free rows, so the booked rate is
+  // area * T * (-1 on the prescribed rows), reduced over the plane's faces
+  // (as before, one plane's faces first, then the planes); the write back
+  // zeroes the prescribed rows of the gathered planes in one scatter
+  auto planes = t.index_select(ax, _pidx[d]);
+  auto rows4 = rows.unsqueeze(-1);  // [nvar, 1, 1, 1] over the gathered planes
+  std::vector<int64_t> face_dims;
+  for (int a = 1; a <= 3; ++a)
+    if (a != ax) face_dims.push_back(a);
+  auto rate = (_parea[d] * (planes.to(wide) * _pneg[d])).sum(face_dims).sum(-1);
+  planes.masked_fill_(rows4, 0.);
+  t.index_copy_(ax, _pidx[d], planes);
+  for (auto const& name : _kept[d]) {
+    auto part = _parts.at(name + "@" + std::to_string(dim));
+    part.index_copy_(ax, _pidx[d],
+                     part.index_select(ax, _pidx[d]).masked_fill_(rows4, 0.));
   }
   _monitor.book("boundary.prescribed", rate);
 }

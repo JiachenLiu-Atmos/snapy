@@ -330,19 +330,25 @@ torch::Tensor RiemannSolverImpl::solve(torch::Tensor wl, torch::Tensor wr,
   // the solve's events on the interior faces (C.rst 3.6; R.rst 2.6 names):
   // hllc's contact pressure clamped to zero (to -p0 on the perturbation
   // entry), the face pressure it writes; roe's LLF fallback
-  events = torch::zeros({2}, torch::dtype(torch::kInt64).device(flx.device()));
+  events.clear();
   if (kind == RiemannKind::hllc) {
     auto clamped = reference_pressure.defined()
                        ? face_pressure_out <= -reference_pressure
                        : face_pressure_out <= 0.;
-    events[0].add_(interior_faces(*pcoord, dim, clamped).sum());
+    events.emplace_back(0, interior_faces(*pcoord, dim, clamped).sum());
   }
   if (llf.defined())
-    events[1].add_(interior_faces(*pcoord, dim, llf > 0.).sum());
+    events.emplace_back(1, interior_faces(*pcoord, dim, llf > 0.).sum());
 
   to_global_frame_(*pcoord, dim, flx);
 
   return flx;
+}
+
+torch::Tensor RiemannSolverImpl::event_counts() const {
+  auto n = torch::zeros({2}, torch::kInt64);
+  for (auto const& [row, count] : events) n[row] += count.cpu();
+  return n;
 }
 
 RiemannSolver RiemannSolverImpl::create(RiemannSolverOptions const& opts,

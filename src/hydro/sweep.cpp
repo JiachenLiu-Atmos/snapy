@@ -21,10 +21,11 @@ static torch::Tensor static_face_gauge(torch::Tensor const& p0, int axis) {
 }
 
 void post_face_floors(ReconstructImpl const& recon, RegisterMonitor& monitor) {
-  if (!recon.floored.defined()) return;
-  monitor.count("face_floor.rho", recon.floored[0]);
-  monitor.count("face_floor.p", recon.floored[1]);
-  monitor.count("face_floor.species", recon.floored[2]);
+  // one add_ per floor that ran (V3 S4): the counts are reduced already
+  static char const* const names[] = {"face_floor.rho", "face_floor.p",
+                                      "face_floor.species"};
+  for (auto const& [row, count] : recon.floored)
+    monitor.count(names[row], count);
 }
 
 torch::Tensor reconstruct_faces(HydroImpl& hydro, FaceDir const& dir,
@@ -102,11 +103,9 @@ void riemann_solve(HydroImpl& hydro, torch::Tensor lr, int dim,
                    torch::Tensor central) {
   // the solve's events (C5): hllc's clamped contact pressure, roe's LLF
   auto post_events = [&] {
-    if (!hydro.priemann->events.defined()) return;
-    hydro.flux_register().monitor().count("riemann.pstar_clamp",
-                                          hydro.priemann->events[0]);
-    hydro.flux_register().monitor().count("riemann.llf",
-                                          hydro.priemann->events[1]);
+    static char const* const names[] = {"riemann.pstar_clamp", "riemann.llf"};
+    for (auto const& [row, count] : hydro.priemann->events)
+      hydro.flux_register().monitor().count(names[row], count);
   };
   if (!perturb) {
     hydro.priemann->forward(lr[ILT], lr[IRT], dim, flux, face_pressure,

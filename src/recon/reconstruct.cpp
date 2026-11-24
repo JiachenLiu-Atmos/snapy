@@ -243,6 +243,12 @@ void ReconstructImpl::reset() {
                                 this, "interp2");
 }
 
+torch::Tensor ReconstructImpl::floor_counts() const {
+  auto n = torch::zeros({3}, torch::kInt64);
+  for (auto const& [row, count] : floored) n[row] += count.cpu();
+  return n;
+}
+
 void ReconstructImpl::set_x1_faces(torch::Tensor const& x1f) {
   pinterp1->set_x1_coeffs(x1f);
   pinterp2->set_x1_coeffs(x1f);
@@ -264,8 +270,9 @@ torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
     return result;
   }
 
-  // FaceFloor's counts: the faces a floor changes, on the computed faces
-  floored = torch::zeros({3}, torch::dtype(torch::kInt64).device(w.device()));
+  // FaceFloor's counts: the faces a floor changes, on the computed faces;
+  // a floor that runs posts one reduced count (V3 S4: no zero-filled slots)
+  floored.clear();
   auto faces = [&](torch::Tensor const& x) {
     // face iu+1 exists only when a ghost cell follows (as the slices of
     // _apply_inplace, which stop at the end of the axis)
@@ -277,7 +284,7 @@ torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
   auto floor_species = [&](bool on) {
     if (!on || nvar <= ICY) return;
     auto y = result.narrow(1, ICY, nvar - ICY);
-    floored[2].add_(faces((y < 0.).any(1)).sum());
+    floored.emplace_back(2, faces((y < 0.).any(1)).sum());
     y.clamp_min_(0.);
   };
 
@@ -287,13 +294,13 @@ torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
   auto floor_density = [&] {
     if (!floors) return;
     auto d = result.select(1, IDN);
-    floored[0].add_(faces(d < eos->density_floor()).sum());
+    floored.emplace_back(0, faces(d < eos->density_floor()).sum());
     d.clamp_min_(eos->density_floor());
   };
   auto floor_pressure = [&] {
     if (!floors || result.size(1) <= IPR) return;
     auto pr = result.select(1, IPR);
-    floored[1].add_(faces(pr < eos->pressure_floor()).sum());
+    floored.emplace_back(1, faces(pr < eos->pressure_floor()).sum());
     pr.clamp_min_(eos->pressure_floor());
   };
 

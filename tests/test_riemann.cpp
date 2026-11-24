@@ -879,7 +879,7 @@ TEST_P(DeviceTest, riemann_events_count_clamped_and_llf_faces) {
     for (double u : {1., 2000.}) {
       auto flux = torch::zeros(shape, o);
       solver->forward(state(-u), state(u), DIM1, flux);
-      auto ev = solver->events.cpu();
+      auto ev = solver->event_counts();
       int k = type == "hllc" ? 0 : 1;
       if (u < 10.) {
         EXPECT_EQ(ev[0].item<int64_t>() + ev[1].item<int64_t>(), 0) << type;

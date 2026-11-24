@@ -123,7 +123,7 @@ void floor_counts_equal_the_faces_changed(torch::Device device,
   auto recon = block->phydro->precon1;
   auto raw = recon->forward(w, kX1, /*floor=*/false).clone();
   auto out = recon->forward(w, kX1);
-  auto n = recon->floored.cpu();
+  auto n = recon->floor_counts();
 
   int nghost = recon->pinterp1->stencils() / 2 + 1;
   int il = nghost, iu = w.size(kX1) - nghost;

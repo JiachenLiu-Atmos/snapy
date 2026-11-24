@@ -109,35 +109,38 @@ torch::Tensor WellBalancedX1::forward(torch::Tensor wx1,
     pl += ref.gauge;
     pr += ref.gauge;
   }
-  // FaceFloor: the WB fallbacks below count as floors, faces is..iu+1
-  auto fallback = [&](torch::Tensor const& x) {
-    return (x > 0.).logical_not().narrow(-1, is, iu + 2 - is);
+  // FaceFloor: the WB fallbacks below count as floors, faces is..iu+1; the
+  // positivity mask is computed once and shared with the fallback (V3 S4)
+  auto fallback = [&](torch::Tensor const& ok) {
+    return ok.narrow(-1, is, iu + 2 - is).logical_not();
   };
-  monitor.count("face_floor.p", fallback(pl));
-  monitor.count("face_floor.p", fallback(pr));
+  auto okl = pl > 0., okr = pr > 0.;
+  monitor.count("face_floor.p", fallback(okl));
+  monitor.count("face_floor.p", fallback(okr));
   if (split) {
     wtmp[ILT][IPR].copy_(torch::where(
-        pl > 0., wtmp[ILT][IPR] + ref.face_delta,
+        okl, wtmp[ILT][IPR] + ref.face_delta,
         policy->fp32() ? ref.face_delta - ref.gauge : ref.face_delta));
     wtmp[IRT][IPR].copy_(torch::where(
-        pr > 0., wtmp[IRT][IPR] + ref.face_delta,
+        okr, wtmp[IRT][IPR] + ref.face_delta,
         policy->fp32() ? ref.face_delta - ref.gauge : ref.face_delta));
   } else {
-    wtmp[ILT][IPR].copy_(torch::where(pl > 0., pl, psf_lo));
-    wtmp[IRT][IPR].copy_(torch::where(pr > 0., pr, psf_lo));
+    wtmp[ILT][IPR].copy_(torch::where(okl, pl, psf_lo));
+    wtmp[IRT][IPR].copy_(torch::where(okr, pr, psf_lo));
   }
 
   auto dl = wtmp[ILT][IDN] + dsf[ILT];
   auto dr = wtmp[IRT][IDN] + dsf[IRT];
-  monitor.count("face_floor.rho", fallback(dl));
-  monitor.count("face_floor.rho", fallback(dr));
+  auto dkl = dl > 0., dkr = dr > 0.;
+  monitor.count("face_floor.rho", fallback(dkl));
+  monitor.count("face_floor.rho", fallback(dkr));
   // positivity fallback: the adjacent cell's density, shifted with edge
   // replication, not torch::roll (lane-c-notes.md)
   auto n1 = density.size(-1);
   auto rho_below =
       torch::cat({density.narrow(-1, 0, 1), density.narrow(-1, 0, n1 - 1)}, -1);
-  wtmp[ILT][IDN].copy_(torch::where(dl > 0., dl, rho_below));
-  wtmp[IRT][IDN].copy_(torch::where(dr > 0., dr, density));
+  wtmp[ILT][IDN].copy_(torch::where(dkl, dl, rho_below));
+  wtmp[IRT][IDN].copy_(torch::where(dkr, dr, density));
   // key 4, after the floors: the wall face mirrors its owned side, v* = 0
   for (int s : {0, 1}) {
     if (!wall4[s]) continue;
