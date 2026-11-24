@@ -491,6 +491,8 @@ snapy_add_python_test(test_execution_capability TIMEOUT 120 LABELS "python;hydro
 snapy_add_python_test(test_graph_pool_recapture TIMEOUT 600 LABELS "python;hydro")
 snapy_add_python_test(test_graph_user_forcing TIMEOUT 600 LABELS "python;hydro;forcing")
 snapy_add_python_test(test_cubed_sphere_capture TIMEOUT 900 LABELS "python;hydro")
+# the panel-seam rotation operands are built once per grid and rebuilt on a change
+snapy_add_python_test(test_seam_rotation_cache TIMEOUT 300 LABELS "python;hydro;cubed-sphere")
 snapy_add_python_test(test_mesh_capture_moist TIMEOUT 900 LABELS "python;hydro;eos")
 # the shipped dry Straka (ideal-gas, lmars; 1 and 2 blocks; no forcing) captures
 snapy_add_python_test(test_graph_capture_lifts TIMEOUT 600 LABELS "python;hydro")
