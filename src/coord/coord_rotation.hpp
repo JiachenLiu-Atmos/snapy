@@ -3,6 +3,9 @@
 // torch
 #include <torch/torch.h>
 
+// snap
+#include "cubed_sphere_utils.hpp"
+
 namespace snap {
 
 //! The one rotation between cubed-sphere panels (V3 lane S, step (1); S.rst
@@ -35,6 +38,21 @@ class PanelRotation {
                           torch::Tensor beta, torch::Tensor cosine) const;
   void cart_to_face_rows_(torch::Tensor rows, int panel, torch::Tensor alpha,
                           torch::Tensor beta, torch::Tensor cosine) const;
+
+  //! the grid-only operands of the two above at one face plane: the metric at
+  //! (alpha, beta) and the face cosine, both expanded to rows[0]'s shape
+  struct FaceOperands {
+    CsMetric metric;
+    torch::Tensor cosine;
+  };
+  static FaceOperands face_operands(std::vector<int64_t> const& shape,
+                                    torch::Tensor alpha, torch::Tensor beta,
+                                    torch::Tensor cosine);
+  //! the same as the two above, from operands built once (the same bits)
+  void face_rows_to_cart_(torch::Tensor rows, int panel,
+                          FaceOperands const& op) const;
+  void cart_to_face_rows_(torch::Tensor rows, int panel,
+                          FaceOperands const& op) const;
 
   //! the pointwise [3, 3, ...] matrix the exchange caches: to_global maps the
   //! panel's components to the local geographic frame (v_r, v_theta, v_phi),

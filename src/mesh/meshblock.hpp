@@ -141,6 +141,7 @@ struct PartOptions {
 
 class StageExecutor;
 class ChemistrySource;
+struct SeamRotationCache;
 
 class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   friend class StageExecutor;
@@ -178,6 +179,9 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! the buffer at `key`, reallocated only when it does not match `like`
   torch::Tensor board_buffer(std::tuple<int, int, int> key,
                              torch::Tensor const& like) const;
+  //! the panel seams' grid-only rotation operands (seam_register.hpp), built
+  //! at the first reconcile and rebuilt only when the grid tensors change
+  mutable std::shared_ptr<SeamRotationCache> seam_rotation_cache;
 
   //! submodules
   harp::Integrator pintg = nullptr;

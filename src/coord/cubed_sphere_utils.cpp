@@ -197,13 +197,22 @@ static std::array<torch::Tensor, 3> cs_metric(torch::Tensor const &x,
   return {sqrt(x * x + y * y + 1), sqrt(1 + x * x), sqrt(1 + y * y)};
 }
 
-//! Transform global cartesian velocity to local panel contravariant velocity
-void cs_cart_to_contra_(torch::Tensor const &vel, torch::Tensor alpha,
-                        torch::Tensor beta, int face_id) {
+CsMetric cs_metric_at(torch::Tensor const& alpha, torch::Tensor const& beta) {
   auto x = alpha.tan();
   auto y = beta.tan();
-
   auto [delta, C, D] = cs_metric(x, y);
+  return {x, y, delta, C, D};
+}
+
+//! Transform global cartesian velocity to local panel contravariant velocity
+void cs_cart_to_contra_(torch::Tensor const& vel, torch::Tensor alpha,
+                        torch::Tensor beta, int face_id) {
+  cs_cart_to_contra_at_(vel, cs_metric_at(alpha, beta), face_id);
+}
+
+void cs_cart_to_contra_at_(torch::Tensor const& vel, CsMetric const& m,
+                           int face_id) {
+  auto x = m.x, y = m.y, delta = m.delta, C = m.C, D = m.D;
 
   std::array<torch::Tensor, 3> local_vel;
 
@@ -223,12 +232,14 @@ void cs_cart_to_contra_(torch::Tensor const &vel, torch::Tensor alpha,
   vel[VEL3] = C / delta * (vy - y * vz);
 }
 
-void cs_contra_to_cart_(torch::Tensor const &vel, torch::Tensor alpha,
+void cs_contra_to_cart_(torch::Tensor const& vel, torch::Tensor alpha,
                         torch::Tensor beta, int face_id) {
-  auto x = alpha.tan();
-  auto y = beta.tan();
+  cs_contra_to_cart_at_(vel, cs_metric_at(alpha, beta), face_id);
+}
 
-  auto [delta, C, D] = cs_metric(x, y);
+void cs_contra_to_cart_at_(torch::Tensor const& vel, CsMetric const& m,
+                           int face_id) {
+  auto x = m.x, y = m.y, delta = m.delta, C = m.C, D = m.D;
 
   auto const l2g = CS_LOCAL_TO_CART_VEL;
   auto f = face_id;

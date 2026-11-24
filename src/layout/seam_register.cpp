@@ -95,6 +95,35 @@ void reconcile_panel_seams(FluxRegister& reg, MeshBlockImpl const* pmb,
   int nvar = reg.total(sides.front().dim).size(0);
   PanelRotation rot;
 
+  // a side's rotation operands, built once per grid (SeamRotationCache)
+  if (!pmb->seam_rotation_cache)
+    pmb->seam_rotation_cache = std::make_shared<SeamRotationCache>();
+  auto& cache = *pmb->seam_rotation_cache;
+  auto stamp = [](torch::Tensor const& t) {
+    return SeamRotationCache::Stamp(
+        t.data_ptr(), static_cast<int64_t>(t._version()),
+        static_cast<int>(t.scalar_type()), static_cast<int>(t.device().type()),
+        t.device().index(), t.sizes().vec());
+  };
+  auto operands = [&](int s) -> PanelRotation::FaceOperands const& {
+    std::vector<SeamRotationCache::Stamp> now =
+        s < 2 ? std::vector<SeamRotationCache::Stamp>{stamp(c->x2f),
+                                                      stamp(c->x3v),
+                                                      stamp(c->cosine_face2_kj)}
+              : std::vector<SeamRotationCache::Stamp>{
+                    stamp(c->x2v), stamp(c->x3f), stamp(c->cosine_face3_kj)};
+    now.push_back({nullptr, panel, ni, along(s), 0, {}});
+    auto& side = cache.sides[s];
+    if (side.stamp != now) {
+      auto [alpha, beta, cosine] = points(s);
+      side.op =
+          PanelRotation::face_operands({along(s), ni}, alpha, beta, cosine);
+      side.stamp = now;
+      ++cache.builds;
+    }
+    return side.op;
+  };
+
   // pack: owners' rows, one message per side in Cartesian momentum, into
   // the block's fixed board buffers (V3 B3: a captured segment's graphs
   // write them before the cut and the peer's graphs read them after it)
@@ -106,10 +135,9 @@ void reconcile_panel_seams(FluxRegister& reg, MeshBlockImpl const* pmb,
     std::vector<torch::Tensor> rows;
     for (auto const& t : rows_of(sd.dim)) rows.push_back(slab(t, sd.side));
     auto payload = torch::cat(rows, 0);
-    auto [alpha, beta, cosine] = points(sd.side);
+    auto const& op = operands(sd.side);
     for (int64_t r0 = 0; r0 < payload.size(0); r0 += nvar)
-      rot.face_rows_to_cart_(payload.narrow(0, r0 + IVX, 3), panel, alpha, beta,
-                             cosine);
+      rot.face_rows_to_cart_(payload.narrow(0, r0 + IVX, 3), panel, op);
     mine[k] = pmb->board_buffer({tag, sd.side, 0}, payload);
     mine[k].copy_(payload);
   }
@@ -178,10 +206,9 @@ void reconcile_panel_seams(FluxRegister& reg, MeshBlockImpl const* pmb,
       g = -g;
     else
       g = g.clone();  // a board hands over the owner's tensor
-    auto [alpha, beta, cosine] = points(sd.side);
+    auto const& op = operands(sd.side);
     for (int64_t r0 = 0; r0 < g.size(0); r0 += nvar)
-      rot.cart_to_face_rows_(g.narrow(0, r0 + IVX, 3), panel, alpha, beta,
-                             cosine);
+      rot.cart_to_face_rows_(g.narrow(0, r0 + IVX, 3), panel, op);
     like.copy_(g);
     slab(faces[d].unsqueeze(0), sd.side).fill_(true);
   }

@@ -69,20 +69,37 @@ void PanelRotation::cart_to_contra_(torch::Tensor vel, int panel,
   cs_cart_to_contra_(vel, alpha, beta, panel);
 }
 
+PanelRotation::FaceOperands PanelRotation::face_operands(
+    std::vector<int64_t> const& shape, torch::Tensor alpha, torch::Tensor beta,
+    torch::Tensor cosine) {
+  return {cs_metric_at(alpha.expand(shape), beta.expand(shape)),
+          cosine.expand(shape).contiguous()};
+}
+
 void PanelRotation::face_rows_to_cart_(torch::Tensor rows, int panel,
                                        torch::Tensor alpha, torch::Tensor beta,
                                        torch::Tensor cosine) const {
   auto shape = rows[0].sizes().vec();  // own the sizes: rows[0] is a temporary
-  coord_vec_raise_(rows, cosine.expand(shape).contiguous());
-  cs_contra_to_cart_(rows, alpha.expand(shape), beta.expand(shape), panel);
+  face_rows_to_cart_(rows, panel, face_operands(shape, alpha, beta, cosine));
 }
 
 void PanelRotation::cart_to_face_rows_(torch::Tensor rows, int panel,
                                        torch::Tensor alpha, torch::Tensor beta,
                                        torch::Tensor cosine) const {
   auto shape = rows[0].sizes().vec();  // own the sizes: rows[0] is a temporary
-  cs_cart_to_contra_(rows, alpha.expand(shape), beta.expand(shape), panel);
-  coord_vec_lower_(rows, cosine.expand(shape).contiguous());
+  cart_to_face_rows_(rows, panel, face_operands(shape, alpha, beta, cosine));
+}
+
+void PanelRotation::face_rows_to_cart_(torch::Tensor rows, int panel,
+                                       FaceOperands const& op) const {
+  coord_vec_raise_(rows, op.cosine);
+  cs_contra_to_cart_at_(rows, op.metric, panel);
+}
+
+void PanelRotation::cart_to_face_rows_(torch::Tensor rows, int panel,
+                                       FaceOperands const& op) const {
+  cs_cart_to_contra_at_(rows, op.metric, panel);
+  coord_vec_lower_(rows, op.cosine);
 }
 
 torch::Tensor PanelRotation::matrix(int panel, torch::Tensor alpha,

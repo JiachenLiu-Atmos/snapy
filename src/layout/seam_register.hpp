@@ -1,10 +1,15 @@
 #pragma once
 
 // C/C++
+#include <map>
+#include <tuple>
 #include <vector>
 
 // torch
 #include <torch/torch.h>
+
+// snap
+#include <snap/coord/coord_rotation.hpp>
 
 namespace snap {
 
@@ -26,6 +31,23 @@ class MeshBlockImpl;
 //! A no-op off the cubed sphere. Messages carry tag + the receiver's side.
 void reconcile_panel_seams(FluxRegister& reg, MeshBlockImpl const* pmb,
                            int tag);
+
+//! the rotation operands of a block's panel-seam sides (metric at the face
+//! points and face cosine), a function of the grid alone: reconcile_panel_seams
+//! builds a side's once and reuses it every stage. Each is stamped with the
+//! grid tensors it reads (storage, version counter, dtype, device, shape), so
+//! a grid that is moved, reallocated or edited in place rebuilds it. builds
+//! counts the side builds.
+struct SeamRotationCache {
+  using Stamp =
+      std::tuple<void const*, int64_t, int, int, int, std::vector<int64_t>>;
+  struct Side {
+    std::vector<Stamp> stamp;
+    PanelRotation::FaceOperands op;
+  };
+  std::map<int, Side> sides;
+  int64_t builds = 0;
+};
 
 //! boundary.prescribed: S's mask for R's set_prescribed, per active
 //! direction, on every register instance (the hydro's and each Scalar
