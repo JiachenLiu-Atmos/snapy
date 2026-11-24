@@ -491,6 +491,9 @@ snapy_add_python_test(test_execution_capability TIMEOUT 120 LABELS "python;hydro
 snapy_add_python_test(test_graph_pool_recapture TIMEOUT 600 LABELS "python;hydro")
 snapy_add_python_test(test_graph_user_forcing TIMEOUT 600 LABELS "python;hydro;forcing")
 snapy_add_python_test(test_cubed_sphere_capture TIMEOUT 900 LABELS "python;hydro")
+# a stretched x1 (explicit faces) cubed sphere captures: no host copy of the
+# x1 reference rows inside a captured segment
+snapy_add_python_test(test_graph_stretched_x1 TIMEOUT 900 LABELS "python;hydro")
 # the panel-seam rotation operands are built once per grid and rebuilt on a change
 snapy_add_python_test(test_seam_rotation_cache TIMEOUT 300 LABELS "python;hydro;cubed-sphere")
 snapy_add_python_test(test_mesh_capture_moist TIMEOUT 900 LABELS "python;hydro;eos")
@@ -518,7 +521,7 @@ set_tests_properties(
   test_graph_capture_lifts_python test_graph_outflow_refused_python
   test_sk3_capture_moist_python test_graph_implicit_dt_python
   test_graph_chemistry_slot_python test_graph_mesh_chemistry_python
-  test_graph_implicit_python
+  test_graph_implicit_python test_graph_stretched_x1_python
   PROPERTIES SKIP_RETURN_CODE 125)
 snapy_add_python_test(test_fp32_restart TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-restart")
 snapy_add_python_test(test_fp32_policy TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
