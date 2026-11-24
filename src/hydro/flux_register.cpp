@@ -204,13 +204,15 @@ void RegisterMonitor::begin_stage(int stage) {
 
 void RegisterMonitor::place_amounts(torch::Device device) {
   auto wide = device.is_mps() ? torch::kFloat32 : torch::kFloat64;  // no f64
-  if (_step_amount.device() == device && _step_amount.scalar_type() == wide)
-    return;
+  auto placed = [&](torch::Tensor const& t) {
+    return t.device() == device && t.scalar_type() == wide;
+  };
+  if (placed(_step_amount) && placed(_rate) && placed(_post)) return;
   // the cast happens on the host, then the move: MPS cannot hold float64,
   // so a float64 tensor must never be moved there and cast afterwards
-  _step_amount = _step_amount.to(wide).to(device);
-  _rate = _rate.to(wide).to(device);
-  _post = _post.to(wide).to(device);
+  if (!placed(_step_amount)) _step_amount = _step_amount.to(wide).to(device);
+  if (!placed(_rate)) _rate = _rate.to(wide).to(device);
+  if (!placed(_post)) _post = _post.to(wide).to(device);
 }
 
 std::vector<torch::Tensor> RegisterMonitor::amount_storage() const {
