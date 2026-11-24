@@ -572,12 +572,9 @@ std::vector<std::string> StageExecutor::config_reasons(int block) const {
     why.push_back("geometry is " + op->coord()->type() +
                   ", not cartesian or a cubed sphere");
   if (hydro->eos()->limiter()) why.push_back("the EOS limiter is on");
-  if (hydro->eos()->type() != "ideal-moist")
-    why.push_back("equation of state is " + hydro->eos()->type() +
-                  ", not ideal-moist");
-  if (hydro->riemann()->type() != "hllc")
-    why.push_back("riemann solver is " + hydro->riemann()->type() +
-                  ", not hllc");
+  // any equation of state and Riemann solver: the ideal-gas EOS and lmars
+  // read no host value either (the shipped examples/straka.yaml captures,
+  // tests/test_graph_capture_lifts.py)
   if (op->intg()->type() != "rk3")
     why.push_back("integration type is " + op->intg()->type() + ", not rk3");
   // N blocks (B2): the blocks of one process capture. Their exchanges inside
@@ -593,10 +590,11 @@ std::vector<std::string> StageExecutor::config_reasons(int block) const {
     why.push_back(
         "an x1 split (pz > 1): its relays inside the stage are not cut into "
         "segments yet (P2, P3)");
-  if (!hydro->grav() || hydro->coriolis() || hydro->diffusion() ||
-      hydro->bodyHeat() || hydro->botHeat() || hydro->topCool() ||
-      hydro->relaxBotComp() || hydro->relaxBotTemp() || hydro->relaxBotVelo() ||
-      hydro->topSpongeLyr() || hydro->botSpongeLyr() || hydro->plumeForcing())
+  // no forcing block at all captures as const-gravity does
+  if (hydro->coriolis() || hydro->diffusion() || hydro->bodyHeat() ||
+      hydro->botHeat() || hydro->topCool() || hydro->relaxBotComp() ||
+      hydro->relaxBotTemp() || hydro->relaxBotVelo() || hydro->topSpongeLyr() ||
+      hydro->botSpongeLyr() || hydro->plumeForcing())
     why.push_back("forcing is not const-gravity alone");
   // an outflow (radiating) ghost fill checks its inputs on the host (#314):
   // per op (the boundaries op, eager) unless conversion-order 4 also fills
