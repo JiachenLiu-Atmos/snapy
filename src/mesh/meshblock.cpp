@@ -460,6 +460,18 @@ void MeshBlockImpl::register_flux_storage() {
       if (amounts[i].device() == mon.counters.device())
         _state.register_storage(names[i], amounts[i]);
   }
+  // V3 S4: the stage's count masks and the wall planes sit in fixed storage
+  // that the advance writes and the combine reduces, then zeroes; a warm-up
+  // of the combine leaves them zeroed, so they are restored like the amounts
+  // before the capture reads them (allocated at a stage's first post, so a
+  // later registration finds them)
+  if (mon.count_storage().defined())
+    _state.register_storage("freg.counts", mon.count_storage());
+  if (pscalar && pscalar->freg.monitor().count_storage().defined())
+    _state.register_storage("sreg.counts",
+                            pscalar->freg.monitor().count_storage());
+  if (_wall_batch && _wall_batch->storage().defined())
+    _state.register_storage("wall_batch", _wall_batch->storage());
   // V3 C1: the implicit correction's step status, FP64-stage predicate and
   // meters, written in every stage with the solve
   if (phydro->picorr)

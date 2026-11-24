@@ -73,14 +73,21 @@ class RegisterMonitor {
   //! rewrites them at the redo's own begin_stage/end_stage (V3 S4)
   void rollback();
 
-  //! += n. A reduced count (0-d) adds at once; a mask or a vector waits in
-  //! the stage's batch and is reduced with the others by flush_counts()
-  //! (V3 S4: one segment sum per stage, not one per mask)
+  //! += n. A reduced count (0-d) adds at once; a mask or a vector is copied
+  //! into its slot of the stage's fixed count buffer and reduced with the
+  //! others by flush_counts() (V3 S4: one segment sum per stage, not one
+  //! per mask)
   void count(std::string const& name, torch::Tensor const& n);
-  //! the stage's pending masks into the counters: one cat, one integer
-  //! cumsum, one gather of the segment ends, one add (no atomics; V3 S4);
-  //! called by end_stage (inside the captured stage)
+  //! the stage's count buffer into the counters: one integer cumsum, one
+  //! gather of the segment ends, one add, then the buffer is zeroed (no
+  //! atomics; V3 S4); called by end_stage, inside the captured stage, and
+  //! always the same launches once the buffer exists, so a capture of the
+  //! combine replays the reduction over what the replayed advance wrote
   void flush_counts();
+  //! the count buffer, for the stage executor's save list: a warm-up of the
+  //! combine reduces and zeroes it, and the capture must read what the
+  //! advance wrote (empty before the first mask of a stage)
+  torch::Tensor count_storage() const { return _pend_buf; }
   void record_min(std::string const& name, torch::Tensor const& v);
   void flag_retry(std::string const& cause, torch::Tensor const& any);  // OR
 
@@ -143,14 +150,23 @@ class RegisterMonitor {
   //! fold of the stages ended so far, written by amounts()
   torch::Tensor _rate, _post;
   mutable torch::Tensor _step_amount;
-  //! the stage's pending count masks (flattened) and their counter indices;
-  //! the segment ends [2, ncounters, dup] into the cumulative sum and the
-  //! leading zero element are cached per pattern (sizes and indices)
-  std::vector<torch::Tensor> _pend;
-  std::vector<int> _pend_idx;
+  //! the stage's count masks in fixed device storage: one int64 buffer
+  //! behind a leading zero element, one slot per post in the stage's order
+  //! (the pattern: counter index and numel per slot, grown at a new post,
+  //! eager). A host queue of the masks would be drained by the combine's
+  //! first warm-up and never refilled by a replayed advance, so the captured
+  //! combine would count nothing (V3 S4). The segment ends [2, ncounters,
+  //! dup] into the cumulative sum are cached per pattern
+  torch::Tensor _pend_buf;
   std::vector<int64_t> _pend_pattern;
-  torch::Tensor _pend_ends, _pend_zero;
+  std::vector<int64_t> _pend_off;
+  size_t _pend_cursor = 0;
+  torch::Tensor _pend_ends;
   int64_t _pend_dup = 1;
+  //! slot k of the stage holds (counter, numel): grow or rebuild the buffer
+  //! and the segment ends when it is new or differs (eager, never captured)
+  void pend_slot_(size_t k, int counter, int64_t numel,
+                  torch::Tensor const& like);
   int _stage = 0, _ended = 0;  // the current slot; stages ended this step
   std::vector<double> _w1;     // per stage, recorded at end_stage
   std::vector<StepDt> _w2dt;   // per stage, recorded at end_stage
@@ -163,31 +179,56 @@ class RegisterMonitor {
 
 //! V3 S4: the prescribed-wall rates of one stage, hydro and scalar
 //! registers, x1 to x3, booked in one batch at the stage's end
-//! (MeshBlock::stage_combine, before end_stage): one cat of the gathered
-//! wall planes, one product with the cached -area weights, one segment sum
-//! over the rows, one add per register. A register without a batch books
-//! its rate at the call (tests).
+//! (MeshBlock::stage_combine, before end_stage): the gathered wall planes
+//! sit in one fixed device buffer, one slot per register and direction;
+//! the flush is one product with the cached -area weights, one segment sum
+//! over the rows, one add per register, then the buffer is zeroed. Fixed
+//! storage, not a host queue of the planes: a user forcing splits the stage
+//! into a captured advance and a captured combine, the combine's first
+//! warm-up would drain a queue, its capture would then record no flush and
+//! its replays never run the host push again, so the wall rates would be
+//! lost under graph while the state stays equal. A register without a
+//! batch books its rate at the call (tests).
 class WallBatch {
  public:
   //! planes_flat: the gathered wall planes of one register and direction,
-  //! [nvar, faces] flattened; the batch sums each of the nvar rows
+  //! [nvar, faces] flattened, copied into their slot; the slot is registered
+  //! at its first push (eager, before any capture) and the batch sums each
+  //! of the nvar rows at the flush
   void push(torch::Tensor const& planes_flat, torch::Tensor const& weights_flat,
             RegisterMonitor* monitor, int amount_index, int64_t nvar);
+  //! book every slot's rate and zero the buffer: always the same launches
+  //! once a slot exists, so eager and a captured combine do the same
   void flush();
+  //! zero the buffer (a rejected attempt's planes)
   void clear();
-  bool empty() const { return _planes.empty(); }
+  bool empty() const { return _pattern.empty(); }
+  //! the buffer, for the stage executor's save list: a warm-up of the
+  //! combine books and zeroes it, and the capture must read what the
+  //! advance wrote (empty before the first push)
+  torch::Tensor storage() const { return _buf; }
 
  private:
-  std::vector<torch::Tensor> _planes, _weights;
+  //! per slot: the monitor and amount index it books, the weights it was
+  //! registered with, rows (nvar), numel and the offset into the buffer
   std::vector<RegisterMonitor*> _monitor;
   std::vector<int> _index;
-  std::vector<int64_t> _nvar;
-  std::vector<int64_t> _pattern;  // per entry: rows, numel
-  //! cached per pattern: the padded weights [rows, M], the gather index
-  //! [rows, M] into the cat of the planes (the last element is a zero pad),
-  //! and that zero; a dense row sum is deterministic, which a scatter-add
+  std::vector<torch::Tensor> _weights;
+  std::vector<int64_t> _pattern;  // per slot: rows, numel
+  std::vector<int64_t> _off;
+  //! the slots, then one zero element the dense rows are padded from
+  torch::Tensor _buf;
+  //! per layout: the padded weights [rows, M] and the gather index [rows, M]
+  //! into the buffer; a dense row sum is deterministic, which a scatter-add
   //! (index_add_) on CUDA is not, and graph must equal eager bitwise
-  torch::Tensor _w, _gidx, _zero;
+  torch::Tensor _w, _gidx;
+  int64_t _rows = 0, _M = 0;
+  //! the slot of (monitor, amount_index, nvar, numel), registered when new
+  //! or when the buffer must move with the planes (eager, never captured)
+  size_t slot_(torch::Tensor const& planes_flat,
+               torch::Tensor const& weights_flat, RegisterMonitor* monitor,
+               int amount_index, int64_t nvar);
+  void layout_(torch::TensorOptions const& opts);
 };
 
 class FluxRegister {

@@ -52,8 +52,8 @@ void RegisterMonitor::zero_attempt_() {
     _rate.zero_();
     _post.zero_();
   }
-  _pend.clear();  // a rejected attempt's masks count nothing
-  _pend_idx.clear();
+  if (_pend_buf.defined()) _pend_buf.zero_();  // a rejected attempt's masks
+  _pend_cursor = 0;
 }
 
 void RegisterMonitor::begin_step() {
@@ -74,9 +74,11 @@ int RegisterMonitor::retry_index(std::string const& name) const {
 
 void RegisterMonitor::count(std::string const& name, torch::Tensor const& n) {
   int i = counter_index(name);
-  if (n.dim() > 0) {  // a mask or a vector: the stage's batch (flush_counts)
-    _pend_idx.push_back(i);
-    _pend.push_back(n.reshape({-1}));
+  if (n.dim() > 0) {  // a mask or a vector: its slot of the stage's buffer
+    auto flat = n.reshape({-1});
+    pend_slot_(_pend_cursor, i, flat.numel(), flat);
+    _pend_buf.narrow(0, 1 + _pend_off[_pend_cursor], flat.numel()).copy_(flat);
+    ++_pend_cursor;
     return;
   }
   // a reduced count adds straight in, one launch: add_ reads an integer
@@ -89,56 +91,68 @@ void RegisterMonitor::count(std::string const& name, torch::Tensor const& n) {
   counters[i].add_(v);
 }
 
+void RegisterMonitor::pend_slot_(size_t k, int counter, int64_t numel,
+                                 torch::Tensor const& like) {
+  auto device = like.device();
+  bool same = 2 * k + 1 < _pend_pattern.size() &&
+              _pend_pattern[2 * k] == counter &&
+              _pend_pattern[2 * k + 1] == numel && _pend_buf.defined() &&
+              _pend_buf.device() == device;
+  if (same) return;
+  // a new or changed slot: the pattern from k on is this stage's, the buffer
+  // and the segment ends are laid out again (the slots before k keep their
+  // contents when the buffer stays on its device)
+  _pend_pattern.resize(2 * k);
+  _pend_pattern.push_back(counter);
+  _pend_pattern.push_back(numel);
+  _pend_off.clear();
+  int64_t N = 0;
+  for (size_t j = 0; 2 * j < _pend_pattern.size(); ++j) {
+    _pend_off.push_back(N);
+    N += _pend_pattern[2 * j + 1];
+  }
+  auto buf = torch::zeros({1 + N}, like.options().dtype(torch::kInt64));
+  if (_pend_buf.defined() && _pend_buf.device() == device && k > 0) {
+    int64_t keep = 1 + _pend_off[k];
+    buf.narrow(0, 0, keep).copy_(_pend_buf.narrow(0, 0, keep));
+  }
+  _pend_buf = buf;
+  int64_t nc = counters.size(0);
+  std::vector<std::vector<std::pair<int64_t, int64_t>>> seg(nc);
+  for (size_t j = 0; 2 * j < _pend_pattern.size(); ++j) {
+    // cs[0] is the zero element: a slot at offset o spans cs[o] .. cs[o + n]
+    int64_t o = _pend_off[j], n = _pend_pattern[2 * j + 1];
+    seg[_pend_pattern[2 * j]].emplace_back(o, o + n);
+  }
+  size_t m = 1;
+  for (auto const& v : seg) m = std::max(m, v.size());
+  _pend_dup = static_cast<int64_t>(m);
+  std::vector<int64_t> ends(2 * nc * m, 0);  // [2, nc, m]: ends, starts
+  for (int64_t c = 0; c < nc; ++c)
+    for (size_t j = 0; j < seg[c].size(); ++j) {
+      ends[c * m + j] = seg[c][j].second;
+      ends[nc * m + c * m + j] = seg[c][j].first;
+    }
+  _pend_ends = torch::tensor(ends, torch::kInt64).to(device);
+}
+
 void RegisterMonitor::flush_counts() {
-  if (_pend.empty()) return;
-  // V3 S4: the segment sums without atomics. The masks are laid out
-  // behind one zero element and summed as integers by one cumulative sum
-  // over the batch, so a segment's count is cs[end] - cs[start] (exact: the
+  if (!_pend_buf.defined()) return;
+  // V3 S4: the segment sums without atomics. The slots lie behind one zero
+  // element and are summed as integers by one cumulative sum over the
+  // buffer, so a segment's count is cs[end] - cs[start] (exact: the
   // additions are integer); the ends of each counter's segments are gathered
   // densely (zero-padded to the largest number of segments per counter: the
   // pad points at the zero element) and summed along the segment axis; then
-  // one add into the counters. No index_add_: that scatter-adds every mask
-  // element with FP64 atomics on CUDA.
-  std::vector<int64_t> pattern;
-  for (size_t k = 0; k < _pend.size(); ++k) {
-    pattern.push_back(_pend_idx[k]);
-    pattern.push_back(_pend[k].numel());
-  }
-  auto device = _pend[0].device();
-  if (!_pend_zero.defined() || _pend_zero.device() != device ||
-      _pend_zero.scalar_type() != _pend[0].scalar_type())
-    _pend_zero = torch::zeros({1}, _pend[0].options());
-  if (pattern != _pend_pattern || !_pend_ends.defined() ||
-      _pend_ends.device() != device) {
-    int64_t nc = counters.size(0);
-    std::vector<std::vector<std::pair<int64_t, int64_t>>> seg(nc);
-    int64_t pos = 1;  // cs[0] is the zero element
-    for (size_t k = 0; k < _pend.size(); ++k) {
-      seg[_pend_idx[k]].emplace_back(pos - 1, pos + _pend[k].numel() - 1);
-      pos += _pend[k].numel();
-    }
-    size_t m = 1;
-    for (auto const& v : seg) m = std::max(m, v.size());
-    _pend_dup = static_cast<int64_t>(m);
-    std::vector<int64_t> ends(2 * nc * m, 0);  // [2, nc, m]: ends, starts
-    for (int64_t c = 0; c < nc; ++c)
-      for (size_t j = 0; j < seg[c].size(); ++j) {
-        ends[c * m + j] = seg[c][j].second;
-        ends[nc * m + c * m + j] = seg[c][j].first;
-      }
-    _pend_ends = torch::tensor(ends, torch::kInt64).to(device);
-    _pend_pattern = pattern;
-  }
-  std::vector<torch::Tensor> parts;
-  parts.reserve(_pend.size() + 1);
-  parts.push_back(_pend_zero);
-  parts.insert(parts.end(), _pend.begin(), _pend.end());
-  auto cs = torch::cat(parts).cumsum(0, torch::kInt64);
+  // one add into the counters and one zero of the buffer, so a slot no
+  // poster wrote this stage counts nothing. No index_add_: that scatter-adds
+  // every mask element with FP64 atomics on CUDA.
+  auto cs = _pend_buf.cumsum(0, torch::kInt64);
   auto g =
       cs.index_select(0, _pend_ends).view({2, counters.size(0), _pend_dup});
   counters.add_((g[0] - g[1]).sum(1));
-  _pend.clear();
-  _pend_idx.clear();
+  _pend_buf.zero_();
+  _pend_cursor = 0;
 }
 
 void RegisterMonitor::record_min(std::string const& name,
@@ -200,6 +214,7 @@ void RegisterMonitor::begin_stage(int stage) {
   TORCH_CHECK(stage >= 0, "[FluxRegister] begin_stage: ", stage);
   if (_rate.defined() && stage >= _rate.size(0)) grow_slots_(stage + 1);
   _stage = stage;
+  _pend_cursor = 0;  // the stage's posts fill the count slots from the first
 }
 
 void RegisterMonitor::place_amounts(torch::Device device) {
@@ -275,78 +290,94 @@ void RegisterMonitor::book_index(int i, torch::Tensor const& rate) {
   _rate[_stage][i].add_(rate.to(_rate.scalar_type()));
 }
 
+size_t WallBatch::slot_(torch::Tensor const& planes_flat,
+                        torch::Tensor const& weights_flat,
+                        RegisterMonitor* monitor, int amount_index,
+                        int64_t nvar) {
+  int64_t numel = planes_flat.numel();
+  for (size_t k = 0; k < _monitor.size(); ++k)
+    if (_monitor[k] == monitor && _index[k] == amount_index &&
+        _pattern[2 * k] == nvar && _pattern[2 * k + 1] == numel)
+      return k;
+  // a new slot (the first push of a register and direction, eager): the
+  // buffer and the layout are built again over every slot
+  _monitor.push_back(monitor);
+  _index.push_back(amount_index);
+  _weights.push_back(weights_flat);
+  _pattern.push_back(nvar);
+  _pattern.push_back(numel);
+  layout_(planes_flat.options());
+  return _monitor.size() - 1;
+}
+
+void WallBatch::layout_(torch::TensorOptions const& opts) {
+  // every (register, direction) row laid into a dense [rows, M] matrix,
+  // padded with the zero element behind the slots
+  _off.clear();
+  int64_t N = 0, rows = 0, M = 0;
+  for (size_t k = 0; k < _monitor.size(); ++k) {
+    int64_t nvar = _pattern[2 * k], n = _pattern[2 * k + 1];
+    _off.push_back(N);
+    N += n;
+    rows += nvar;
+    M = std::max(M, n / nvar);
+  }
+  auto buf = torch::zeros({N + 1}, opts);
+  if (_buf.defined() && _buf.device() == opts.device() &&
+      _buf.scalar_type() == opts.dtype()) {
+    int64_t keep = std::min(N, _buf.numel() - 1);  // the slots already held
+    buf.narrow(0, 0, keep).copy_(_buf.narrow(0, 0, keep));
+  }
+  _buf = buf;
+  std::vector<int64_t> gidx(rows * M, N);
+  std::vector<double> wpad(rows * M, 0.);
+  int64_t off = 0;
+  for (size_t k = 0; k < _monitor.size(); ++k) {
+    int64_t nvar = _pattern[2 * k], n = _pattern[2 * k + 1], m = n / nvar;
+    // to the host first, then to double: a device that holds no float64
+    // (MPS) cannot cast before the copy
+    auto w = _weights[k].to(torch::kCPU).to(torch::kFloat64).contiguous();
+    auto const* wp = w.data_ptr<double>();
+    for (int64_t r = 0; r < nvar; ++r)
+      for (int64_t c = 0; c < m; ++c) {
+        gidx[(off + r) * M + c] = _off[k] + r * m + c;
+        wpad[(off + r) * M + c] = wp[r * m + c];
+      }
+    off += nvar;
+  }
+  _gidx = torch::tensor(gidx, torch::kInt64).to(opts.device());
+  _w = torch::tensor(wpad, torch::TensorOptions().dtype(opts.dtype()))
+           .to(opts.device())
+           .view({rows, M});
+  _rows = rows;
+  _M = M;
+}
+
 void WallBatch::push(torch::Tensor const& planes_flat,
                      torch::Tensor const& weights_flat,
                      RegisterMonitor* monitor, int amount_index, int64_t nvar) {
-  _planes.push_back(planes_flat);
-  _weights.push_back(weights_flat);
-  _monitor.push_back(monitor);
-  _index.push_back(amount_index);
-  _nvar.push_back(nvar);
+  size_t k = slot_(planes_flat, weights_flat, monitor, amount_index, nvar);
+  if (_buf.device() != planes_flat.device() ||
+      _buf.scalar_type() != planes_flat.scalar_type())
+    layout_(planes_flat.options());  // the planes moved (eager)
+  _buf.narrow(0, _off[k], planes_flat.numel()).copy_(planes_flat);
 }
 
 void WallBatch::clear() {
-  _planes.clear();
-  _weights.clear();
-  _monitor.clear();
-  _index.clear();
-  _nvar.clear();
+  if (_buf.defined()) _buf.zero_();
 }
 
 void WallBatch::flush() {
-  if (_planes.empty()) return;
-  std::vector<int64_t> pattern;
-  int64_t rows = 0, M = 0;
-  for (size_t k = 0; k < _planes.size(); ++k) {
-    int64_t nvar =
-        _nvar[k];  // the planes' rows (the scalar register names none)
-    pattern.push_back(nvar);
-    pattern.push_back(_planes[k].numel());
-    rows += nvar;
-    M = std::max(M, _planes[k].numel() / nvar);
-  }
-  auto opts = _planes.front().options();
-  if (pattern != _pattern || !_w.defined() || _w.device() != opts.device()) {
-    // once per pattern: every (register, direction) row laid into a dense
-    // [rows, M] matrix, padded with a zero element appended to the cat
-    int64_t N = 0;
-    for (auto const& p : _planes) N += p.numel();
-    _zero = torch::zeros({1}, opts);
-    std::vector<int64_t> gidx(rows * M, N);
-    std::vector<double> wpad(rows * M, 0.);
-    int64_t off = 0, base = 0;
-    for (size_t k = 0; k < _planes.size(); ++k) {
-      int64_t nvar = pattern[2 * k], n = pattern[2 * k + 1], m = n / nvar;
-      // to the host first, then to double: a device that holds no float64
-      // (MPS) cannot cast before the copy
-      auto w = _weights[k].to(torch::kCPU).to(torch::kFloat64).contiguous();
-      auto const* wp = w.data_ptr<double>();
-      for (int64_t r = 0; r < nvar; ++r)
-        for (int64_t c = 0; c < m; ++c) {
-          gidx[(off + r) * M + c] = base + r * m + c;
-          wpad[(off + r) * M + c] = wp[r * m + c];
-        }
-      off += nvar;
-      base += n;
-    }
-    _gidx = torch::tensor(gidx, torch::kInt64).to(opts.device());
-    _w = torch::tensor(wpad, torch::TensorOptions().dtype(opts.dtype()))
-             .to(opts.device())
-             .view({rows, M});
-    _pattern = pattern;
-  }
-  std::vector<torch::Tensor> parts(_planes);
-  parts.push_back(_zero);
-  auto v = torch::cat(parts);
-  auto dense = v.index_select(0, _gidx.view({-1})).view({rows, M});
+  if (!_buf.defined()) return;
+  auto dense = _buf.index_select(0, _gidx.view({-1})).view({_rows, _M});
   auto rate = (dense * _w).sum(1);  // one dense row reduction, deterministic
   int64_t off = 0;
-  for (size_t k = 0; k < _planes.size(); ++k) {
-    int64_t nvar = pattern[2 * k];
+  for (size_t k = 0; k < _monitor.size(); ++k) {
+    int64_t nvar = _pattern[2 * k];
     _monitor[k]->book_index(_index[k], rate.narrow(0, off, nvar));
     off += nvar;
   }
-  clear();
+  _buf.zero_();
 }
 
 void RegisterMonitor::post(std::string const& name, AmountKind kind,
