@@ -94,6 +94,7 @@ StageExecutor::StageExecutor(std::vector<MeshBlockImpl*> blocks)
   TORCH_CHECK(!_blocks.empty(), "StageExecutor: no blocks");
   for (auto* b : _blocks) TORCH_CHECK(b, "StageExecutor: a null block");
   _dt.resize(_blocks.size());
+  _vars_reasons.resize(_blocks.size());
   _schedules.resize(_blocks.size());
   _schedule_sig.assign(_blocks.size(), -1);
   _schedule_rebuilt.assign(_blocks.size(), 0);
@@ -504,8 +505,57 @@ void StageExecutor::align_captures(std::vector<Variables>& vars, double dt,
 #endif
 }
 
+void StageExecutor::agree(std::vector<Variables> const& vars) {
+  TORCH_CHECK(static_cast<int>(vars.size()) == num_blocks(),
+              "StageExecutor::agree: one Variables map per block");
+  for (int b = 0; b < num_blocks(); ++b)
+    _vars_reasons[b] = vars_reasons(vars[b]);
+}
+
+std::vector<std::string> StageExecutor::vars_reasons(Variables const& vars) {
+  std::vector<std::string> why;
+  auto it = vars.find("hydro_u");
+  if (it == vars.end() || !it->second.defined() || !it->second.is_cuda())
+    why.push_back("the state is not on a CUDA device");
+  if (vars.count("solid")) why.push_back("a solid mask is set");
+  return why;
+}
+
 std::vector<std::string> StageExecutor::capture_reasons(
     int block, Variables const& vars) const {
+  auto why = vars_reasons(vars);
+  for (auto& r : config_reasons(block)) why.push_back(std::move(r));
+  if (!why.empty() || num_blocks() < 2) return why;
+  // B3 (d)/(e): a Mesh whose blocks disagree runs eager as a whole. A block
+  // that could capture while another runs eagerly (it refuses, or its mode
+  // is eager) would meet that block's in-stage exchanges at the same-process
+  // rendezvous a different number of times (warm-up and capture against one
+  // eager pass), and the Mesh would hang. The other blocks' reasons are
+  // their configuration's, live, and their variables' as of the last
+  // agree() (Mesh::initialize and every Mesh::forward)
+  auto const& mode = block_at(block)->options->execution();
+  for (int b = 0; b < num_blocks(); ++b) {
+    if (b == block) continue;
+    auto const& other = block_at(b)->options->execution();
+    if (other != mode) {
+      why.push_back("a Mesh whose blocks disagree: block " + std::to_string(b) +
+                    " runs " + other + ", block " + std::to_string(block) +
+                    " runs " + mode + ", so the whole Mesh runs eager");
+      break;
+    }
+    auto theirs = config_reasons(b);
+    for (auto const& r : _vars_reasons[b]) theirs.push_back(r);
+    if (!theirs.empty()) {
+      why.push_back("a Mesh whose blocks disagree: block " + std::to_string(b) +
+                    " refuses capture (" + theirs.front() +
+                    "), so the whole Mesh runs eager");
+      break;
+    }
+  }
+  return why;
+}
+
+std::vector<std::string> StageExecutor::config_reasons(int block) const {
   // the prototype tests/straka_cuda_graph.py:16-31 at d6a3c00c: dry Straka
   std::vector<std::string> why;
   auto* pmb = block_at(block);
@@ -514,9 +564,6 @@ std::vector<std::string> StageExecutor::capture_reasons(
 #ifndef USE_CUDA
   why.push_back("snapy was built without CUDA");
 #endif
-  auto it = vars.find("hydro_u");
-  if (it == vars.end() || !it->second.defined() || !it->second.is_cuda())
-    why.push_back("the state is not on a CUDA device");
   // B3: the cubed sphere (gnomonic-equiangle panels of a cubed-sphere
   // layout): its in-stage panel-seam exchanges are cuts
   bool cubed_sphere = op->coord()->type() == "gnomonic-equiangle" &&
@@ -551,7 +598,6 @@ std::vector<std::string> StageExecutor::capture_reasons(
       hydro->relaxBotComp() || hydro->relaxBotTemp() || hydro->relaxBotVelo() ||
       hydro->topSpongeLyr() || hydro->botSpongeLyr() || hydro->plumeForcing())
     why.push_back("forcing is not const-gravity alone");
-  if (vars.count("solid")) why.push_back("a solid mask is set");
   // an outflow (radiating) ghost fill checks its inputs on the host (#314):
   // per op (the boundaries op, eager) unless conversion-order 4 also fills
   // the primitive ghosts with it inside the hydro step (hydro_forward.cpp)

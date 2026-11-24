@@ -118,9 +118,16 @@ class StageExecutor {
   //! it; called before any launch (Mesh::forward: on the calling thread)
   void check_strict(int block, Variables const& vars, int stage) const;
 
-  //! why this block cannot be captured; empty: it can
+  //! why this block cannot be captured; empty: it can. Its own reasons
+  //! (configuration and variables), then, in a multi-block executor, "a
+  //! Mesh whose blocks disagree" when another block refuses capture or runs
+  //! another execution mode: the whole Mesh then runs eager (B3 (d)/(e))
   std::vector<std::string> capture_reasons(int block,
                                            Variables const& vars) const;
+  //! the blocks' variable-dependent reasons, which capture_reasons reads for
+  //! the other blocks of a Mesh; on the calling thread, before the blocks
+  //! run (Mesh::initialize, Mesh::forward)
+  void agree(std::vector<Variables> const& vars);
   //! V3 X7: this block's row of the capability matrix (G7)
   Capability capability(int block, Variables const& vars) const;
 
@@ -154,6 +161,10 @@ class StageExecutor {
   //! in stream order (V3 D); one per block, so blocks replaying on their own
   //! streams (a Mesh's worker pool) never write one another's
   StepDt device_dt(int block, Variables const& vars, double dt);
+  //! a block's reasons from its configuration only
+  std::vector<std::string> config_reasons(int block) const;
+  //! reasons from a block's variables (the state's device, a solid mask)
+  static std::vector<std::string> vars_reasons(Variables const& vars);
   //! the EOS's kintera ThermoY (hydro.eos.thermo), or null
   std::shared_ptr<kintera::ThermoYImpl> thermo_of(int block) const;
   //! the save list: the state, the registered storage and hydro_w
@@ -182,6 +193,8 @@ class StageExecutor {
   //! V3 D: one persistent 0-dim FP64 dt per block on its device, shared by
   //! every graph of that block (each block's worker writes only its own)
   std::vector<torch::Tensor> _dt;
+  //! per block, its variables' reasons as of the last agree()
+  std::vector<std::vector<std::string>> _vars_reasons;
   //! one CUDA graph memory pool per block, shared by its segments' graphs
   //! (a block's graphs replay one after another on one stream); {0, 0}
   //! until its first capture

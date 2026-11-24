@@ -335,6 +335,7 @@ double MeshImpl::initialize(MeshVariables& vars, char const* restart_file) {
         current_time = block_time;
       }
     }
+    executor_->agree(vars);  // B3 (d)/(e): capability rows see the Mesh
     return current_time;
   }
 
@@ -345,6 +346,7 @@ double MeshImpl::initialize(MeshVariables& vars, char const* restart_file) {
   SignalHandler::GetInstance();
 
   run_block_jobs([&](size_t i) { blocks[i]->initialize_under_mesh(vars[i]); });
+  executor_->agree(vars);  // B3 (d)/(e): capability rows see the Mesh
 
   return 0.;
 }
@@ -366,7 +368,11 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
   TORCH_CHECK(vars.size() == blocks.size(),
               "Mesh::forward expects one Variables map per local MeshBlock");
   // V3 B2: the blocks' stages run as graphs on the worker pool; strict
-  // refuses a block that cannot capture here, before any launch
+  // refuses a block that cannot capture here, before any launch. B3 (d)/(e):
+  // a block that disagrees with another (one refuses, or their modes differ)
+  // makes every block eager, so the blocks first share their variables'
+  // reasons
+  executor_->agree(vars);
   for (int i = 0; i < static_cast<int>(blocks.size()); ++i)
     executor_->check_strict(i, vars[i], stage);
   if (stage == 0)
