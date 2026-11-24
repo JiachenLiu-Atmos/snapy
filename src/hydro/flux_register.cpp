@@ -85,22 +85,51 @@ void RegisterMonitor::count(std::string const& name, torch::Tensor const& n) {
 
 void RegisterMonitor::flush_counts() {
   if (_pend.empty()) return;
-  auto v = torch::cat(_pend);
+  // V3 S4 round 6: the segment sums without atomics. The masks are laid out
+  // behind one zero element and summed as integers by one cumulative sum
+  // over the batch, so a segment's count is cs[end] - cs[start] (exact: the
+  // additions are integer); the ends of each counter's segments are gathered
+  // densely (zero-padded to the largest number of segments per counter: the
+  // pad points at the zero element) and summed along the segment axis; then
+  // one add into the counters. No index_add_: that scatter-adds every mask
+  // element with FP64 atomics on CUDA.
   std::vector<int64_t> pattern;
   for (size_t k = 0; k < _pend.size(); ++k) {
     pattern.push_back(_pend_idx[k]);
     pattern.push_back(_pend[k].numel());
   }
-  if (pattern != _pend_pattern || !_pend_index.defined() ||
-      _pend_index.device() != v.device()) {
-    std::vector<int64_t> idx;
-    idx.reserve(v.numel());
-    for (size_t k = 0; k < _pend.size(); ++k)
-      idx.insert(idx.end(), _pend[k].numel(), _pend_idx[k]);
-    _pend_index = torch::tensor(idx, torch::kInt64).to(v.device());
+  auto device = _pend[0].device();
+  if (!_pend_zero.defined() || _pend_zero.device() != device ||
+      _pend_zero.scalar_type() != _pend[0].scalar_type())
+    _pend_zero = torch::zeros({1}, _pend[0].options());
+  if (pattern != _pend_pattern || !_pend_ends.defined() ||
+      _pend_ends.device() != device) {
+    int64_t nc = counters.size(0);
+    std::vector<std::vector<std::pair<int64_t, int64_t>>> seg(nc);
+    int64_t pos = 1;  // cs[0] is the zero element
+    for (size_t k = 0; k < _pend.size(); ++k) {
+      seg[_pend_idx[k]].emplace_back(pos - 1, pos + _pend[k].numel() - 1);
+      pos += _pend[k].numel();
+    }
+    size_t m = 1;
+    for (auto const& v : seg) m = std::max(m, v.size());
+    _pend_dup = static_cast<int64_t>(m);
+    std::vector<int64_t> ends(2 * nc * m, 0);  // [2, nc, m]: ends, starts
+    for (int64_t c = 0; c < nc; ++c)
+      for (size_t j = 0; j < seg[c].size(); ++j) {
+        ends[c * m + j] = seg[c][j].second;
+        ends[nc * m + c * m + j] = seg[c][j].first;
+      }
+    _pend_ends = torch::tensor(ends, torch::kInt64).to(device);
     _pend_pattern = pattern;
   }
-  counters.index_add_(0, _pend_index, v.to(counters.scalar_type()));
+  std::vector<torch::Tensor> parts;
+  parts.reserve(_pend.size() + 1);
+  parts.push_back(_pend_zero);
+  parts.insert(parts.end(), _pend.begin(), _pend.end());
+  auto cs = torch::cat(parts).cumsum(0, torch::kInt64);
+  auto g = cs.index_select(0, _pend_ends).view({2, counters.size(0), _pend_dup});
+  counters.add_((g[0] - g[1]).sum(1));
   _pend.clear();
   _pend_idx.clear();
 }

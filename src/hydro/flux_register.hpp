@@ -71,8 +71,9 @@ class RegisterMonitor {
   //! the stage's batch and is reduced with the others by flush_counts()
   //! (V3 S4 round 5: one segment sum per stage, not one per mask)
   void count(std::string const& name, torch::Tensor const& n);
-  //! the stage's pending masks into the counters: one cat, one cast, one
-  //! index_add_; called by end_stage (inside the captured stage)
+  //! the stage's pending masks into the counters: one cat, one integer
+  //! cumsum, one gather of the segment ends, one add (no atomics; round 6);
+  //! called by end_stage (inside the captured stage)
   void flush_counts();
   void record_min(std::string const& name, torch::Tensor const& v);
   void flag_retry(std::string const& cause, torch::Tensor const& any);  // OR
@@ -137,11 +138,13 @@ class RegisterMonitor {
   torch::Tensor _rate, _post;
   mutable torch::Tensor _step_amount;
   //! the stage's pending count masks (flattened) and their counter indices;
-  //! the segment index is cached per pattern (sizes and indices)
+  //! the segment ends [2, ncounters, dup] into the cumulative sum and the
+  //! leading zero element are cached per pattern (sizes and indices)
   std::vector<torch::Tensor> _pend;
   std::vector<int> _pend_idx;
   std::vector<int64_t> _pend_pattern;
-  torch::Tensor _pend_index;
+  torch::Tensor _pend_ends, _pend_zero;
+  int64_t _pend_dup = 1;
   int _stage = 0, _ended = 0;  // the current slot; stages ended this step
   std::vector<double> _w1;     // per stage, recorded at end_stage
   std::vector<StepDt> _w2dt;   // per stage, recorded at end_stage
