@@ -44,13 +44,13 @@ code.
 | 8 | Moist physics, positivity, floors and limiters | merged (old 8 + old 10) | EF, K | EF owns EOS, floors, positivity, tracers and sedimentation together; the positivity census is the limiter's own record |
 | 9 | Time integration: RK stages, dt and step acceptance | split (from old 7.A) | X (integrator), I (FP64 retry flag), S4 | the stage loop and redo decision, without the bookkeeping now in 10; S4's padded tracer-transfer shifts live here |
 | 10 | The flux register, monitor amounts and conservation budgets | merged (old 13 + new register material) | R, O (budget series), S4 | budgets are read off the register in V3; one home for posts, prescribed faces, the wall batch, amounts, monitor counts and their rollback (order in section 4.1) |
-| 11 | Execution: the stage executor and CUDA graphs | new | X, B3, capture, S4 (launch accounting only) | the central V3 addition; one home for the execution model and graph rules; of S4 it keeps only the launch accounting and the measured eager-graph gap |
+| 11 | Execution: the stage executor and CUDA graphs | new | X, B3, capture, S4 (catalogue and launch accounting) | the central V3 addition; one home for the execution model, the refusal list and the graph rules; of S4 it holds a short cost catalogue that points to the code folds in 4/6/9/10, and the measured eager-graph gap, cited (section 4.2) |
 | 12 | Precision: the FP32 policy | new | X (policy), I, EF, C (their rows) | one policy table governs every FP32 decision; today it would be scattered |
 | 13 | Mesh, layout, exchange and multi-block runs | split (from old 14.A) | S, X (Mesh), B3 | layout, exchange and the same-process rendezvous are the Mesh's own model |
 | 14 | Boundary conditions and immersed solids | kept (old 11) | S | which faces are prescribed and with what; how the register books them is 10 (pointer to the wall batch in 10) |
 | 15 | Configuration, output and restart | merged (old 12 + old 14.B) | O | lane O owns the options schema, writer core and restart together |
-| 16 | Verification and reproducibility | merged (old 15 + old 14.C) | all | the bitwise gates are the verification catalogue's own rules; holds the launch-counting procedure that 11 cites |
-| 17 | Known limits | kept (old 16) | all | unchanged role |
+| 16 | Verification and reproducibility | merged (old 15 + old 14.C) | all, capture | the bitwise gates are the verification catalogue's own rules; holds the capture sweep and its table, and the launch-counting procedure that 11 cites |
+| 17 | Known limits | kept (old 16) | all | pointer rows only (each limit names its home chapter); no numbers repeated |
 | A | Notation | kept | - | |
 | B | Derivation index | kept | - | |
 | C | Test index | kept | - | |
@@ -96,11 +96,13 @@ more than one new chapter; each piece has the single home given above.
 | topic | home | code at the pin |
 |---|---|---|
 | stage executor, segments, execution model | 11 | `src/mesh/stage_executor.*`, `src/mesh/segment.*` |
-| capture rules and allow-lists (EOS ideal-gas/ideal-moist, Riemann lmars/hllc, named refusal reasons) | 11 | `StageExecutor::config_reasons` in `src/mesh/stage_executor.cpp` |
+| capture rules and allow-lists (EOS ideal-gas/ideal-moist, Riemann lmars/hllc), the refusal list with its named reasons | 11 | `StageExecutor::config_reasons` in `src/mesh/stage_executor.cpp` (lines 558-616 at `70f6e15e`) |
+| capture sweep (which shipped tests capture, and the table of results) | 16 | the sweep's committed record, cited when it lands |
+| S4 cost catalogue: one short list of the eager-path folds, each pointing to its home (4, 6, 9, 10), plus the counting method's home (16) | 11 | pointers only; the code is described in the home chapters |
 | the execution default (cuda-graph non-strict on CUDA, eager on CPU, explicit eager honoured) | 11 | see hypothesis H1 |
 | graph = eager bitwise rule; why eager is launch-bound and graph faster | 11 | launches per step and timings as measured, cited from their committed source (see 4.2); no H100 headline |
 | launch-counting procedure (profiler trace; kernel, memcpy and memset events over N steps) | 16 | `docs/v3/closing/tools/speed/bench.py` on the closing-plan branch (`--profile`, `SPEED_PROF_TRACE`) |
-| graph-safe coding (no host reads, fixed shapes, device dt, host state replay does not refresh) | 11 | `src/utils/step_dt.*`, `src/mesh/state_store.hpp` |
+| graph-safe coding (no host reads, no host-to-device copies inside a captured segment, fixed shapes, device dt, host state replay does not refresh) | 11 | `src/utils/step_dt.*`, `src/mesh/state_store.hpp`; the copy rule's example at `70f6e15e` is `src/recon/x1_reference.hpp:140` (rows built on the host at `:62` copied to the device in `evaluate`), see 4.3 |
 | mesh-agree (a Mesh whose blocks disagree runs eager) | 13 | `StageExecutor::agree` in `src/mesh/stage_executor.cpp` |
 | exchange cuts and multi-block capture (B3) | 13 | `src/mesh/exchange_cut.hpp`, `src/layout/exchange.*` |
 | flux register and monitor amounts: posts, prescribed faces, wall batch, stage fold, rollback/redo | 10 | `FluxRegister`, `RegisterMonitor`, `WallBatch` in `src/hydro/flux_register.hpp` |
@@ -130,19 +132,37 @@ prescribed and with what; chapter 10 says how the register books them.
 
 ### 4.2 Measured numbers
 
-Chapter 11 states launches per step and the eager/graph timings as measured, never as reasoned, and cites
-them from a committed source; the counting procedure is chapter 16's. The launch counts and the eager ratios
-quoted in review are not yet in a committed document reachable at this pin; until they are, chapter 11
-names the procedure and leaves the numbers to the measurement it cites. Timings taken on a shared GPU carry
-that caveat and are not headline numbers.
+The S4 table (main eager, the default, explicit eager; ms/step and launches/step; two GPUs, one of them shared,
+with that note) and the bound as ruled (the default CUDA path at least as fast as main eager on every S4 cell;
+CPU eager within 5%; the CUDA eager gap reported) are committed in `docs/v3/closing` on the closing-plan branch
+(`v3/closing-dryrun-plan`, UCzhangxi/snapy), not in this report. Chapter 11 cites that file for the numbers and
+the bound, chapter 16 cites it for the procedure's results, and neither writes a number of its own. The
+counting procedure itself (profiler trace; kernel, memcpy and memset events over N steps) is described in 16.
+Until that file is committed, 11 and 16 carry the citation as an open slot, not a number.
+
+### 4.3 Writing around a fix that has not landed
+
+The capture crash on stretched x1 grids (an H2D copy inside a captured segment, `src/recon/x1_reference.hpp:140`
+at `70f6e15e`) has a fix in progress whose mechanism is not settled at this pin (keep the rows on the device, or
+refuse the case). Chapter 11 states the rule (no host-to-device copy inside a captured segment) and cites the
+mechanism of the pinned commit, whichever it is; if a refusal remains, it is one more entry of the refusal list
+in 11 and a pointer row in 17. Neither chapter is written against an unlanded fix.
+
+### 4.4 The pin
+
+One pin per package (STYLE.md 3.1, `code_pin.yml`): the whole report moves to the commit that lands the
+execution default, by `tools/code_anchors.py bump`; chapter 11 is not pinned separately. This structure stays
+pinned at `70f6e15e` until that commit is on `v3/final`. At `939f7928` (a fast-forward) only
+`src/hydro/flux_register.cpp` changes; line numbers cited here in that file move by up to 10 after line ~204
+(e.g. `:459-465` is `:469-475`, `:502` is `:512`), and those up to line ~204 do not.
 
 ## 5. Hypotheses (not checked in code)
 
 - **H1** (confirmed in review). The S4 default (cuda-graph, non-strict, on CUDA; eager on CPU; an explicit
   `eager` honoured) is a ruling, not yet code at the pin: at `70f6e15e` `integration.execution` defaults to
   `eager` and `execution_strict` to false (`src/mesh/meshblock.hpp:96-97`). Chapter 11 is written against the
-  commit that lands the default, and quotes the bound as ruled: the default CUDA path is at least as fast as
-  main's eager path on every S4 cell (a ruling; not checked here).
+  commit that lands the default, to which the whole report is re-pinned (section 4.4), and cites the bound
+  as ruled from `docs/v3/closing` (section 4.2; a ruling, not checked here).
 - **H2.** Old 10's chemistry material splits cleanly into the chemistry segment (11) and the kintera contract
   (E); not checked against the old chapter's sections.
 - **H3** (resolved in review; two meanings). The positivity census (`PositivityLimiter::census_`,
