@@ -206,9 +206,11 @@ void RegisterMonitor::place_amounts(torch::Device device) {
   auto wide = device.is_mps() ? torch::kFloat32 : torch::kFloat64;  // no f64
   if (_step_amount.device() == device && _step_amount.scalar_type() == wide)
     return;
-  _step_amount = _step_amount.to(device, wide);
-  _rate = _rate.to(device, wide);
-  _post = _post.to(device, wide);
+  // the cast happens on the host, then the move: MPS cannot hold float64,
+  // so a float64 tensor must never be moved there and cast afterwards
+  _step_amount = _step_amount.to(wide).to(device);
+  _rate = _rate.to(wide).to(device);
+  _post = _post.to(wide).to(device);
 }
 
 std::vector<torch::Tensor> RegisterMonitor::amount_storage() const {
@@ -243,7 +245,9 @@ torch::Tensor RegisterMonitor::fold_() const {
   auto opts = _rate.options();
   std::vector<double> c(P, 1.);
   for (int s = S - 2; s >= 0; --s) c[s] = c[s + 1] * _w1[s + 1];
-  auto cpost = torch::tensor(c, torch::kFloat64).to(opts).view({P, 1, 1});
+  auto cpost = torch::tensor(c, torch::TensorOptions().dtype(opts.dtype()))
+                   .to(opts.device())
+                   .view({P, 1, 1});
   auto a = (cpost * _post.narrow(0, 0, P)).sum(0);
   if (S > 0) {
     std::vector<torch::Tensor> w;
@@ -311,7 +315,9 @@ void WallBatch::flush() {
     int64_t off = 0, base = 0;
     for (size_t k = 0; k < _planes.size(); ++k) {
       int64_t nvar = pattern[2 * k], n = pattern[2 * k + 1], m = n / nvar;
-      auto w = _weights[k].to(torch::kCPU, torch::kFloat64).contiguous();
+      // to the host first, then to double: a device that holds no float64
+      // (MPS) cannot cast before the copy
+      auto w = _weights[k].to(torch::kCPU).to(torch::kFloat64).contiguous();
       auto const* wp = w.data_ptr<double>();
       for (int64_t r = 0; r < nvar; ++r)
         for (int64_t c = 0; c < m; ++c) {
@@ -322,7 +328,9 @@ void WallBatch::flush() {
       base += n;
     }
     _gidx = torch::tensor(gidx, torch::kInt64).to(opts.device());
-    _w = torch::tensor(wpad, torch::kFloat64).to(opts).view({rows, M});
+    _w = torch::tensor(wpad, torch::TensorOptions().dtype(opts.dtype()))
+             .to(opts.device())
+             .view({rows, M});
     _pattern = pattern;
   }
   std::vector<torch::Tensor> parts(_planes);
@@ -545,7 +553,7 @@ void FluxRegister::overwrite_(int dim, std::string const& name,
   auto area = dim == 1   ? _coord->face_area1().narrow(2, 0, t.size(3))
               : dim == 2 ? _coord->face_area2().narrow(1, 0, t.size(2))
                          : _coord->face_area3().narrow(0, 0, t.size(1));
-  area = area.to(t.device(), wide);
+  area = area.to(wide).to(t.device());  // cast on the host, then move
   // only the faces that changed contribute: elsewhere after - before is 0
   auto rate = (area * (after.to(wide) - t.to(wide))).sum({1, 2, 3});
   t.copy_(after);
@@ -648,7 +656,7 @@ void FluxRegister::apply_wall_planes_(int dim) {
     auto area = dim == 1   ? _coord->face_area1().narrow(2, 0, t.size(3))
                 : dim == 2 ? _coord->face_area2().narrow(1, 0, t.size(2))
                            : _coord->face_area3().narrow(0, 0, t.size(1));
-    _parea[d] = area.to(t.device(), wide).index_select(ax - 1, _pidx[d]);
+    _parea[d] = area.to(wide).to(t.device()).index_select(ax - 1, _pidx[d]);
     _pneg[d] = torch::where(rows, -1., 0.).to(wopts).unsqueeze(-1);
     _pwt[d] = _parea[d] * _pneg[d];  // -area on the prescribed rows, else 0
     // V3 S4: the prescribed rows of the wall planes as one mask over the
