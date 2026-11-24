@@ -91,7 +91,7 @@ void RegisterMonitor::count(std::string const& name, torch::Tensor const& n) {
 
 void RegisterMonitor::flush_counts() {
   if (_pend.empty()) return;
-  // V3 S4 round 6: the segment sums without atomics. The masks are laid out
+  // V3 S4: the segment sums without atomics. The masks are laid out
   // behind one zero element and summed as integers by one cumulative sum
   // over the batch, so a segment's count is cs[end] - cs[start] (exact: the
   // additions are integer); the ends of each counter's segments are gathered
@@ -134,7 +134,8 @@ void RegisterMonitor::flush_counts() {
   parts.push_back(_pend_zero);
   parts.insert(parts.end(), _pend.begin(), _pend.end());
   auto cs = torch::cat(parts).cumsum(0, torch::kInt64);
-  auto g = cs.index_select(0, _pend_ends).view({2, counters.size(0), _pend_dup});
+  auto g =
+      cs.index_select(0, _pend_ends).view({2, counters.size(0), _pend_dup});
   counters.add_((g[0] - g[1]).sum(1));
   _pend.clear();
   _pend_idx.clear();
@@ -456,7 +457,7 @@ void FluxRegister::begin_step() {
   _monitor.begin_step();
 }
 
-// round 7: the monitor's rollback, not its begin_step, so its host stage
+// V3 S4: the monitor's rollback, not its begin_step, so its host stage
 // bookkeeping survives for a graph-replayed redo (RegisterMonitor::rollback)
 void FluxRegister::rollback() {
   begin_attempt_();
@@ -497,10 +498,10 @@ void FluxRegister::add(int dim, std::string const& name,
   TORCH_CHECK(increment.size(0) == static_cast<int64_t>(rows.size()),
               "[FluxRegister] add '", name, "': ", increment.size(0),
               " increment rows for ", rows.size(), " rows");
-  // round 5b: a contiguous row range is one plain add_ on a narrow; other
-  // row lists add row by row. (Round 5 used index_add_, whose CUDA kernel
-  // adds atomically: for FP64 rows that is a compare-and-swap loop per
-  // element, +0.3 ms a step on c1 and +2.9 ms on S3 for three launches.)
+  // V3 S4: a contiguous row range is one plain add_ on a narrow; other
+  // row lists add row by row. (An earlier V3 S4 version used index_add_, whose
+  // CUDA kernel adds atomically: for FP64 rows that is a compare-and-swap loop
+  // per element, +0.3 ms a step on c1 and +2.9 ms on S3 for three launches.)
   bool contiguous = true;
   for (size_t i = 1; i < rows.size(); ++i)
     if (rows[i] != rows[i - 1] + 1) contiguous = false;
@@ -650,7 +651,7 @@ void FluxRegister::apply_wall_planes_(int dim) {
     _parea[d] = area.to(t.device(), wide).index_select(ax - 1, _pidx[d]);
     _pneg[d] = torch::where(rows, -1., 0.).to(wopts).unsqueeze(-1);
     _pwt[d] = _parea[d] * _pneg[d];  // -area on the prescribed rows, else 0
-    // round 5: the prescribed rows of the wall planes as one mask over the
+    // V3 S4: the prescribed rows of the wall planes as one mask over the
     // total, and the weights laid out like the gathered planes, flattened
     auto shape = t.sizes().vec();
     shape[ax] = static_cast<int64_t>(_pwall[d].size());
@@ -661,7 +662,7 @@ void FluxRegister::apply_wall_planes_(int dim) {
   // area * T * (-1 on the prescribed rows), reduced over the plane's faces
   // (as before, one plane's faces first, then the planes); the write back
   // zeroes the prescribed rows of the gathered planes in one scatter
-  // round 5: gather the wall planes (before), zero their prescribed rows in
+  // V3 S4: gather the wall planes (before), zero their prescribed rows in
   // one masked_fill_ on the total (and on each kept part), and book the rate
   // in the stage's batch (one product and one segment sum for every
   // register and direction at the stage's end); without a batch, book now
@@ -669,7 +670,7 @@ void FluxRegister::apply_wall_planes_(int dim) {
   // the zeroing touches the wall planes only (one masked_fill_ per plane):
   // a mask over the whole total is one launch on CUDA but a full pass over
   // the flux field on CPU, which cost the CPU cells more than the launches
-  // it saved (round 5's first timing)
+  // it saved (an earlier V3 S4 timing)
   for (auto p : _pwall[d]) {
     t.select(ax, p).masked_fill_(rows, 0.);
     for (auto const& name : _kept[d])

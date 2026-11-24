@@ -370,7 +370,7 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
 
   //! hydro_u, scalar_s, scalar_r and the RK backups in fixed storage
   StateStore _state;
-  //! V3 S4 round 5: the stage's prescribed-wall bookings of the hydro and
+  //! V3 S4: the stage's prescribed-wall bookings of the hydro and
   //! scalar registers, flushed once per stage in stage_combine
   std::shared_ptr<WallBatch> _wall_batch;
 

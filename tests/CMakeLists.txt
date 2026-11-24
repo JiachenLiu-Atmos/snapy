@@ -225,7 +225,7 @@ setup_test(test_fix_vapor_volume)
 setup_test(test_fix_vapor_deficit)
 setup_test(test_check_redo_vapor_deficit)
 setup_test(test_flux_register)
-# V3 S4 round 7: the post-implicit apply after a source's post
+# V3 S4: the post-implicit apply after a source's post
 setup_test(test_prescribed_after_sources)
 setup_test(test_species_face_clamp)
 setup_test(test_parentless_cloud_nb1)

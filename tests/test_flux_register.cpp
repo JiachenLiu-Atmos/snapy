@@ -85,7 +85,7 @@ TEST(RegisterMonitor, census_counts_minima_and_retry_flags) {
   m.record_min("ef.pos_min", torch::tensor(0.75));
   m.flag_retry("ef.nan", torch::tensor({false, true}));
   m.flag_retry("ef.nan", torch::tensor(false));  // an OR: stays set
-  m.flush_counts();  // a mask waits in the stage's batch (round 5)
+  m.flush_counts();  // a mask waits in the stage's batch (V3 S4)
   EXPECT_EQ(m.counters[0].item<int64_t>(), 9);
   EXPECT_EQ(m.counters[1].item<int64_t>(), 0);
   EXPECT_EQ(m.minima[0].item<double>(), 0.25);

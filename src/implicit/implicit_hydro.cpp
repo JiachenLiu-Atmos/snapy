@@ -224,7 +224,7 @@ torch::Tensor ImplicitHydroImpl::status() const {
   if (!_status.defined()) return torch::zeros({}, torch::kBool);
   // V3 I-6: a column whose last solve failed: the FP64 retry failed, or a
   // failure that no FP64 retry followed (an FP64 solve, or the fallback off)
-  // round 5: the five status bits index a cached truth table, one gather and
+  // V3 S4: the five status bits index a cached truth table, one gather and
   // one reduction instead of three compares, a not, an and, an or and the any
   constexpr int32_t kLow = kVicFailBits | kVicFp64Retried | kVicFp64Failed;
   if (!_status_lut.defined() || _status_lut.device() != _status.device()) {

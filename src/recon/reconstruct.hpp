@@ -167,7 +167,7 @@ class ReconstructImpl : public torch::nn::Cloneable<ReconstructImpl> {
   //! row 0 density, 1 pressure, 2 species (a face counts once for any
   //! species row), mask a bool tensor over each side of the faces il..iu+1
   //! the reconstruction computes, true where the floor changed the face;
-  //! the monitor reduces the stage's masks together (round 5). Only a floor
+  //! the monitor reduces the stage's masks together (V3 S4). Only a floor
   //! that ran posts a pair, so a forward with the floors off launches
   //! nothing for the census. Empty without a parent Hydro.
   std::vector<std::pair<int, torch::Tensor>> floored;

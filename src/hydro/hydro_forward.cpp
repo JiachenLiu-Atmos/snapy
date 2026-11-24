@@ -1169,7 +1169,7 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
   // settling part, keep the prescribed faces and do not mark. The apply runs
   // when the implicit
   // correction ran or the mark is set; otherwise the faces are already
-  // prescribed (V3 S4 rounds 7, 7c, 7e; main's reporting bitwise)
+  // prescribed (V3 S4; main's reporting bitwise)
   if (freg.total(1).defined() && (picorr || freg.written_since_prescribed(1)))
     freg.apply_prescribed(1);
 

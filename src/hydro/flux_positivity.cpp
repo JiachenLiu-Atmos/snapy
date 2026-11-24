@@ -134,7 +134,7 @@ void flux_positivity_carry_(torch::Tensor const& theta,
       // fsed1, each with its own donor's energy, so their sum is
       // share |fsed1| (h_upper - h_lower), not 0. Both posts of that stage
       // mark the direction, and the post-implicit apply re-prescribes and
-      // books it as main did (round 7e)
+      // books it as main did (#315)
       reg.add(d, "positivity.carry", rows, inc,
               /*keeps_prescribed=*/!(d == 1 && fsed1.defined()));
     };

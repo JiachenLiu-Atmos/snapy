@@ -218,7 +218,7 @@ void MeshBlockImpl::stage_advance(Variables &vars, StepDt dt, int stage) {
       auto M = mass_corr[IVY];  // slot IVX+(dir+1)%3 with dir == 0 (x1 only)
       auto r = vars.at("scalar_r");
       int nc1 = r.size(-1);
-      // round 5: the shifted copies in one pad each, no zero fill
+      // V3 S4: the shifted copies in one pad each, no zero fill
       auto r_below = torch::constant_pad_nd(r.slice(-1, 0, nc1 - 1), {1, 0});
       auto P = torch::where(M > 0., r_below, r) * M;
       // cap each donor at held + inflow below, as in vic_constituent_column

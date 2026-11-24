@@ -70,15 +70,15 @@ class RegisterMonitor {
   //! replays the captured stages, whose host begin_stage/end_stage do not
   //! run again, and fold_ would otherwise read S = 0 (no rates, no later
   //! stages' posts) for the redo and every replayed step after it; eager
-  //! rewrites them at the redo's own begin_stage/end_stage (V3 S4 round 7)
+  //! rewrites them at the redo's own begin_stage/end_stage (V3 S4)
   void rollback();
 
   //! += n. A reduced count (0-d) adds at once; a mask or a vector waits in
   //! the stage's batch and is reduced with the others by flush_counts()
-  //! (V3 S4 round 5: one segment sum per stage, not one per mask)
+  //! (V3 S4: one segment sum per stage, not one per mask)
   void count(std::string const& name, torch::Tensor const& n);
   //! the stage's pending masks into the counters: one cat, one integer
-  //! cumsum, one gather of the segment ends, one add (no atomics; round 6);
+  //! cumsum, one gather of the segment ends, one add (no atomics; V3 S4);
   //! called by end_stage (inside the captured stage)
   void flush_counts();
   void record_min(std::string const& name, torch::Tensor const& v);
@@ -161,7 +161,7 @@ class RegisterMonitor {
   friend class FluxRegister;
 };
 
-//! V3 S4 round 5: the prescribed-wall rates of one stage, hydro and scalar
+//! V3 S4: the prescribed-wall rates of one stage, hydro and scalar
 //! registers, x1 to x3, booked in one batch at the stage's end
 //! (MeshBlock::stage_combine, before end_stage): one cat of the gathered
 //! wall planes, one product with the cached -area weights, one segment sum
@@ -228,7 +228,7 @@ class FluxRegister {
   //! add, scale or replace wrote total(dim) since the last
   //! apply_prescribed(dim) without keeping the prescribed faces: the
   //! post-implicit apply re-prescribes only then, or after the implicit
-  //! correction, which writes total(1) directly (V3 S4 round 7)
+  //! correction, which writes total(1) directly (V3 S4)
   bool written_since_prescribed(int dim) const { return _written[dim - 1]; }
   //! the name of dim's last posted slot ("" before the first post)
   std::string const& slot_name(int dim) const { return _slot[dim - 1]; }
@@ -242,7 +242,7 @@ class FluxRegister {
   //! keeps_prescribed: the caller leaves the prescribed faces at their
   //! prescribed value (S hands them as 0 on the prescribed rows and the
   //! positivity carry adds -0 there), so the write does not mark the
-  //! direction for the post-implicit apply (round 7c)
+  //! direction for the post-implicit apply (V3 S4)
   void add(int dim, std::string const& name, std::vector<int> const& rows,
            torch::Tensor const& increment, bool keeps_prescribed = false);
   //! total[rows] *= factor in place; factor [faces...] (every row) or
@@ -332,7 +332,7 @@ class FluxRegister {
   //! the total's device; built at the first apply_wall_planes_ after
   //! set_prescribed_walls, so a stage launches no setup
   std::array<torch::Tensor, 3> _pidx, _parea, _pneg, _pwt;
-  //! round 5: the -area weights laid out like the gathered planes,
+  //! V3 S4: the -area weights laid out like the gathered planes,
   //! flattened, for the batch
   std::array<torch::Tensor, 3> _pwtflat;
   std::shared_ptr<WallBatch> _wall_batch;

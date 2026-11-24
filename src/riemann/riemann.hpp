@@ -106,7 +106,7 @@ class RiemannSolverImpl : public torch::nn::Cloneable<RiemannSolverImpl> {
   //! mask) pairs, mask a bool tensor over the interior faces: row 0
   //! riemann.pstar_clamp (hllc's contact pressure clamped), row 1
   //! riemann.llf (roe's LLF fallback); the monitor reduces the stage's
-  //! masks together (round 5). Only a solver that has the event posts it
+  //! masks together (V3 S4). Only a solver that has the event posts it
   //! (lmars posts none), so no zero slot is filled per solve
   std::vector<std::pair<int, torch::Tensor>> events;
   //! the events as int64 (2,), rows without a pair at 0 (a host-side

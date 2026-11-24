@@ -149,7 +149,7 @@ TEST(GraphSaveList, monitor_amounts_match_eager_bitwise) {
   EXPECT_EQ(report.at("eager"), 0);
 }
 
-// V3 S4 round 7: a rolled-back attempt on the cuda-graph path. The redo
+// V3 S4: a rolled-back attempt on the cuda-graph path. The redo
 // replays the captured stages, so the monitor's host stage bookkeeping
 // (_stage, _ended, the stage weights) must survive FluxRegister::rollback():
 // when rollback reset it, fold_ read S = 0 for the redo and for every

@@ -15,9 +15,9 @@
 
 // kintera
 #include <kintera/constants.h>
-#include <snap/hydro/flux_positivity.hpp>
 
 #include <kintera/thermo/eval_uhs.hpp>
+#include <snap/hydro/flux_positivity.hpp>
 
 // snap
 #include <snap/snap.h>
@@ -200,7 +200,7 @@ TEST(flux_positivity, withheld_advected_mass_keeps_its_energy_and_momentum) {
   }
 }
 
-// V3 S4 round 7c: the limiter writes the x1 total with keeps_prescribed (its
+// V3 S4: the limiter writes the x1 total with keeps_prescribed (its
 // scale multiplies the prescribed zero, its carry adds -0 there), so it does
 // not call for the post-implicit apply_prescribed. The wall faces of the
 // limited column must still be prescribed after one forward: every row but
@@ -234,7 +234,7 @@ TEST(flux_positivity, the_limiter_keeps_the_wall_faces_prescribed) {
   EXPECT_LT(fon, foff) << "the limiter withheld nothing: the gate is empty";
 }
 
-// V3 S4 round 7e (Tianhao's review of 7c): the settling part of the carry
+// #315: the settling part of the carry
 // comes from the sedimentation's own buffer, which a prescribed solid face
 // still carries after the sweep's apply, so the carry can leave an energy
 // flux on that face; the carry must then mark the direction so the
@@ -267,9 +267,9 @@ TEST(flux_positivity, the_settling_carry_calls_for_the_solid_faces_apply) {
   double fall[6] = {1., 0.1, 0.01, 0.01, 0.1, 1.};
   for (int c = 0; c < 6; ++c)
     w.narrow(0, ICY, 2).select(-1, il + c).mul_(fall[c]);
-  auto solid = torch::zeros({coord->options->nc3(), coord->options->nc2(),
-                             coord->options->nc1()},
-                            torch::kBool);
+  auto solid = torch::zeros(
+      {coord->options->nc3(), coord->options->nc2(), coord->options->nc1()},
+      torch::kBool);
   solid.select(-1, il + 3).fill_(true);  // one solid cell: faces il+3, il+4
   Variables vars;
   vars["hydro_w"] = w;
@@ -292,12 +292,13 @@ TEST(flux_positivity, the_settling_carry_calls_for_the_solid_faces_apply) {
   // guard, the unit case below is the RED/GREEN pair.
 }
 
-// V3 S4 round 7e, the unit case: a settling flux through a prescribed face
+// #315, the unit case: a settling flux through a prescribed face
 // (the reviewer's reproduction). After the face is prescribed, the carry
 // with an fsed1 that crosses it must mark the direction (RED at 3a2283bc:
 // the mark stays clear and the carry's energy flux stays on the face), and
 // the apply then clears the face and books the removal.
-TEST(flux_positivity, a_settling_carry_on_a_prescribed_face_calls_for_the_apply) {
+TEST(flux_positivity,
+     a_settling_carry_on_a_prescribed_face_calls_for_the_apply) {
   auto arm = forward_once(true, [](YAML::Node&) {}, 0., 3.);
   auto block = arm.block;
   auto& reg = block->phydro->flux_register();
@@ -313,8 +314,8 @@ TEST(flux_positivity, a_settling_carry_on_a_prescribed_face_calls_for_the_apply)
   reg.apply_prescribed(1);
   ASSERT_FALSE(reg.written_since_prescribed(1));
   ASSERT_EQ(t.select(-1, face).abs().max().item<double>(), 0.);
-  auto cells = std::vector<int64_t>{ny, t.size(1), t.size(2),
-                                    coord->options->nc1()};
+  auto cells =
+      std::vector<int64_t>{ny, t.size(1), t.size(2), coord->options->nc1()};
   auto theta = torch::full(cells, 0.5, t.options());
   // the two parts of the settling carry (F - fsed1, then fsed1) carry the
   // energy of their own donors, the cells below and above the face: with a
