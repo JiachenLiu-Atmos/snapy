@@ -199,6 +199,40 @@ TEST(flux_positivity, withheld_advected_mass_keeps_its_energy_and_momentum) {
   }
 }
 
+// V3 S4 round 7c: the limiter writes the x1 total with keeps_prescribed (its
+// scale multiplies the prescribed zero, its carry adds -0 there), so it does
+// not call for the post-implicit apply_prescribed. The wall faces of the
+// limited column must still be prescribed after one forward: every row but
+// the momentum rows exactly 0 on both x1 wall planes, the register not marked
+// written, while the limiter did withhold on the interior faces.
+TEST(flux_positivity, the_limiter_keeps_the_wall_faces_prescribed) {
+  auto edit = [](YAML::Node&) {};
+  auto on = forward_once(true, edit, 2., 3.);
+  auto& freg = on.block->phydro->flux_register();
+  auto t = freg.total(1);
+  ASSERT_TRUE(t.defined());
+  auto coord = on.block->pcoord;
+  int il = coord->il(), iu1 = coord->iu() + 1;
+  for (int p : {il, iu1})
+    for (int r = 0; r < t.size(0); ++r) {
+      if (r == IVX || r == IVY || r == IVZ) continue;  // the free rows
+      EXPECT_EQ(t[r].select(-1, p).abs().max().item<double>(), 0.)
+          << "row " << r << " on x1 wall plane " << p;
+    }
+  EXPECT_FALSE(freg.written_since_prescribed(1))
+      << "the limiter must not call for the post-implicit apply";
+  auto off = forward_once(false, edit, 2., 3.);
+  auto fon = t.narrow(0, ICY, 2).select(-1, il + 1).abs().sum().item<double>();
+  auto foff = off.block->phydro->flux_register()
+                  .total(1)
+                  .narrow(0, ICY, 2)
+                  .select(-1, il + 1)
+                  .abs()
+                  .sum()
+                  .item<double>();
+  EXPECT_LT(fon, foff) << "the limiter withheld nothing: the gate is empty";
+}
+
 // The same column with a uniform species ratio: the dry air is drained as hard
 // as the species, so the relative rule withholds nothing and the fluxes of the
 // limited arm equal the unlimited ones.
