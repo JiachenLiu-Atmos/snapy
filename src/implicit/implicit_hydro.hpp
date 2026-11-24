@@ -1,5 +1,11 @@
 #pragma once
 
+// C/C++
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
 // torch
 #include <torch/nn/cloneable.h>
 #include <torch/nn/module.h>
@@ -106,6 +112,18 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
                                StepDt post_dt = StepDt(0.),
                                torch::Tensor const& retry = {});
 
+  //! V3 C1: allocates the solve's scratch, the step status and the FP64
+  //! stage's predicate for a state of `shape` on `device`, the solve in
+  //! `dtype` and, with `retry_dtype`, the FP64 stage's scratch in that dtype,
+  //! as the first call would. The stage executor calls it outside a capture,
+  //! before its save list, so the warm-up and the capture allocate nothing
+  void prepare(torch::Device device, torch::Dtype dtype, at::IntArrayRef shape,
+               std::optional<torch::Dtype> retry_dtype = std::nullopt);
+  //! V3 C1: the tensors a stage writes and a later one (or the step end)
+  //! reads, for the capture's save list: the step status, the FP64 stage's
+  //! predicate and the meters
+  std::vector<std::pair<std::string, torch::Tensor>> capture_storage() const;
+
   //! I-6: the columns the last FP32 (or only) stage failed, [nc3, nc2] bool
   //! on the device: the FP64 stage's predicate
   torch::Tensor stage_failed() const { return _stage_failed; }
@@ -145,7 +163,8 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
   }
 
  private:
-  void ensure_workspace(torch::Tensor const& w);
+  void ensure_workspace(at::IntArrayRef wshape,
+                        torch::TensorOptions const& wopts);
   torch::Tensor _fp64_fallbacks;
   torch::Tensor _status;        // [nc3, nc2] int32: the step's VicStatusBit
   torch::Tensor _stage_status;  // [nc3, nc2] the stage's, solve dtype (kernel)

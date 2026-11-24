@@ -144,7 +144,33 @@ void ImplicitHydroImpl::reset() {
       register_buffer("dry_clamp_step", torch::zeros({1}, torch::kFloat64));
 }
 
-void ImplicitHydroImpl::ensure_workspace(torch::Tensor const& w) {
+void ImplicitHydroImpl::prepare(torch::Device device, torch::Dtype dtype,
+                                at::IntArrayRef shape,
+                                std::optional<torch::Dtype> retry_dtype) {
+  auto opts = torch::TensorOptions().dtype(dtype).device(device);
+  ensure_workspace(shape, opts);
+  if (retry_dtype) {  // the FP64 stage's scratch, swapped in as in its call
+    swap_scratch_();
+    ensure_workspace(shape, opts.dtype(*retry_dtype));
+    swap_scratch_();
+  }
+}
+
+std::vector<std::pair<std::string, torch::Tensor>>
+ImplicitHydroImpl::capture_storage() const {
+  std::vector<std::pair<std::string, torch::Tensor>> out;
+  for (auto [name, t] :
+       {std::pair<char const*, torch::Tensor>{"icorr.status", _status},
+        {"icorr.stage_failed", _stage_failed},
+        {"icorr.fp64_fallbacks", _fp64_fallbacks},
+        {"icorr.clamp_residual", _clamp_residual},
+        {"icorr.dry_clamp_step", _dry_clamp_step}})
+    if (t.defined()) out.emplace_back(name, t);
+  return out;
+}
+
+void ImplicitHydroImpl::ensure_workspace(at::IntArrayRef wshape,
+                                         torch::TensorOptions const& wopts) {
   auto pcoord = phydro->pmb->pcoord;
   int nx1 = pcoord->options->nx1();
   int nx2 = pcoord->options->nx2();
@@ -157,12 +183,12 @@ void ImplicitHydroImpl::ensure_workspace(torch::Tensor const& w) {
   auto needs_reset = [&](torch::Tensor const& t,
                          std::vector<int64_t> const& shape) {
     return !t.defined() || t.sizes().vec() != shape ||
-           t.scalar_type() != w.scalar_type() || t.device() != w.device();
+           t.dtype() != wopts.dtype() || t.device() != wopts.device();
   };
 
   auto maybe_resize = [&](torch::Tensor& t, std::vector<int64_t> const& shape) {
     if (needs_reset(t, shape)) {
-      t.set_data(torch::empty(shape, w.options()));
+      t.set_data(torch::empty(shape, wopts));
     }
   };
 
@@ -170,20 +196,26 @@ void ImplicitHydroImpl::ensure_workspace(torch::Tensor const& w) {
   maybe_resize(_b, abc_shape);
   maybe_resize(_c, abc_shape);
   maybe_resize(_delta, delta_shape);
-  maybe_resize(_du0, w.sizes().vec());
-  maybe_resize(_corr, w.sizes().vec());
-  maybe_resize(_mass_corr, w.sizes().vec());
+  maybe_resize(_du0, wshape.vec());
+  maybe_resize(_corr, wshape.vec());
+  maybe_resize(_mass_corr, wshape.vec());
   // V3 I-5/I-6: the stage's VicStatusBit per column, in the solve's dtype
   // (the kernel operand), and the step's status, int32, which survives a
   // change of dtype (the FP64 stage) or device
-  auto st_shape = std::vector<int64_t>{w.size(1), w.size(2)};
+  auto st_shape = std::vector<int64_t>{wshape[1], wshape[2]};
   if (needs_reset(_stage_status, st_shape))  // unregistered scratch
-    _stage_status = torch::empty(st_shape, w.options());
-  auto i32 = w.options().dtype(torch::kInt32);
+    _stage_status = torch::empty(st_shape, wopts);
+  auto i32 = wopts.dtype(torch::kInt32);
   if (!_status.defined() || _status.sizes().vec() != st_shape)
     _status = torch::zeros(st_shape, i32);
-  else if (_status.device() != w.device())
+  else if (_status.device() != wopts.device())
     _status = _status.to(i32);
+  // the FP64 stage's predicate, fixed storage: the FP32 stage writes it in
+  // place, so a captured stage reads the address the warm-up saved (V3 C1)
+  auto b8 = wopts.dtype(torch::kBool);
+  if (!_stage_failed.defined() || _stage_failed.sizes().vec() != st_shape ||
+      _stage_failed.device() != wopts.device())
+    _stage_failed = torch::zeros(st_shape, b8);
 }
 
 torch::Tensor ImplicitHydroImpl::col_status() const { return _status; }
@@ -278,7 +310,7 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
     }
   } swap{this, retry.defined()};
   if (swap.on) swap_scratch_();
-  ensure_workspace(w);
+  ensure_workspace(w.sizes(), w.options());
   _du0.copy_(du);
   _mass_corr.zero_();
 
@@ -571,7 +603,7 @@ torch::Tensor ImplicitHydroImpl::forward_masked(
     _status.bitwise_or_(torch::where(retry, fp64, torch::zeros_like(sbits)));
   } else {
     _status.bitwise_or_(sbits);
-    _stage_failed = failed;
+    _stage_failed.copy_(failed);
   }
   if (post)
     post_(*reg, du, drop3, kdt, ptan, energy_solved, volume, kept_before);

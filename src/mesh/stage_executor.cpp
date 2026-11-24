@@ -45,6 +45,8 @@ bool GraphKey::operator==(GraphKey const& other) const {
          layout == other.layout && store_generation == other.store_generation &&
          config_generation == other.config_generation && block == other.block &&
          stage == other.stage && segment == other.segment && dt == other.dt &&
+         implicit_precision == other.implicit_precision &&
+         implicit_fallback_fp64 == other.implicit_fallback_fp64 &&
          thermo_epoch == other.thermo_epoch;
 }
 
@@ -603,6 +605,10 @@ GraphKey StageExecutor::make_key(int block, int segment, Variables const& vars,
   // dt is in the key only while an op of the segment reads the host dt; the
   // others read the block's device dt (V3 D)
   key.dt = schedule(block).segments().at(segment).reads_host_dt ? dt : 0.;
+  if (auto const& icorr = pmb->options->hydro()->icorr()) {
+    key.implicit_precision = icorr->precision();
+    key.implicit_fallback_fp64 = icorr->fallback_fp64();
+  }
   if (auto pthermo = thermo_of(block))
     key.thermo_epoch = kintera::alloc_epoch(*pthermo);
   return key;
@@ -795,6 +801,13 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
       if (sched.ops()[i].prepare)
         sched.ops()[i].prepare(u.device(), u.scalar_type(), u.sizes());
   }
+  // V3 C1: the implicit correction's scratch, status and FP64-stage predicate
+  // are allocated here, not in the warm-up, and registered, so the save list
+  // holds them
+  auto wit = vars.find("hydro_w");
+  if (wit != vars.end() && wit->second.defined())
+    pmb->phydro->prepare_implicit(wit->second);
+  pmb->register_flux_storage();
   kintera::NoTableBuild no_table_build;
   auto handles = save_list(block, vars);
   std::map<std::string, torch::Tensor> saved;

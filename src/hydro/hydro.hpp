@@ -170,6 +170,13 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   }
   torch::Tensor face_pressure1() const { return _face_pressure1; }
   torch::Tensor implicit_mass_correction() const;
+  //! the vertical implicit solve runs in FP32 (implicit-precision float32, or
+  //! auto in an FP32 block)
+  bool implicit_solve_float() const;
+  //! V3 C1: the implicit correction's scratch for the state `w` (hydro_w), in
+  //! the dtypes its call uses: the solve's and, with the FP64 retry on, the
+  //! retry's; outside a capture, before the stage executor's save list
+  void prepare_implicit(torch::Tensor const& w);
 
   //! dry-density increment the forcings added this stage (du[IDN])
   torch::Tensor forcing_dry_increment() const { return _forcing_dry; }
