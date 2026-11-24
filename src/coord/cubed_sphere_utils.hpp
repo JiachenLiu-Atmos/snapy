@@ -181,7 +181,7 @@ void cs_cart_to_contra_(torch::Tensor const &vel, torch::Tensor alpha,
  * \frac{1}{\delta} (v^1 - \frac{v^2 x}{D} - \frac{v^3 y}{C})
  * \f}
  */
-void cs_contra_to_cart_(torch::Tensor const& vel, torch::Tensor alpha,
+void cs_contra_to_cart_(torch::Tensor const &vel, torch::Tensor alpha,
                         torch::Tensor beta, int face_id);
 
 //! the gnomonic metric at the points (alpha, beta), a function of the grid
@@ -191,10 +191,10 @@ void cs_contra_to_cart_(torch::Tensor const& vel, torch::Tensor alpha,
 struct CsMetric {
   torch::Tensor x, y, delta, C, D;
 };
-CsMetric cs_metric_at(torch::Tensor const& alpha, torch::Tensor const& beta);
-void cs_cart_to_contra_at_(torch::Tensor const& vel, CsMetric const& m,
+CsMetric cs_metric_at(torch::Tensor const &alpha, torch::Tensor const &beta);
+void cs_cart_to_contra_at_(torch::Tensor const &vel, CsMetric const &m,
                            int face_id);
-void cs_contra_to_cart_at_(torch::Tensor const& vel, CsMetric const& m,
+void cs_contra_to_cart_at_(torch::Tensor const &vel, CsMetric const &m,
                            int face_id);
 
 //! \brief Transform contravariant velocities to global spherical polar velocity

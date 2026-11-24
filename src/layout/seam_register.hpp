@@ -1,6 +1,7 @@
 #pragma once
 
 // C/C++
+#include <array>
 #include <map>
 #include <tuple>
 #include <vector>
@@ -35,14 +36,35 @@ void reconcile_panel_seams(FluxRegister& reg, MeshBlockImpl const* pmb,
 //! the rotation operands of a block's panel-seam sides (metric at the face
 //! points and face cosine), a function of the grid alone: reconcile_panel_seams
 //! builds a side's once and reuses it every stage. Each is stamped with the
-//! grid tensors it reads (storage, version counter, dtype, device, shape), so
-//! a grid that is moved, reallocated or edited in place rebuilds it. builds
-//! counts the side builds.
+//! grid tensors it reads, so a grid that is moved, reallocated, given new
+//! storage or edited in place rebuilds it. builds counts the side builds.
 struct SeamRotationCache {
-  using Stamp =
-      std::tuple<void const*, int64_t, int, int, int, std::vector<int64_t>>;
+  //! one grid tensor as a side read it. The storage is held, so its address
+  //! cannot be reused by another tensor while the stamp lives, and it is
+  //! compared by identity; the view and the version counter catch the rest.
+  struct Stamp {
+    c10::Storage storage;
+    int64_t offset = 0, version = 0;
+    c10::ScalarType dtype = c10::ScalarType::Undefined;
+    std::vector<int64_t> sizes, strides;
+
+    explicit Stamp(torch::Tensor const& t)
+        : storage(t.storage()),
+          offset(t.storage_offset()),
+          version(static_cast<int64_t>(t._version())),
+          dtype(t.scalar_type()),
+          sizes(t.sizes().vec()),
+          strides(t.strides().vec()) {}
+    bool operator==(Stamp const& o) const {
+      return storage.unsafeGetStorageImpl() ==
+                 o.storage.unsafeGetStorageImpl() &&
+             offset == o.offset && version == o.version && dtype == o.dtype &&
+             sizes == o.sizes && strides == o.strides;
+    }
+  };
   struct Side {
-    std::vector<Stamp> stamp;
+    std::vector<Stamp> grid;          //!< the grid tensors it read
+    std::array<int64_t, 3> extent{};  //!< panel, x1 cells, cells along
     PanelRotation::FaceOperands op;
   };
   std::map<int, Side> sides;

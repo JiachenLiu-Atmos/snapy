@@ -17,6 +17,17 @@ reused. Six cubed-sphere panels in one process, eager, CUDA:
      equals bitwise a fresh Mesh given the same state and moved before its
      first step: operands left on the old grid would not.
 
+  C  new storage at the old address: each block's x2v and x3v get a fresh
+     storage with the same values, shape, dtype and version counter, and the
+     caching allocator is driven to hand back the old address. The cache
+     holds its source storages, so the step after rebuilds (tan kernels) and
+     equals bitwise a twin Mesh stepped without the swap. A cache keyed on the
+     address, version, dtype and shape alone would not rebuild.
+
+  D  a dtype move: as B, a Mesh stepped in float64 on CUDA, moved to float32
+     and stepped again, equals bitwise a fresh Mesh given the same state and
+     moved before its first step.
+
 Without a CUDA build and device the test skips.
 
   python test_seam_rotation_cache.py
@@ -127,10 +138,39 @@ def tan_kernels(mesh, mvars, dt, dev):
                and "atan" not in e.key.lower())
 
 
-def move(blocks, mvars, dev):
+def move(blocks, mvars, dev, dtype=None):
     for b in blocks:
-        b.to(dev)
-    return [{k: v[k].to(dev) for k in v} for v in mvars]
+        if dtype is None:
+            b.to(dev)
+        else:
+            b.to(dev, dtype)
+    return [{k: v[k].to(dev, dtype) if dtype else v[k].to(dev) for k in v}
+            for v in mvars]
+
+
+def swap_storage(blocks):
+    """give x2v and x3v fresh storage with the same values (and version),
+    at the old address when the allocator returns it; returns how many did"""
+    reused = 0
+    for b in blocks:
+        for name in ("x2v", "x3v"):
+            buf = b.module("coord").buffer(name)
+            p0, v0 = buf.data_ptr(), buf._version
+            keep = buf.detach().clone()
+            buf.data = torch.empty(0, dtype=buf.dtype, device=buf.device)
+            held = []  # allocations at other addresses, freed after the swap
+            for _ in range(64):
+                new = torch.empty_like(keep)
+                if new.data_ptr() == p0:
+                    break
+                held.append(new)
+            new.copy_(keep)
+            buf.data = new
+            del held
+            buf = b.module("coord").buffer(name)
+            assert buf._version == v0, (name, buf._version, v0)
+            reused += buf.data_ptr() == p0
+    return reused
 
 
 def main():
@@ -171,6 +211,48 @@ def main():
             assert torch.equal(mvars[i][k], fvars[i][k]), (
                 "stale seam rotation operands after the move", i, k, d)
     print("B: after the move the stepped Mesh equals a fresh one bitwise", flush=True)
+    # C: new storage at the old address rebuilds the operands
+    mesh, blocks, mvars = make(cuda)
+    twin, tblocks, tvars = make(cuda)
+    dt = 0.5 * mesh.max_time_step(mvars)
+    step(mesh, mvars, dt)
+    step(twin, tvars, dt)
+    assert tan_kernels(mesh, mvars, dt, cuda) == 0
+    step(twin, tvars, dt)
+    reused = swap_storage(blocks)
+    print("C: grid tensors given new storage at the old address:", reused, "of",
+          2 * len(blocks), flush=True)
+    n = tan_kernels(mesh, mvars, dt, cuda)
+    print("C: tan kernels in the step after the storage swap:", n, flush=True)
+    assert n > 0, (f"new storage ({reused} of {2 * len(blocks)} at the old address) "
+                   "did not rebuild the seam rotation operands")
+    step(twin, tvars, dt)
+    for i in range(len(blocks)):
+        for k in KEYS:
+            d = (mvars[i][k] - tvars[i][k]).abs().max().item()
+            assert torch.equal(mvars[i][k], tvars[i][k]), ("after the storage swap", i, k, d)
+    print("C: after the swap the Mesh equals its twin bitwise", flush=True)
+
+    # D: a set-up Mesh moved to float32 rebuilds its operands
+    mesh, blocks, mvars = make(cuda)
+    dt = 0.5 * mesh.max_time_step(mvars)
+    step(mesh, mvars, dt)
+    state = [{k: v[k].clone() for k in KEYS} for v in mvars]
+    mvars = move(blocks, mvars, cuda, torch.float32)
+    n = tan_kernels(mesh, mvars, dt, cuda)
+    print("D: tan kernels in the first step after the move to float32:", n, flush=True)
+    assert n > 0, "the move to float32 did not rebuild the seam rotation operands"
+    fresh, fblocks, fvars = make(cuda)
+    for i, v in enumerate(fvars):
+        for k in KEYS:
+            v[k].copy_(state[i][k])
+    fvars = move(fblocks, fvars, cuda, torch.float32)
+    step(fresh, fvars, dt)
+    for i in range(len(blocks)):
+        for k in KEYS:
+            d = (mvars[i][k].double() - fvars[i][k].double()).abs().max().item()
+            assert torch.equal(mvars[i][k], fvars[i][k]), ("after the float32 move", i, k, d)
+    print("D: after the float32 move the stepped Mesh equals a fresh one bitwise", flush=True)
     print("PASSED")
     return 0
 

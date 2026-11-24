@@ -99,26 +99,21 @@ void reconcile_panel_seams(FluxRegister& reg, MeshBlockImpl const* pmb,
   if (!pmb->seam_rotation_cache)
     pmb->seam_rotation_cache = std::make_shared<SeamRotationCache>();
   auto& cache = *pmb->seam_rotation_cache;
-  auto stamp = [](torch::Tensor const& t) {
-    return SeamRotationCache::Stamp(
-        t.data_ptr(), static_cast<int64_t>(t._version()),
-        static_cast<int>(t.scalar_type()), static_cast<int>(t.device().type()),
-        t.device().index(), t.sizes().vec());
-  };
   auto operands = [&](int s) -> PanelRotation::FaceOperands const& {
-    std::vector<SeamRotationCache::Stamp> now =
-        s < 2 ? std::vector<SeamRotationCache::Stamp>{stamp(c->x2f),
-                                                      stamp(c->x3v),
-                                                      stamp(c->cosine_face2_kj)}
-              : std::vector<SeamRotationCache::Stamp>{
-                    stamp(c->x2v), stamp(c->x3f), stamp(c->cosine_face3_kj)};
-    now.push_back({nullptr, panel, ni, along(s), 0, {}});
+    using Stamp = SeamRotationCache::Stamp;
+    std::vector<Stamp> grid =
+        s < 2 ? std::vector<Stamp>{Stamp(c->x2f), Stamp(c->x3v),
+                                   Stamp(c->cosine_face2_kj)}
+              : std::vector<Stamp>{Stamp(c->x2v), Stamp(c->x3f),
+                                   Stamp(c->cosine_face3_kj)};
+    std::array<int64_t, 3> extent = {panel, ni, along(s)};
     auto& side = cache.sides[s];
-    if (side.stamp != now) {
+    if (side.grid != grid || side.extent != extent) {
       auto [alpha, beta, cosine] = points(s);
       side.op =
           PanelRotation::face_operands({along(s), ni}, alpha, beta, cosine);
-      side.stamp = now;
+      side.grid = std::move(grid);
+      side.extent = extent;
       ++cache.builds;
     }
     return side.op;
