@@ -59,7 +59,12 @@ class HydroReferenceX1Operator {
                              ? kX1RefUniform
                              : unequal);
     if (grid_ == kX1RefStretched) {
-      rows_ = six_face_rows(dx1f, iu, phys_in, phys_out, wall_clamp);
+      // the rows live on the grid's device, built once per grid (matches()
+      // rebuilds the operator on a move, new storage or an in-place edit):
+      // an evaluation inside a captured segment then copies nothing from the
+      // host, which a capturing stream does not permit
+      rows_ = six_face_rows(dx1f, iu, phys_in, phys_out, wall_clamp)
+                  .to(dx1f.device());
     }
   }
 
