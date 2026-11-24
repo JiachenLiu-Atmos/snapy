@@ -147,6 +147,7 @@ void face_floor_counter_sees_the_fallback(torch::Device device) {
   auto block = dipped_column(device, 1.e5);
   auto& mon = block->phydro->flux_register().monitor();
   auto count = [&](std::string const& name) {
+    mon.flush_counts();  // the masks wait in the stage's batch (round 5)
     return mon.counters[mon.counter_index(name)].item<int64_t>();
   };
   EXPECT_GE(count("face_floor.rho"), 1);

@@ -54,6 +54,8 @@ void RegisterMonitor::begin_step() {
   }
   _stage = 0;
   _ended = 0;
+  _pend.clear();  // a rejected attempt's masks count nothing
+  _pend_idx.clear();
 }
 
 int RegisterMonitor::counter_index(std::string const& name) const {
@@ -65,17 +67,42 @@ int RegisterMonitor::retry_index(std::string const& name) const {
 }
 
 void RegisterMonitor::count(std::string const& name, torch::Tensor const& n) {
-  // a reduced count (0-d) adds straight in, one launch; a mask or a vector
-  // is summed first (bool and int sums are int64 already, so the cast is
-  // a no-op unless the caller hands a float)
-  auto v = n.dim() == 0 ? n : n.sum();
-  // add_ reads an integer count into the counters in its own kernel (int64,
-  // or float64 after a Module::to(dtype)); only a float count into integer
-  // counters needs the cast
+  int i = counter_index(name);
+  if (n.dim() > 0) {  // a mask or a vector: the stage's batch (flush_counts)
+    _pend_idx.push_back(i);
+    _pend.push_back(n.reshape({-1}));
+    return;
+  }
+  // a reduced count adds straight in, one launch: add_ reads an integer
+  // count into the counters in its own kernel (int64, or float64 after a
+  // Module::to(dtype)); only a float count into integer counters is cast
+  auto v = n;
   if (at::isFloatingType(v.scalar_type()) &&
       !at::isFloatingType(counters.scalar_type()))
     v = v.to(counters.scalar_type());
-  counters[counter_index(name)].add_(v);
+  counters[i].add_(v);
+}
+
+void RegisterMonitor::flush_counts() {
+  if (_pend.empty()) return;
+  auto v = torch::cat(_pend);
+  std::vector<int64_t> pattern;
+  for (size_t k = 0; k < _pend.size(); ++k) {
+    pattern.push_back(_pend_idx[k]);
+    pattern.push_back(_pend[k].numel());
+  }
+  if (pattern != _pend_pattern || !_pend_index.defined() ||
+      _pend_index.device() != v.device()) {
+    std::vector<int64_t> idx;
+    idx.reserve(v.numel());
+    for (size_t k = 0; k < _pend.size(); ++k)
+      idx.insert(idx.end(), _pend[k].numel(), _pend_idx[k]);
+    _pend_index = torch::tensor(idx, torch::kInt64).to(v.device());
+    _pend_pattern = pattern;
+  }
+  counters.index_add_(0, _pend_index, v.to(counters.scalar_type()));
+  _pend.clear();
+  _pend_idx.clear();
 }
 
 void RegisterMonitor::record_min(std::string const& name,
@@ -87,7 +114,9 @@ void RegisterMonitor::record_min(std::string const& name,
 void RegisterMonitor::flag_retry(std::string const& cause,
                                  torch::Tensor const& any) {
   auto slot = retry_flags[retry_index(cause)];
-  slot.copy_(torch::maximum(slot, any.any().to(retry_flags.scalar_type())));
+  // one reduction when the caller hands a mask, none for a flag; the OR is
+  // in place (0/1 in the slot's dtype)
+  slot.logical_or_(any.dim() == 0 ? any : any.any());
 }
 
 void RegisterMonitor::reset_amounts(int nrows) {
@@ -199,6 +228,81 @@ void RegisterMonitor::book(std::string const& name, torch::Tensor const& rate) {
   _rate[_stage][i].add_(rate.to(_rate.scalar_type()));
 }
 
+void RegisterMonitor::book_index(int i, torch::Tensor const& rate) {
+  place_amounts(rate.device());
+  _rate[_stage][i].add_(rate.to(_rate.scalar_type()));
+}
+
+void WallBatch::push(torch::Tensor const& planes_flat,
+                     torch::Tensor const& weights_flat,
+                     RegisterMonitor* monitor, int amount_index, int64_t nvar) {
+  _planes.push_back(planes_flat);
+  _weights.push_back(weights_flat);
+  _monitor.push_back(monitor);
+  _index.push_back(amount_index);
+  _nvar.push_back(nvar);
+}
+
+void WallBatch::clear() {
+  _planes.clear();
+  _weights.clear();
+  _monitor.clear();
+  _index.clear();
+  _nvar.clear();
+}
+
+void WallBatch::flush() {
+  if (_planes.empty()) return;
+  std::vector<int64_t> pattern;
+  int64_t rows = 0, M = 0;
+  for (size_t k = 0; k < _planes.size(); ++k) {
+    int64_t nvar =
+        _nvar[k];  // the planes' rows (the scalar register names none)
+    pattern.push_back(nvar);
+    pattern.push_back(_planes[k].numel());
+    rows += nvar;
+    M = std::max(M, _planes[k].numel() / nvar);
+  }
+  auto opts = _planes.front().options();
+  if (pattern != _pattern || !_w.defined() || _w.device() != opts.device()) {
+    // once per pattern: every (register, direction) row laid into a dense
+    // [rows, M] matrix, padded with a zero element appended to the cat
+    int64_t N = 0;
+    for (auto const& p : _planes) N += p.numel();
+    _zero = torch::zeros({1}, opts);
+    std::vector<int64_t> gidx(rows * M, N);
+    std::vector<double> wpad(rows * M, 0.);
+    int64_t off = 0, base = 0;
+    for (size_t k = 0; k < _planes.size(); ++k) {
+      int64_t nvar = pattern[2 * k], n = pattern[2 * k + 1], m = n / nvar;
+      auto w = _weights[k].to(torch::kCPU, torch::kFloat64).contiguous();
+      auto const* wp = w.data_ptr<double>();
+      for (int64_t r = 0; r < nvar; ++r)
+        for (int64_t c = 0; c < m; ++c) {
+          gidx[(off + r) * M + c] = base + r * m + c;
+          wpad[(off + r) * M + c] = wp[r * m + c];
+        }
+      off += nvar;
+      base += n;
+    }
+    _gidx = torch::tensor(gidx, torch::kInt64).to(opts.device());
+    _w = torch::tensor(wpad, torch::kFloat64).to(opts).view({rows, M});
+    _pattern = pattern;
+  }
+  std::vector<torch::Tensor> parts(_planes);
+  parts.push_back(_zero);
+  auto v = torch::cat(parts);
+  auto dense = v.index_select(0, _gidx.view({-1})).view({rows, M});
+  auto rate = (dense * _w).sum(1);  // one dense row reduction, deterministic
+  int64_t off = 0;
+  for (size_t k = 0; k < _planes.size(); ++k) {
+    int64_t nvar = pattern[2 * k];
+    _monitor[k]->book_index(_index[k], rate.narrow(0, off, nvar));
+    off += nvar;
+  }
+  clear();
+}
+
 void RegisterMonitor::post(std::string const& name, AmountKind kind,
                            torch::Tensor const& amount, double weight,
                            bool in_stage) {
@@ -227,6 +331,7 @@ void RegisterMonitor::post(std::string const& name, AmountKind kind,
 }
 
 void RegisterMonitor::end_stage(double w1, StepDt w2dt) {
+  flush_counts();
   if (!_step_amount.defined()) return;
   if (_stage >= _rate.size(0)) grow_slots_(_stage + 1);
   _w1[_stage] = w1;
@@ -345,11 +450,25 @@ void FluxRegister::add(int dim, std::string const& name,
   TORCH_CHECK(increment.size(0) == static_cast<int64_t>(rows.size()),
               "[FluxRegister] add '", name, "': ", increment.size(0),
               " increment rows for ", rows.size(), " rows");
-  for (size_t i = 0; i < rows.size(); ++i) t[rows[i]].add_(increment[i]);
+  // round 5: the rows in one index_add_ (and one index_copy_ for a kept
+  // part) instead of one launch per row
+  auto idx = rows_index_(rows, t.device());
+  t.index_add_(0, idx, increment.to(t.scalar_type()));
   if (keeps(dim, name)) {
     auto part = part_slot(dim, name);
-    for (size_t i = 0; i < rows.size(); ++i) part[rows[i]].copy_(increment[i]);
+    part.index_copy_(0, idx, increment.to(part.scalar_type()));
   }
+}
+
+torch::Tensor FluxRegister::rows_index_(std::vector<int> const& rows,
+                                        torch::Device dev) {
+  auto it = _rows_idx.find(rows);
+  if (it == _rows_idx.end() || it->second.device() != dev) {
+    std::vector<int64_t> r(rows.begin(), rows.end());
+    _rows_idx[rows] = torch::tensor(r, torch::kInt64).to(dev);
+    it = _rows_idx.find(rows);
+  }
+  return it->second;
 }
 
 void FluxRegister::scale(int dim, std::string const& name,
@@ -448,7 +567,8 @@ void FluxRegister::set_prescribed_walls(int dim,
   // supply_prescribed sets the same planes every stage: the gathered-plane
   // tensors stay unless the planes or the free rows change (V3 S4)
   if (_pwall[d] != planes || _pfree[d] != free_rows)
-    _pidx[d] = _parea[d] = _pneg[d] = _pwt[d] = torch::Tensor();
+    _pidx[d] = _parea[d] = _pneg[d] = _pwt[d] = _pwmask[d] = _pwtflat[d] =
+        torch::Tensor();
   _pwall[d] = planes;
   _pwall_set[d] = true;
   auto& rows = _prow[d];
@@ -482,25 +602,34 @@ void FluxRegister::apply_wall_planes_(int dim) {
     _parea[d] = area.to(t.device(), wide).index_select(ax - 1, _pidx[d]);
     _pneg[d] = torch::where(rows, -1., 0.).to(wopts).unsqueeze(-1);
     _pwt[d] = _parea[d] * _pneg[d];  // -area on the prescribed rows, else 0
+    // round 5: the prescribed rows of the wall planes as one mask over the
+    // total, and the weights laid out like the gathered planes, flattened
+    _pwmask[d] = torch::zeros(t.sizes(), t.options().dtype(torch::kBool));
+    for (auto p : _pwall[d]) _pwmask[d].select(ax, p).logical_or_(rows);
+    auto shape = t.sizes().vec();
+    shape[ax] = static_cast<int64_t>(_pwall[d].size());
+    _pwtflat[d] = _pwt[d].expand(shape).contiguous().reshape({-1});
   }
   // V3 S4: the full-mask path on every wall plane at once: after - before is
   // -T on the prescribed rows and 0 on the free rows, so the booked rate is
   // area * T * (-1 on the prescribed rows), reduced over the plane's faces
   // (as before, one plane's faces first, then the planes); the write back
   // zeroes the prescribed rows of the gathered planes in one scatter
-  auto planes = t.index_select(ax, _pidx[d]);
-  auto rows4 = rows.unsqueeze(-1);  // [nvar, 1, 1, 1] over the gathered planes
-  // V3 S4: one product with the cached -area weights and one reduction over
-  // the planes' faces (a reported amount: its rounding may move)
-  auto rate = (planes.to(wide) * _pwt[d]).sum({1, 2, 3});
-  planes.masked_fill_(rows4, 0.);
-  t.index_copy_(ax, _pidx[d], planes);
-  for (auto const& name : _kept[d]) {
-    auto part = _parts.at(name + "@" + std::to_string(dim));
-    part.index_copy_(ax, _pidx[d],
-                     part.index_select(ax, _pidx[d]).masked_fill_(rows4, 0.));
+  // round 5: gather the wall planes (before), zero their prescribed rows in
+  // one masked_fill_ on the total (and on each kept part), and book the rate
+  // in the stage's batch (one product and one segment sum for every
+  // register and direction at the stage's end); without a batch, book now
+  auto planes = t.index_select(ax, _pidx[d]).to(wide);
+  t.masked_fill_(_pwmask[d], 0.);
+  for (auto const& name : _kept[d])
+    _parts.at(name + "@" + std::to_string(dim)).masked_fill_(_pwmask[d], 0.);
+  if (_wall_batch) {
+    _wall_batch->push(planes.reshape({-1}), _pwtflat[d], &_monitor,
+                      _monitor.amount_index("boundary.prescribed"),
+                      planes.size(0));
+  } else {
+    _monitor.book("boundary.prescribed", (planes * _pwt[d]).sum({1, 2, 3}));
   }
-  _monitor.book("boundary.prescribed", rate);
 }
 
 void FluxRegister::keep(int dim, std::string const& part,

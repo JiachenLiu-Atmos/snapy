@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -66,7 +67,13 @@ class RegisterMonitor {
   //! drop a rejected attempt: the census counts accepted steps only
   void rollback() { begin_step(); }
 
-  void count(std::string const& name, torch::Tensor const& n);  // += n
+  //! += n. A reduced count (0-d) adds at once; a mask or a vector waits in
+  //! the stage's batch and is reduced with the others by flush_counts()
+  //! (V3 S4 round 5: one segment sum per stage, not one per mask)
+  void count(std::string const& name, torch::Tensor const& n);
+  //! the stage's pending masks into the counters: one cat, one cast, one
+  //! index_add_; called by end_stage (inside the captured stage)
+  void flush_counts();
   void record_min(std::string const& name, torch::Tensor const& v);
   void flag_retry(std::string const& cause, torch::Tensor const& any);  // OR
 
@@ -82,6 +89,8 @@ class RegisterMonitor {
   torch::Tensor amounts(std::string const& name) const;
   //! a_s += rate, (nrows,): an area-integrated face change of this stage
   void book(std::string const& name, torch::Tensor const& rate);
+  //! book by amount index (WallBatch::flush)
+  void book_index(int i, torch::Tensor const& rate);
   //! R-5: amount (nrows,) times weight into this stage's posts (R.rst 3.4);
   //! in_stage or after the combine, the post is scaled by the later stages'
   //! w1 alone, so both land in the stage's post slot. The name is created
@@ -127,6 +136,12 @@ class RegisterMonitor {
   //! fold of the stages ended so far, written by amounts()
   torch::Tensor _rate, _post;
   mutable torch::Tensor _step_amount;
+  //! the stage's pending count masks (flattened) and their counter indices;
+  //! the segment index is cached per pattern (sizes and indices)
+  std::vector<torch::Tensor> _pend;
+  std::vector<int> _pend_idx;
+  std::vector<int64_t> _pend_pattern;
+  torch::Tensor _pend_index;
   int _stage = 0, _ended = 0;  // the current slot; stages ended this step
   std::vector<double> _w1;     // per stage, recorded at end_stage
   std::vector<StepDt> _w2dt;   // per stage, recorded at end_stage
@@ -136,8 +151,41 @@ class RegisterMonitor {
   friend class FluxRegister;
 };
 
+//! V3 S4 round 5: the prescribed-wall rates of one stage, hydro and scalar
+//! registers, x1 to x3, booked in one batch at the stage's end
+//! (MeshBlock::stage_combine, before end_stage): one cat of the gathered
+//! wall planes, one product with the cached -area weights, one segment sum
+//! over the rows, one add per register. A register without a batch books
+//! its rate at the call (tests).
+class WallBatch {
+ public:
+  //! planes_flat: the gathered wall planes of one register and direction,
+  //! [nvar, faces] flattened; the batch sums each of the nvar rows
+  void push(torch::Tensor const& planes_flat, torch::Tensor const& weights_flat,
+            RegisterMonitor* monitor, int amount_index, int64_t nvar);
+  void flush();
+  void clear();
+  bool empty() const { return _planes.empty(); }
+
+ private:
+  std::vector<torch::Tensor> _planes, _weights;
+  std::vector<RegisterMonitor*> _monitor;
+  std::vector<int> _index;
+  std::vector<int64_t> _nvar;
+  std::vector<int64_t> _pattern;  // per entry: rows, numel
+  //! cached per pattern: the padded weights [rows, M], the gather index
+  //! [rows, M] into the cat of the planes (the last element is a zero pad),
+  //! and that zero; a dense row sum is deterministic, which a scatter-add
+  //! (index_add_) on CUDA is not, and graph must equal eager bitwise
+  torch::Tensor _w, _gidx, _zero;
+};
+
 class FluxRegister {
  public:
+  //! the stage's wall batch, shared by the block's registers (MeshBlock)
+  void set_wall_batch(std::shared_ptr<WallBatch> batch) {
+    _wall_batch = std::move(batch);
+  }
   //! allocate T_d for the active directions (dims 1, 2, 3 are x1, x2, x3),
   //! shape {nvar, nc3, nc2, nc1}, dtype kFlux, zero; mark the step fields of
   //! req.step_field
@@ -265,6 +313,14 @@ class FluxRegister {
   //! the total's device; built at the first apply_wall_planes_ after
   //! set_prescribed_walls, so a stage launches no setup
   std::array<torch::Tensor, 3> _pidx, _parea, _pneg, _pwt;
+  //! round 5: the wall planes' prescribed rows as one bool mask over the
+  //! total (one masked_fill_ zeroes them), and the -area weights laid out
+  //! like the gathered planes, flattened, for the batch
+  std::array<torch::Tensor, 3> _pwmask, _pwtflat;
+  std::shared_ptr<WallBatch> _wall_batch;
+  //! add() / the kept parts: the row index tensors, cached per row list
+  std::map<std::vector<int>, torch::Tensor> _rows_idx;
+  torch::Tensor rows_index_(std::vector<int> const& rows, torch::Device dev);
   std::array<bool, 3> _pwall_set = {false, false, false};
   //! apply_prescribed on the wall planes: as overwrite_, plane by plane
   void apply_wall_planes_(int dim);

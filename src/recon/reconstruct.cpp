@@ -245,7 +245,7 @@ void ReconstructImpl::reset() {
 
 torch::Tensor ReconstructImpl::floor_counts() const {
   auto n = torch::zeros({3}, torch::kInt64);
-  for (auto const& [row, count] : floored) n[row] += count.cpu();
+  for (auto const& [row, mask] : floored) n[row] += mask.sum().cpu();
   return n;
 }
 
@@ -284,7 +284,7 @@ torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
   auto floor_species = [&](bool on) {
     if (!on || nvar <= ICY) return;
     auto y = result.narrow(1, ICY, nvar - ICY);
-    floored.emplace_back(2, faces((y < 0.).any(1)).sum());
+    floored.emplace_back(2, faces((y < 0.).any(1)));
     y.clamp_min_(0.);
   };
 
@@ -294,13 +294,13 @@ torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
   auto floor_density = [&] {
     if (!floors) return;
     auto d = result.select(1, IDN);
-    floored.emplace_back(0, faces(d < eos->density_floor()).sum());
+    floored.emplace_back(0, faces(d < eos->density_floor()));
     d.clamp_min_(eos->density_floor());
   };
   auto floor_pressure = [&] {
     if (!floors || result.size(1) <= IPR) return;
     auto pr = result.select(1, IPR);
-    floored.emplace_back(1, faces(pr < eos->pressure_floor()).sum());
+    floored.emplace_back(1, faces(pr < eos->pressure_floor()));
     pr.clamp_min_(eos->pressure_floor());
   };
 

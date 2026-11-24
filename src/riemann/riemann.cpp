@@ -335,10 +335,10 @@ torch::Tensor RiemannSolverImpl::solve(torch::Tensor wl, torch::Tensor wr,
     auto clamped = reference_pressure.defined()
                        ? face_pressure_out <= -reference_pressure
                        : face_pressure_out <= 0.;
-    events.emplace_back(0, interior_faces(*pcoord, dim, clamped).sum());
+    events.emplace_back(0, interior_faces(*pcoord, dim, clamped));
   }
   if (llf.defined())
-    events.emplace_back(1, interior_faces(*pcoord, dim, llf > 0.).sum());
+    events.emplace_back(1, interior_faces(*pcoord, dim, llf > 0.));
 
   to_global_frame_(*pcoord, dim, flx);
 
@@ -347,7 +347,7 @@ torch::Tensor RiemannSolverImpl::solve(torch::Tensor wl, torch::Tensor wr,
 
 torch::Tensor RiemannSolverImpl::event_counts() const {
   auto n = torch::zeros({2}, torch::kInt64);
-  for (auto const& [row, count] : events) n[row] += count.cpu();
+  for (auto const& [row, mask] : events) n[row] += mask.sum().cpu();
   return n;
 }
 

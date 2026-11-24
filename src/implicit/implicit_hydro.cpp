@@ -224,10 +224,22 @@ torch::Tensor ImplicitHydroImpl::status() const {
   if (!_status.defined()) return torch::zeros({}, torch::kBool);
   // V3 I-6: a column whose last solve failed: the FP64 retry failed, or a
   // failure that no FP64 retry followed (an FP64 solve, or the fallback off)
-  auto failed = (_status & kVicFailBits) != 0;
-  auto retried = (_status & kVicFp64Retried) != 0;
-  auto fp64_failed = (_status & kVicFp64Failed) != 0;
-  return (fp64_failed | (failed & retried.logical_not())).any();
+  // round 5: the five status bits index a cached truth table, one gather and
+  // one reduction instead of three compares, a not, an and, an or and the any
+  constexpr int32_t kLow = kVicFailBits | kVicFp64Retried | kVicFp64Failed;
+  if (!_status_lut.defined() || _status_lut.device() != _status.device()) {
+    std::vector<uint8_t> lut(kLow + 1);
+    for (int32_t a = 0; a <= kLow; ++a) {
+      bool failed = (a & kVicFailBits) != 0,
+           retried = (a & kVicFp64Retried) != 0,
+           fp64_failed = (a & kVicFp64Failed) != 0;
+      lut[a] = fp64_failed || (failed && !retried);
+    }
+    _status_lut =
+        torch::tensor(lut, torch::kUInt8).to(torch::kBool).to(_status.device());
+  }
+  auto word = (_status & kLow).to(torch::kLong).reshape({-1});
+  return _status_lut.index_select(0, word).any();
 }
 
 void ImplicitHydroImpl::reset_status() {

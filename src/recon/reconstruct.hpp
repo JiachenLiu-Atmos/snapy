@@ -163,12 +163,13 @@ class ReconstructImpl : public torch::nn::Cloneable<ReconstructImpl> {
   // negative and enforces positivity itself); the scalar floor is kept.
   torch::Tensor forward(torch::Tensor w, int dim, bool floor = true);
 
-  //! FaceFloor's counts of the last forward (C.rst 3.7): (row, count) pairs,
+  //! FaceFloor's counts of the last forward (C.rst 3.7): (row, mask) pairs,
   //! row 0 density, 1 pressure, 2 species (a face counts once for any
-  //! species row), count a 0-d int64 on the device of the faces the floor
-  //! changed, each side of the faces il..iu+1 the reconstruction computes.
-  //! Only a floor that ran posts a pair, so a forward with the floors off
-  //! launches nothing for the census. Empty without a parent Hydro.
+  //! species row), mask a bool tensor over each side of the faces il..iu+1
+  //! the reconstruction computes, true where the floor changed the face;
+  //! the monitor reduces the stage's masks together (round 5). Only a floor
+  //! that ran posts a pair, so a forward with the floors off launches
+  //! nothing for the census. Empty without a parent Hydro.
   std::vector<std::pair<int, torch::Tensor>> floored;
   //! the counts as int64 (3,), rows without a pair at 0 (a host-side
   //! convenience for tests: it allocates)

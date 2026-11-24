@@ -103,10 +103,11 @@ class RiemannSolverImpl : public torch::nn::Cloneable<RiemannSolverImpl> {
   RiemannKind kind = RiemannKind::hllc;
 
   //! the last face-function solve's events on its interior faces, (row,
-  //! count) pairs with a 0-d int64 count on the device: row 0
+  //! mask) pairs, mask a bool tensor over the interior faces: row 0
   //! riemann.pstar_clamp (hllc's contact pressure clamped), row 1
-  //! riemann.llf (roe's LLF fallback). Only a solver that has the event
-  //! posts it (lmars posts none), so no zero slot is filled per solve
+  //! riemann.llf (roe's LLF fallback); the monitor reduces the stage's
+  //! masks together (round 5). Only a solver that has the event posts it
+  //! (lmars posts none), so no zero slot is filled per solve
   std::vector<std::pair<int, torch::Tensor>> events;
   //! the events as int64 (2,), rows without a pair at 0 (a host-side
   //! convenience for tests: it allocates)

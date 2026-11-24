@@ -166,7 +166,8 @@ class ImplicitHydroImpl : public torch::nn::Cloneable<ImplicitHydroImpl> {
   void ensure_workspace(at::IntArrayRef wshape,
                         torch::TensorOptions const& wopts);
   torch::Tensor _fp64_fallbacks;
-  torch::Tensor _status;        // [nc3, nc2] int32: the step's VicStatusBit
+  torch::Tensor _status;  // [nc3, nc2] int32: the step's VicStatusBit
+  mutable torch::Tensor _status_lut;  // [32] bool: status() per low-bit word
   torch::Tensor _stage_status;  // [nc3, nc2] the stage's, solve dtype (kernel)
   torch::Tensor _stage_failed;  // [nc3, nc2] bool: the FP64 stage's predicate
   //! the FP64 stage's scratch, swapped in for that stage (I-6)

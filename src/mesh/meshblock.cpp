@@ -209,6 +209,10 @@ void MeshBlockImpl::reset() {
   // before the executor's save list is taken
   phydro->flux_register().monitor().set_stage_count(
       static_cast<int>(pintg->stages.size()));
+  // round 5: one wall batch for the block's registers
+  _wall_batch = std::make_shared<WallBatch>();
+  phydro->flux_register().set_wall_batch(_wall_batch);
+  pscalar->freg.set_wall_batch(_wall_batch);
   register_flux_storage();
 
   //// ------- (10) stage executor (eager unless cuda-graph) ------- ////

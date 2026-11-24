@@ -168,6 +168,7 @@ void MeshBlockImpl::stage_advance(Variables &vars, StepDt dt, int stage) {
     // before the split sources' step-start half, whose post_split must
     // survive into the step
     freg.begin_step();
+    if (_wall_batch) _wall_batch->clear();  // a rejected attempt's bookings
     auto splits = phydro->sources.splits();
     for (auto &s : splits) s->begin_split(hydro_u, dt.value(), freg);
     if (!splits.empty()) {
@@ -217,8 +218,8 @@ void MeshBlockImpl::stage_advance(Variables &vars, StepDt dt, int stage) {
       auto M = mass_corr[IVY];  // slot IVX+(dir+1)%3 with dir == 0 (x1 only)
       auto r = vars.at("scalar_r");
       int nc1 = r.size(-1);
-      auto r_below = torch::zeros_like(r);
-      r_below.slice(-1, 1, nc1) = r.slice(-1, 0, nc1 - 1);
+      // round 5: the shifted copies in one pad each, no zero fill
+      auto r_below = torch::constant_pad_nd(r.slice(-1, 0, nc1 - 1), {1, 0});
       auto P = torch::where(M > 0., r_below, r) * M;
       // cap each donor at held + inflow below, as in vic_constituent_column
       auto held =
@@ -226,8 +227,7 @@ void MeshBlockImpl::stage_advance(Variables &vars, StepDt dt, int stage) {
               .to(P.options());
       at::native::donor_cap(P.device().type(), P, held, pcoord->il(),
                             pcoord->iu());
-      auto P_above = torch::zeros_like(P);
-      P_above.slice(-1, 0, nc1 - 1) = P.slice(-1, 1, nc1);
+      auto P_above = torch::constant_pad_nd(P.slice(-1, 1, nc1), {0, 1});
       fut_scalar_ds.add_((P - P_above) / pcoord->cell_volume());
     }
     // Native dry sources follow transport and the implicit tracer transfer.
@@ -319,6 +319,8 @@ void MeshBlockImpl::stage_combine(Variables &vars, StepDt dt, int stage) {
   auto &fut_hydro_du = _stage_du;
   auto &fut_scalar_ds = _stage_ds;
 
+  // the stage's prescribed-wall rates, hydro and scalar, in one batch
+  if (_wall_batch) _wall_batch->flush();
   // the stage total is final: S_d <- w1 S_d + w2 dt T_d
   freg.end_stage(dt);
 
