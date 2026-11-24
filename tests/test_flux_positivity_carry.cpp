@@ -330,11 +330,18 @@ TEST(flux_positivity, a_settling_carry_on_a_prescribed_face_calls_for_the_apply)
       << "the carry left no energy flux on the face: nothing to pin";
   EXPECT_TRUE(reg.written_since_prescribed(1))
       << "the settling carry must call for the post-implicit apply";
-  reg.apply_prescribed(1);
-  EXPECT_EQ(t[IPR].select(-1, face).abs().max().item<double>(), 0.);
-  reg.end_stage(1.);
+  // the production gate (HydroImpl::forward, post_implicit): the apply runs
+  // only when the direction is marked, so RED keeps the flux and books 0
+  auto area = coord->face_area1().narrow(2, 0, t.size(3)).to(t.options());
+  auto expected = -(area.select(-1, face) * t[IPR].select(-1, face)).sum();
+  if (reg.written_since_prescribed(1)) reg.apply_prescribed(1);
+  EXPECT_EQ(t[IPR].select(-1, face).abs().max().item<double>(), 0.)
+      << "the face was not re-prescribed";
+  reg.end_stage(1.);  // rk3 stage 0: w2 = 1, dt = 1, so the amount is the rate
   auto booked = reg.monitor().amounts("boundary.prescribed")[IPR];
-  EXPECT_NE(booked.item<double>(), 0.) << "the removal was not booked";
+  EXPECT_LT(booked.item<double>(), 0.) << "the removal was not booked";
+  EXPECT_DOUBLE_EQ(booked.item<double>(), expected.item<double>())
+      << "the booking is not -sum A_f T_IPR over the face";
 }
 
 // The same column with a uniform species ratio: the dry air is drained as hard
