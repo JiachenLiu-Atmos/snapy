@@ -15,6 +15,14 @@ path: float32 needs perturbation-flux, which needs ideal-moist and hllc):
 Each case first asserts that no capture reason is left, so a refused case
 fails at once; a watchdog ends a hung run. Without CUDA the test skips.
 
+The lift is an allow-list: capture takes the EOS ideal-gas and ideal-moist
+and the Riemann solvers lmars and hllc, the ones these graph = eager tests
+cover. Any other is refused with its reason until a capture test covers it:
+
+  straka_roe        the shipped deck with the roe solver, refused ("riemann
+                    solver is roe; capture allows lmars, hllc"); strict
+                    throws that reason before any capture
+
   python test_graph_capture_lifts.py
 """
 import faulthandler
@@ -36,15 +44,21 @@ CASES = {
     "straka_2block": {"nb2": 2, "forcing": True},
     "straka_noforcing": {"nb2": 1, "forcing": False},
 }
+# refused by the allow-list: case -> (riemann solver, the reason it names)
+REFUSED = {
+    "straka_roe": ("roe", "riemann solver is roe; capture allows lmars, hllc"),
+}
 
 
 def deck(case, execution, strict):
     root = os.path.dirname(HERE)
     cfg = yaml.safe_load(open(os.path.join(root, "examples/straka.yaml")))
-    nb2 = CASES[case]["nb2"]
+    nb2 = CASES[case]["nb2"] if case in CASES else 1
     cfg["distribute"].update({"nb2": nb2, "blocks_per_process": nb2})
-    if not CASES[case]["forcing"]:
+    if case in CASES and not CASES[case]["forcing"]:
         cfg.pop("forcing")
+    if case in REFUSED:
+        cfg["dynamics"]["riemann-solver"]["type"] = REFUSED[case][0]
     cfg["outputs"] = []
     cfg["dynamics"]["precision"] = "float64"
     cfg["integration"]["ncycle_out"] = 0
@@ -63,7 +77,7 @@ def make(case, execution, strict):
         yaml.safe_dump(cfg, f)
     try:
         opts = MeshOptions.from_yaml(f.name)
-        opts.blocks_per_process(CASES[case]["nb2"])
+        opts.blocks_per_process(CASES[case]["nb2"] if case in CASES else 1)
         mesh = Mesh(opts)
     finally:
         os.unlink(f.name)
@@ -122,10 +136,31 @@ def check(case):
           flush=True)
 
 
+def check_refused(case):
+    reason = REFUSED[case][1]
+    graph, gb, gv = make(case, "cuda-graph", True)
+    why = gb[0].execution_capability(gv[0])["eager_reasons"]
+    assert reason in why, (case, "not refused by the allow-list:", why)
+    dt = graph.max_time_step(gv)
+    try:
+        graph.forward(gv, 0.5 * dt, 0)
+    except RuntimeError as e:
+        msg = str(e)
+        assert "cannot run as a CUDA graph" in msg and reason in msg, (case, msg)
+    else:
+        raise AssertionError((case, "a strict graph Mesh with a refused solver ran"))
+    r = graph.execution_report()
+    assert r["captures"] == 0, (case, r)
+    print(case, ": refused,", repr(reason), ", report:",
+          {k: r[k] for k in ("captures", "replays", "eager")}, flush=True)
+
+
 def main():
     if not build_has_cuda():
         skip("CUDA unavailable")
     faulthandler.dump_traceback_later(WATCHDOG_S, exit=True)  # no hang: dump and exit 1
+    for case in REFUSED:  # first: on a parent that captures them it fails fast
+        check_refused(case)
     for case in CASES:
         check(case)
     faulthandler.cancel_dump_traceback_later()

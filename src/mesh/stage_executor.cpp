@@ -572,9 +572,18 @@ std::vector<std::string> StageExecutor::config_reasons(int block) const {
     why.push_back("geometry is " + op->coord()->type() +
                   ", not cartesian or a cubed sphere");
   if (hydro->eos()->limiter()) why.push_back("the EOS limiter is on");
-  // any equation of state and Riemann solver: the ideal-gas EOS and lmars
-  // read no host value either (the shipped examples/straka.yaml captures,
-  // tests/test_graph_capture_lifts.py)
+  // an allow-list of the equations of state and Riemann solvers a capture
+  // test covers (tests/test_graph_capture_lifts.py, the graph = eager tests);
+  // every other one (aneos, moist-mixture, shallow-water; roe, shallow-roe,
+  // upwind) is refused, named, until a capture test covers it
+  static std::set<std::string> const capture_eos = {"ideal-gas", "ideal-moist"};
+  static std::set<std::string> const capture_riemann = {"lmars", "hllc"};
+  if (!capture_eos.count(hydro->eos()->type()))
+    why.push_back("equation of state is " + hydro->eos()->type() +
+                  "; capture allows ideal-gas, ideal-moist");
+  if (!capture_riemann.count(hydro->riemann()->type()))
+    why.push_back("riemann solver is " + hydro->riemann()->type() +
+                  "; capture allows lmars, hllc");
   if (op->intg()->type() != "rk3")
     why.push_back("integration type is " + op->intg()->type() + ", not rk3");
   // N blocks (B2): the blocks of one process capture. Their exchanges inside
