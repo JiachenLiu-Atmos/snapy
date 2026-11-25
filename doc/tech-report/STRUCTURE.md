@@ -44,13 +44,13 @@ code.
 | 8 | Moist physics, positivity, floors and limiters | merged (old 8 + old 10) | EF, K | EF owns EOS, floors, positivity, tracers and sedimentation together; the positivity census is the limiter's own record |
 | 9 | Time integration: RK stages, dt and step acceptance | split (from old 7.A) | X (integrator), I (FP64 retry flag), S4 | the stage loop and redo decision, without the bookkeeping now in 10; S4's padded tracer-transfer shifts live here |
 | 10 | The flux register, monitor amounts and conservation budgets | merged (old 13 + new register material) | R, O (budget series), S4 | budgets are read off the register in V3; one home for posts, prescribed faces, the wall batch, amounts, monitor counts and their rollback (order in section 4.1) |
-| 11 | Execution: the stage executor and CUDA graphs | new | X, B3, capture, S4 (catalogue and launch accounting) | the central V3 addition; one home for the execution model, the refusal list and the graph rules; of S4 it holds a short cost catalogue that points to the code folds in 4/6/9/10, and the measured eager-graph gap, cited (section 4.2) |
+| 11 | Execution: the stage executor and CUDA graphs | new | X, B3, capture, S4 (catalogue and launch accounting) | the central V3 addition; one home for the execution model, the refusal list and the graph rules; of S4 it holds a short cost catalogue that points to the code folds in 4/6/9/10, and the measured eager-graph gap, cited (section 4.2); a redo replays the captured stages, and how the register's rollback survives that is a pointer to 10 |
 | 12 | Precision: the FP32 policy | new | X (policy), I, EF, C (their rows) | one policy table governs every FP32 decision; today it would be scattered |
 | 13 | Mesh, layout, exchange and multi-block runs | split (from old 14.A) | S, X (Mesh), B3 | layout, exchange and the same-process rendezvous are the Mesh's own model |
 | 14 | Boundary conditions and immersed solids | kept (old 11) | S | which faces are prescribed and with what; how the register books them is 10 (pointer to the wall batch in 10) |
 | 15 | Configuration, output and restart | merged (old 12 + old 14.B) | O | lane O owns the options schema, writer core and restart together |
-| 16 | Verification and reproducibility | merged (old 15 + old 14.C) | all, capture | the bitwise gates are the verification catalogue's own rules; holds the capture sweep and its table, and the launch-counting procedure that 11 cites |
-| 17 | Known limits | kept (old 16) | all | pointer rows only (each limit names its home chapter); no numbers repeated |
+| 16 | Verification and reproducibility | merged (old 15 + old 14.C) | all, capture | the bitwise gates are the verification catalogue's own rules; holds the capture sweep and its table, the launch-counting procedure that 11 cites, and the regression provenance (each regression test with the issue and RED/GREEN commits it came from) |
+| 17 | Known limits | kept (old 16) | all | the limits themselves, as pointer rows (each names its home chapter); no numbers repeated and no regression history (that is 16's) |
 | A | Notation | kept | - | |
 | B | Derivation index | kept | - | |
 | C | Test index | kept | - | |
@@ -107,6 +107,10 @@ more than one new chapter; each piece has the single home given above.
 | exchange cuts and multi-block capture (B3) | 13 | `src/mesh/exchange_cut.hpp`, `src/layout/exchange.*` |
 | flux register and monitor amounts: posts, prescribed faces, wall batch, stage fold, rollback/redo | 10 | `FluxRegister`, `RegisterMonitor`, `WallBatch` in `src/hydro/flux_register.hpp` |
 | monitor counts (face floors, `implicit.fp64_columns`, events) and their rollback | 10 | `RegisterMonitor::count`, `flush_counts`, `rollback` |
+| rollback through graph replay (the redo replays the captured stages; the host stage bookkeeping survives `FluxRegister::rollback`) | 10, pointer from 11 | `FluxRegister::rollback` in `src/hydro/flux_register.cpp`; `StageExecutor::replay` in `src/mesh/stage_executor.cpp` |
+| prescribed-face reapplication after the implicit correction | 10 | `FluxRegister::apply_prescribed`; the call in `HydroImpl::forward` (`src/hydro/hydro_forward.cpp`) |
+| the settling carry on a prescribed face (#315) | 8, pointer from 10 | `flux_positivity_carry_` in `src/hydro/flux_positivity.cpp` |
+| regression provenance (which issue and RED/GREEN commits each regression test pins) | 16 | the tests' own headers and the issues they cite |
 | seam rotation cache | 3 | `SeamRotationCache` in `src/layout/seam_register.hpp` |
 | positivity census (EfStatus `kPosHits`, `kPosSevere`, `kPosMin`, `kScalarPosHits`) | 8 | `PositivityLimiter::census_` in `src/hydro/flux_positivity.cpp` |
 | S4 status truth table | 6 | `ImplicitHydroImpl::status` in `src/implicit/implicit_hydro.cpp` |
@@ -121,8 +125,9 @@ re-read here; that is the section outline's job.
 ### 4.1 Chapter 10's order and test layer
 
 Chapter 10 covers, in this order: the posts (`add`, `scale`, `overwrite_`; plain adds of the rows, no
-`index_add_` at the pin); prescribed faces (`apply_prescribed`, the written mark `written_since_prescribed`, and
-the settling carry on a prescribed face, #315); the wall batch (one `WallBatch` per block, shared by the hydro
+`index_add_` at the pin); prescribed faces (`apply_prescribed`, the written mark `written_since_prescribed`, and the
+post-implicit reapplication, which runs when the implicit correction ran or the mark is set; the settling
+carry that sets the mark, #315, is chapter 8's and is pointed to from here); the wall batch (one `WallBatch` per block, shared by the hydro
 and scalar registers, flushed in the stage combine); the amounts (FP64, FP32 on MPS; the stage fold); rollback
 and redo (the device slots and counters are zeroed, the host stage bookkeeping is kept, because a graph replay
 does not rerun `begin_stage`/`end_stage`); and the budget series O reads after the step is accepted. Its Tests
