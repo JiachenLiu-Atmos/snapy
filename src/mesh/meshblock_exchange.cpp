@@ -83,14 +83,16 @@ void MeshBlockImpl::launch_exchange(SyncOptions const &opts,
   // buffers this pack chose (serialize points them at its cache entry)
   auto sends = send_bufs;
   auto recvs = recv_bufs;
-  exchange_cut([this, opts, sends, recvs]() {
-    send_bufs = sends;
-    recv_bufs = recvs;
-    std::vector<CommWorkPtr> w;
-    _playout->launch_exchange(this, opts, w);
-    for (auto &x : w)
-      if (x) x->wait();
-  }, [&]() { _playout->launch_exchange(this, opts, works); });
+  exchange_cut(
+      [this, opts, sends, recvs]() {
+        send_bufs = sends;
+        recv_bufs = recvs;
+        std::vector<CommWorkPtr> w;
+        _playout->launch_exchange(this, opts, w);
+        for (auto &x : w)
+          if (x) x->wait();
+      },
+      [&]() { _playout->launch_exchange(this, opts, works); });
 }
 
 void MeshBlockImpl::finalize_exchange(Variables &vars, SyncOptions const &opts,

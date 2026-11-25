@@ -46,7 +46,9 @@ struct MeshOptionsImpl {
  public:
   //! the layout's blocks_per_process (distribute/blocks_per_process), its one
   //! home: read and written through block()->layout(), so block() comes first
-  int const& blocks_per_process() const { return layout_().blocks_per_process(); }
+  int const& blocks_per_process() const {
+    return layout_().blocks_per_process();
+  }
   MeshOptionsImpl& blocks_per_process(int const& n) {
     layout_().blocks_per_process(n);
     return *this;

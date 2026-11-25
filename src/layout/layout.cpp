@@ -20,10 +20,10 @@
 #endif
 
 // snap
+#include <snap/input/check_keys.hpp>
 #include <snap/mesh/exchange_cut.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/utils/log.hpp>
-#include <snap/input/check_keys.hpp>
 
 #include "cubed_sphere_layout.hpp"
 #include "layout.hpp"
