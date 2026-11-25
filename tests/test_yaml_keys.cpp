@@ -169,6 +169,11 @@ TEST(yaml_keys, scalar_reconstruct_refuses_an_unknown_key) {
   expect_refused("scalar/reconstruct", "tpye");
 }
 
+TEST(yaml_keys, scalar_reconstruct_refuses_scale) {
+  // the scalar always reconstructs scale-invariant: no scale key
+  expect_refused("scalar/reconstruct", "scale");
+}
+
 TEST(yaml_keys, scalar_riemann_solver_refuses_an_unknown_key) {
   expect_refused("scalar/riemann-solver", "tpye");
 }

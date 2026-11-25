@@ -201,10 +201,11 @@ ReconstructOptions ReconstructOptionsImpl::from_yaml(
   return from_node(node[section], "dynamics/reconstruct/" + section);
 }
 
-ReconstructOptions ReconstructOptionsImpl::from_node(const YAML::Node& node,
-                                                     std::string const& path) {
+ReconstructOptions ReconstructOptionsImpl::from_node(
+    const YAML::Node& node, std::string const& path,
+    std::vector<std::string> const& keys) {
   auto op = ReconstructOptionsImpl::create();
-  check_keys(node, path, {"shock", "type", "scale"});
+  check_keys(node, path, keys);
   op->shock() = node["shock"].as<bool>(op->shock());
   op->interp()->type() = node["type"].as<std::string>(op->interp()->type());
   op->interp()->scale() = node["scale"].as<bool>(op->interp()->scale());

@@ -32,9 +32,8 @@ ScalarOptions ScalarOptionsImpl::from_yaml(std::string const& filename,
 
   if (node["reconstruct"]) {
     // no scale key: the scalar always reconstructs scale-invariant (Scalar)
-    check_keys(node["reconstruct"], "scalar/reconstruct", {"shock", "type"});
-    op->recon() = ReconstructOptionsImpl::from_node(node["reconstruct"],
-                                                    "scalar/reconstruct");
+    op->recon() = ReconstructOptionsImpl::from_node(
+        node["reconstruct"], "scalar/reconstruct", {"shock", "type"});
   } else {
     op->recon() = nullptr;
   }
