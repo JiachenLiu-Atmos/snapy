@@ -1,10 +1,12 @@
 # snapy Technical Report: structure proposal for the V3 update
 
-> Status: **proposal for comment**, chapter level only. No section outline and no writer briefs yet; those
-> follow in `OUTLINE.md` once this structure is approved. Binding style: `STYLE.md` (every scheme section keeps
-> the six layers: Summary, Derivation, Numerical method, Code, Tests, Limits).
+> Status: structure **approved** at `0a802f6a`; the section outline is in this file (sections 6 and 7), **for
+> refutation** before any writer starts. Binding style: `STYLE.md` (every scheme section keeps the six layers:
+> Summary, Derivation, Numerical method, Code, Tests, Limits).
 >
 > Code pin for this proposal: snapy `v3/final` = `70f6e15e44c70f76c1dc180007366a3e7a8d1a18` (UCzhangxi/snapy).
+> The section outline (section 6) is anchored at `v3/final` = `939f7928398f302080cc34aee6df059e883e830d`, a
+> fast-forward of that pin; the report re-pins to the closing head when it lands (section 4.4).
 > V3 lane map: `docs/v3/DESIGN.rst` on happysky19/snapy `v3-design/DESIGN` at
 > `449636b3e1963b5fc7d44407cb7d6db437e8b016`, Table 1 (lane heads, lines 36-80) and Table 7 (lane scopes and
 > skeletons, lines 209-275). Lanes: C reconstruction/Riemann/well-balanced reference; R flux register, monitor,
@@ -184,3 +186,553 @@ pinned at `70f6e15e` until that commit is on `v3/final`. At `939f7928` (a fast-f
 - **H5.** The lane owning each new chapter matches the lane scopes in DESIGN.rst Table 7 (confirmed in review
   for R and S4); ownership of the other closing work (B3, seams, capture) is taken from the integration
   history, not a document.
+
+## 6. Section outline
+
+Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df059e883e830d` (function or class name in the same cell); the report re-pins to the closing head when it lands (section 4.4). Anchors, test files, ctest names and tolerances were resolved by reading the code at that commit; tolerances are quoted from the test source ("bitwise" where the test compares with `torch.equal`/`torch::equal`); a Tests cell lists every numeric tolerance found in that file, so the writer quotes the one on the assertion the section relies on. Figures marked **new** are to be written; the others are existing scripts under `doc/tech-report/`, to be re-checked at the pin. A section with no test or no figure says so.
+
+### Chapter 1. Overview: the V3 step and the code map
+
+#### 1.1 The V3 step: Mesh, block, stage, segments
+
+- **Derivation:** none (control flow): one step = rk3 stages; each stage = the block's segment schedule run eagerly or replayed
+- **Code:** `src/mesh/mesh.cpp:367` `MeshImpl::forward`; `src/mesh/meshblock_advance.cpp:88` `MeshBlockImpl::forward`; `src/mesh/stage_executor.cpp:741` `StageExecutor::run_stage`; `src/mesh/segment.cpp:40` `StageSchedule::add`
+- **Tests:** `test_mesh_executor.release` (bitwise (torch equal x2)); `test_stage_schedule.release` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch01/figures/fig_stage_flow.py` (deck: none (diagram)); **new** `src/snapy_report/ch01/figures/fig_v3_step.py` (deck: none (diagram))
+
+#### 1.2 Construction and dependencies
+
+- **Derivation:** none (control flow): options -> MeshBlock -> modules (hydro, scalar, coord, EOS, kintera thermo)
+- **Code:** `src/mesh/meshblock.cpp:107` `MeshBlockImpl::reset`; `src/hydro/hydro.cpp:21` `HydroImpl::HydroImpl`
+- **Tests:** `test_uniform_module_tree.release` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch01/figures/fig_construction_flow.py` (deck: none (diagram)); `src/snapy_report/ch01/figures/fig_dependencies_flow.py` (deck: none (diagram))
+
+#### 1.3 Code map
+
+- **Derivation:** none: directory -> lane -> chapter table (lane scopes from DESIGN.rst Table 7)
+- **Code:** none in `src/` (method or record section)
+- **Tests:** none (no test covers this section at the pin)
+- **Figures/tables:** `src/snapy_report/ch01/figures/fig_overview_dependencies.py` (deck: none (diagram))
+
+### Chapter 2. Governing equations and thermodynamics
+
+#### 2.1 Conservation laws and variables
+
+- **Derivation:** Euler equations for (rho, rho v, E, rho q_i); conserved <-> primitive maps; the anomaly form u - u_ref
+- **Code:** `src/eos/equation_of_state.cpp:222` `EquationOfStateImpl::compute`; `src/eos/equation_of_state.cpp:297` `EquationOfStateImpl::forward`
+- **Tests:** `test_eos.release` (bitwise (torch equal x15); NEAR 1.e-25); `test_anomaly_storage_python` (bitwise (torch equal x7); tol 1.0e-10)
+- **Figures/tables:** `src/snapy_report/ch02/figures/fig_laws_flow.py` (deck: none (diagram))
+
+#### 2.2 Ideal-gas EOS
+
+- **Derivation:** p = rho R T, e = cv T; cons2prim from E - KE
+- **Code:** `src/eos/ideal_gas.cpp:73` `IdealGasImpl::_cons2prim`; `src/eos/ideal_gas.cpp:54` `IdealGasImpl::_prim2cons`
+- **Tests:** `test_eos.release` (bitwise (torch equal x15); NEAR 1.e-25); `test_eos_temp2inteng_python` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch02/figures/fig_ideal_gas_flow.py` (deck: none (diagram))
+
+#### 2.3 Ideal-moist EOS and the kintera thermodynamics
+
+- **Derivation:** mixture cv and molecular weight from species fractions; internal-energy offset; T from (rho, e) by the kintera ThermoY contract
+- **Code:** `src/eos/ideal_moist.cpp:202` `IdealMoistImpl::_cons2prim`; `src/eos/ideal_moist.cpp:65` `IdealMoistImpl::internal_energy_offset`; `src/eos/ideal_moist.cpp:79` `IdealMoistImpl::perturbations`
+- **Tests:** `test_eos_species_sum_layout_python` (no numeric tolerance in the source (pass/fail checks only)); `test_eos_temp2inteng_python` (no numeric tolerance in the source (pass/fail checks only)); `test_sk1_failure_counter_python` (bitwise (torch equal x1))
+- **Figures/tables:** `src/snapy_report/ch02/figures/fig_ideal_moist_flow.py` (deck: none (diagram))
+
+#### 2.4 Other equations of state (moist-mixture, aneos, shallow-water)
+
+- **Derivation:** their closures in one paragraph each; capture refuses them (pointer to 11.3)
+- **Code:** `src/eos/moist_mixture.cpp:48` `MoistMixtureImpl::compute`; `src/eos/shallow_water.cpp:14` `ShallowWaterImpl::compute`
+- **Tests:** `test_aneos_gamma.release` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch02/figures/fig_moist_mixture_flow.py` (deck: none (diagram))
+
+### Chapter 3. Grids, geometry and cubed-sphere seams
+
+#### 3.1 Cartesian and stretched x1 grids
+
+- **Derivation:** cell volume and face areas from face positions; stretched x1 widths and their reference rows
+- **Code:** `src/coord/coordinate.cpp:552` `CoordinateImpl::cell_volume`; `src/coord/coordinate.cpp:484` `CoordinateImpl::center_width1`
+- **Tests:** `test_coordinate.release` (bitwise (torch equal x4); NEAR 1.e-15); `test_stretched_x1.release` (bitwise (torch equal x12))
+- **Figures/tables:** `src/snapy_report/ch03/figures/fig_cartesian_cell.py` (deck: none (diagram))
+
+#### 3.2 Gnomonic equiangle panels
+
+- **Derivation:** x = tan(alpha), y = tan(beta); delta = sqrt(1+x^2+y^2), C, D; cell volume and face areas from the metric
+- **Code:** `src/coord/gnomonic_equiangle.cpp:281` `GnomonicEquiangleImpl::cell_volume`; `src/coord/gnomonic_equiangle.cpp:273` `GnomonicEquiangleImpl::face_area2`; `src/coord/cubed_sphere_utils.cpp:200` `cs_metric_at`
+- **Tests:** `test_cubed_sphere_cell_volume_python` (no numeric tolerance in the source (pass/fail checks only)); `test_radial_face_moments.release` (NEAR 1e-14)
+- **Figures/tables:** `src/snapy_report/ch03/figures/fig_gnomonic_cosine.py` (deck: none (analytic))
+
+#### 3.3 Panel rotation and the seam register
+
+- **Derivation:** face fluxes rotated covariant face basis -> Cartesian -> neighbour basis; the owner's rows replace the neighbour's on the seam
+- **Code:** `src/coord/coord_rotation.cpp:79` `PanelRotation::face_rows_to_cart_`; `src/layout/seam_register.cpp:36` `reconcile_panel_seams`
+- **Tests:** `test_panel_rotation.release` (bitwise (torch equal x1)); `test_cubed_sphere_seams.release` (bitwise (torch equal x3))
+- **Figures/tables:** `src/snapy_report/ch03/figures/fig_thetacopy_seam.py` (deck: none (diagram))
+
+#### 3.4 The seam rotation cache
+
+- **Derivation:** the rotation operands depend on the grid alone; built once per side, rebuilt when a grid tensor's storage, version, dtype, device or shape changes
+- **Code:** `src/layout/seam_register.hpp:41` `SeamRotationCache`; `src/coord/coord_rotation.cpp:72` `PanelRotation::face_operands`
+- **Tests:** `test_seam_rotation_cache_python` (bitwise (torch equal x3))
+- **Figures/tables:** **new** `src/snapy_report/ch03/figures/fig_seam_cache.py` (deck: test_seam_rotation_cache's six-panel deck)
+
+### Chapter 4. Reconstruction, Riemann solvers and the hydro sweep
+
+#### 4.1 Reconstruction (PLM, WENO5) and the conversion order
+
+- **Derivation:** piecewise-linear and WENO5 face states from cell averages; fourth-order point/average conversion
+- **Code:** `src/recon/reconstruct.cpp:257` `ReconstructImpl::forward`; `src/recon/reconstruct.cpp:119` `InterpImpl::forward`
+- **Tests:** `test_plm.release` (NEAR 1.E-10, 1.E-6, 2.E-6); `test_weno.release` (bitwise (torch equal x4); NEAR 1.E-10, 1.E-6, 2.E-6); `test_conversion_order_python` (bitwise (torch equal x4); rtol 1.e-13)
+- **Figures/tables:** `src/snapy_report/ch04/figures/fig_recon_stencil.py` (deck: none (diagram)); `src/snapy_report/ch04/figures/fig_recon_order.py` (deck: the order-test deck of test_weno)
+
+#### 4.2 Riemann solvers
+
+- **Derivation:** HLLC (three waves) and LMARS (low-Mach pressure and velocity at the face); roe, shallow-roe and upwind in one paragraph
+- **Code:** `src/riemann/riemann.cpp:156` `RiemannSolverImpl::forward`; `src/riemann/riemann.cpp:219` `RiemannSolverImpl::solve`
+- **Tests:** `test_riemann.release` (bitwise (torch equal x2); NEAR 1.e-7); `test_roe_cubed_sphere_rest_python` (< 1.0e-9)
+- **Figures/tables:** `src/snapy_report/ch04/figures/fig_riemann_face.py` (deck: none (diagram))
+
+#### 4.3 The sweep and its register posts
+
+- **Derivation:** none (control flow): reconstruct -> face floors -> solve -> post to the register; S4: one reduced count post per floor or event that ran (the `post_events` lambda inside `riemann_solve`)
+- **Code:** `src/hydro/sweep.cpp:31` `reconstruct_faces`; `src/hydro/sweep.cpp:23` `post_face_floors`; `src/hydro/sweep.cpp:99` `riemann_solve`; `src/recon/reconstruct.cpp:246` `ReconstructImpl::floor_counts`
+- **Tests:** `test_face_floor.release` (NEAR 1.e-3); `test_fp32_face_floor_counts_python` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch04/figures/fig_stage_pipeline.py` (deck: none (diagram))
+
+#### 4.4 Face-average corrections at O(dx^2)
+
+- **Derivation:** flux covariance from the in-cell product expansion; x1 centroid shift on curved faces
+- **Code:** `src/hydro/hydro_forward.cpp:58` `HydroImpl::_flux_covariance`
+- **Tests:** `test_flux_covariance_rows_python` (no numeric tolerance in the source (pass/fail checks only)); `test_horizontal_flux_covariance_python` (bitwise (torch equal x2)); `test_x1_centroid_rest_python` (tol 1.0e-10, 1.0e-8)
+- **Figures/tables:** `src/snapy_report/ch04/figures/fig_x1cov_order.py` (deck: the convergence deck of test_flux_covariance_rows)
+
+### Chapter 5. Hydrostatic reference and well-balanced treatment
+
+#### 5.1 The x1 hydrostatic reference
+
+- **Derivation:** reference pressure and density from dp/dz = -rho g integrated per column; face states of the reference subtracted before the solve
+- **Code:** `src/hydro/hydro.cpp:531` `HydroImpl::_hydro_ref_x1`; `src/recon/x1_reference.hpp:41` `HydroReferenceX1Operator`
+- **Tests:** `test_hydro_ref_x1.release` (bitwise (torch equal x16); < 1.e-6); `test_hydro_ref_x1_rf_wall.release` (NEAR 1.e-14); `test_stretched_x1_ref.release` (NEAR 1.e-12)
+- **Figures/tables:** `src/snapy_report/ch05/figures/fig_refkernel_scan.py` (deck: none (diagram))
+
+#### 5.2 Well-balanced face states
+
+- **Derivation:** face states that keep a hydrostatic column at rest to round-off
+- **Code:** `src/recon/well_balanced_x1.cpp:16` `WellBalancedX1::forward`
+- **Tests:** `test_hydrostatic.release` (no numeric tolerance in the source (pass/fail checks only)); `test_wb_ref_wall.release` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch05/figures/fig_wbx1_ghosts.py` (deck: none (diagram))
+
+#### 5.3 Balance column and the fourth-order reference
+
+- **Derivation:** discrete balance column solved for the initial state; fourth-order reference stencils and their order
+- **Code:** `src/hydro/balance_column.cpp:18` `balance_column`
+- **Tests:** `test_balance_column.release` (bitwise (torch equal x14); rtol 1.e-10); `test_balance_column_order4_python` (< 1.e-13, 1.e-12); `test_wb_ref4_order_python` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch05/figures/fig_balcol_passes.py` (deck: test_balance_column's deck); `src/snapy_report/ch05/figures/fig_wbref4_order.py` (deck: test_wb_ref4_order's deck)
+
+### Chapter 6. Gravity work and the vertical implicit correction
+
+#### 6.1 Face gravity work and the corrected potential energy
+
+- **Derivation:** energy source g * mass flux at faces; corrected PE with the exact 3-point slope (derivation sec 7 of the gravity-work note)
+- **Code:** `src/forcing/const_gravity.cpp:47` `ConstGravityImpl::forward`; `src/hydro/gravity_work.hpp:217` `corrected_pe_work`
+- **Tests:** `test_gravity_work_radial_exact_python` (tol 1.e-13); `test_gravity_work_rows.release` (bitwise (torch equal x1))
+- **Figures/tables:** `src/snapy_report/ch06/figures/fig_dwork_stencil.py` (deck: none (diagram)); `src/snapy_report/ch06/figures/fig_face_order.py` (deck: test_gravity_work_radial_exact's deck)
+
+#### 6.2 The VIC: assembly and column solve
+
+- **Derivation:** (I + b dt J') delta = b dt L per column; block tridiagonal LU with the wall third points by Woodbury
+- **Code:** `src/implicit/implicit_hydro.cpp:301` `ImplicitHydroImpl::forward_masked`; `src/implicit/vic_kernels.h:176` `vic_solve_column`
+- **Tests:** `test_implicit_face_work_jacobian.release` (NEAR 1.e-5); `test_implicit_gravity_tall_column_python` (no numeric tolerance in the source (pass/fail checks only)); `test_lu_failure.release` (bitwise (torch equal x14))
+- **Figures/tables:** `src/snapy_report/ch07/figures/fig_vic_stencil.py` (deck: none (diagram)); `src/snapy_report/ch07/figures/fig_vic_sweep.py` (deck: none (diagram))
+
+#### 6.3 Column status, the FP64 retry and the S4 status truth table
+
+- **Derivation:** status bits per column; the predicated FP64 stage solves only failed columns; status() as one table lookup (S4)
+- **Code:** `src/implicit/implicit_hydro.cpp:223` `ImplicitHydroImpl::status`; `src/hydro/hydro.cpp:436` `HydroImpl::_apply_implicit_correction`
+- **Tests:** `test_fp32_vic_pivot_python` (no numeric tolerance in the source (pass/fail checks only)); `test_fp32_implicit_python` (bitwise (torch equal x1); rtol 1.0e-13; < 2.0e-6)
+- **Figures/tables:** `src/snapy_report/ch07/figures/fig_vic_reject.py` (deck: none (diagram))
+
+#### 6.4 The implicit solve on the device dt
+
+- **Derivation:** dt_corr = w2 dt formed on the device; I/dt rows as x * (1/dt) rounded like torch's host-scalar path, so graph = eager
+- **Code:** `src/utils/step_dt.cpp:25` `StepDt::divide`; `src/utils/step_dt.cpp:36` `StepDt::scaled`
+- **Tests:** `test_graph_implicit_dt_python` (bitwise (torch equal x3)); `test_graph_implicit_python` (bitwise (torch equal x3))
+- **Figures/tables:** none
+
+### Chapter 7. Rotation, axial momentum, diffusion and forcing
+
+#### 7.1 Coriolis
+
+- **Derivation:** -2 Omega x v projected on the local frame; the x1 mass-flux w terms from the stage's face transfers
+- **Code:** `src/forcing/coriolis.cpp:110` `CoriolisImpl::add`; `src/forcing/x1_momentum.cpp:48` `X1Momentum::after_solve`
+- **Tests:** `test_forcing.release` (bitwise (torch equal x3); NEAR 1.e-12, 1.e-9)
+- **Figures/tables:** `src/snapy_report/ch09/figures/fig_coriolis_projection.py` (deck: none (diagram))
+
+#### 7.2 Axial angular momentum: flux form and closure
+
+- **Derivation:** AAM conservation by the flux form of the azimuthal momentum; the global closure fixer
+- **Code:** `src/forcing/axial_momentum.cpp:137` `AxialMomentum::flux_form`; `src/forcing/axial_momentum.cpp:297` `AxialClosureFixer::apply`
+- **Tests:** `test_axial_momentum.release` (bitwise (torch equal x2)); `test_axial_momentum_flux_form_python` (tol 1.0e-12); `test_global_phase_closure.release` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** none
+
+#### 7.3 Diffusion and viscosity
+
+- **Derivation:** second-order diffusion operators on Cartesian, cubed-sphere and radial grids; the diffusive time-step bound
+- **Code:** `src/forcing/diffusion.cpp:551` `DiffusionImpl::add`; `src/forcing/diffusion.cpp:717` `DiffusionImpl::max_time_step`
+- **Tests:** `test_diffusion.release` (bitwise (torch equal x1); NEAR 1.e-12, 1.e-6, 1.e-3); `test_diffusion_cubed_sphere.release` (bitwise (torch equal x1); NEAR 1.e-11, 1.e-10); `test_diffusion_moist.release` (bitwise (torch equal x1); NEAR 1.e-3)
+- **Figures/tables:** `src/snapy_report/ch09/figures/fig_viscosity_stencil.py` (deck: none (diagram)); `src/snapy_report/ch09/figures/fig_csdiffusion_stencil.py` (deck: none (diagram))
+
+#### 7.4 Other forcings and the user stage forcing
+
+- **Derivation:** heating, relaxation and sponge terms (one table); the TorchScript stage forcing and its species clip
+- **Code:** `src/mesh/meshblock_advance.cpp:239` `MeshBlockImpl::stage_forcing`
+- **Tests:** `test_jit_user_forcing_python` (no numeric tolerance in the source (pass/fail checks only)); `test_forcing_species_clip_python` (tol 1.e-14); `test_source_registry.release` (bitwise (torch equal x2))
+- **Figures/tables:** `src/snapy_report/ch09/figures/fig_user_forcing.py` (deck: none (diagram)); `src/snapy_report/ch09/figures/fig_sponge_profile.py` (deck: none (analytic))
+
+### Chapter 8. Moist physics, positivity, floors and limiters
+
+#### 8.1 Saturation adjustment and the vapor repair
+
+- **Derivation:** kintera equilibrium per cell at constant (rho, e); vapor deficit repair by column borrowing
+- **Code:** `src/mesh/meshblock_advance.cpp:357` `MeshBlockImpl::stage_saturation`
+- **Tests:** `test_fix_vapor_deficit.release` (NEAR 1.e-15); `test_condensate_conservation.release` (bitwise (torch equal x1)); `test_wall_saturation.release` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch10/figures/fig_satadj_timeline.py` (deck: none (diagram)); `src/snapy_report/ch10/figures/fig_fixvapor_column.py` (deck: test_fix_vapor_deficit's deck)
+
+#### 8.2 Sedimentation
+
+- **Derivation:** terminal-velocity donor fluxes of the condensates; the settling buffer fsed1
+- **Code:** `src/sedimentation/sed_hydro.cpp:40` `SedHydroImpl::forward`
+- **Tests:** `test_sedimentation_guards.release` (bitwise (torch equal x2)); `test_sedimentation_cubed_seam.release` (< 1.e-7, 5.e-3)
+- **Figures/tables:** `src/snapy_report/ch10/figures/fig_sed_donor.py` (deck: none (diagram))
+
+#### 8.3 The flux positivity limiter and its census
+
+- **Derivation:** theta per cell so that u + dt div F >= 0; borrow between species; census_ counts theta < 1 and theta < 0.9 (EfStatus slots, read by the budget diagnostics)
+- **Code:** `src/hydro/flux_positivity.cpp:42` `flux_positivity_theta`; `src/hydro/flux_positivity.cpp:207` `PositivityLimiter::census_`
+- **Tests:** `test_flux_positivity_python` (< 1e-12); `test_flux_positivity_cubedsphere_python` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch08/figures/fig_theta_stencil.py` (deck: none (diagram)); `src/snapy_report/ch08/figures/fig_borrow.py` (deck: none (diagram))
+
+#### 8.4 The settling carry on a prescribed face (#315)
+
+- **Derivation:** the carry's advected part F - fsed1 and settling part fsed1 carry their own donors' energy; on a prescribed face their sum is share |fsed1| (h_upper - h_lower), so the post marks the direction
+- **Code:** `src/hydro/flux_positivity.cpp:102` `flux_positivity_carry_`
+- **Tests:** `test_flux_positivity_carry.release` (bitwise (torch equal x4); NEAR 0.; tol 1.e-12)
+- **Figures/tables:** none
+
+#### 8.5 EOS floors and the limiter marks
+
+- **Derivation:** density and pressure floors; the limiter marks are the redo's limiter cause
+- **Code:** `src/eos/equation_of_state.cpp:305` `EquationOfStateImpl::apply_conserved_limiter_`
+- **Tests:** `test_check_redo_saturation_python` (bitwise (torch equal x2)); `test_species_face_clamp.release` (bitwise (torch equal x2))
+- **Figures/tables:** none
+
+### Chapter 9. Time integration: RK stages, dt and step acceptance
+
+#### 9.1 RK3 stages and the combine
+
+- **Derivation:** SSP-RK3 weights (w0, w1, w2) from pyharp; u^{s+1} = w0 u0 + w1 u1 + w2 dt L(u1)
+- **Code:** `src/mesh/meshblock_advance.cpp:313` `MeshBlockImpl::stage_combine`
+- **Tests:** `test_mesh_executor.release` (bitwise (torch equal x2))
+- **Figures/tables:** `src/snapy_report/ch07/figures/fig_rk_stages.py` (deck: none (diagram))
+
+#### 9.2 The time step
+
+- **Derivation:** acoustic CFL bound per direction, then the sources' bounds; the global minimum over blocks
+- **Code:** `src/hydro/hydro.cpp:332` `HydroImpl::max_time_step`; `src/mesh/meshblock_advance.cpp:65` `MeshBlockImpl::global_time_step`
+- **Tests:** `test_implicit_cfl.release` (no numeric tolerance in the source (pass/fail checks only)); `test_shear_cfl_python` (no numeric tolerance in the source (pass/fail checks only)); `test_implicit_advection_cfl_python` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch07/figures/fig_cfl_bounds.py` (deck: none (analytic))
+
+#### 9.3 Step acceptance and the redo decision
+
+- **Derivation:** none (control flow): redo causes stacked on the device, one host read, MAX over ranks; floor, clamp, limiter, NaN, saturation, solve
+- **Code:** `src/mesh/meshblock_redo.cpp:90` `MeshBlockImpl::local_redo_flag_tensor`; `src/mesh/meshblock_redo.cpp:168` `MeshBlockImpl::decide_retry`; `src/mesh/meshblock_redo.cpp:32` `MeshBlockImpl::apply_redo`
+- **Tests:** `test_check_redo_floor_python` (bitwise (torch equal x11)); `test_check_redo_parallel.release` (bitwise (torch equal x3))
+- **Figures/tables:** `src/snapy_report/ch07/figures/fig_redo_flow.py` (deck: none (diagram))
+
+#### 9.4 The implicit tracer transfer (S4 padded shifts)
+
+- **Derivation:** tracer face transfer P = M r_donor capped by the held amount; S4 forms r_below and P_above by one pad each
+- **Code:** `src/mesh/meshblock_advance.cpp:150` `MeshBlockImpl::stage_advance`
+- **Tests:** `test_dry_carry_zero_base_python` (rtol 0.; atol 1.e-12); `test_tracer_ratio_python` (rtol 1.e-13)
+- **Figures/tables:** none
+
+### Chapter 10. The flux register, monitor amounts and conservation budgets
+
+#### 10.1 Posts
+
+- **Derivation:** none (bookkeeping): add, scale and overwrite of a direction's total and its kept parts; plain row adds
+- **Code:** `src/hydro/flux_register.cpp:503` `FluxRegister::add`; `src/hydro/flux_register.cpp:532` `FluxRegister::scale`; `src/hydro/flux_register.cpp:545` `FluxRegister::overwrite_`
+- **Tests:** `test_flux_register.release` (bitwise (torch equal x27))
+- **Figures/tables:** **new** `src/snapy_report/ch10/figures/fig_register_order.py` (deck: none (diagram))
+
+#### 10.2 Prescribed faces and their reapplication
+
+- **Derivation:** boundary.prescribed books the removed wall flux; reapplied after the implicit correction or when the written mark is set (the #315 carry: see 8.4)
+- **Code:** `src/hydro/flux_register.cpp:724` `FluxRegister::apply_prescribed`; `src/hydro/hydro_forward.cpp:299` `HydroImpl::forward`
+- **Tests:** `test_prescribed_after_sources.release` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** none
+
+#### 10.3 The wall batch
+
+- **Derivation:** the wall rates of a stage gathered in push order, one dense row reduction per stage, shared by the hydro and scalar registers
+- **Code:** `src/hydro/flux_register.cpp:296` `WallBatch::flush`; `src/hydro/flux_register.cpp:278` `WallBatch::push`
+- **Tests:** `test_graph_monitor_amounts.release` (bitwise (torch equal x4))
+- **Figures/tables:** none
+
+#### 10.4 Amounts and the stage fold
+
+- **Derivation:** amount = sum over stages of w2_s * stage amount (FP64; FP32 on MPS), folded once on the device when read
+- **Code:** `src/hydro/flux_register.cpp:239` `RegisterMonitor::fold_`
+- **Tests:** `test_graph_monitor_amounts.release` (bitwise (torch equal x4)); `test_conservation_budget.release` (bitwise (torch equal x1))
+- **Figures/tables:** none
+
+#### 10.5 Monitor counts
+
+- **Derivation:** count masks batched per stage and summed by one integer cumsum (no atomics)
+- **Code:** `src/hydro/flux_register.cpp:75` `RegisterMonitor::count`; `src/hydro/flux_register.cpp:92` `RegisterMonitor::flush_counts`
+- **Tests:** `test_fp32_face_floor_counts_python` (no numeric tolerance in the source (pass/fail checks only)); `test_cycle_diagnostics.release` (NEAR 1.e-12, 1.e-11, 1.e-9, 1.e-6 ...)
+- **Figures/tables:** none
+
+#### 10.6 Rollback and redo, through replay
+
+- **Derivation:** a rejected attempt zeroes the device slots and counters and keeps the host stage bookkeeping, because a replayed redo does not rerun begin_stage/end_stage (pointer from 11)
+- **Code:** `src/hydro/flux_register.cpp:472` `FluxRegister::rollback`; `src/hydro/flux_register.cpp:65` `RegisterMonitor::rollback`
+- **Tests:** `test_graph_monitor_amounts.release` (bitwise (torch equal x4))
+- **Figures/tables:** none
+
+#### 10.7 Budgets and the budget series
+
+- **Derivation:** conservation budgets read off the register after the step is accepted; the NetCDF budget series
+- **Code:** `src/diagnostics/budget.cpp:170` `BudgetConsumer::observe`; `src/output/budget_series.hpp:19` `BudgetSeries`
+- **Tests:** `test_budget.release` (bitwise (torch equal x5)); `test_conservation_budget.release` (bitwise (torch equal x1))
+- **Figures/tables:** `src/snapy_report/ch13/figures/fig_cycle_line.py` (deck: test_cycle_diagnostics' deck); `src/snapy_report/ch13/figures/fig_limiter_meters.py` (deck: test_budget's deck)
+
+### Chapter 11. Execution: the stage executor and CUDA graphs
+
+#### 11.1 The execution model: segments and the schedule
+
+- **Derivation:** none (control flow): a stage is a list of ops grouped into segments (compute, host exchange, eager); the executor runs them in order
+- **Code:** `src/mesh/segment.cpp:56` `StageSchedule::regroup`; `src/mesh/stage_executor.cpp:772` `StageExecutor::run_segments`
+- **Tests:** `test_stage_schedule.release` (no numeric tolerance in the source (pass/fail checks only)); `test_stage_segments.release` (bitwise (torch equal x1)); `test_mesh_executor.release` (bitwise (torch equal x2))
+- **Figures/tables:** **new** `src/snapy_report/ch11/figures/fig_segments.py` (deck: none (diagram))
+
+#### 11.2 Capture, warm-up, the save list and replay
+
+- **Derivation:** none (control flow): three eager warm-ups on a side stream, restore the save list, capture once, replay with the device dt
+- **Code:** `src/mesh/stage_executor.cpp:827` `StageExecutor::capture`; `src/mesh/stage_executor.cpp:685` `StageExecutor::save_list`; `src/mesh/stage_executor.cpp:984` `StageExecutor::replay`; `src/mesh/stage_executor.cpp:263` `StageExecutor::device_dt`
+- **Tests:** `test_stage_executor_capture_python` (bitwise (torch equal x5)); `test_graph_pool_recapture_python` (bitwise (torch equal x1)); `test_state_store.release` (bitwise (torch equal x5))
+- **Figures/tables:** none
+
+#### 11.3 The refusal list and the allow-lists
+
+- **Derivation:** none (rules): the named reasons a block runs eager; EOS ideal-gas/ideal-moist and Riemann lmars/hllc only
+- **Code:** `src/mesh/stage_executor.cpp:558` `StageExecutor::config_reasons`; `src/mesh/stage_executor.cpp:524` `StageExecutor::capture_reasons`
+- **Tests:** `test_execution_capability_python` (no numeric tolerance in the source (pass/fail checks only)); `test_graph_capture_lifts_python` (bitwise (torch equal x1)); `test_graph_outflow_refused_python` (bitwise (torch equal x2)); `test_graph_user_forcing_python` (bitwise (torch equal x3))
+- **Figures/tables:** **new** `src/snapy_report/ch11/figures/tab_refusals.py` (deck: none (table from config_reasons))
+
+#### 11.4 The default and strict
+
+- **Derivation:** none (rules): integration.execution and execution-strict; written against the commit that lands the default (STRUCTURE 4.4)
+- **Code:** `src/mesh/meshblock_options.cpp:17` `MeshBlockOptionsImpl::from_yaml`
+- **Tests:** `test_execution_capability_python` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** none
+
+#### 11.5 Graph = eager bitwise, and graph-safe code
+
+- **Derivation:** none (rules): no host reads, no host-to-device copies inside a captured segment, fixed shapes, device dt, host state replay does not refresh
+- **Code:** `src/utils/step_dt.cpp:14` `StepDt::value`; `src/mesh/state_store.hpp:24` `StateStore`
+- **Tests:** `test_sk3_capture_moist_python` (bitwise (torch equal x4)); `test_graph_implicit_dt_python` (bitwise (torch equal x3)); `test_graph_chemistry_slot_python` (bitwise (torch equal x3))
+- **Figures/tables:** none
+
+#### 11.6 The S4 cost catalogue and the measured gap
+
+- **Derivation:** none (catalogue): pointers to 4.3, 6.3, 9.4, 10.3 and 10.5; the measured eager-graph gap cited from docs/v3/closing/s4_eager_gap.md; method in 16.3
+- **Code:** none in `src/` (method or record section)
+- **Tests:** none (no test covers this section at the pin)
+- **Figures/tables:** table cited from `docs/v3/closing/s4_eager_gap.md on v3/closing-dryrun-plan`
+
+### Chapter 12. Precision: the FP32 policy
+
+#### 12.1 The precision policy
+
+- **Derivation:** one row per quantity: storage, compute and accumulation dtype; FP64 masters for geometry and references
+- **Code:** `src/mesh/precision_policy.hpp:31` `PrecisionPolicy`
+- **Tests:** `test_precision_policy.release` (bitwise (torch equal x1)); `test_fp32_policy_python` (bitwise (torch equal x4); rtol 1.0e-13; < 2.0e-8, 2.0e-5)
+- **Figures/tables:** **new** `src/snapy_report/ch12/figures/tab_policy_rows.py` (deck: none (table from precision_policy.hpp))
+
+#### 12.2 FP32 storage, typed constants and the horizontal sweep
+
+- **Derivation:** FP32 state with FP64-accumulated sums; constants cast once per dtype
+- **Code:** `src/utils/tensor_cast_cache.hpp:17` `TensorCastCache`
+- **Tests:** `test_fp32_typed_constants.release` (bitwise (torch equal x2)); `test_fp32_horizontal_sweep_python` (no numeric tolerance in the source (pass/fail checks only)); `test_fp32_compute_python` (bitwise (torch equal x2); < 2.0e-5)
+- **Figures/tables:** none
+
+#### 12.3 Anomaly storage and perturbation flux
+
+- **Derivation:** FP32 needs the anomaly u - u_ref and the perturbation flux so the hydrostatic part cancels in FP64
+- **Code:** `src/eos/ideal_moist.cpp:79` `IdealMoistImpl::perturbations`
+- **Tests:** `test_anomaly_storage_python` (bitwise (torch equal x7); tol 1.0e-10); `test_perturbation_flux_python` (bitwise (torch equal x1); rtol 1.e-13; < 2.e-13, 2.e-10, 2.e-9); `test_perturbation_flux_split_python` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** none
+
+#### 12.4 The FP32 implicit solve (pointer to 6.3)
+
+- **Derivation:** block-row scaling before the FP32 LU; FP64 retry of failed columns only
+- **Code:** `src/hydro/hydro.cpp:420` `HydroImpl::implicit_solve_float`
+- **Tests:** `test_fp32_vic_pivot_python` (no numeric tolerance in the source (pass/fail checks only)); `test_fp32_implicit_python` (bitwise (torch equal x1); rtol 1.0e-13; < 2.0e-6); `test_fp32_restart_python` (bitwise (torch equal x8); < 2.0e-5)
+- **Figures/tables:** none
+
+### Chapter 13. Mesh, layout, exchange and multi-block runs
+
+#### 13.1 Layouts and ranks
+
+- **Derivation:** none (mapping): slab, cubed and cubed-sphere layouts; block -> rank -> panel
+- **Code:** `src/layout/cubed_sphere_layout.cpp:514` `CubedSphereLayoutImpl::neighbor_rank`; `src/layout/cubed_sphere_layout.cpp:504` `CubedSphereLayoutImpl::loc_of`
+- **Tests:** `test_process_group.release` (no numeric tolerance in the source (pass/fail checks only)); `test_local_horizontal_cells_python` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch03/figures/fig_layouts_morton.py` (deck: none (diagram))
+
+#### 13.2 The ghost exchange
+
+- **Derivation:** none (control flow): pack, same-process rendezvous or process-group send/recv, unpack; corner refresh
+- **Code:** `src/mesh/meshblock_exchange.cpp:124` `MeshBlockImpl::exchange_ghost_zones`; `src/mesh/mesh.cpp:446` `MeshImpl::exchange_ghost_zones`
+- **Tests:** `test_exchange.release` (no numeric tolerance in the source (pass/fail checks only)); `test_mesh_exchange_python` (no numeric tolerance in the source (pass/fail checks only)); `test_cubed_sphere_exchange.release` (bitwise (torch equal x9)); `test_periodic_corners_python` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch03/figures/fig_exchange_stencil.py` (deck: none (diagram))
+
+#### 13.3 Exchange cuts and multi-block capture (B3)
+
+- **Derivation:** none (control flow): an in-stage exchange is a cut; the blocks capture together after align_captures
+- **Code:** `src/mesh/stage_executor.cpp:340` `exchange_cut`; `src/mesh/stage_executor.cpp:476` `StageExecutor::align_captures`
+- **Tests:** `test_mesh_capture.release` (bitwise (torch equal x2)); `test_mesh_capture_moist_python` (bitwise (torch equal x1)); `test_cubed_sphere_capture_python` (bitwise (torch equal x1))
+- **Figures/tables:** **new** `src/snapy_report/ch13/figures/fig_exchange_cut.py` (deck: none (diagram))
+
+#### 13.4 Mesh-agree
+
+- **Derivation:** none (rule): a Mesh whose blocks disagree (one refuses, or modes differ) runs eager as a whole
+- **Code:** `src/mesh/stage_executor.cpp:508` `StageExecutor::agree`
+- **Tests:** `test_mesh_disagree.release` (bitwise (torch equal x1))
+- **Figures/tables:** none
+
+#### 13.5 The x1 seam split
+
+- **Derivation:** none (control flow): x1 relays between blocks split in x1 (pz > 1); refused for capture and for the implicit solve
+- **Code:** `src/layout/exchange.cpp:123` `Exchange::x1_seam_peers`
+- **Tests:** `test_x1_seam_split.release` (no numeric tolerance in the source (pass/fail checks only)); `test_x1_seam_split_mp.release` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch03/figures/fig_x1seams_relay.py` (deck: none (diagram))
+
+### Chapter 14. Boundary conditions and immersed solids
+
+#### 14.1 Boundary kinds
+
+- **Derivation:** reflecting, outflow/radiating, periodic and custom ghost fills
+- **Code:** `src/mesh/meshblock_exchange.cpp:220` `MeshBlockImpl::apply_boundaries`; `src/mesh/meshblock_options.cpp:168` `MeshBlockOptionsImpl::is_wall_boundary`
+- **Tests:** `test_radiating_boundary.release` (bitwise (torch equal x11)); `test_outflow_stale_ghosts_python` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch11/figures/fig_reflecting_stencil.py` (deck: none (diagram)); `src/snapy_report/ch11/figures/fig_outflow_stencil.py` (deck: none (diagram))
+
+#### 14.2 Which faces are prescribed, and with what
+
+- **Derivation:** wall faces carry zero mass flux and the pressure term; how the register books them is 10.2
+- **Code:** `src/layout/seam_register.cpp:215` `supply_prescribed`
+- **Tests:** `test_wb_wall_corner.release` (no numeric tolerance in the source (pass/fail checks only)); `test_wall4_sphere_python` (rtol 1.e-13)
+- **Figures/tables:** none
+
+#### 14.3 Immersed solids
+
+- **Derivation:** solid mask; fill of solid cells; the implicit solve on stratified solids
+- **Code:** `src/bc/internal_boundary.cpp:66` `InternalBoundaryImpl::forward`; `src/bc/rectify_solid.cpp:109` `rectify_solid`
+- **Tests:** `test_implicit_stratified_solid_python` (bitwise (torch equal x1); < 1e-12, 1.e-12); `test_rectify.release` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch11/figures/fig_solids_stencil.py` (deck: none (diagram))
+
+### Chapter 15. Configuration, output and restart
+
+#### 15.1 Options schema and YAML keys
+
+- **Derivation:** none (schema): generated option tables, defaults and key checks
+- **Code:** `src/mesh/meshblock_options.cpp:17` `MeshBlockOptionsImpl::from_yaml`; `src/hydro/hydro_options.cpp:19` `HydroOptionsImpl::from_yaml`
+- **Tests:** `test_options_table.release` (no numeric tolerance in the source (pass/fail checks only)); `test_options_defaults.release` (bitwise (torch equal x1)); `test_yaml_keys.release` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** `src/snapy_report/ch12/figures/fig_yaml_flow.py` (deck: none (diagram))
+
+#### 15.2 Output writers
+
+- **Derivation:** none (I/O): gridded writer core, NetCDF and the combine step
+- **Code:** `src/output/writer_core.cpp:200` `GriddedWriter::write_output_file`
+- **Tests:** `test_netcdf_axis_attrs` (no numeric tolerance in the source (pass/fail checks only)); `test_netcdf_cubed_lonlat_python` (no numeric tolerance in the source (pass/fail checks only)); `test_combine_parts.release` (no numeric tolerance in the source (pass/fail checks only)); `test_user_output.release` (bitwise (torch equal x1); NEAR 1.e-12, 1.e-10, 1.e-6)
+- **Figures/tables:** none
+
+#### 15.3 Restart
+
+- **Derivation:** none (I/O): restart bundles, metadata checks and the resume schedule
+- **Code:** `src/output/restart.cpp:40` `RestartOutput::write_output_file`; `src/output/restart.cpp:321` `check_restart_metadata`
+- **Tests:** `test_restart_bundle.release` (bitwise (torch equal x1)); `test_restart_resume_schedule` (no numeric tolerance in the source (pass/fail checks only)); `test_fp32_restart_python` (bitwise (torch equal x8); < 2.0e-5)
+- **Figures/tables:** none
+
+### Chapter 16. Verification and reproducibility
+
+#### 16.1 The bitwise gates
+
+- **Derivation:** none (method): face-deck harness and the dump set compared byte for byte between commits, CPU with CPU and CUDA with CUDA
+- **Code:** none in `src/` (method or record section)
+- **Tests:** `test_straka (reference example, run_straka.cmake)` (L2 diff < 50.0); `test_example_ic_stretched_python` (no numeric tolerance in the source (pass/fail checks only))
+- **Figures/tables:** **new** `src/snapy_report/ch16/figures/tab_gates.py` (deck: the dump-set and harness decks (closing-plan tools))
+
+#### 16.2 The capture sweep
+
+- **Derivation:** none (method): every shipped test run under the cuda-graph default; table of captured / refused (reason) / failed
+- **Code:** none in `src/` (method or record section)
+- **Tests:** `test_stage_executor_capture_python` (bitwise (torch equal x5))
+- **Figures/tables:** **new** `src/snapy_report/ch16/figures/tab_capture_sweep.py` (deck: the sweep's committed record (open slot))
+
+#### 16.3 Launch counting and the S4 table
+
+- **Derivation:** none (method): profiler trace; kernel, memcpy and memset events over N steps; numbers cited from docs/v3/closing/s4_eager_gap.md
+- **Code:** none in `src/` (method or record section)
+- **Tests:** none (no test covers this section at the pin)
+- **Figures/tables:** table cited from `docs/v3/closing/s4_eager_gap.md on v3/closing-dryrun-plan`
+
+#### 16.4 Regression provenance
+
+- **Derivation:** none (record): each regression test with the issue and the RED/GREEN commits it came from
+- **Code:** none in `src/` (method or record section)
+- **Tests:** `test_flux_positivity_carry.release` (bitwise (torch equal x4); NEAR 0.; tol 1.e-12); `test_graph_monitor_amounts.release` (bitwise (torch equal x4)); `test_seam_rotation_cache_python` (bitwise (torch equal x3)); `test_mesh_disagree.release` (bitwise (torch equal x1))
+- **Figures/tables:** **new** `src/snapy_report/ch16/figures/tab_regressions.py` (deck: none (table))
+
+#### 16.5 CPU, CUDA and MPS reproducibility
+
+- **Derivation:** none (method): which comparisons are bitwise and which carry a tolerance
+- **Code:** none in `src/` (method or record section)
+- **Tests:** `test_mps_matches_cpu_python` (bitwise (torch equal x1); tol 1.0e-4); `test_weno5_cuda_line.release` (bitwise (torch equal x1))
+- **Figures/tables:** `src/snapy_report/ch15/figures/fig_evidence.py` (deck: none (diagram))
+
+### Chapter 17. Known limits (pointer rows only)
+
+| limit | home | anchor at the pin |
+|---|---|---|
+| Multi-rank capture is refused (P1) | 11.3, 13.4 | `src/mesh/stage_executor.cpp:558` `StageExecutor::config_reasons` |
+| EOS and Riemann solvers outside the allow-lists run eager | 11.3 | `src/mesh/stage_executor.cpp:558` `StageExecutor::config_reasons` |
+| An x1 split (pz > 1) is refused for capture and for the implicit solve | 13.5, 6.2 | `src/hydro/hydro.cpp:436` `HydroImpl::_apply_implicit_correction` |
+| The stretched-x1 capture (host-to-device copy in a captured segment) | 11.5 | `src/recon/x1_reference.hpp:41` `HydroReferenceX1Operator` |
+| FP32 on the cubed sphere needs anomaly storage, which is Cartesian only | 12.3 | `src/eos/ideal_moist.cpp:79` `IdealMoistImpl::perturbations` |
+| A registered chemistry step is an eager segment | 11.3 | `src/mesh/stage_executor.cpp:558` `StageExecutor::config_reasons` |
+
+### Appendices
+
+A-F and H-J are indexes, tables or generated references with no sections of their own; they are built from the chapters (C test index from the Tests lines above, D and I from the options schema, J from the tree at the pin). G (the V3 lane map) carries `docs/v3/DESIGN.rst` on happysky19/snapy `v3-design/DESIGN` `449636b3e1963b5fc7d44407cb7d6db437e8b016`, Table 1 (lines 36-80) and Table 7 (lines 209-275), mapped to these chapters. E (external components) cites kintera, pyharp, pydisort and commux by their versions at the pin (no `code_pin.yml` entry; STYLE.md 3.1).
+
+## 7. Figure and table standard (all writers)
+
+- **Source.** Every figure and table is made by one committed script under `src/snapy_report/chNN/figures/`
+  (`fig_<topic>.py` for figures, `tab_<topic>.py` for tables), run by the render; no hand-edited images or
+  tables. A figure from a run names its input deck (a shipped deck, or one written by the script) and the
+  ctest or command that produced the data.
+- **Format.** Vector output (SVG for HTML, PDF for print) through the book's figure helper; the house style
+  of STYLE.md section 6 (fonts, sizes, colours) is not overridden per figure. One message per figure.
+- **Axes and units.** Every axis is labelled with the quantity and its SI unit in brackets (`z [m]`,
+  `dt [s]`); dimensionless axes say so. Log axes are marked. No unlabelled colour bars.
+- **Numbers.** State the precision (FP64 or FP32) and, for a comparison, the metric (bitwise, max
+  relative, L2) in the caption. Quote at most four significant figures; a bitwise result is written as
+  "bitwise", not as 0.
+- **Provenance.** The caption or a footnote carries the snapy pin (from `code_pin.yml`) and the kintera
+  version the run imported; device and GPU are named for any timing or launch count, with the shared-GPU
+  note where it applies. Measured S4 numbers are not re-plotted here; they are cited from
+  `docs/v3/closing/s4_eager_gap.md`.
+- **Tables.** Markdown pipe tables, header row in sentence case, units in the header, numbers right-aligned,
+  no merged cells; long tables go to an appendix and the chapter cites them.
+- **Reproducibility.** `python3 <script>` with no arguments rebuilds the figure from the pinned build; a
+  script that needs a GPU or a long run says so in its docstring and caches its data under the report's
+  data directory.
