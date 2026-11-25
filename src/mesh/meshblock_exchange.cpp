@@ -61,7 +61,7 @@ void MeshBlockImpl::_exchange_once(Variables &vars,
 torch::Tensor MeshBlockImpl::board_buffer(std::tuple<int, int, int> key,
                                           torch::Tensor const &like) const {
   auto &buf = board_buffers[key];
-  if (!buffer_matches(buf, like)) buf = torch::empty_like(like);
+  ensure_like(buf, like);
   return buf;
 }
 
