@@ -427,6 +427,18 @@ void run_seam_copies(std::shared_ptr<SeamCopies>& cache,
     GraphPtr g;
     {
       std::lock_guard<std::mutex> lock(g_graph_mutex);
+      // captured on a stream of its own, one per device (these captures take
+      // turns under the lock): the current stream at a replay is the block's
+      // worker stream, which comes from the shared pool another block may be
+      // launching from or capturing on. Never destroyed, as a block's own
+      // capture stream
+      static std::map<int, cudaStream_t> own;
+      int dev = c10::cuda::current_device();
+      if (!own[dev])
+        C10_CUDA_CHECK(
+            cudaStreamCreateWithFlags(&own[dev], cudaStreamNonBlocking));
+      c10::cuda::CUDAStreamGuard on_own(
+          at::cuda::getStreamFromExternal(own[dev], dev));
       g.reset(new at::cuda::CUDAGraph());
       // its own pool: the copies allocate nothing
       g->capture_begin(at::cuda::graph_pool_handle(),
