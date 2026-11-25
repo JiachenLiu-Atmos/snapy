@@ -66,6 +66,35 @@ struct GraphDeleter {
 };
 using GraphPtr = std::unique_ptr<at::cuda::CUDAGraph, GraphDeleter>;
 
+// one graph's capture on the current stream, each step under the graph lock.
+// A graph whose capture failed is not destroyed (its generator registration
+// may be gone or half made): it is leaked, once, on that error path
+GraphPtr begin_capture(at::cuda::MempoolId_t pool, cudaStreamCaptureMode mode) {
+  std::lock_guard<std::mutex> lock(g_graph_mutex);
+  GraphPtr g(new at::cuda::CUDAGraph());
+  try {
+    g->capture_begin(pool, mode);
+  } catch (...) {
+    g.release();
+    throw;
+  }
+  return g;
+}
+void end_capture(at::cuda::CUDAGraph& g) {
+  std::lock_guard<std::mutex> lock(g_graph_mutex);
+  g.capture_end();
+}
+// ends a capture whose work threw, so the stream leaves capture mode
+void abandon_capture(GraphPtr& g) {
+  if (!g) return;
+  std::lock_guard<std::mutex> lock(g_graph_mutex);
+  try {
+    g->capture_end();
+  } catch (...) {
+  }
+  g.release();
+}
+
 //! a step of a captured segment: a graph, or the host step of a cut
 struct SegmentStep {
   GraphPtr graph;
@@ -308,11 +337,7 @@ struct CutCapture {
   cudaStreamCaptureMode mode = cudaStreamCaptureModeGlobal;
   bool in_host = false;  // running a cut's host step (not capturing)
 
-  void begin() {
-    std::lock_guard<std::mutex> lock(g_graph_mutex);
-    open = GraphPtr(new at::cuda::CUDAGraph());
-    open->capture_begin(pool, mode);
-  }
+  void begin() { open = begin_capture(pool, mode); }
   // ends the open capture; keeps the graph unless it captured nothing (a cut
   // right at the start, or two cuts in a row), whose "graph is empty"
   // warning is expected here and silenced
@@ -326,10 +351,7 @@ struct CutCapture {
         status == cudaStreamCaptureStatusActive && g != nullptr)
       C10_CUDA_CHECK(cudaGraphGetNodes(g, nullptr, &nodes));
     if (nodes > 0) {
-      {
-        std::lock_guard<std::mutex> lock(g_graph_mutex);
-        open->capture_end();
-      }
+      end_capture(*open);
       steps->push_back({std::move(open), nullptr});
       return;
     }
@@ -337,10 +359,7 @@ struct CutCapture {
       void process(c10::Warning const&) override {}
     } silent;
     c10::WarningUtils::WarningHandlerGuard guard(&silent);
-    {
-      std::lock_guard<std::mutex> lock(g_graph_mutex);
-      open->capture_end();
-    }
+    end_capture(*open);
     open.reset();
   }
 };
@@ -431,12 +450,12 @@ void run_seam_copies(std::shared_ptr<SeamCopies>& cache,
     if (cache->graphs.size() >= kMaxSeamGraphs) dropped.swap(cache->graphs);
     GraphPtr g;
     {
-      std::lock_guard<std::mutex> lock(g_graph_mutex);
       // captured on a stream of its own, one per device (these captures take
-      // turns under the lock): the current stream at a replay is the block's
-      // worker stream, which comes from the shared pool another block may be
-      // launching from or capturing on. Never destroyed, as a block's own
-      // capture stream
+      // turns on it): the current stream at a replay is the block's worker
+      // stream, which other work may be queued on. Never destroyed, as a
+      // block's own capture stream
+      static std::mutex turns;
+      std::lock_guard<std::mutex> lock(turns);
       static std::map<int, cudaStream_t> own;
       int dev = c10::cuda::current_device();
       if (!own[dev])
@@ -444,21 +463,16 @@ void run_seam_copies(std::shared_ptr<SeamCopies>& cache,
             cudaStreamCreateWithFlags(&own[dev], cudaStreamNonBlocking));
       c10::cuda::CUDAStreamGuard on_own(
           at::cuda::getStreamFromExternal(own[dev], dev));
-      g.reset(new at::cuda::CUDAGraph());
       // its own pool: the copies allocate nothing
-      g->capture_begin(at::cuda::graph_pool_handle(),
-                       cudaStreamCaptureModeThreadLocal);
+      g = begin_capture(at::cuda::graph_pool_handle(),
+                        cudaStreamCaptureModeThreadLocal);
       try {
         copies();
       } catch (...) {
-        try {
-          g->capture_end();
-        } catch (...) {
-        }
-        g.release();  // leaked on this error path, as a failed stage capture
+        abandon_capture(g);
         throw;
       }
-      g->capture_end();
+      end_capture(*g);
     }
     it = cache->graphs.emplace(signature, std::move(g)).first;
     ++g_seam_captures;
@@ -982,17 +996,7 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
       CutScope scope(multi ? &cut : nullptr);
       run_eager(block, vars, wdt, stage, segment);
     } catch (...) {
-      // end an open capture so the stream leaves capture mode. A graph whose
-      // capture failed is not destroyed (its generator registration may be
-      // gone): it is leaked, once, on this error path
-      if (cut.open) {
-        std::lock_guard<std::mutex> lock(g_graph_mutex);
-        try {
-          cut.open->capture_end();
-        } catch (...) {
-        }
-        cut.open.release();
-      }
+      abandon_capture(cut.open);
       throw;
     }
     cut.close();
