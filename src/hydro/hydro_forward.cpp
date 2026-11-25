@@ -377,7 +377,8 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
     // Differencing only stored anomalies omits the background curvature.
     // Trips count cells per stage, ghosts included
     conv4_->forward(has_reference() ? total_u(u) : u, w, *peos,
-                    peos->options->limiter(), _conv4_trips);
+                    peos->options->limiter(),
+                    pmb->pefs->slot(EfStatus::kConvTrips));
     // every ghost from the converted owned cells: the block's exchange, the
     // x1 rows again across all x2/x3 columns (the corners past a seam), then
     // the boundary conditions on every ghost layer (outflow from the saved
@@ -535,7 +536,7 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
       }
       if (wall4[0] || wall4[1]) {
         wb.conv4 = conv4_.get();
-        wb.conv4_trips = _conv4_trips;
+        wb.conv4_trips = pmb->pefs->slot(EfStatus::kConvTrips);
       }
       wb.covariance = x1_mass_covariance();
       if (split_flux) {

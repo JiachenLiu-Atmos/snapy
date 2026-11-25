@@ -323,9 +323,6 @@ class HydroImpl : public torch::nn::Cloneable<HydroImpl> {
   // Reusable stage scratch; not restart state. Recreated on shape/device
   // change.
   torch::Tensor _forcing_work, _forcing_cast;
-  //! conversion-order 4 cells that kept the second-order w (buffer
-  //! "conversion_trips", registered only with the key at 4)
-  torch::Tensor _conv4_trips;
   //! this stage's x2 [0] / x3 [1] face states the covariance was built from
   //! and the dry-mass row it added (undefined when the switch is off)
   torch::Tensor _cov_wl[2], _cov_wr[2], _cov_dry[2];

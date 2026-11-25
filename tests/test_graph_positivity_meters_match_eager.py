@@ -28,8 +28,8 @@ must equal eager.
 A second case, co4, adds conversion order 4 and one conserved tracer
 (unlimited cp5), and starts with an isothermal dip (rho and p x 0.3) next to
 the lower x1 wall: the wall's one-sided ghosts are not positive there, so the
-conversion falls back (hydro.conversion_trips, a module buffer outside the
-EfStatus) and the scalar's positivity census (scalar.positivity_hits) counts.
+conversion falls back (hydro.conversion_trips, the EfStatus slot kConvTrips)
+and the scalar's positivity census (scalar.positivity_hits) counts.
 dt 0.05 (0.025 mid-run). Its eager conversion_trips and scalar
 positivity_hits must be positive at the end too.
 

@@ -30,6 +30,8 @@ class EfStatus {
     kLimCut,         //!< FP64 [1]: x1 face flux the limiter removed
     kLimFlux,        //!< FP64 [1]: x1 face flux it was offered
     kScalarPosHits,  //!< int64 [1]: scalar entries with theta < 1
+    kConvTrips,      //!< int64 [1]: conversion-order 4 cells that kept the
+                     //!< second-order w; undefined at other orders
     kNumSlots
   };
 

@@ -269,8 +269,9 @@ void HydroImpl::reset() {
       "positivity_min",
       status.bind(EfStatus::kPosMin, torch::ones({1}, torch::kFloat64)));
   if (options->conversion_order() == 4)
-    _conv4_trips =
-        register_buffer("conversion_trips", torch::zeros({1}, torch::kInt64));
+    register_buffer(
+        "conversion_trips",
+        status.bind(EfStatus::kConvTrips, torch::zeros({1}, torch::kInt64)));
   register_buffer("lim_cut", status.bind(EfStatus::kLimCut,
                                          torch::zeros({1}, torch::kFloat64)));
   register_buffer("lim_flux", status.bind(EfStatus::kLimFlux,
