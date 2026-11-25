@@ -97,13 +97,13 @@ class MeshImpl::BlockWorkerPool {
 
   ~BlockWorkerPool() { stop(); }
 
-  //! CUDA streams in the pool: one per block on a CUDA device, else 0.
-  size_t num_streams() const {
+  //! the pool's CUDA streams: one per block on a CUDA device, else none
+  std::vector<void*> streams() const {
+    std::vector<void*> raw;
 #ifdef USE_CUDA
-    return streams_.size();
-#else
-    return 0;
+    for (auto const& s : streams_) raw.push_back(s.stream());
 #endif
+    return raw;
   }
 
   void submit(std::function<void(size_t)> func) {
@@ -304,8 +304,8 @@ std::map<std::string, int64_t> MeshImpl::execution_report() const {
   return executor_->report();
 }
 
-size_t MeshImpl::num_worker_streams() const {
-  return workers_ ? workers_->num_streams() : 0;
+std::vector<void*> MeshImpl::worker_streams() const {
+  return workers_ ? workers_->streams() : std::vector<void*>{};
 }
 
 void MeshImpl::run_block_jobs(std::function<void(size_t)> func) {

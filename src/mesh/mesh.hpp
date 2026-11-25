@@ -73,8 +73,9 @@ class MeshImpl : public torch::nn::Cloneable<MeshImpl> {
   void set_cycle(int cycle);
   int finalize(MeshVariables const& vars, double time);
 
-  //! CUDA streams of the block worker pool (0 without a CUDA pool).
-  size_t num_worker_streams() const;
+  //! the block worker pool's CUDA streams (cudaStream_t), one per block;
+  //! empty without a CUDA pool
+  std::vector<void*> worker_streams() const;
 
   //! the stage executor of all this Mesh's blocks (lane B), shared with them
   std::shared_ptr<StageExecutor> executor() const { return executor_; }

@@ -1,6 +1,6 @@
 """A Mesh of many blocks captures and equals eager bitwise.
 
-A Cartesian slab Mesh of 8 and of 24 blocks along x2 in one process (dry
+A Cartesian slab Mesh of 8, 24 and 40 blocks along x2 in one process (dry
 ideal gas, weno5, lmars, periodic x2), strict cuda-graph against an eager
 Mesh, FP64, 3 steps, bitwise after every step. Its blocks capture together
 on their worker threads, many segments each: every capture needs a stream
@@ -68,7 +68,7 @@ def make(nblocks, execution):
 def main():
     if not build_has_cuda():
         skip("CUDA unavailable")
-    for nblocks in (8, 24):
+    for nblocks in (8, 24, 40):
         graph, gv = make(nblocks, "cuda-graph")
         eager, ev = make(nblocks, "eager")
         for n in range(NSTEPS):

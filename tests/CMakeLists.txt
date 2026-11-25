@@ -237,6 +237,8 @@ setup_test(test_mesh_executor)
 setup_test(test_mesh_capture)
 # V3 B3 (d)/(e): a Mesh whose blocks disagree runs eager, in bounded time
 setup_test(test_mesh_disagree)
+# a Mesh's block worker pool gives every block a stream of its own
+setup_test(test_mesh_worker_streams)
 # the capture save list holds the register monitor's amounts
 setup_test(test_graph_monitor_amounts)
 # V3 A2: the segment types of the graph interface

@@ -86,9 +86,9 @@ PanelFields run(int nb, torch::Device device = torch::kCPU) {
       EXPECT_EQ(block->options->device_str(), device.str());
     }
     // the pool itself is CUDA: one stream per block
-    EXPECT_EQ(mesh->num_worker_streams(), mesh->blocks.size());
+    EXPECT_EQ(mesh->worker_streams().size(), mesh->blocks.size());
   } else {
-    EXPECT_EQ(mesh->num_worker_streams(), 0u);
+    EXPECT_TRUE(mesh->worker_streams().empty());
   }
 
   for (size_t i = 0; i < mesh->blocks.size(); ++i) {
