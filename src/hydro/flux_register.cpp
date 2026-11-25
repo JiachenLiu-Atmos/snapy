@@ -301,11 +301,11 @@ size_t WallBatch::slot_(torch::Tensor const& planes_flat,
   size_t k = _cursor++;
   if (k < _monitor.size() && _monitor[k] == monitor &&
       _index[k] == amount_index && _pattern[2 * k] == nvar &&
-      _pattern[2 * k + 1] == numel)
+      _pattern[2 * k + 1] == numel && _weights[k].is_same(weights_flat))
     return k;
-  // a new or changed slot (the first push of a stage's pattern, eager): the
-  // slots from k on are this stage's, the buffer and the layout are built
-  // again over every slot
+  // a new or changed slot (the first push of a stage's pattern, or a
+  // register that rebuilt its weights, eager): the slots from k on are this
+  // stage's, the buffer and the layout are built again over every slot
   _monitor.resize(k);
   _index.resize(k);
   _weights.resize(k);

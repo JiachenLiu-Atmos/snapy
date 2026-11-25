@@ -213,8 +213,9 @@ class WallBatch {
 
  private:
   //! per slot, in the stage's push order: the monitor and amount index it
-  //! books, the weights it was registered with, rows (nvar), numel and the
-  //! offset into the buffer; _cursor is the next slot of this stage
+  //! books, the weights it was registered with (the register's own tensor,
+  //! so a rebuild is a new slot), rows (nvar), numel and the offset into the
+  //! buffer; _cursor is the next slot of this stage
   std::vector<RegisterMonitor*> _monitor;
   std::vector<int> _index;
   std::vector<torch::Tensor> _weights;
