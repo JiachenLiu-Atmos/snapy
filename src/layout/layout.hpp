@@ -100,8 +100,8 @@ struct LayoutOptionsImpl {
 
   int process_root_rank() const { return owner_process_rank(root_rank()); }
 
-  // the rows of src/options/layout.yaml: type, px, py, pz, verbose,
-  // backend, device
+  // the rows of src/options/layout.yaml: type, px, py, pz,
+  // blocks_per_process, verbose, backend, device
 #include <snap_options/layout_members.inc>
 
  public:
@@ -130,7 +130,6 @@ struct LayoutOptionsImpl {
   ADD_ARG(int, local_rank) = 0;
   ADD_ARG(int, process_world_size) = 1;
   ADD_ARG(int, world_size) = 1;
-  ADD_ARG(int, blocks_per_process) = 1;
   //! the Mesh this block belongs to (S-L1): keys the same-process exchange
   //! state, so two Meshes in one process never meet. MeshImpl::reset sets a
   //! new id for its blocks; 0, blocks built outside a Mesh, share one group.

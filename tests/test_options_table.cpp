@@ -22,6 +22,7 @@
 #include <snap/coord/coordinate.hpp>
 #include <snap/hydro/hydro.hpp>
 #include <snap/layout/layout.hpp>
+#include <snap/mesh/mesh.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/output/output_type.hpp>
 
@@ -322,6 +323,7 @@ TEST(options_table, lane_s_rows_match_parsers) {
       EXPECT_EQ(lo->px(), d["nb2"].as<int>(1));
       EXPECT_EQ(lo->py(), d["nb3"].as<int>(1));
       EXPECT_EQ(lo->pz(), d["nb1"].as<int>(1));
+      EXPECT_EQ(lo->blocks_per_process(), d["blocks_per_process"].as<int>(1));
     }
   }
   std::cout << "decks " << ndeck << ": geometry " << ngeom << ", distribute "
@@ -395,4 +397,16 @@ TEST(options_table, distribute_backend_default) {
     ::setenv("BACKEND", keep.c_str(), 1);
   else
     ::unsetenv("BACKEND");
+}
+
+// blocks_per_process has one home, the layout: MeshOptions reads and writes
+// it there, and refuses before it has a block
+TEST(options_table, blocks_per_process_lives_in_the_layout) {
+  auto op = MeshOptionsImpl::from_yaml(
+      (fs::path(SNAPY_SOURCE_DIR) / "tests" / "test_budget.yaml").string());
+  EXPECT_EQ(op->blocks_per_process(), 2);
+  EXPECT_EQ(op->block()->layout()->blocks_per_process(), 2);
+  op->blocks_per_process(3);
+  EXPECT_EQ(op->block()->layout()->blocks_per_process(), 3);
+  EXPECT_THROW(MeshOptionsImpl::create()->blocks_per_process(1), c10::Error);
 }

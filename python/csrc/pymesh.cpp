@@ -117,6 +117,8 @@ void bind_mesh(py::module& m) {
   pyMeshOptions.def(py::init<>())
       .def("__repr__",
            [](const snap::MeshOptions& a) {
+             if (!a->block() || !a->block()->layout())
+               return std::string("MeshOptions(block=None)");
              return fmt::format("MeshOptions(blocks_per_process={})",
                                 a->blocks_per_process());
            })

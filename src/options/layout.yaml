@@ -7,15 +7,16 @@ yaml_node: distribute
 args: bool verbose = false
 doc: >
   The deck keys of `distribute:` and the process-group environment.
-  blocks_per_process is read by MeshOptions; backend is accepted but dead
-  since #181 (the BACKEND environment variable selects it).
+  backend is accepted but dead since #181 (the BACKEND environment variable
+  selects it).
 extra_keys:
-  "": [layout, nb1, nb2, nb3, verbose, blocks_per_process, backend]
+  "": [layout, nb1, nb2, nb3, verbose, backend]
 options:
   - {name: type, key: layout, type: string, default: slab, doc: "Layout: slab or cubed-sphere."}
   - {name: py, key: nb3, type: int, default: 1, doc: "Blocks along x3."}
   - {name: px, key: nb2, type: int, default: 1, doc: "Blocks along x2."}
   - {name: pz, key: nb1, type: int, default: 1, doc: "Blocks along x1."}
+  - {name: blocks_per_process, key: blocks_per_process, type: int, default: 1, doc: "Blocks of a Mesh in one process; MeshOptions reads it here."}
   - {name: verbose, key: verbose, type: bool, default: false, read_default: {cpp: verbose}, doc: "Verbose; the deck value defaults to the reader's verbose argument."}
   - {name: backend, type: string, default: {cpp: default_backend()}, env: BACKEND, doc: "Process-group backend: BACKEND, else default_backend() (ucx on Linux with UCX, else gloo)."}
   - {name: device, type: string, default: cpu, env: DEVICE, env_default: cpu, doc: "Device; DEVICE sets it, cpu when unset."}

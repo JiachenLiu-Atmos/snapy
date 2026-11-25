@@ -42,7 +42,6 @@ void bind_layout(py::module& m) {
       .ADD_OPTION(int, snap::LayoutOptionsImpl, world_size)
       .ADD_OPTION(int, snap::LayoutOptionsImpl, rank)
       .ADD_OPTION(int, snap::LayoutOptionsImpl, local_rank)
-      .ADD_OPTION(int, snap::LayoutOptionsImpl, blocks_per_process)
       .ADD_OPTION(int, snap::LayoutOptionsImpl, device_id)
   // the rows of src/options/layout.yaml
 #include <snap_options/layout_pybind.inc>

@@ -257,11 +257,6 @@ MeshOptions MeshOptionsImpl::from_yaml(std::string input_file, bool verbose) {
   auto block = MeshBlockOptionsImpl::from_yaml(input_file, verbose);
   auto options = MeshOptionsImpl::create();
   options->block(block);
-
-  auto config = YAML::LoadFile(input_file);
-  options->blocks_per_process(
-      config["distribute"]["blocks_per_process"].as<int>(
-          options->blocks_per_process()));
   return options;
 }
 
