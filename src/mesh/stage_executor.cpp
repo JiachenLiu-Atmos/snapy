@@ -729,6 +729,10 @@ std::map<std::string, torch::Tensor> StageExecutor::save_list(
     auto const& t = pmb->pefs->slot(EfStatus::Slot(s));
     if (t.defined()) list["efs." + std::to_string(s)] = t;
   }
+  // conversion order 4's fallback count, a hydro buffer outside the EfStatus
+  auto hydro_buffers = pmb->phydro->named_buffers(/*recurse=*/false);
+  if (auto t = hydro_buffers.find("conversion_trips"))
+    list["hydro.conversion_trips"] = *t;
   // K2 (K.rst 3.2): the ThermoY failure counter, so a warm-up leaves no count
   if (auto pthermo = thermo_of(block)) {
     if (pthermo->failures().defined())
