@@ -6,6 +6,7 @@
 #include <snap/snap.h>
 #include <torch/torch.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <functional>
@@ -537,6 +538,51 @@ TEST(FluxRegister, wall_prescription_books_in_float32_on_the_device) {
                  .cpu();
   EXPECT_GT(ref.abs().max().item<double>(), 0.);
   EXPECT_LE(rel(got, ref), 1.e-12);
+}
+
+// The wall batch registers a slot by monitor, amount index and shape and
+// books with the weights of its first push. The register rebuilds its
+// weights when the planes or the free rows change (set_prescribed_walls),
+// which the shape does not show: the batch must book with the rebuilt
+// weights. Same two planes, other free rows: the momentum rows' removal is
+// booked only with the rebuilt weights.
+TEST(FluxRegister, the_wall_batch_books_with_the_rebuilt_weights) {
+  Variables vars;
+  auto block = bubble(vars);
+  auto& reg = block->phydro->flux_register();
+  auto batch = std::make_shared<WallBatch>();
+  reg.set_wall_batch(batch);
+  auto c = block->pcoord;
+  int il = c->il(), iw = c->iu() + 1;
+  auto area = c->face_area1().narrow(2, 0, reg.total(1).size(3));
+  auto book = [&](std::vector<int> const& free_rows) {
+    torch::manual_seed(11);
+    reg.total(1).copy_(torch::randn_like(reg.total(1)));
+    auto t0 = reg.total(1).clone();
+    reg.begin_step();
+    reg.begin_stage(0, block->pintg->stages[0]);
+    batch->begin_stage();
+    reg.set_prescribed_walls(1, {il, iw}, free_rows);
+    reg.apply_prescribed(1);
+    batch->flush();
+    reg.end_stage(1.);  // rk3 stage 0: w2 = 1, dt = 1, the amount is the rate
+    auto mask = torch::zeros_like(t0, torch::kBool);
+    for (int r = 0; r < t0.size(0); ++r) {
+      if (std::find(free_rows.begin(), free_rows.end(), r) != free_rows.end())
+        continue;
+      mask[r].select(2, il).fill_(true);
+      mask[r].select(2, iw).fill_(true);
+    }
+    auto ref = (area * torch::where(mask, -t0, 0.)).sum({1, 2, 3});
+    return std::make_pair(reg.monitor().amounts("boundary.prescribed").clone(),
+                          ref);
+  };
+  auto [got1, ref1] = book({IVX, IVX + 1, IVX + 2});
+  EXPECT_LE(rel(got1, ref1), 1.e-12);
+  auto [got2, ref2] = book({});
+  EXPECT_GT(ref2.narrow(0, IVX, 3).abs().max().item<double>(), 0.);
+  EXPECT_LE(rel(got2, ref2), 1.e-12)
+      << "the batch booked with the weights of the first prescription";
 }
 
 // reset() starts with no prescription: S's wall planes from before the
