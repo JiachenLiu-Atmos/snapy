@@ -32,10 +32,12 @@
 
 namespace snap {
 
-// the block's dtypes for its device, the coordinates' (MPS holds no FP64)
-void MeshBlockImpl::_reset_policy() {
+// the block's dtypes for the device its tensors are on (MPS holds no FP64):
+// reset() builds them on the factories' default device and to() moves them,
+// so each caller passes that device (a coordinate may hold no tensor)
+void MeshBlockImpl::_reset_policy(torch::Device device) {
   auto const &icorr = phydro->options->icorr();
-  policy = PrecisionPolicy(phydro->options->precision(), pcoord->x1v.device(),
+  policy = PrecisionPolicy(phydro->options->precision(), device,
                            icorr ? icorr->precision() : "auto");
 }
 
@@ -46,7 +48,7 @@ void MeshBlockImpl::to(torch::Device device, torch::Dtype dtype,
   else
     torch::nn::Module::to(device, dtype, non_blocking);
   _state.reallocate();  // like the moved u0 and s0
-  _reset_policy();
+  _reset_policy(device);
   if (_executor) _executor->invalidate(_executor_index);
 }
 void MeshBlockImpl::to(torch::Dtype dtype, bool non_blocking) {
@@ -58,7 +60,7 @@ void MeshBlockImpl::to(torch::Dtype dtype, bool non_blocking) {
 void MeshBlockImpl::to(torch::Device device, bool non_blocking) {
   torch::nn::Module::to(device, non_blocking);
   _state.reallocate();
-  _reset_policy();
+  _reset_policy(device);
   if (_executor) _executor->invalidate(_executor_index);
 }
 
@@ -184,7 +186,7 @@ void MeshBlockImpl::reset() {
   //// -------- (6) set up hydro model -------- ////
   pefs = std::make_shared<EfStatus>();
   phydro = HydroImpl::create(options->hydro(), this);
-  _reset_policy();
+  _reset_policy(torch::TensorOptions().device());
 
   //// -------- (7) set up scalar model ------- ////
   pscalar = ScalarImpl::create(options->scalar(), this);
