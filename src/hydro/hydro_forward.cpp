@@ -904,6 +904,11 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
   // A-ph3.diffusion_phase): after limit, so EF's scale never sees them, and
   // before the divergence of the totals below
   sources.post_fluxes(freg, {w, torch::Tensor(), dt});
+  // R-5: the posts write the prescribed faces too (diffusion adds its IPR
+  // row on every face); the divergence reads the totals next, so the faces
+  // are prescribed again here, before any reader, and the removal is booked
+  for (int d = 1; d <= 3; ++d)
+    if (freg.total(d).defined()) freg.apply_prescribed(d);
   // #289: the normal-momentum face flux carries p* = p - delta d_1 p (its
   // centroid part), so the geometric pressure source must see the same p*, or
   // a hydrostatic rest state is no longer balanced (derivation 4A.3.2). Only
@@ -1160,10 +1165,9 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
 
   // R-5, post_implicit starts: S's prescribed x1 faces on the total and the
   // kept x1 parts, before any reader (a no-op until S sets a mask). After the
-  // x1 sweep's own apply_prescribed the total is written again by the
-  // implicit correction (directly) or through the register's add, scale and
-  // replace, which mark the direction (a source's post_fluxes, the positivity
-  // limiter's carry and scale). The apply runs when the implicit correction
+  // pre-divergence apply the total is written again by the implicit
+  // correction (directly) or through the register's add, scale and replace,
+  // which mark the direction. The apply runs when the implicit correction
   // ran or the mark is set; otherwise the faces are already prescribed
   // (main's reporting bitwise)
   if (freg.total(1).defined() && (picorr || freg.written_since_prescribed(1)))
