@@ -345,6 +345,45 @@ TEST(flux_positivity,
       << "the booking is not -sum A_f T_IPR over the face";
 }
 
+// The register owns the mark: every add and scale marks the direction, and
+// the post-implicit apply re-prescribes a marked direction. The carry
+// without a settling part writes the x1 total (-0 on the prescribed face)
+// and so marks it, as any writer does (RED at 4c023985: the carry passed
+// keeps_prescribed and left the mark clear). The apply then finds the face
+// at 0 and books 0.
+TEST(flux_positivity, a_carry_without_settling_marks_the_direction) {
+  auto arm = forward_once(true, [](YAML::Node&) {}, 0., 3.);
+  auto block = arm.block;
+  auto& reg = block->phydro->flux_register();
+  auto coord = block->pcoord;
+  auto t = reg.total(1);
+  ASSERT_TRUE(t.defined());
+  int il = coord->il(), face = il + 3, ny = 2;
+  reg.begin_step();
+  reg.begin_stage(0, block->pintg->stages[0]);
+  auto mask = torch::zeros(t.sizes(), t.options().dtype(torch::kBool));
+  mask.select(-1, face).fill_(true);
+  reg.set_prescribed(1, mask, torch::zeros_like(t));
+  reg.apply_prescribed(1);
+  ASSERT_FALSE(reg.written_since_prescribed(1));
+  auto cells =
+      std::vector<int64_t>{ny, t.size(1), t.size(2), coord->options->nc1()};
+  auto theta = torch::full(cells, 0.5, t.options());
+  auto hspec = torch::ones(cells, t.options());
+  auto vel = torch::zeros({3, t.size(1), t.size(2), coord->options->nc1()},
+                          t.options());
+  flux_positivity_carry_(theta, hspec, vel, reg, coord);
+  EXPECT_EQ(t[IPR].select(-1, face).abs().max().item<double>(), 0.)
+      << "the carry wrote the prescribed face";
+  EXPECT_TRUE(reg.written_since_prescribed(1))
+      << "a write to the direction must mark it";
+  reg.apply_prescribed(1);
+  EXPECT_FALSE(reg.written_since_prescribed(1));
+  reg.end_stage(1.);
+  auto booked = reg.monitor().amounts("boundary.prescribed")[IPR];
+  EXPECT_EQ(booked.item<double>(), 0.) << "nothing was on the face to remove";
+}
+
 // The same column with a uniform species ratio: the dry air is drained as hard
 // as the species, so the relative rule withholds nothing and the fluxes of the
 // limited arm equal the unlimited ones.
