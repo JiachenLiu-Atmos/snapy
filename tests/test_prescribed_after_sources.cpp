@@ -221,15 +221,20 @@ TEST(FluxRegister, a_prescribed_wall_temperature_conducts_in_a_full_step) {
                       .monitor()
                       .amounts("boundary.prescribed")[IPR]
                       .item<double>();
-    return std::make_tuple(de, booked, dt);
+    // round-off of a mirrored wall's zero-gradient flux is measured against
+    // the column's energy, not against the conduction
+    double tol = 1.e-12 * (u0[IPR] * volume).index(cells).sum().item<double>();
+    return std::make_tuple(de, booked, dt, tol);
   };
-  auto [de, booked, dt] = run(305., 360.);
+  auto [de, booked, dt, tol] = run(305., 360.);
   EXPECT_NEAR(de, 20. * dt, 1.e-9 * 20. * dt)
       << "the prescribed-temperature wall did not conduct into du";
-  EXPECT_EQ(booked, 0.) << "the conduction was booked as a removal";
-  auto [de0, booked0, dt0] = run(0., 0.);
-  EXPECT_NEAR(de0, 0., 1.e-9 * 20. * dt0) << "a reflecting wall conducted";
-  EXPECT_EQ(booked0, 0.);
+  EXPECT_NEAR(booked, 0., tol) << "the conduction was booked as a removal";
+  auto [de0, booked0, dt0, tol0] = run(0., 0.);
+  EXPECT_LT(tol0, 1.e-3 * 20. * dt0)
+      << "the round-off bound reaches the signal";
+  EXPECT_NEAR(de0, 0., tol0) << "a reflecting wall conducted";
+  EXPECT_NEAR(booked0, 0., tol0);
 }
 
 // The mark the post-implicit apply reads: every add, scale and replace sets
