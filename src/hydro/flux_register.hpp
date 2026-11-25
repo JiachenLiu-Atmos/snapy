@@ -191,16 +191,18 @@ class RegisterMonitor {
 //! batch books its rate at the call (tests).
 class WallBatch {
  public:
-  //! planes_flat: the gathered wall planes of one register and direction,
-  //! [nvar, faces] flattened, copied into their slot; the slot is registered
-  //! at its first push (eager, before any capture) and the batch sums each
-  //! of the nvar rows at the flush
-  void push(torch::Tensor const& planes_flat, torch::Tensor const& weights_flat,
+  //! delta_flat: one register and direction's after - before over the faces
+  //! it wrote, [nvar, faces] flattened in the wide dtype, copied into their
+  //! slot; weights_flat: the face areas laid out the same way (the register's
+  //! own tensor: a rebuilt one is a new slot). The slot is registered at its
+  //! first push (eager, before any capture) and the batch books each of the
+  //! nvar rows' weighted sum at the flush
+  void push(torch::Tensor const& delta_flat, torch::Tensor const& weights_flat,
             RegisterMonitor* monitor, int amount_index, int64_t nvar);
   //! book every slot's rate and zero the buffer: always the same launches
   //! once a slot exists, so eager and a captured combine do the same
   void flush();
-  //! zero the buffer (a rejected attempt's planes)
+  //! zero the buffer (a rejected attempt's writes)
   void clear();
   //! the stage's pushes start at the first slot (MeshBlock::stage_advance:
   //! every pass of the advance, the capture's warm-ups included, runs it)
@@ -222,16 +224,15 @@ class WallBatch {
   std::vector<int64_t> _pattern;  // per slot: rows, numel
   std::vector<int64_t> _off;
   size_t _cursor = 0;
-  //! the slots, then one zero element the dense rows are padded from
+  //! the slots, one after the other
   torch::Tensor _buf;
-  //! per layout: the padded weights [rows, M] and the gather index [rows, M]
-  //! into the buffer; a dense row sum is deterministic, which a scatter-add
-  //! (index_add_) on CUDA is not, and graph must equal eager bitwise
-  torch::Tensor _w, _gidx;
-  int64_t _rows = 0, _M = 0;
-  //! the next slot of the stage, (monitor, amount_index, nvar, numel),
-  //! registered when new (eager, never captured)
-  size_t slot_(torch::Tensor const& planes_flat,
+  //! per layout: the slots' weights laid out like the buffer; each slot's
+  //! rows are a plain sum, deterministic, which a scatter-add (index_add_)
+  //! on CUDA is not, and graph must equal eager bitwise
+  torch::Tensor _w;
+  //! the next slot of the stage, (monitor, amount_index, nvar, numel,
+  //! weights), registered when new (eager, never captured)
+  size_t slot_(torch::Tensor const& delta_flat,
                torch::Tensor const& weights_flat, RegisterMonitor* monitor,
                int amount_index, int64_t nvar);
   void layout_(torch::TensorOptions const& opts);
@@ -370,22 +371,25 @@ class FluxRegister {
   std::array<std::vector<int64_t>, 3> _pwall;
   std::array<std::vector<int>, 3> _pfree;
   std::array<torch::Tensor, 3> _prow;
-  //! V3 S4: the wall planes as an index tensor, the face areas of those
-  //! planes and -1 on the prescribed rows (0 on the free rows), wide dtype on
-  //! the total's device; built at the first apply_wall_planes_ after
-  //! set_prescribed_walls, so a stage launches no setup
-  std::array<torch::Tensor, 3> _pidx, _parea, _pneg, _pwt;
-  //! V3 S4: the -area weights laid out like the gathered planes,
-  //! flattened, for the batch
-  std::array<torch::Tensor, 3> _pwtflat;
+  //! the wall planes as an index tensor on the total's device (built at the
+  //! first apply after set_prescribed_walls, so a stage launches no setup)
+  std::array<torch::Tensor, 3> _pidx;
+  //! the face areas as overwrite_'s weights, wide dtype on the total's
+  //! device, laid out like the written faces and flattened: the wall planes'
+  //! and the whole field's, each built once
+  std::array<torch::Tensor, 3> _pwtflat, _oarea;
   std::shared_ptr<WallBatch> _wall_batch;
   std::array<bool, 3> _pwall_set = {false, false, false};
   std::array<bool, 3> _written = {false, false, false};
-  //! apply_prescribed on the wall planes: as overwrite_, plane by plane
-  void apply_wall_planes_(int dim);
   CoordinateImpl const* _coord = nullptr;
-  //! total(dim) <- after; books sum A_f (after - before) per row as name
-  void overwrite_(int dim, std::string const& name, torch::Tensor const& after);
+  //! the one write-and-book: total(dim) <- after on the faces of the index
+  //! (along the face axis; undefined: every face) and sum A_f (after -
+  //! before) per row booked as name, through the wall batch when one is set,
+  //! else now. before: the written faces' values, gathered by the caller
+  //! (undefined: gathered here)
+  void overwrite_(int dim, std::string const& name, torch::Tensor const& after,
+                  torch::Tensor const& faces = torch::Tensor(),
+                  torch::Tensor const& before = torch::Tensor());
   std::array<bool, 3> _want_step = {false, false, false};
   //! the step fields, split posts and stage flag of a fresh attempt: the
   //! shared part of begin_step and rollback

@@ -302,6 +302,7 @@ TEST(flux_positivity,
   auto arm = forward_once(true, [](YAML::Node&) {}, 0., 3.);
   auto block = arm.block;
   auto& reg = block->phydro->flux_register();
+  reg.set_wall_batch(nullptr);  // book at the call, as a register alone does
   auto coord = block->pcoord;
   auto t = reg.total(1);
   ASSERT_TRUE(t.defined());
@@ -355,6 +356,7 @@ TEST(flux_positivity, a_carry_without_settling_marks_the_direction) {
   auto arm = forward_once(true, [](YAML::Node&) {}, 0., 3.);
   auto block = arm.block;
   auto& reg = block->phydro->flux_register();
+  reg.set_wall_batch(nullptr);  // book at the call, as a register alone does
   auto coord = block->pcoord;
   auto t = reg.total(1);
   ASSERT_TRUE(t.defined());
