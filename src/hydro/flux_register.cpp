@@ -218,7 +218,7 @@ void RegisterMonitor::begin_stage(int stage) {
 }
 
 void RegisterMonitor::place_amounts(torch::Device device) {
-  auto wide = device.is_mps() ? torch::kFloat32 : torch::kFloat64;  // no f64
+  auto wide = PrecisionPolicy::wide(device);
   auto placed = [&](torch::Tensor const& t) {
     return t.device() == device && t.scalar_type() == wide;
   };
@@ -488,7 +488,7 @@ void FluxRegister::begin_attempt_() {
   for (int d = 0; d < 3; ++d) {
     if (!_want_step[d]) continue;
     auto const& t = _total[d];
-    auto wide = t.is_mps() ? torch::kFloat32 : torch::kFloat64;  // MPS: no f64
+    auto wide = PrecisionPolicy::wide(t.device());
     if (!_step[d].defined() || _step[d].device() != t.device() ||
         _step[d].scalar_type() != wide)
       _step[d] = torch::zeros(t.sizes(), t.options().dtype(wide));
@@ -591,7 +591,7 @@ void FluxRegister::overwrite_(int dim, std::string const& name,
               "coordinate");
   auto t = _total[dim - 1];
   _written[dim - 1] = true;  // a reconcile; apply_prescribed clears it after
-  auto wide = t.is_mps() ? torch::kFloat32 : torch::kFloat64;
+  auto wide = PrecisionPolicy::wide(t.device());
   // A_f of face index i of T_d is face_area_d() at i (CoordinateImpl's
   // divergence pairs flux index i with area index i)
   auto area = dim == 1   ? _coord->face_area1().narrow(2, 0, t.size(3))
@@ -690,7 +690,7 @@ void FluxRegister::apply_wall_planes_(int dim) {
   auto t = _total[d];
   auto& rows = _prow[d];
   if (rows.device() != t.device()) rows = rows.to(t.device());
-  auto wide = t.is_mps() ? torch::kFloat32 : torch::kFloat64;
+  auto wide = PrecisionPolicy::wide(t.device());
   auto wopts = t.options().dtype(wide);
   if (!_pidx[d].defined() || _pidx[d].device() != t.device() ||
       _parea[d].scalar_type() != wide) {
@@ -758,7 +758,7 @@ void FluxRegister::keep(int dim, std::string const& part,
 void FluxRegister::cell_amount(std::string const& name,
                                torch::Tensor const& vol_du, double stage_weight,
                                AmountKind kind) {
-  auto wide = vol_du.is_mps() ? torch::kFloat32 : torch::kFloat64;
+  auto wide = PrecisionPolicy::wide(vol_du.device());
   auto a = vol_du.to(wide);
   if (a.dim() > 1) {
     std::vector<int64_t> dims(a.dim() - 1);

@@ -33,14 +33,19 @@ class PrecisionPolicy {
   explicit PrecisionPolicy(std::string const& precision = "float64",
                            torch::Device device = torch::kCPU)
       : _fp32(precision == "float32") {
-    auto wide = device.is_mps() ? torch::kFloat32 : torch::kFloat64;
-    auto narrow = _fp32 ? torch::kFloat32 : wide;
-    _rows.fill({wide, wide});
+    auto const w = wide(device);
+    auto narrow = _fp32 ? torch::kFloat32 : w;
+    _rows.fill({w, w});
     for (auto q :
          {Quantity::kHydroState, Quantity::kBackup, Quantity::kScalarState,
           Quantity::kFlux, Quantity::kImplicit})
       _rows[static_cast<int>(q)] = {narrow, narrow};
     _rows[static_cast<int>(Quantity::kReference)].compute = narrow;
+  }
+
+  //! the widest dtype a device holds: FP64, except FP32 on MPS (no FP64)
+  static torch::Dtype wide(torch::Device device) {
+    return device.is_mps() ? torch::kFloat32 : torch::kFloat64;
   }
 
   bool fp32() const { return _fp32; }
