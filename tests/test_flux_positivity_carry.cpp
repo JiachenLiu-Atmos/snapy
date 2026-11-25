@@ -200,12 +200,12 @@ TEST(flux_positivity, withheld_advected_mass_keeps_its_energy_and_momentum) {
   }
 }
 
-// V3 S4: the limiter writes the x1 total with keeps_prescribed (its
-// scale multiplies the prescribed zero, its carry adds -0 there), so it does
-// not call for the post-implicit apply_prescribed. The wall faces of the
-// limited column must still be prescribed after one forward: every row but
-// the momentum rows exactly 0 on both x1 wall planes, the register not marked
-// written, while the limiter did withhold on the interior faces.
+// The limiter writes the x1 total (its scale multiplies the prescribed zero,
+// its carry adds -0 there) and marks the direction like any writer; the
+// post-implicit apply re-prescribes it and clears the mark. The wall faces of
+// the limited column must be prescribed after one forward: every row but the
+// momentum rows exactly 0 on both x1 wall planes, the mark clear, while the
+// limiter did withhold on the interior faces.
 TEST(flux_positivity, the_limiter_keeps_the_wall_faces_prescribed) {
   auto edit = [](YAML::Node&) {};
   auto on = forward_once(true, edit, 2., 3.);
@@ -221,7 +221,7 @@ TEST(flux_positivity, the_limiter_keeps_the_wall_faces_prescribed) {
           << "row " << r << " on x1 wall plane " << p;
     }
   EXPECT_FALSE(freg.written_since_prescribed(1))
-      << "the limiter must not call for the post-implicit apply";
+      << "the post-implicit apply must have cleared the mark";
   auto off = forward_once(false, edit, 2., 3.);
   auto fon = t.narrow(0, ICY, 2).select(-1, il + 1).abs().sum().item<double>();
   auto foff = off.block->phydro->flux_register()

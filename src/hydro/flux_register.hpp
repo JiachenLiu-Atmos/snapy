@@ -273,9 +273,8 @@ class FluxRegister {
   torch::Tensor slot(int dim, std::string const& name);
   void post_slot(int dim, std::string const& name);
   //! add, scale or replace wrote total(dim) since the last
-  //! apply_prescribed(dim) without keeping the prescribed faces: the
-  //! post-implicit apply re-prescribes only then, or after the implicit
-  //! correction, which writes total(1) directly (V3 S4)
+  //! apply_prescribed(dim): the post-implicit apply re-prescribes only then,
+  //! or after the implicit correction, which writes total(1) directly
   bool written_since_prescribed(int dim) const { return _written[dim - 1]; }
   //! the name of dim's last posted slot ("" before the first post)
   std::string const& slot_name(int dim) const { return _slot[dim - 1]; }
@@ -286,16 +285,13 @@ class FluxRegister {
   //! R-3: total[rows] += increment, in call order and never fused, so
   //! successive adds round as the pin's in-place ones; increment is
   //! [rows.size(), faces...]. A requested part of the same name gets a copy.
-  //! keeps_prescribed: the caller leaves the prescribed faces at their
-  //! prescribed value (S hands them as 0 on the prescribed rows and the
-  //! positivity carry adds -0 there), so the write does not mark the
-  //! direction for the post-implicit apply (V3 S4)
+  //! Every write marks the direction for the post-implicit apply.
   void add(int dim, std::string const& name, std::vector<int> const& rows,
-           torch::Tensor const& increment, bool keeps_prescribed = false);
+           torch::Tensor const& increment);
   //! total[rows] *= factor in place; factor [faces...] (every row) or
-  //! [rows.size(), faces...]; keeps_prescribed as for add (0 * factor = 0)
+  //! [rows.size(), faces...]
   void scale(int dim, std::string const& name, std::vector<int> const& rows,
-             torch::Tensor const& factor, bool keeps_prescribed = false);
+             torch::Tensor const& factor);
   //! R-4, a shared face (S): faces is a bool mask shaped like total(dim)
   //! without the row axis; peer is dense, shaped like total(dim) but with
   //! nvar * (1 + kept_parts(dim).size()) rows: the total's rows, then each

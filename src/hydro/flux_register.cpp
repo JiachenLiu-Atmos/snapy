@@ -544,9 +544,9 @@ torch::Tensor FluxRegister::kept(int dim, std::string const& part) const {
 
 void FluxRegister::add(int dim, std::string const& name,
                        std::vector<int> const& rows,
-                       torch::Tensor const& increment, bool keeps_prescribed) {
+                       torch::Tensor const& increment) {
   auto t = slot(dim, name);
-  if (!keeps_prescribed) _written[dim - 1] = true;
+  _written[dim - 1] = true;
   TORCH_CHECK(increment.size(0) == static_cast<int64_t>(rows.size()),
               "[FluxRegister] add '", name, "': ", increment.size(0),
               " increment rows for ", rows.size(), " rows");
@@ -573,9 +573,9 @@ void FluxRegister::add(int dim, std::string const& name,
 
 void FluxRegister::scale(int dim, std::string const& name,
                          std::vector<int> const& rows,
-                         torch::Tensor const& factor, bool keeps_prescribed) {
+                         torch::Tensor const& factor) {
   auto t = slot(dim, name);
-  if (!keeps_prescribed) _written[dim - 1] = true;
+  _written[dim - 1] = true;
   bool per_row = factor.dim() == t.dim();
   TORCH_CHECK(!per_row || factor.size(0) == static_cast<int64_t>(rows.size()),
               "[FluxRegister] scale '", name, "': ", factor.size(0),

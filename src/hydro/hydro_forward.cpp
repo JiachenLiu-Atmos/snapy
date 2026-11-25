@@ -1162,14 +1162,10 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
   // kept x1 parts, before any reader (a no-op until S sets a mask). After the
   // x1 sweep's own apply_prescribed the total is written again by the
   // implicit correction (directly) or through the register's add, scale and
-  // replace, which mark the direction: a source's post_fluxes (diffusion adds
-  // its IPR row on every x1 face, walls included) and the positivity
-  // limiter's carry when it has a settling part (both of its posts, advected
-  // and settling, mark then); the limiter's scale, and its carry without a
-  // settling part, keep the prescribed faces and do not mark. The apply runs
-  // when the implicit
-  // correction ran or the mark is set; otherwise the faces are already
-  // prescribed (V3 S4; main's reporting bitwise)
+  // replace, which mark the direction (a source's post_fluxes, the positivity
+  // limiter's carry and scale). The apply runs when the implicit correction
+  // ran or the mark is set; otherwise the faces are already prescribed
+  // (main's reporting bitwise)
   if (freg.total(1).defined() && (picorr || freg.written_since_prescribed(1)))
     freg.apply_prescribed(1);
 

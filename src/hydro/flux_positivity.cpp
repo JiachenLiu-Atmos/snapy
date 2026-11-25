@@ -126,17 +126,13 @@ void flux_positivity_carry_(torch::Tensor const& theta,
       auto type = torch::promote_types(flux.scalar_type(), c.scalar_type());
       auto inc = torch::full(shape, -0., c.options().dtype(type));
       inc.slice(dim, lo, hi + 2).copy_(-c);
-      // Without a settling part the carry reads the register's total, 0 on
-      // the prescribed faces after the sweep's apply, so -c is -0 there and
-      // the carry keeps them. With one, the settling buffer is the
-      // sedimentation's own and a prescribed face can carry it: the advected
-      // part F - fsed1 is then -fsed1 on that face and the settling part
-      // fsed1, each with its own donor's energy, so their sum is
-      // share |fsed1| (h_upper - h_lower), not 0. Both posts of that stage
-      // mark the direction, and the post-implicit apply re-prescribes and
-      // books it as main did (#315)
-      reg.add(d, "positivity.carry", rows, inc,
-              /*keeps_prescribed=*/!(d == 1 && fsed1.defined()));
+      // With a settling part the settling buffer is the sedimentation's own
+      // and a prescribed face can carry it: the advected part F - fsed1 is
+      // then -fsed1 on that face and the settling part fsed1, each with its
+      // own donor's energy, so their sum is share |fsed1| (h_upper -
+      // h_lower), not 0; the post marks the direction and the post-implicit
+      // apply re-prescribes and books it as main did (#315)
+      reg.add(d, "positivity.carry", rows, inc);
     };
     // each part of the face flux keeps the energy and momentum of its donor
     auto withhold = [&](torch::Tensor const& part) {
@@ -255,7 +251,7 @@ void PositivityLimiter::post_(FluxRegister& reg, PositivityInputs const& in,
       status_->slot(EfStatus::kLimFlux) += pre.index(cells).to(wide).sum();
       status_->slot(EfStatus::kLimCut) += cut.index(cells).to(wide).sum();
     }
-    reg.scale(d, withhold, rows, factor, /*keeps_prescribed=*/true);
+    reg.scale(d, withhold, rows, factor);
   }
 }
 
