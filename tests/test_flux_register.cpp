@@ -585,6 +585,33 @@ TEST(FluxRegister, the_wall_batch_books_with_the_rebuilt_weights) {
       << "the batch booked with the weights of the first prescription";
 }
 
+// With a solid mask S hands R a full mask instead of the wall planes; the
+// x1 wall rows freed for a wall whose boundary prescribes a temperature
+// must be free on that path too: the energy row of the lower wall plane
+// keeps its flux while the upper wall's and every other row are prescribed.
+TEST(FluxRegister, the_solid_mask_frees_the_x1_wall_rows_too) {
+  Seam s;
+  auto reg = s.make({}, 12);
+  s.stage(reg);
+  auto c = s.block->pcoord;
+  int il = c->il(), iw = c->iu() + 1;
+  auto t0 = reg.total(1).clone();
+  auto solid =
+      torch::zeros({c->options->nc3(), c->options->nc2(), c->options->nc1()},
+                   torch::kBool);  // no solid cell: the mask path
+  supply_prescribed(reg, s.block.get(), solid, {IVX, IVX + 1, IVX + 2},
+                    {{std::vector<int>{IPR}, std::vector<int>{}}});
+  reg.apply_prescribed(1);
+  auto t = reg.total(1);
+  EXPECT_TRUE(torch::equal(t[IPR].select(-1, il), t0[IPR].select(-1, il)))
+      << "the lower wall's energy row was prescribed";
+  EXPECT_EQ(t[IPR].select(-1, iw).abs().max().item<double>(), 0.)
+      << "the upper wall's energy row kept its flux";
+  for (int p : {il, iw})
+    EXPECT_EQ(t[IDN].select(-1, p).abs().max().item<double>(), 0.)
+        << "the mass row on plane " << p;
+}
+
 // reset() starts with no prescription: S's wall planes from before the
 // reset are gone, as its full mask is, so apply_prescribed is a no-op until
 // S supplies again
