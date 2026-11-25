@@ -402,7 +402,7 @@ void MeshImpl::forward(MeshVariables& vars, double dt, int stage) {
   // exchanges meet at the same-process rendezvous)
   executor_->align_captures(vars, dt, stage);
   run_block_jobs(
-      [&](size_t i) { executor_->run_local(i, vars[i], dt, stage); });
+      [&](size_t i) { executor_->run_stage(i, vars[i], dt, stage); });
   // conserve-axial-momentum-closure: R and I summed over the local blocks,
   // one reduction, then each block's solid-body increment
   auto root = blocks.front();

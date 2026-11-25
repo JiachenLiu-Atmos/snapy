@@ -3,7 +3,6 @@
 // C/C++
 #include <atomic>
 #include <cstdint>
-#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -99,8 +98,8 @@ class StageExecutor {
   int num_blocks() const { return static_cast<int>(_blocks.size()); }
   //! the block at index `block` (checked)
   MeshBlockImpl* block_at(int block) const;
-  //! the ops and segments of the block's stages (A2: one segment per stage,
-  //! the exchange and advance_local)
+  //! the ops and segments of the block's stages (a bare block's begin with
+  //! its stage-entry exchange, a Mesh block's do not)
   StageSchedule const& schedule(int block) const;
 
   //! the block's execution mode, "eager" or "cuda-graph":
@@ -108,19 +107,19 @@ class StageExecutor {
   //! on a CUDA device (or the case is strict) and eager otherwise
   std::string mode(int block) const;
 
-  //! a bare block's stage: exchange_ghost_zones, then advance_local, eager or
-  //! replayed
+  //! the block's stage, its schedule eager or its segments' graphs (B2). A
+  //! Mesh block's has no entry exchange (the Mesh exchanges last and runs
+  //! the global phase). Safe on the block worker pool: blocks capture
+  //! together (thread-local capture mode, after align_captures) and replay
+  //! concurrently on their streams.
   void run_stage(int block, Variables& vars, double dt, int stage);
-  //! a Mesh block's local stage (advance_local, eager or its segments'
-  //! graphs, B2): the Mesh exchanges last and runs the global phase itself,
-  //! so the stage-entry host-exchange segment is skipped. Safe on the block
-  //! worker pool: blocks capture together (thread-local capture mode, after
-  //! align_captures) and replay concurrently on their streams.
+  //! the stage's ops without the stage-entry exchange, eagerly
+  //! (MeshBlockImpl::advance_local)
   void run_local(int block, Variables& vars, double dt, int stage);
   //! a multi-block executor's captures are collective (B3): its blocks meet
   //! at the same-process rendezvous inside a segment with a cut at an
   //! exchange, in the warm-up and the capture alike. Called on the calling
-  //! thread before the blocks' run_local (Mesh::forward): a segment that one
+  //! thread before the blocks' run_stage (Mesh::forward): a segment that one
   //! block must (re)capture is dropped on every block, so all capture it
   void align_captures(std::vector<Variables>& vars, double dt, int stage);
   //! strict refuses a block whose stage has a non-host eager segment, naming
@@ -179,15 +178,12 @@ class StageExecutor {
   //! the save list: the state, the registered storage and hydro_w
   std::map<std::string, torch::Tensor> save_list(int block,
                                                  Variables& vars) const;
-  //! the stage's segments: host ones only with_host (a bare block's
-  //! exchange), eager ones eagerly, the rest captured or replayed
-  void run_segments(int block, Variables& vars, double dt, int stage,
-                    bool with_host);
-  //! run_stage's and run_local's one dispatch: the mode, the schedule, strict
-  //! and the capture reasons; a block that runs eagerly runs `eager`, the
-  //! others run_segments(with_host)
-  void dispatch(int block, Variables& vars, double dt, int stage,
-                bool with_host, std::function<void()> const& eager);
+  //! the stage's segments: the host ones (a bare block's exchange) and the
+  //! eager ones eagerly, the rest captured or replayed
+  void run_segments(int block, Variables& vars, double dt, int stage);
+  //! the block's schedule, rebuilt if its signature moved (its graphs are
+  //! then dropped)
+  void refresh(int block);
   std::shared_ptr<Captured> graph_at(Slot const& slot) const;
   void capture(int block, int segment, Variables& vars, double dt, int stage);
   void replay(int block, int segment, Variables& vars, double dt, int stage);
@@ -216,7 +212,7 @@ class StageExecutor {
   //! per block, its own capture stream (a cudaStream_t), never destroyed
   std::vector<void*> _capture_streams;
   int _config_generation = 0;
-  //! run_local runs on the block worker pool
+  //! run_stage runs on the block worker pool
   std::atomic<int64_t> _captures{0}, _replays{0}, _eager{0};
   //! the eager reasons already logged, per block (log_eager)
   std::vector<std::set<std::string>> _logged;

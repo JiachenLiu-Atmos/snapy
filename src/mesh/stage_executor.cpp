@@ -167,7 +167,8 @@ bool StageExecutor::chemistry_slot(int block) const {
 
 int StageExecutor::schedule_signature(int block) const {
   return (outflow_boundary(block) ? 1 : 0) | (user_forcing(block) ? 2 : 0) |
-         (chemistry_slot(block) ? 4 : 0);
+         (chemistry_slot(block) ? 4 : 0) |
+         (block_at(block)->_mesh_executor ? 8 : 0);
 }
 
 bool StageExecutor::outflow_boundary(int block) const {
@@ -177,16 +178,19 @@ bool StageExecutor::outflow_boundary(int block) const {
 }
 
 void StageExecutor::build_schedule(int block) const {
-  // A3a: the stage-entry exchange is its own host-exchange segment (eager by
-  // design, a segment boundary), then advance_local in its slots as one graph
+  // A3a: a bare block's stage-entry exchange is its own host-exchange
+  // segment (eager by design, a segment boundary); a Mesh block's stage has
+  // none (Mesh::forward exchanges its blocks after their stages)
   StageSchedule s;
-  Op exchange;
-  exchange.name = "exchange";
-  exchange.eager_reason = "the stage-entry ghost exchange";
-  exchange.run = [this, block](Variables& vars, StageContext const&) {
-    block_at(block)->exchange_ghost_zones(vars);
-  };
-  s.add(std::move(exchange), SegmentKind::host_exchange);
+  if (!block_at(block)->_mesh_executor) {
+    Op exchange;
+    exchange.name = "exchange";
+    exchange.eager_reason = "the stage-entry ghost exchange";
+    exchange.run = [this, block](Variables& vars, StageContext const&) {
+      block_at(block)->exchange_ghost_zones(vars);
+    };
+    s.add(std::move(exchange), SegmentKind::host_exchange);
+  }
 
   Op stage;
   stage.name = "advance";
@@ -504,9 +508,19 @@ void refuse_in_segment_capture(char const* what) {
 
 void StageExecutor::run_local(int block, Variables& vars, double dt,
                               int stage) {
-  // the stage without its entry exchange: the Mesh exchanges last
-  dispatch(block, vars, dt, stage, /*with_host=*/false,
-           [&]() { block_at(block)->advance_local(vars, dt, stage); });
+  StageContext ctx{block, stage, dt};
+  auto const& s = schedule(block);
+  for (auto const& seg : s.segments())
+    if (!runs_on_host(seg.kind))
+      for (int i : seg.ops) s.ops()[i].run(vars, ctx);
+}
+
+void StageExecutor::refresh(int block) {
+  schedule(block);                 // rebuilt if its signature moved
+  if (_schedule_rebuilt[block]) {  // its segments moved: drop its graphs
+    invalidate(block);
+    _schedule_rebuilt[block] = 0;
+  }
 }
 
 void StageExecutor::align_captures(std::vector<Variables>& vars, double dt,
@@ -519,11 +533,7 @@ void StageExecutor::align_captures(std::vector<Variables>& vars, double dt,
   for (int b = 0; b < num_blocks(); ++b) {
     auto* pmb = block_at(b);
     if (mode(b) != "cuda-graph") return;
-    schedule(b);  // rebuilt if its signature moved
-    if (_schedule_rebuilt[b]) {
-      invalidate(b);
-      _schedule_rebuilt[b] = 0;
-    }
+    refresh(b);
     if (!capture_reasons(b, vars[b]).empty()) continue;
     pmb->_state.adopt(vars[b]);  // as run_segments, before its keys
     pmb->register_flux_storage();
@@ -786,31 +796,20 @@ void StageExecutor::check_strict(int block, Variables const& vars,
 
 void StageExecutor::run_stage(int block, Variables& vars, double dt,
                               int stage) {
-  dispatch(block, vars, dt, stage, /*with_host=*/true,
-           [&]() { run_eager(block, vars, dt, stage); });
-}
-
-void StageExecutor::dispatch(int block, Variables& vars, double dt, int stage,
-                             bool with_host,
-                             std::function<void()> const& eager) {
   if (mode(block) != "cuda-graph") {
     ++_eager;
-    eager();
+    run_eager(block, vars, dt, stage);
     return;
   }
-  schedule(block);                 // rebuilt if its signature moved
-  if (_schedule_rebuilt[block]) {  // its segments moved: drop its graphs
-    invalidate(block);
-    _schedule_rebuilt[block] = 0;
-  }
+  refresh(block);
   check_strict(block, vars, stage);
   if (auto why = capture_reasons(block, vars); !why.empty()) {
     log_eager(block, why);
     ++_eager;
-    eager();
+    run_eager(block, vars, dt, stage);
     return;
   }
-  run_segments(block, vars, dt, stage, with_host);
+  run_segments(block, vars, dt, stage);
 }
 
 std::shared_ptr<StageExecutor::Captured> StageExecutor::graph_at(
@@ -821,7 +820,7 @@ std::shared_ptr<StageExecutor::Captured> StageExecutor::graph_at(
 }
 
 void StageExecutor::run_segments(int block, Variables& vars, double dt,
-                                 int stage, bool with_host) {
+                                 int stage) {
 #ifdef USE_CUDA
   auto* pmb = block_at(block);
   auto const& segs = schedule(block).segments();
@@ -829,7 +828,6 @@ void StageExecutor::run_segments(int block, Variables& vars, double dt,
   pmb->register_flux_storage();
   for (int i = 0; i < static_cast<int>(segs.size()); ++i) {
     if (runs_on_host(segs[i].kind)) {  // the exchange: a boundary
-      if (!with_host) continue;        // a Mesh exchanges last, itself
       ++_host;
       run_eager(block, vars, dt, stage, i);
       continue;

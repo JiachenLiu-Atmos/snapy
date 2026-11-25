@@ -240,21 +240,15 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
 
   //! advance the variables by one stage of the integrator
   void forward(Variables& vars, double dt, int stage);
+  //! the stage without its entry exchange: the executor's schedule, eagerly
   void advance_local(Variables& vars, double dt, int stage);
-  //! the same with a StepDt: a captured stage passes the executor's device
-  //! dt (V3 D), which its kernels read at every replay
-  void advance_stage(Variables& vars, StepDt dt, int stage);
-  //! advance_stage in its slots (A3a): the stage through the combine, the
-  //! limiter, the scalar slot and the solid fill; then the last stage's
-  //! saturation adjustment, the bare block's chemistry step and the physical
-  //! boundaries. advance_stage runs the four in this order. Each takes the
-  //! StepDt; a slot that needs the host dt reads dt.value(), which throws on
-  //! the device dt of a capture.
-  void advance_core(Variables& vars, StepDt dt, int stage);
-  //! advance_core in its ops (A3b): the stage's tendencies (begin, hydro,
-  //! scalar, native dry carry), the user stage forcings (species clip, user
-  //! dry carry), then the combine (end_stage, RK combine, limiter, scalar
-  //! combine, solid fill). advance_core runs the three in this order.
+  //! the stage's ops, which the executor's schedule runs in this order (A3a,
+  //! A3b): the tendencies (begin, hydro, scalar, native dry carry), the user
+  //! stage forcings (species clip, user dry carry), the combine (end_stage,
+  //! RK combine, limiter, scalar combine, solid fill), the last stage's
+  //! saturation adjustment and chemistry step, the physical boundaries. Each
+  //! takes the StepDt; one that needs the host dt reads dt.value(), which
+  //! throws on the device dt of a capture.
   void stage_advance(Variables& vars, StepDt dt, int stage);
   void stage_forcing(Variables& vars, StepDt dt, int stage);
   void stage_combine(Variables& vars, StepDt dt, int stage);

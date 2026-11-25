@@ -104,7 +104,7 @@ void MeshBlockImpl::forward(Variables &vars, double dt, int stage) {
 }
 
 void MeshBlockImpl::advance_local(Variables &vars, double dt, int stage) {
-  advance_stage(vars, dt, stage);
+  _executor->run_local(_executor_index, vars, dt, stage);
 }
 
 void MeshBlockImpl::keep_stage_tendency(char const *name, torch::Tensor &slot,
@@ -139,12 +139,6 @@ void MeshBlockImpl::carry_dry_source(Variables &vars, int stage,
   auto carry_r =
       torch::where(dry.unsqueeze(0) < 0., remove_r, vars.at("scalar_r"));
   _stage_ds.add_(carry_r * dry.unsqueeze(0));
-}
-
-void MeshBlockImpl::advance_core(Variables &vars, StepDt dt, int stage) {
-  stage_advance(vars, dt, stage);
-  stage_forcing(vars, dt, stage);
-  stage_combine(vars, dt, stage);
 }
 
 void MeshBlockImpl::stage_advance(Variables &vars, StepDt dt, int stage) {
@@ -346,13 +340,6 @@ void MeshBlockImpl::stage_combine(Variables &vars, StepDt dt, int stage) {
     pib->fill_cons_solid_(hydro_u, vars.at("solid"),
                           vars.at("fill_solid_hydro_u"));
   }
-}
-
-void MeshBlockImpl::advance_stage(Variables &vars, StepDt dt, int stage) {
-  advance_core(vars, dt, stage);
-  stage_saturation(vars, dt, stage);
-  stage_chemistry(vars, dt, stage);
-  stage_boundaries(vars, dt, stage);
 }
 
 void MeshBlockImpl::stage_saturation(Variables &vars, StepDt dt, int stage) {
