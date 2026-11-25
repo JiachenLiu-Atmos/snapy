@@ -73,17 +73,23 @@ MeshBlock bubble(Variables& vars) {
 // a source whose divergence-phase post puts one unit of energy flux on every
 // x1 face, the wall planes included, as a diffusion module's IPR row does
 struct WallPoster : SourceTerm {
-  WallPoster() {
+  explicit WallPoster(bool walls = true) : walls_(walls) {
     decl_.name = "test.wall_poster";
     decl_.rows = kEnergy;
   }
   void add(torch::Tensor, StageState const&) override {}
   void post_fluxes(FluxRegister& reg, StageState const&) override {
     auto t = reg.total(1);
-    reg.add(1, decl_.name, {IPR},
-            torch::ones({1, t.size(1), t.size(2), t.size(3)}, t.options()));
+    auto one = torch::ones({1, t.size(1), t.size(2), t.size(3)}, t.options());
+    if (!walls_) {  // the interior faces only: 0 on the two wall planes
+      one.select(-1, il_).fill_(0.);
+      one.select(-1, iu1_).fill_(0.);
+    }
+    reg.add(1, decl_.name, {IPR}, one);
     ++posts;
   }
+  bool walls_;
+  int il_ = 0, iu1_ = 0;  // the wall planes (set by the test)
   int posts = 0;
 };
 
@@ -111,6 +117,31 @@ TEST(FluxRegister, a_source_post_on_the_walls_is_prescribed_again) {
   EXPECT_GT(t[IPR].select(-1, co->il() + 1).min().item<double>(), 0.5);
   auto booked = freg.monitor().amounts("boundary.prescribed")[IPR];
   EXPECT_NE(booked.item<double>(), 0.);
+}
+
+// R-5: the prescribed faces are prescribed before any reader. A source's
+// divergence-phase post writes the totals after the sweeps' applies, and the
+// divergence reads them next: the wall planes must be prescribed again
+// before it, or the wall flux reaches du while the register books its
+// removal. The same post on the interior faces only must give the same du.
+TEST(FluxRegister, a_source_post_on_the_walls_does_not_reach_du) {
+  auto run = [](bool walls) {
+    Variables vars;
+    auto block = bubble(vars);
+    auto poster = std::make_shared<WallPoster>(walls);
+    poster->il_ = block->pcoord->il();
+    poster->iu1_ = block->pcoord->iu() + 1;
+    block->phydro->sources.add(poster);
+    double dt = 0.5 * block->max_time_step(vars);
+    auto du = block->phydro->forward(dt, vars.at("hydro_u"), vars);
+    EXPECT_EQ(poster->posts, 1);
+    return du;
+  };
+  auto with = run(true), without = run(false);
+  auto diff = (with[IPR] - without[IPR]).abs();
+  EXPECT_EQ(diff.max().item<double>(), 0.)
+      << "the wall post reached du, max |d du_IPR| = "
+      << diff.max().item<double>();
 }
 
 // The mark the post-implicit apply reads: every add, scale and replace sets
