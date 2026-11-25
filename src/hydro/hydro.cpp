@@ -418,20 +418,15 @@ torch::Tensor HydroImpl::implicit_mass_correction() const {
   return picorr ? picorr->mass_correction() : torch::Tensor();
 }
 
-bool HydroImpl::implicit_solve_float() const {
-  return options->icorr()->precision() == "float32" ||
-         (options->icorr()->precision() == "auto" && fp32());
-}
-
 void HydroImpl::prepare_implicit(torch::Tensor const& w) {
   if (!picorr) return;
-  bool solve_float = implicit_solve_float();
-  // as _apply_implicit_correction: the FP32 stage solves on wi in FP32 (or w's
-  // dtype), the FP64 stage on wi64, which keeps w's dtype
+  // the solve's dtype is the policy's kImplicit row (w's FP64 unless FP32);
+  // with the FP32 solve, the FP64 retry stage keeps w's dtype
+  auto solve = pmb->policy.compute(Quantity::kImplicit);
   std::optional<torch::Dtype> retry;
-  if (solve_float && options->icorr()->fallback_fp64()) retry = w.scalar_type();
-  picorr->prepare(w.device(), solve_float ? torch::kFloat32 : w.scalar_type(),
-                  w.sizes(), retry);
+  if (solve == torch::kFloat32 && options->icorr()->fallback_fp64())
+    retry = w.scalar_type();
+  picorr->prepare(w.device(), solve, w.sizes(), retry);
 }
 
 torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
@@ -460,7 +455,8 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
   }
 
   auto destination = du;
-  bool solve_float = implicit_solve_float();
+  bool solve_float =
+      pmb->policy.compute(Quantity::kImplicit) == torch::kFloat32;
   TORCH_CHECK(
       !solve_float || (options->eos()->type() == "ideal-moist" &&
                        pmb->pcoord->options->type() == "cartesian"),

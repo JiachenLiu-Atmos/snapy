@@ -175,7 +175,9 @@ void MeshBlockImpl::reset() {
   //// -------- (6) set up hydro model -------- ////
   pefs = std::make_shared<EfStatus>();
   phydro = HydroImpl::create(options->hydro(), this);
-  policy = PrecisionPolicy(phydro->options->precision());
+  auto const &icorr = phydro->options->icorr();
+  policy = PrecisionPolicy(phydro->options->precision(), torch::kCPU,
+                           icorr ? icorr->precision() : "auto");
 
   //// -------- (7) set up scalar model ------- ////
   pscalar = ScalarImpl::create(options->scalar(), this);
