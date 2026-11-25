@@ -1061,7 +1061,7 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
     auto volume = pmb->pcoord->cell_volume();
     auto phi_cell = -grav1 * pmb->pcoord->x1v;
     auto vertical_mass_div =
-        pmb->pcoord->x1_face_difference(vertical_mass_flux1) /
+        pmb->pcoord->x1_face_difference(vertical_mass_flux1, area1) /
         volume.slice(-1, is, ie);
     torch::Tensor face_gravity_work;
     if (pmb->pcoord->options->type() == "cartesian") {
@@ -1075,8 +1075,9 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
       auto potential_flux1 =
           vertical_mass_flux1 *
           phi_face.narrow(0, 0, vertical_mass_flux1.size(-1));
-      auto potential_flux_div = pmb->pcoord->x1_face_difference(potential_flux1) /
-                                volume.slice(-1, is, ie);
+      auto potential_flux_div =
+          pmb->pcoord->x1_face_difference(potential_flux1, area1) /
+          volume.slice(-1, is, ie);
       face_gravity_work = dt * (phi_cell.slice(0, is, ie) * vertical_mass_div -
                                 potential_flux_div);
     }

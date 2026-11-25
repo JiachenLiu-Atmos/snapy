@@ -397,9 +397,11 @@ class CoordinateImpl {
                            torch::Tensor flux3) const;
 
   //! divergence's x1 term before the division by the cell volume:
-  //! A_{i+1} F_{i+1} - A_i F_i over the interior cells (last axis), the face
-  //! area in the flux's dtype and device
-  torch::Tensor x1_face_difference(torch::Tensor const& flux1) const;
+  //! A_{i+1} F_{i+1} - A_i F_i over the interior cells (last axis), with the
+  //! caller's face areas `area1`: divergence() casts them to the flux's dtype,
+  //! the gravity work keeps the FP64 master (an FP32 flux is promoted)
+  torch::Tensor x1_face_difference(torch::Tensor const& flux1,
+                                   torch::Tensor const& area1) const;
 
   //! cell-centered vector curl
   virtual torch::Tensor curl(torch::Tensor velocity) const;

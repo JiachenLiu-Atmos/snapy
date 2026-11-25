@@ -609,11 +609,10 @@ torch::Tensor CoordinateImpl::radial_face_centroid_shift_(
 }
 
 torch::Tensor CoordinateImpl::x1_face_difference(
-    torch::Tensor const& flux1) const {
+    torch::Tensor const& flux1, torch::Tensor const& area1) const {
   int si = il(), ei = iu() + 1;
-  auto area = area1_cast_.get(face_area1(), flux1);
-  return area.slice(-1, si + 1, ei + 1) * flux1.slice(-1, si + 1, ei + 1) -
-         area.slice(-1, si, ei) * flux1.slice(-1, si, ei);
+  return area1.slice(-1, si + 1, ei + 1) * flux1.slice(-1, si + 1, ei + 1) -
+         area1.slice(-1, si, ei) * flux1.slice(-1, si, ei);
 }
 
 torch::Tensor CoordinateImpl::divergence(torch::Tensor flux1,
@@ -641,7 +640,9 @@ torch::Tensor CoordinateImpl::divergence(torch::Tensor flux1,
   int sk = kl();
   int ek = ku() + 1;
 
-  if (flux1.defined() > 0) dflx.slice(DIM1, si, ei) += x1_face_difference(flux1);
+  if (flux1.defined() > 0)
+    dflx.slice(DIM1, si, ei) +=
+        x1_face_difference(flux1, area1_cast_.get(face_area1(), dflx));
 
   if (flux2.defined() > 0) {
     auto area = area2_cast_.get(face_area2(), dflx);
