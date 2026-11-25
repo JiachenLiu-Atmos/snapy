@@ -1,6 +1,7 @@
 #include "seam_register.hpp"
 
 // C/C++
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <tuple>
@@ -222,6 +223,14 @@ void supply_prescribed(FluxRegister& reg, MeshBlockImpl const* pmb,
             s.narrow(axis, 0, n - 1).logical_or(s.narrow(axis, 1, n - 1)));
     auto mask = faces.unsqueeze(0).repeat({t.size(0), 1, 1, 1});
     for (int r : free_rows) mask[r].fill_(false);
+    // the x1 wall planes' extra free rows, on the wall planes alone
+    if (dim == 1)
+      for (int lu = 0; lu < 2; ++lu) {
+        int64_t p = kPlane[0][lu];
+        if (std::find(planes.begin(), planes.end(), p) == planes.end())
+          continue;
+        for (int r : x1_wall_rows[lu]) mask[r].select(axis, p).fill_(false);
+      }
     reg.set_prescribed(dim, mask, torch::zeros_like(t));
   }
 }
