@@ -562,7 +562,7 @@ TEST(FluxRegister, the_wall_batch_books_with_the_rebuilt_weights) {
     reg.begin_step();
     reg.begin_stage(0, block->pintg->stages[0]);
     batch->begin_stage();
-    reg.set_prescribed_walls(1, {il, iw}, free_rows);
+    reg.set_prescribed_walls(1, {il, iw}, {free_rows, free_rows});
     reg.apply_prescribed(1);
     batch->flush();
     reg.end_stage(1.);  // rk3 stage 0: w2 = 1, dt = 1, the amount is the rate

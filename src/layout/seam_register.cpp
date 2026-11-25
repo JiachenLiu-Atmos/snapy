@@ -182,7 +182,8 @@ void reconcile_panel_seams(FluxRegister& reg, MeshBlockImpl const* pmb,
 
 void supply_prescribed(FluxRegister& reg, MeshBlockImpl const* pmb,
                        torch::Tensor const& solid,
-                       std::vector<int> const& free_rows) {
+                       std::vector<int> const& free_rows,
+                       std::array<std::vector<int>, 2> const& x1_wall_rows) {
   auto c = pmb->pcoord;
   // (dy, dx, dz) of the lower and upper block face of each direction
   std::array<std::array<std::array<int, 3>, 2>, 3> kFace = {
@@ -196,13 +197,18 @@ void supply_prescribed(FluxRegister& reg, MeshBlockImpl const* pmb,
     if (!t.defined()) continue;
     int axis = 3 - dim;  // of a [nc3, nc2, nc1] face tensor
     std::vector<int64_t> planes;
+    std::vector<std::vector<int>> rows;  // each plane's free rows
     for (int lu = 0; lu < 2; ++lu) {
       auto o = kFace[dim - 1][lu];
-      if (pmb->options->face_kind(o[0], o[1], o[2]) == FaceKind::wall)
-        planes.push_back(kPlane[dim - 1][lu]);
+      if (pmb->options->face_kind(o[0], o[1], o[2]) != FaceKind::wall) continue;
+      planes.push_back(kPlane[dim - 1][lu]);
+      rows.push_back(free_rows);
+      if (dim == 1)
+        rows.back().insert(rows.back().end(), x1_wall_rows[lu].begin(),
+                           x1_wall_rows[lu].end());
     }
     if (!solid.defined()) {  // V3 E: the wall planes alone, no full mask
-      reg.set_prescribed_walls(dim, planes, free_rows);
+      reg.set_prescribed_walls(dim, planes, rows);
       continue;
     }
     auto faces =

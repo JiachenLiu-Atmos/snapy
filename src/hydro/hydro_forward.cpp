@@ -316,9 +316,23 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
     _cov_wl[k] = _cov_wr[k] = _cov_dry[k] = torch::Tensor();
   }
   // S step (4), boundary.prescribed: the walls and solid faces S hands to
-  // R's register; R applies them after reconcile and after the implicit step
+  // R's register; R applies them after reconcile and after the implicit step.
+  // A wall whose boundary prescribes a temperature (the diffusion's wall
+  // temperature, or a fixed-temperature boundary function) has no mass flux
+  // but conducts: its energy row stays free
+  std::array<std::vector<int>, 2> x1_wall_rows;
+  for (int lu = 0; lu < 2; ++lu) {
+    double wall_t =
+        lu == 0 ? (pdiffusion ? pdiffusion->options->temperature_inner() : 0.)
+                : (pdiffusion ? pdiffusion->options->temperature_outer() : 0.);
+    auto const& names = pmb->options->bcnames();
+    bool fixed = names.size() > static_cast<size_t>(lu) &&
+                 names[lu] == (lu == 0 ? "fixed_temperature_inner"
+                                       : "fixed_temperature_outer");
+    if (wall_t > 0. || fixed) x1_wall_rows[lu] = {IPR};
+  }
   supply_prescribed(freg, pmb, has_solid ? other.at("solid") : torch::Tensor(),
-                    {IVX, IVX + 1, IVX + 2});
+                    {IVX, IVX + 1, IVX + 2}, x1_wall_rows);
 
   //// ------------ (1) Calculate Primitives ------------ ////
   auto const& w = other.at("hydro_w");

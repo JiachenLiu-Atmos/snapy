@@ -77,11 +77,15 @@ struct SeamRotationCache {
 //! (FaceKind::wall) or where either cell beside it is solid; on those faces
 //! every row except free_rows is set to 0. The hydro passes its three
 //! momentum rows (free slip: they keep the mirror-Riemann flux); a Scalar
-//! module passes none. solid is the cell mask ([nc3, nc2, nc1], nonzero =
-//! solid), or undefined without solids. Without solids R gets the wall
-//! planes (set_prescribed_walls) and touches no other face (V3 E).
-void supply_prescribed(FluxRegister& reg, MeshBlockImpl const* pmb,
-                       torch::Tensor const& solid,
-                       std::vector<int> const& free_rows);
+//! module passes none. x1_wall_rows: rows freed on the x1 inner and outer
+//! wall plane besides free_rows (the hydro frees the energy row of a wall
+//! whose boundary prescribes a temperature: no mass flux, but it conducts).
+//! solid is the cell mask ([nc3, nc2, nc1], nonzero = solid), or undefined
+//! without solids. Without solids R gets the wall planes
+//! (set_prescribed_walls) and touches no other face (V3 E).
+void supply_prescribed(
+    FluxRegister& reg, MeshBlockImpl const* pmb, torch::Tensor const& solid,
+    std::vector<int> const& free_rows,
+    std::array<std::vector<int>, 2> const& x1_wall_rows = {});
 
 }  // namespace snap

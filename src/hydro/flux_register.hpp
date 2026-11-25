@@ -312,11 +312,11 @@ class FluxRegister {
                       torch::Tensor const& value);
   //! V3 E: S's prescription without a solid. The face planes `planes`
   //! (indices along dim's face axis: the wall block faces) of every row but
-  //! free_rows are set to 0, and apply_prescribed works on those planes
-  //! alone. It replaces a set_prescribed mask, and set_prescribed replaces
-  //! it. No planes: nothing in dim is prescribed
+  //! the plane's free_rows are set to 0, and apply_prescribed works on those
+  //! planes alone. It replaces a set_prescribed mask, and set_prescribed
+  //! replaces it. No planes: nothing in dim is prescribed
   void set_prescribed_walls(int dim, std::vector<int64_t> const& planes,
-                            std::vector<int> const& free_rows);
+                            std::vector<std::vector<int>> const& free_rows);
   //! total[mask] = value and, for each kept part of dim, part[mask] = value;
   //! books sum A_f mask (value - total before) per row of the total as
   //! "boundary.prescribed". No-op when S set no mask for dim.
@@ -366,10 +366,11 @@ class FluxRegister {
   std::map<std::string, torch::Tensor> _parts;
   std::array<std::vector<std::string>, 3> _kept;
   std::array<torch::Tensor, 3> _pmask, _pvalue;
-  //! V3 E: set_prescribed_walls' planes and free rows per direction, and its
-  //! row mask ([nvar, 1, 1] bool on the total's device, kept between calls)
+  //! V3 E: set_prescribed_walls' planes and each plane's free rows per
+  //! direction, and the rows mask ([nvar, planes] bool on the total's device,
+  //! true where a plane's row is prescribed, kept between calls)
   std::array<std::vector<int64_t>, 3> _pwall;
-  std::array<std::vector<int>, 3> _pfree;
+  std::array<std::vector<std::vector<int>>, 3> _pfree;
   std::array<torch::Tensor, 3> _prow;
   //! the wall planes as an index tensor on the total's device (built at the
   //! first apply after set_prescribed_walls, so a stage launches no setup)
