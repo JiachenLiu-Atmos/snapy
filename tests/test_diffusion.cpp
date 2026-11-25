@@ -323,6 +323,44 @@ TEST_P(DeviceTest, disabled_direction_total_does_not_accumulate) {
   }
 }
 
+// With a hydro flux direction off, the diffusion energy flux still goes
+// through its owner, the register: over one step the disabled direction's
+// total holds the diffusion energy row (and no other row), and its step field,
+// the boundary transfer the budget reads, carries it.
+TEST_P(DeviceTest, disabled_direction_register_carries_the_diffusion_energy) {
+  for (int off : {1, 2}) {
+    auto options = MeshBlockOptionsImpl::from_yaml("test_diffusion_2d.yaml");
+    if (off == 1) options->hydro()->disable_flux_x1(true);
+    if (off == 2) options->hydro()->disable_flux_x2(true);
+    auto block = std::make_shared<MeshBlockImpl>(options);
+    block->to(device, dtype);
+    auto w = make_primitive(block, device, dtype);
+    auto x = block->pcoord->x1v.to(device, dtype).view({1, 1, -1});
+    auto y = block->pcoord->x2v.to(device, dtype).view({1, -1, 1});
+    auto temp = (300. + 5. * x + 3. * y).expand_as(w[IDN]).contiguous();
+    auto Rd = 8.31446261815324 / block->phydro->peos->options->weight();
+    w[IPR] = w[IDN] * Rd * temp;
+    Variables vars;
+    vars["hydro_w"] = w;
+    block->initialize(vars);
+    auto& reg = block->phydro->flux_register();
+    reg.request_step_field(off);
+    for (int s = 0; s < static_cast<int>(block->pintg->stages.size()); ++s)
+      block->forward(vars, 1.e-4, s);
+    auto t = reg.total(off).to(torch::kFloat64);
+    double energy = t[IPR].abs().max().item<double>();
+    double others = t.narrow(0, 0, IPR).abs().max().item<double>();
+    double transfer = reg.step_field(off)[IPR].abs().max().item<double>();
+    std::printf(
+        "disable-flux-x%d: max|total(%d)[IPR]| = %.6g, other rows %.6g, "
+        "max|step field(%d)[IPR]| = %.6g\n",
+        off, off, energy, others, off, transfer);
+    EXPECT_GT(energy, 0.) << "disable-flux-x" << off;
+    EXPECT_EQ(others, 0.) << "disable-flux-x" << off;
+    EXPECT_GT(transfer, 0.) << "disable-flux-x" << off;
+  }
+}
+
 TEST_P(DeviceTest, temperature_uses_conductive_laplacian) {
   auto block = make_block();
   block->to(device, dtype);
