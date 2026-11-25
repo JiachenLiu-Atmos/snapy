@@ -420,13 +420,12 @@ torch::Tensor HydroImpl::implicit_mass_correction() const {
 
 void HydroImpl::prepare_implicit(torch::Tensor const& w) {
   if (!picorr) return;
-  // the solve's dtype is the policy's kImplicit row (w's FP64 unless FP32);
-  // with the FP32 solve, the FP64 retry stage keeps w's dtype
-  auto solve = pmb->policy.compute(Quantity::kImplicit);
+  // the policy's kImplicit row: the solve's dtype, and the FP64 retry's
+  auto const& row = pmb->policy.row(Quantity::kImplicit);
   std::optional<torch::Dtype> retry;
-  if (solve == torch::kFloat32 && options->icorr()->fallback_fp64())
-    retry = w.scalar_type();
-  picorr->prepare(w.device(), solve, w.sizes(), retry);
+  if (row.compute == torch::kFloat32 && options->icorr()->fallback_fp64())
+    retry = row.storage;
+  picorr->prepare(w.device(), row.compute, w.sizes(), retry);
 }
 
 torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
@@ -455,17 +454,17 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
   }
 
   auto destination = du;
-  bool solve_float =
-      pmb->policy.compute(Quantity::kImplicit) == torch::kFloat32;
+  auto const& row = pmb->policy.row(Quantity::kImplicit);
+  bool solve_float = row.compute == torch::kFloat32;
   TORCH_CHECK(
       !solve_float || (options->eos()->type() == "ideal-moist" &&
                        pmb->pcoord->options->type() == "cartesian"),
       "FP32 vertical implicit correction requires Cartesian ideal-moist");
   bool boundary = fp32() || solve_float;
-  if (boundary) du = du.to(torch::kFloat64);
+  if (boundary) du = du.to(row.storage);
   du[IPR].sub_(peos->internal_energy_offset(du));
   auto rhs64 = solve_float ? du.clone() : torch::Tensor();
-  auto wi64 = wi;
+  auto wi64 = wi.to(row.storage);
   if (solve_float) {
     du = du.to(torch::kFloat32);
     wi = wi.to(torch::kFloat32);
@@ -492,8 +491,8 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
   freg.monitor().flag_retry("implicit.column", picorr->status());
   // Restore energy offsets in FP64, then write the increment to state dtype.
   if (boundary) {
-    du = du.to(torch::kFloat64);
-    correction = correction.to(torch::kFloat64);
+    du = du.to(row.storage);
+    correction = correction.to(row.storage);
   }
   // the retried columns' FP64 solution (rhs64 now holds it), in place of
   // the FP32 stage's (I-6)

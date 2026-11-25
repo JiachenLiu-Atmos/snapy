@@ -17,7 +17,7 @@ enum class Quantity {
   kFlux,         // fluxes, du
   kReference,    // reference and geometry masters
   kPrimitive,    // hydro_w totals
-  kImplicit,     // vertical implicit solve
+  kImplicit,     // vertical implicit solve; storage: its FP64 stage
   kCount
 };
 
@@ -42,6 +42,7 @@ class PrecisionPolicy {
           Quantity::kFlux, Quantity::kImplicit})
       _rows[static_cast<int>(q)] = {narrow, narrow};
     _rows[static_cast<int>(Quantity::kReference)].compute = narrow;
+    _rows[static_cast<int>(Quantity::kImplicit)].storage = w;
     if (implicit != "auto")  // float32 or float64 overrides the block
       _rows[static_cast<int>(Quantity::kImplicit)].compute =
           implicit == "float32" ? torch::kFloat32 : w;

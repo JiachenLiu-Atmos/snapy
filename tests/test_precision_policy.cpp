@@ -21,7 +21,8 @@ void expect_rows(PrecisionPolicy const& p, torch::Dtype narrow,
                  torch::Dtype wide) {
   for (int i = 0; i < static_cast<int>(Quantity::kCount); ++i) {
     auto q = static_cast<Quantity>(i);
-    auto storage = narrow_row(q) ? narrow : wide;
+    // kImplicit stores its FP64 stage (the boundary and the retry) wide
+    auto storage = narrow_row(q) && q != Quantity::kImplicit ? narrow : wide;
     auto compute = narrow_row(q) || q == Quantity::kReference ? narrow : wide;
     EXPECT_EQ(p.storage(q), storage) << "row " << i;
     EXPECT_EQ(p.compute(q), compute) << "row " << i;
