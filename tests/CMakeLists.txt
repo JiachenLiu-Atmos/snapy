@@ -125,6 +125,7 @@ function(seam_arm name env test)
                      PASS_REGULAR_EXPRESSION "\\[  PASSED  \\] 1 test\\.")
 endfunction()
 seam_arm("" "" switches_off_nghost_1_sets_up)
+seam_arm(_relays_are_seam_sides "" the_x1_relays_are_seam_sides)
 seam_arm(_x1_centroid "SNAP_X1_CENTROID_EXACT=1"
          centroid_exact_split_matches_one_block)
 seam_arm(_radial_exact "" radial_exact_split_gap)

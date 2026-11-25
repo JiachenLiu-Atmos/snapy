@@ -68,7 +68,6 @@ void Exchange::x1_rows(std::vector<torch::Tensor> fields, int m, bool faces,
   auto [below, above] = x1_neighbors();
   if (below < 0 && above < 0) return;
   TORCH_CHECK(!fields.empty(), "[Exchange:x1_rows] no field");
-  auto layout = pmb_->get_layout();
   int is = pmb_->pcoord->il(), iu = pmb_->pcoord->iu(), o = faces ? 1 : 0;
   int nf = fields.size();
 
@@ -86,39 +85,16 @@ void Exchange::x1_rows(std::vector<torch::Tensor> fields, int m, bool faces,
       fields[k].narrow(-1, start, m).copy_(rows.narrow(-1, k * m, m));
   };
 
-  std::vector<std::vector<torch::Tensor>> sbufs;
-  std::vector<CommWorkPtr> sends;
-  sbufs.reserve(2);
-  auto post = [&](torch::Tensor rows, int to, int t) {
-    if (layout->is_local_block(to)) {
-      layout->post_to_local_block(to, rows, t);
-    } else {
-      sbufs.push_back({rows.contiguous()});
-      sends.push_back(layout->send_to_block(sbufs.back(), to, t));
-    }
-  };
-  auto take = [&](int from, int t) {
-    if (layout->is_local_block(from))
-      return layout->take_from_local_block(from, t);
-    std::vector<torch::Tensor> rbuf;
-    if (nf == 1) {
-      rbuf = {torch::empty_like(fields[0].narrow(-1, 0, m).contiguous())};
-    } else {
-      auto shape = fields[0].sizes().vec();
-      shape.back() = nf * m;
-      rbuf = {torch::empty(shape, fields[0].options())};
-    }
-    layout->recv_from_block(rbuf, from, t)->wait();
-    return rbuf[0];
-  };
-
   // up: my top rows are the above block's lower ghosts; down: my bottom rows
-  // (past the seam face, for faces) are the below block's upper ghosts
-  if (above >= 0) post(pack(iu + 1 - m), above, tag);
-  if (below >= 0) post(pack(is + o), below, tag + 1);
-  if (below >= 0) unpack(take(below, tag), is - m);
-  if (above >= 0) unpack(take(above, tag + 1), iu + 1 + o);
-  for (auto& sw : sends) sw->wait();
+  // (past the seam face, for faces) are the below block's upper ghosts. The
+  // column's two faces are the seam sides 0 (below) and 1 (above).
+  std::vector<SeamSide> sides = {
+      SeamSide{1, 0, below >= 0 ? pack(is + o) : torch::Tensor()},
+      SeamSide{1, 1, above >= 0 ? pack(iu + 1 - m) : torch::Tensor()}};
+  for (auto& s : sides) resolve_seam(s, false);
+  seam_exchange(sides, tag);
+  if (below >= 0) unpack(sides[0].recv, is - m);
+  if (above >= 0) unpack(sides[1].recv, iu + 1 + o);
 }
 
 std::pair<int, int> Exchange::x1_seam_peers(bool process_only) const {
@@ -136,57 +112,55 @@ std::pair<torch::Tensor, torch::Tensor> Exchange::x1_seam_slab(
     torch::Tensor const& lower, torch::Tensor const& upper, int tag,
     bool process_only) const {
   std::pair<torch::Tensor, torch::Tensor> theirs;
-  auto [below, above] = x1_seam_peers(process_only);
-  if (above < 0 && below < 0) return theirs;
-  auto layout = pmb_->get_layout();
-
-  // a same-process peer goes through a board, a remote one through the
-  // process group (S step (4): row 9 on every x1 seam)
-  std::vector<CommWorkPtr> sends;
-  std::vector<torch::Tensor> up_mine, dn_mine;
-  auto post = [&](std::vector<torch::Tensor>& mine, torch::Tensor const& slab,
-                  int to, int t) {
-    if (layout->is_local_block(to)) {
-      layout->post_to_local_block(to, slab, t);
-    } else {
-      mine = {slab};
-      sends.push_back(layout->send_to_block(mine, to, t));
-    }
-  };
-  auto take = [&](torch::Tensor const& like, int from, int t) {
-    if (layout->is_local_block(from))
-      return layout->take_from_local_block(from, t);
-    std::vector<torch::Tensor> rbuf = {torch::empty_like(like)};
-    layout->recv_from_block(rbuf, from, t)->wait();
-    return rbuf[0];
-  };
-  if (above >= 0) post(up_mine, upper, above, tag);
-  if (below >= 0) post(dn_mine, lower, below, tag + 1);
-  if (above >= 0) theirs.second = take(upper, above, tag + 1);
-  if (below >= 0) theirs.first = take(lower, below, tag);
-  for (auto& sw : sends) sw->wait();
+  if (!pmb_->get_layout()) return theirs;
+  // the column's two faces as seam sides 0 (below) and 1 (above); row 9 on
+  // every x1 seam, a periodic wrap included
+  std::vector<SeamSide> sides = {SeamSide{1, 0, lower}, SeamSide{1, 1, upper}};
+  bool any = false;
+  for (auto& s : sides) {
+    if (!resolve_seam(s, process_only)) continue;
+    TORCH_CHECK(s.send.defined(), "[Exchange:x1_seam_slab] no slab for side ",
+                s.side, ", which has a peer");
+    any = true;
+  }
+  if (!any) return theirs;
+  seam_exchange(sides, tag);
+  // the peer's slab as posted: a board hands over the owner's tensor
+  if (sides[0].peer >= 0) theirs.first = sides[0].recv;
+  if (sides[1].peer >= 0) theirs.second = sides[1].recv;
   return theirs;
 }
 
 bool Exchange::resolve_seam(SeamSide& s, bool process_only) const {
-  TORCH_CHECK(s.dim == 2 || s.dim == 3, "[Exchange:seam] dim ", s.dim,
-              " is not 2 or 3");
+  TORCH_CHECK(s.dim >= 1 && s.dim <= 3, "[Exchange:seam] dim ", s.dim,
+              " is not 1, 2 or 3");
   s.peer = -1;
   s.peer_side = -1;
   s.reversed = false;
   auto layout = pmb_->get_layout();
   if (!layout) return false;
   auto iloc = layout->loc_of(layout->options->rank());
-  // L/R are the x2 faces, B/T the x3 faces, with the (dy, dx) of their
-  // neighbours as in cubed_sphere_layout.cpp
-  constexpr std::array<std::array<int, 2>, 4> kOffset = {
-      {{0, -1}, {0, 1}, {-1, 0}, {1, 0}}};
-  int peer =
-      layout->neighbor_rank(iloc, {kOffset[s.side][0], kOffset[s.side][1], 0});
+  int peer;
+  if (s.dim == 1) {
+    // the x1 column: side 0 faces the block below, side 1 the block above
+    // (a periodic x1 wrap counts); the x1 layout has no panel seams
+    TORCH_CHECK(s.side == 0 || s.side == 1, "[Exchange:seam] x1 side ", s.side,
+                " is not 0 or 1");
+    if (layout->options->pz() <= 1) return false;
+    auto [below, above] = raw_x1_peers(*layout);
+    peer = s.side == 0 ? below : above;
+  } else {
+    // L/R are the x2 faces, B/T the x3 faces, with the (dy, dx) of their
+    // neighbours as in cubed_sphere_layout.cpp
+    constexpr std::array<std::array<int, 2>, 4> kOffset = {
+        {{0, -1}, {0, 1}, {-1, 0}, {1, 0}}};
+    peer = layout->neighbor_rank(iloc,
+                                 {kOffset[s.side][0], kOffset[s.side][1], 0});
+  }
   if (peer < 0 || (process_only && layout->is_local_block(peer))) return false;
   int panel = std::get<2>(iloc);
-  bool cubed =
-      dynamic_cast<CubedSphereLayoutImpl const*>(layout.get()) != nullptr;
+  bool cubed = s.dim != 1 && dynamic_cast<CubedSphereLayoutImpl const*>(
+                                 layout.get()) != nullptr;
   s.peer = peer;
   if (cubed && layout->panel_of(peer) != panel) {
     auto e = CS_FACE_EDGES[panel][s.side];
@@ -212,7 +186,7 @@ void Exchange::seam_exchange(std::vector<SeamSide>& sides, int tag) const {
     if (layout->is_local_block(s.peer)) {
       layout->post_to_local_block(s.peer, s.send, t);
     } else {
-      sbufs.push_back({s.send});
+      sbufs.push_back({s.send.contiguous()});
       sends.push_back(layout->send_to_block(sbufs.back(), s.peer, t));
     }
   }

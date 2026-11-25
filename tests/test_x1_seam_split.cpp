@@ -34,11 +34,14 @@
 
 // C/C++
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 // torch
@@ -53,6 +56,7 @@
 #include <snap/coord/x1_centroid.hpp>
 #include <snap/hydro/gravity_work_radial.hpp>
 #include <snap/hydro/hydro.hpp>
+#include <snap/layout/exchange.hpp>
 #include <snap/mesh/mesh.hpp>
 
 using namespace snap;
@@ -413,4 +417,91 @@ TEST(X1SeamSplit, x1_mass_covariance_needs_3_x1_cells) {
         << e.what();
   }
   EXPECT_NO_THROW(make_column(1, 3, 1., "face", 2, torch::kCPU, -1., true));
+}
+
+// The x1 relays are seam sides of the one transport: on a column split in
+// two, side 0 of a block faces the block below and side 1 the block above,
+// the up message carries the tag and the down message tag + 1 (the
+// receiver's side), x1_seam_slab hands each block the neighbour's face slab
+// and x1_rows overwrites its ghost rows with the neighbour's interior rows.
+TEST(X1SeamSplit, the_x1_relays_are_seam_sides) {
+  auto mesh = make_column(2, 16, 1., "face");
+  ASSERT_EQ(mesh->blocks.size(), 2u);
+  auto on_every_block = [&](auto f) {
+    std::vector<std::thread> threads;
+    std::vector<std::exception_ptr> errors(2);
+    for (size_t b = 0; b < 2; ++b)
+      threads.emplace_back([&, b] {
+        try {
+          f(b);
+        } catch (...) {
+          errors[b] = std::current_exception();
+        }
+      });
+    for (auto& t : threads) t.join();
+    for (auto& e : errors)
+      if (e) std::rethrow_exception(e);
+  };
+  std::array<int, 2> rank;
+  std::array<std::array<Exchange::SeamSide, 2>, 2> sides;
+  for (size_t b = 0; b < 2; ++b) {
+    rank[b] = mesh->blocks[b]->get_layout()->options->rank();
+    Exchange ex(mesh->blocks[b].get());
+    for (int side = 0; side < 2; ++side) {
+      sides[b][side] = Exchange::SeamSide{1, side};
+      ex.resolve_seam(sides[b][side], false);
+    }
+  }
+  // one block is the bottom (no peer below), the other the top
+  int lo = sides[0][0].peer < 0 ? 0 : 1, hi = 1 - lo;
+  EXPECT_LT(sides[lo][0].peer, 0);
+  EXPECT_EQ(sides[lo][1].peer, rank[hi]);
+  EXPECT_EQ(sides[lo][1].peer_side, 0);
+  EXPECT_EQ(sides[hi][0].peer, rank[lo]);
+  EXPECT_EQ(sides[hi][0].peer_side, 1);
+  EXPECT_LT(sides[hi][1].peer, 0);
+  for (auto const& bs : sides)
+    for (auto const& s : bs) EXPECT_FALSE(s.reversed);
+
+  // the seam slab: each block gets the neighbour's slab for the shared face
+  std::array<torch::Tensor, 2> lower, upper, from_below, from_above;
+  for (size_t b = 0; b < 2; ++b) {
+    lower[b] = torch::full({3, 2}, 10. + b, torch::kFloat64);
+    upper[b] = torch::full({3, 2}, 20. + b, torch::kFloat64);
+  }
+  on_every_block([&](size_t b) {
+    Exchange ex(mesh->blocks[b].get());
+    std::tie(from_below[b], from_above[b]) =
+        ex.x1_seam_slab(lower[b], upper[b], 0x7790, false);
+  });
+  EXPECT_FALSE(from_below[lo].defined());
+  EXPECT_FALSE(from_above[hi].defined());
+  ASSERT_TRUE(from_above[lo].defined());
+  ASSERT_TRUE(from_below[hi].defined());
+  EXPECT_TRUE(torch::equal(from_above[lo], lower[hi]));
+  EXPECT_TRUE(torch::equal(from_below[hi], upper[lo]));
+
+  // the ghost rows: value 1000 (b + 1) + i marks every cell of block b
+  std::array<torch::Tensor, 2> field;
+  for (size_t b = 0; b < 2; ++b) {
+    auto const& c = *mesh->blocks[b]->pcoord;
+    field[b] =
+        (torch::arange(c.options->nc1(), torch::kFloat64) + 1000. * (b + 1))
+            .view({1, 1, 1, c.options->nc1()});
+  }
+  on_every_block([&](size_t b) {
+    Exchange ex(mesh->blocks[b].get());
+    ex.x1_rows({field[b]}, mesh->blocks[b]->pcoord->options->nghost(), false,
+               0x7792);
+  });
+  auto const& c = *mesh->blocks[lo]->pcoord;
+  int ng = c.options->nghost(), il = c.il(), iu = c.iu();
+  for (int k = 0; k < ng; ++k) {
+    // the bottom block's upper ghosts hold the top block's lowest interior
+    // rows; the top block's lower ghosts hold the bottom block's highest
+    EXPECT_DOUBLE_EQ(field[lo][0][0][0][iu + 1 + k].item<double>(),
+                     1000. * (hi + 1) + il + k);
+    EXPECT_DOUBLE_EQ(field[hi][0][0][0][il - ng + k].item<double>(),
+                     1000. * (lo + 1) + iu + 1 - ng + k);
+  }
 }
