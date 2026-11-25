@@ -100,17 +100,9 @@ struct LayoutOptionsImpl {
 
   int process_root_rank() const { return owner_process_rank(root_rank()); }
 
-  //! type of layout
-  ADD_ARG(std::string, type) = "slab";
-
-  //! number of processors in X
-  ADD_ARG(int, px) = 1;
-
-  //! number of processors in Y
-  ADD_ARG(int, py) = 1;
-
-  //! number of processors in Z
-  ADD_ARG(int, pz) = 1;
+  // the rows of src/options/layout.yaml: type, px, py, pz, verbose,
+  // backend, device
+#include <snap_options/layout_members.inc>
 
  public:
   //! number of blocks along mesh axis 1..3: nb1 = pz, nb2 = px, nb3 = py
@@ -131,8 +123,6 @@ struct LayoutOptionsImpl {
   //! periodicity in Z
   ADD_ARG(bool, periodic_z) = false;
 
-  ADD_ARG(std::string, backend) = "gloo";
-  ADD_ARG(std::string, device) = "cpu";
   ADD_ARG(std::string, master_addr) = "127.0.0.1";
   ADD_ARG(int, process_rank) = 0;
   ADD_ARG(int, rank) = 0;
@@ -147,7 +137,6 @@ struct LayoutOptionsImpl {
   ADD_ARG(int64_t, mesh_id) = 0;
   ADD_ARG(int, master_port) = -1;
   ADD_ARG(int, device_id) = -1;
-  ADD_ARG(bool, verbose) = false;
 };
 using LayoutOptions = std::shared_ptr<LayoutOptionsImpl>;
 

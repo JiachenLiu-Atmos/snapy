@@ -31,16 +31,9 @@ void bind_layout(py::module& m) {
              a->report(ss);
              return fmt::format("LayoutOptions(\n{})", ss.str());
            })
-      .ADD_OPTION(std::string, snap::LayoutOptionsImpl, type)
-      .ADD_OPTION(int, snap::LayoutOptionsImpl, px)
-      .ADD_OPTION(int, snap::LayoutOptionsImpl, py)
-      .ADD_OPTION(int, snap::LayoutOptionsImpl, pz)
       .ADD_OPTION(bool, snap::LayoutOptionsImpl, periodic_x)
       .ADD_OPTION(bool, snap::LayoutOptionsImpl, periodic_y)
       .ADD_OPTION(bool, snap::LayoutOptionsImpl, periodic_z)
-      .ADD_OPTION(bool, snap::LayoutOptionsImpl, verbose)
-      .ADD_OPTION(std::string, snap::LayoutOptionsImpl, backend)
-      .ADD_OPTION(std::string, snap::LayoutOptionsImpl, device)
       .ADD_OPTION(std::string, snap::LayoutOptionsImpl, master_addr)
       .ADD_OPTION(int, snap::LayoutOptionsImpl, master_port)
       .ADD_OPTION(int, snap::LayoutOptionsImpl, root_rank)
@@ -50,7 +43,10 @@ void bind_layout(py::module& m) {
       .ADD_OPTION(int, snap::LayoutOptionsImpl, rank)
       .ADD_OPTION(int, snap::LayoutOptionsImpl, local_rank)
       .ADD_OPTION(int, snap::LayoutOptionsImpl, blocks_per_process)
-      .ADD_OPTION(int, snap::LayoutOptionsImpl, device_id);
+      .ADD_OPTION(int, snap::LayoutOptionsImpl, device_id)
+  // the rows of src/options/layout.yaml
+#include <snap_options/layout_pybind.inc>
+      ;  // NOLINT(whitespace/semicolon)
 
   auto pySyncOptions = py::class_<snap::SyncOptions>(m, "SyncOptions");
   py::setattr(pySyncOptions, "DIM1", py::int_((int)snap::SyncOptions::DIM1));

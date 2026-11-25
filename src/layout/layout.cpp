@@ -23,12 +23,14 @@
 #include <snap/mesh/exchange_cut.hpp>
 #include <snap/mesh/meshblock.hpp>
 #include <snap/utils/log.hpp>
-#include <snap_options/layout_rows.hpp>
+#include <snap/input/check_keys.hpp>
 
 #include "cubed_sphere_layout.hpp"
 #include "layout.hpp"
 
 namespace snap {
+
+#include <snap_options/layout_read.inc>
 
 std::string default_backend() {
 #ifdef USE_UCX
@@ -264,17 +266,9 @@ LayoutOptionsImpl::LayoutOptionsImpl() {
 LayoutOptions LayoutOptionsImpl::from_yaml(std::string const& filename,
                                            bool verbose) {
   auto op = LayoutOptionsImpl::create();
-  // the rows of src/options/layout.yaml
-  auto rows = DistributeRows::read(YAML::LoadFile(filename), verbose);
-  if (!rows.present()) return op;
-
-  op->type() = rows.type();
-  op->py(rows.py());
-  op->px(rows.px());
-  op->pz(rows.pz());
-  op->backend() = rows.backend();
-  op->device() = rows.device();
-  op->verbose() = rows.verbose();
+  auto node = YAML::LoadFile(filename)["distribute"];
+  if (!node) return op;
+  read_layout_rows(*op, node, "distribute", verbose);
 
   if (op->verbose()) op->report(SINFO(LayoutOptions));
 

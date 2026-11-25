@@ -26,8 +26,11 @@
 #include <snap/output/output_type.hpp>
 
 // generated from src/options/{coord,layout}.yaml
+#include <snap/input/check_keys.hpp>
 #include <snap_options/coord_rows.hpp>
-#include <snap_options/layout_rows.hpp>
+namespace snap {
+#include <snap_options/layout_read.inc>
+}  // namespace snap
 
 using namespace snap;
 namespace fs = std::filesystem;
@@ -313,17 +316,12 @@ TEST(options_table, lane_s_rows_match_parsers) {
     }
 
     auto lo = LayoutOptionsImpl::from_yaml(p.string());
-    auto d = DistributeRows::read(config);
-    EXPECT_EQ(d.present(), static_cast<bool>(config["distribute"]));
-    if (d.present()) {
+    if (auto d = config["distribute"]) {
       ++nlayout;
-      EXPECT_EQ(d.type(), lo->type());
-      EXPECT_EQ(d.px(), lo->px());
-      EXPECT_EQ(d.py(), lo->py());
-      EXPECT_EQ(d.pz(), lo->pz());
-      EXPECT_EQ(d.verbose(), lo->verbose());
-      EXPECT_EQ(d.backend(), lo->backend());
-      EXPECT_EQ(d.device(), lo->device());
+      EXPECT_EQ(lo->type(), d["layout"].as<std::string>("slab"));
+      EXPECT_EQ(lo->px(), d["nb2"].as<int>(1));
+      EXPECT_EQ(lo->py(), d["nb3"].as<int>(1));
+      EXPECT_EQ(lo->pz(), d["nb1"].as<int>(1));
     }
   }
   std::cout << "decks " << ndeck << ": geometry " << ngeom << ", distribute "
@@ -378,17 +376,21 @@ TEST(options_table, geometry_checks) {
   EXPECT_EQ(g.x2max(), 0.5 * M_PI);
 }
 
-// The distribute backend row follows default_backend() (ucx on Linux with
-// UCX, else gloo), as LayoutOptionsImpl does; BACKEND overrides both.
+// The backend follows default_backend() (ucx on Linux with UCX, else gloo),
+// from the options and from the deck; BACKEND overrides both.
 TEST(options_table, distribute_backend_default) {
   char const* saved = std::getenv("BACKEND");
   std::string keep = saved ? saved : "";
   auto deck = YAML::Load("distribute: {layout: slab}");
   ::unsetenv("BACKEND");
-  EXPECT_EQ(DistributeRows::read(deck).backend(), default_backend());
-  EXPECT_EQ(DistributeRows().backend(), default_backend());
+  LayoutOptionsImpl fresh, read;
+  read_layout_rows(read, deck["distribute"], "distribute");
+  EXPECT_EQ(fresh.backend(), default_backend());
+  EXPECT_EQ(read.backend(), default_backend());
   ::setenv("BACKEND", "gloo", 1);
-  EXPECT_EQ(DistributeRows::read(deck).backend(), "gloo");
+  LayoutOptionsImpl env;
+  read_layout_rows(env, deck["distribute"], "distribute");
+  EXPECT_EQ(env.backend(), "gloo");
   if (saved)
     ::setenv("BACKEND", keep.c_str(), 1);
   else
