@@ -585,7 +585,7 @@ std::vector<std::string> StageExecutor::config_reasons(int block) const {
   // B3: the cubed sphere (gnomonic-equiangle panels of a cubed-sphere
   // layout): its in-stage panel-seam exchanges are cuts
   bool cubed_sphere = op->coord()->type() == "gnomonic-equiangle" &&
-                      pmb->_playout->options->type() == "cubed-sphere";
+                      pmb->_playout->options->is_cubed_sphere();
   if (op->coord()->type() != "cartesian" && !cubed_sphere)
     why.push_back("geometry is " + op->coord()->type() +
                   ", not cartesian or a cubed sphere");
