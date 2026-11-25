@@ -7,10 +7,11 @@ The shipped examples/straka.yaml in one block, with no execution key:
   CUDA  it captures (captures and replays, no eager stage) and equals bitwise
         the same deck with an explicit `execution: eager`, which stays eager
 
-and on CUDA a six-panel cubed-sphere Mesh with no execution key: one block per
-panel captures and equals explicit eager bitwise; panels split into two by two
-blocks are refused (a panel split into several blocks cannot be captured yet),
-run eager and equal explicit eager bitwise.
+and on CUDA a six-panel cubed-sphere Mesh with no execution key, one block per
+panel, two by two and four by four blocks per panel: each captures, runs no
+stage eager and equals explicit eager bitwise. Four by four has blocks with no
+neighbour on another panel, whose cross-panel syncs leave nothing to capture
+between two cuts.
 
 FP64, 10 steps with dt changing, bitwise after every step. The CPU part runs
 on every build; the CUDA part needs a CUDA build of snapy and a device
@@ -174,12 +175,15 @@ def main():
     assert eager["captures"] == 0, eager
     print("cuda: a cubed-sphere Mesh captures by default and equals explicit eager bitwise",
           flush=True)
-    default, eager, reasons = run_cubed(2)
-    print("cuda cubed sphere 2x2 blocks/panel default:", default, reasons, flush=True)
-    assert default["captures"] == 0 and default["eager"] > 0, default
-    assert any("panel split into several blocks" in r for r in reasons), reasons
-    print("cuda: split panels run eager by default, with the reason, and equal explicit "
-          "eager bitwise", flush=True)
+    for nb in (4, 2):  # four by four first: it needs no nb=2 fix
+        default, eager, reasons = run_cubed(nb)
+        print(f"cuda cubed sphere {nb}x{nb} blocks/panel default:", default, reasons,
+              flush=True)
+        assert reasons == [], reasons
+        assert default["captures"] > 0 and default["eager"] == 0, default
+        assert eager["captures"] == 0, eager
+        print(f"cuda: {nb}x{nb} blocks per panel capture by default and equal explicit "
+              "eager bitwise", flush=True)
     print("PASSED")
     return 0
 
