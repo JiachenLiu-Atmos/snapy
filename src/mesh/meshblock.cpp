@@ -32,6 +32,13 @@
 
 namespace snap {
 
+// the block's dtypes for its device, the coordinates' (MPS holds no FP64)
+void MeshBlockImpl::_reset_policy() {
+  auto const &icorr = phydro->options->icorr();
+  policy = PrecisionPolicy(phydro->options->precision(), pcoord->x1v.device(),
+                           icorr ? icorr->precision() : "auto");
+}
+
 void MeshBlockImpl::to(torch::Device device, torch::Dtype dtype,
                        bool non_blocking) {
   if (policy.fp32())
@@ -39,6 +46,7 @@ void MeshBlockImpl::to(torch::Device device, torch::Dtype dtype,
   else
     torch::nn::Module::to(device, dtype, non_blocking);
   _state.reallocate();  // like the moved u0 and s0
+  _reset_policy();
   if (_executor) _executor->invalidate(_executor_index);
 }
 void MeshBlockImpl::to(torch::Dtype dtype, bool non_blocking) {
@@ -50,6 +58,7 @@ void MeshBlockImpl::to(torch::Dtype dtype, bool non_blocking) {
 void MeshBlockImpl::to(torch::Device device, bool non_blocking) {
   torch::nn::Module::to(device, non_blocking);
   _state.reallocate();
+  _reset_policy();
   if (_executor) _executor->invalidate(_executor_index);
 }
 
@@ -175,9 +184,7 @@ void MeshBlockImpl::reset() {
   //// -------- (6) set up hydro model -------- ////
   pefs = std::make_shared<EfStatus>();
   phydro = HydroImpl::create(options->hydro(), this);
-  auto const &icorr = phydro->options->icorr();
-  policy = PrecisionPolicy(phydro->options->precision(), torch::kCPU,
-                           icorr ? icorr->precision() : "auto");
+  _reset_policy();
 
   //// -------- (7) set up scalar model ------- ////
   pscalar = ScalarImpl::create(options->scalar(), this);

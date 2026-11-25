@@ -423,7 +423,7 @@ void HydroImpl::prepare_implicit(torch::Tensor const& w) {
   // the policy's kImplicit row: the solve's dtype, and the FP64 retry's
   auto const& row = pmb->policy.row(Quantity::kImplicit);
   std::optional<torch::Dtype> retry;
-  if (row.compute == torch::kFloat32 && options->icorr()->fallback_fp64())
+  if (row.compute != row.storage && options->icorr()->fallback_fp64())
     retry = row.storage;
   picorr->prepare(w.device(), row.compute, w.sizes(), retry);
 }
@@ -455,7 +455,8 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
 
   auto destination = du;
   auto const& row = pmb->policy.row(Quantity::kImplicit);
-  bool solve_float = row.compute == torch::kFloat32;
+  // a solve narrower than its FP64 stage (on MPS both rows are FP32)
+  bool solve_float = row.compute != row.storage;
   TORCH_CHECK(
       !solve_float || (options->eos()->type() == "ideal-moist" &&
                        pmb->pcoord->options->type() == "cartesian"),

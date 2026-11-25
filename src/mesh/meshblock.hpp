@@ -192,7 +192,7 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   Hydro phydro = nullptr;
   Scalar pscalar = nullptr;
 
-  //! dtypes per quantity, built in reset() from dynamics.precision
+  //! dtypes per quantity for the block's device, built in reset() and to()
   PrecisionPolicy policy;
 
   //! counts the state store's address changes (reset, to, restart, adopt)
@@ -345,6 +345,7 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   double _init_from_restart(Variables& vars, std::string fname);
 
  private:
+  void _reset_policy();
   //! one communication round; `exchange` splits a subdivided cubed-sphere
   //! sync into two of these
   void _exchange_once(Variables& vars, SyncOptions const& opts) const;
