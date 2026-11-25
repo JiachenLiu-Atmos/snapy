@@ -604,12 +604,6 @@ std::vector<std::string> StageExecutor::config_reasons(int block) const {
     why.push_back(
         "an x1 split (pz > 1): its relays inside the stage are not cut into "
         "segments yet (P2, P3)");
-  // a panel split into several blocks: capturing it fails (its seams inside
-  // the panel are not cut into segments), so it runs eager
-  if (cubed_sphere && (lo->px() > 1 || lo->py() > 1))
-    why.push_back(
-        "a cubed-sphere panel split into several blocks (nb2 or nb3 > 1): its "
-        "seams inside the panel are not cut into segments yet");
   // no forcing block at all captures as const-gravity does
   if (hydro->coriolis() || hydro->diffusion() || hydro->bodyHeat() ||
       hydro->botHeat() || hydro->topCool() || hydro->relaxBotComp() ||
