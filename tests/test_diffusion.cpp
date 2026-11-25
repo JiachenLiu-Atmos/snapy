@@ -20,6 +20,7 @@
 
 // tests
 #include "device_testing.hpp"
+#include "diffusion_energy.hpp"
 
 using namespace snap;
 
@@ -197,7 +198,7 @@ TEST_P(DeviceTest, uniform_state_has_zero_tendency) {
   auto temp = block->phydro->peos->compute("W->T", {w});
   auto du = torch::zeros_like(w);
 
-  block->phydro->pdiffusion->forward(du, w, temp, 0.1);
+  diffuse(*block, du, w, temp, 0.1);
   EXPECT_TRUE(torch::allclose(du, torch::zeros_like(du), 1.e-6, 1.e-6));
 }
 
@@ -220,15 +221,13 @@ TEST_P(DeviceTest, cartesian_fixed_temperature_preserves_linear_conduction) {
   w[IPR].copy_(w[IDN] * gas * temperature);
   fill_reflecting_x1(w, c->options->nghost());
   temperature = block->phydro->peos->compute("W->T", {w});
-  auto du = block->phydro->pdiffusion->forward(torch::zeros_like(w), w,
-                                               temperature, 1.);
+  auto du = diffuse(*block, torch::zeros_like(w), w, temperature, 1.);
   auto sl = block->part({0, 0, 0}, PartOptions().exterior(false));
   EXPECT_LT(du.index(sl).abs().max().item<double>(),
             dtype == torch::kFloat64 ? 1.e-9 : 1.e-3);
   // Raising only the lower wall injects K * deltaT / (dz/2) into the layer.
   block->phydro->pdiffusion->options->temperature_inner(305.);
-  du = block->phydro->pdiffusion->forward(torch::zeros_like(w), w, temperature,
-                                          1.);
+  du = diffuse(*block, torch::zeros_like(w), w, temperature, 1.);
   auto spatial = block->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
   auto heat = (du[IPR] * c->cell_volume()).index(spatial).sum().item<double>();
   EXPECT_NEAR(heat, 20., dtype == torch::kFloat64 ? 1.e-9 : 1.e-3);
@@ -243,51 +242,17 @@ TEST_P(DeviceTest, transverse_velocity_uses_viscous_laplacian) {
   auto temp = block->phydro->peos->compute("W->T", {w});
   auto du = torch::zeros_like(w);
 
-  block->phydro->pdiffusion->forward(du, w, temp, 0.1);
+  diffuse(*block, du, w, temp, 0.1);
   auto expected = torch::zeros_like(du[IVY]);
   expected.index(block->part({0, 0, 0}, PartOptions().exterior(false).ndim(3)))
       .fill_(0.1);
   EXPECT_TRUE(torch::allclose(du[IVY], expected, 1.e-5, 1.e-5));
 }
 
-// A.rst 3.7 on a Cartesian grid as on the cubed sphere: post_fluxes puts the
-// energy rows of the face fluxes into the register as "diffusion" and add()
-// keeps the others. Rows IDN..IVZ of du are the same bits; the energy row, now
-// the register's divergence, differs from the old one only by rounding.
-TEST_P(DeviceTest, cartesian_energy_post_reproduces_the_energy_row) {
-  auto block = make_block();
-  block->to(device, dtype);
-  auto w = make_primitive(block, device, dtype);
-  auto x = block->pcoord->x1v.to(device, dtype).view({1, 1, -1});
-  w[IVY] = x.square();
-  auto temp = (300. + x.square()).expand_as(w[IDN]).contiguous();
-  auto Rd = 8.31446261815324 / block->phydro->peos->options->weight();
-  w[IPR] = w[IDN] * Rd * temp;
-  auto diffusion = block->phydro->pdiffusion;
-  auto old = diffusion->forward(torch::zeros_like(w), w, temp, 1.);
-
-  auto& reg = block->phydro->flux_register();
-  for (int d = 1; d <= 3; ++d)
-    if (reg.total(d).defined()) reg.total(d).zero_();
-  diffusion->post_fluxes(reg, {w, temp, 1.});
-  auto du = diffusion->forward(torch::zeros_like(w), w, temp, 1.);
-  EXPECT_TRUE(torch::equal(du.narrow(0, 0, IPR), old.narrow(0, 0, IPR)));
-  EXPECT_EQ(du[IPR].abs().max().item<double>(), 0.);  // not in add()
-
-  auto sl = block->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
-  auto e =
-      -block->pcoord->divergence(reg.total(1), reg.total(2), reg.total(3))[IPR];
-  double worst = (e - old[IPR]).index(sl).abs().max().item<double>();
-  double scale = old[IPR].index(sl).abs().max().item<double>();
-  ASSERT_GT(scale, 0.);
-  EXPECT_LE(worst, (dtype == torch::kFloat64 ? 1.e-13 : 1.e-5) * scale);
-}
-
-// The hydro rewrites the register total of a direction each stage only where
-// its flux is on; a disabled direction's total is never rewritten, so a
-// diffusion post there would add one more energy flux every stage. With
-// disable-flux-x1 or -x2 the disabled total must not grow with the number of
-// stages at a frozen state (add() then keeps the energy rows).
+// A disabled direction's total is rewritten each stage too (to the zero hydro
+// flux), so the diffusion energy post there does not add one more flux every
+// stage: with disable-flux-x1 or -x2 the disabled total must not grow with
+// the number of stages at a frozen state.
 TEST_P(DeviceTest, disabled_direction_total_does_not_accumulate) {
   for (int off : {1, 2}) {
     auto options = MeshBlockOptionsImpl::from_yaml("test_diffusion_2d.yaml");
@@ -371,7 +336,7 @@ TEST_P(DeviceTest, temperature_uses_conductive_laplacian) {
   w[IPR] = w[IDN] * Rd * temp;
   auto du = torch::zeros_like(w);
 
-  block->phydro->pdiffusion->forward(du, w, temp, 0.1);
+  diffuse(*block, du, w, temp, 0.1);
   auto cv_ref = block->phydro->peos->species_cv_ref();
   EXPECT_NEAR(du[IPR][0][0][4].item<double>(), 0.05 * cv_ref, 1.e-3);
   EXPECT_TRUE(torch::allclose(du[IDN], torch::zeros_like(du[IDN])));
@@ -396,7 +361,7 @@ TEST_P(DeviceTest, viscous_sine_mode_matches_analytic_decay) {
   for (int n = 0; n < nsteps; ++n) {
     auto temp = block->phydro->peos->compute("W->T", {w});
     auto du = torch::zeros_like(w);
-    block->phydro->pdiffusion->forward(du, w, temp, dt);
+    diffuse(*block, du, w, temp, dt);
     w[IVY] += du[IVY];
     fill_periodic_x1(w, coord->options->nghost());
   }
@@ -420,7 +385,7 @@ TEST_P(DeviceTest, wall_face_coefficient_reads_no_ghost) {
   auto w = make_linear_state(block, device, dtype, &temp);
   auto du = torch::zeros_like(w);
 
-  block->phydro->pdiffusion->forward(du, w, temp, 0.1);
+  diffuse(*block, du, w, temp, 0.1);
 
   auto interior = block->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
   auto got = du[IPR].index(interior);
@@ -457,7 +422,7 @@ TEST_P(DeviceTest, x2_wall_is_not_one_sided) {
   w[IPR] = w[IDN] * Rd * temp;
 
   auto du = torch::zeros_like(w);
-  block->phydro->pdiffusion->forward(du, w, temp, 0.1);
+  diffuse(*block, du, w, temp, 0.1);
 
   int ng = coord->options->nghost();
   auto cv_ref = block->phydro->peos->species_cv_ref();
@@ -480,7 +445,7 @@ TEST_P(DeviceTest, periodic_x1_face_is_not_extrapolated) {
   auto w = make_linear_state(block, device, dtype, &temp);
   auto du = torch::zeros_like(w);
 
-  block->phydro->pdiffusion->forward(du, w, temp, 0.1);
+  diffuse(*block, du, w, temp, 0.1);
 
   int nghost = block->pcoord->options->nghost();
   auto cv_ref = block->phydro->peos->species_cv_ref();
@@ -569,7 +534,7 @@ TEST_P(DeviceTest, wall_flux_does_not_depend_on_the_ghost_density) {
     w[IPR] = profile * Rd * temp;
 
     auto du = torch::zeros_like(w);
-    block->phydro->pdiffusion->forward(du, w, temp, 0.1);
+    diffuse(*block, du, w, temp, 0.1);
     return du;
   };
 
@@ -661,7 +626,7 @@ TEST(diffusion, dynamic_coefficients_carry_no_density) {
     v[IPR] = v[IDN] * Rd * temp;
     if (!heat) v[IVY] = x.square();
     auto du = torch::zeros_like(v);
-    block->phydro->pdiffusion->forward(du, v, temp, 0.1);
+    diffuse(*block, du, v, temp, 0.1);
     if (cv) *cv = peos->specific_heat_cv(v, temp).index(interior);
     return du[heat ? IPR : IVY].index(interior);
   };

@@ -8,6 +8,7 @@
 #include <snap/mesh/mesh.hpp>
 
 #include "cuda_test_gate.hpp"
+#include "diffusion_energy.hpp"
 #ifdef USE_CUDA
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAStream.h>
@@ -92,14 +93,14 @@ std::vector<torch::Tensor> apply_diffusion(Mesh mesh,
         auto stream =
             c10::cuda::getStreamFromPool(false, state[i].w.get_device());
         c10::cuda::CUDAStreamGuard guard(stream);
-        auto result = mesh->blocks[i]->phydro->pdiffusion->forward(
-            torch::zeros_like(state[i].w), state[i].w, state[i].t, 1.);
+        auto result = diffuse(*mesh->blocks[i], torch::zeros_like(state[i].w),
+                              state[i].w, state[i].t, 1.);
         stream.synchronize();
         return result;
       }
 #endif
-      return mesh->blocks[i]->phydro->pdiffusion->forward(
-          torch::zeros_like(state[i].w), state[i].w, state[i].t, 1.);
+      return diffuse(*mesh->blocks[i], torch::zeros_like(state[i].w),
+                     state[i].w, state[i].t, 1.);
     }));
   }
   std::vector<torch::Tensor> result;
@@ -689,47 +690,6 @@ TEST(CubedSphereDiffusion, cuda_mesh_split_step_matches_cpu) {
       else
         reference.push_back(u.clone());
     }
-  }
-}
-
-// A-ph3 (A.rst 3.7, ruling A-ph3.diffusion_phase): post_fluxes puts the
-// energy rows of the face fluxes into the register and add() keeps the
-// others. Rows IDN..IVZ of du are the same bits; the energy row, now the
-// register's divergence, differs from the old one only by rounding.
-TEST(CubedSphereDiffusion, energy_post_reproduces_the_energy_row) {
-  torch::set_num_threads(1);
-  for (int kind : {1, 4}) {  // heat (l=2 temperature), viscous work (shear)
-    auto mesh = make_mesh(6);
-    auto s = states(mesh, kind);
-    auto old = apply_diffusion(mesh, s);
-    std::vector<std::future<torch::Tensor>> tasks;
-    for (size_t i = 0; i < s.size(); ++i)
-      tasks.push_back(std::async(std::launch::async, [&, i] {
-        auto b = mesh->blocks[i];
-        auto &reg = b->phydro->flux_register();
-        for (int d = 1; d <= 3; ++d) reg.total(d).zero_();
-        b->phydro->pdiffusion->post_fluxes(reg, {s[i].w, s[i].t, 1.});
-        return b->phydro->pdiffusion->forward(torch::zeros_like(s[i].w), s[i].w,
-                                              s[i].t, 1.);
-      }));
-    double worst = 0., scale = 0.;
-    for (size_t i = 0; i < s.size(); ++i) {
-      auto du = tasks[i].get();
-      auto b = mesh->blocks[i];
-      auto &reg = b->phydro->flux_register();
-      auto sl = interior(b);
-      EXPECT_TRUE(torch::equal(du.narrow(0, 0, IPR), old[i].narrow(0, 0, IPR)));
-      EXPECT_EQ(du[IPR].abs().max().item<double>(), 0.);  // not in add()
-      auto e =
-          -b->pcoord->divergence(reg.total(1), reg.total(2), reg.total(3))[IPR];
-      worst = std::max(worst,
-                       (e - old[i][IPR]).index(sl).abs().max().item<double>());
-      scale = std::max(scale, old[i][IPR].index(sl).abs().max().item<double>());
-    }
-    ASSERT_GT(scale, 0.);
-    std::printf("A-ph3 energy row, kind %d: max|new - old| / max|old| = %.3e\n",
-                kind, worst / scale);
-    EXPECT_LE(worst, 1.e-13 * scale);
   }
 }
 

@@ -249,9 +249,6 @@ class DiffusionImpl : public SourceModule<DiffusionImpl, DiffusionOptions> {
   //! direction)
   std::array<torch::Tensor, 3> cartesian_fluxes(torch::Tensor w,
                                                 torch::Tensor temp);
-  //! this stage's fluxes whose energy rows post_fluxes put in the register;
-  //! add() takes their other rows and clears them
-  std::array<torch::Tensor, 3> posted_;
   torch::Tensor split_initial_;
   //! the x1 profiles in w's device and dtype, so a profile of ones changes
   //! no bit

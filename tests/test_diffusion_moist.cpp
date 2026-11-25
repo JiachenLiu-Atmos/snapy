@@ -15,6 +15,7 @@
 
 // tests
 #include "device_testing.hpp"
+#include "diffusion_energy.hpp"
 
 using namespace snap;
 
@@ -58,7 +59,7 @@ TEST_P(DeviceTest, moist_conduction_uses_local_mixture_specific_heat) {
         torch::allclose(cv, torch::full_like(cv, expected_cv), 1.e-5, 1.e-5));
 
     auto du = torch::zeros_like(w);
-    block->phydro->pdiffusion->forward(du, w, temp, 0.1);
+    diffuse(*block, du, w, temp, 0.1);
     EXPECT_NEAR(du[IPR][0][0][4].item<double>(), 0.05 * expected_cv, 1.e-3);
   }
 }

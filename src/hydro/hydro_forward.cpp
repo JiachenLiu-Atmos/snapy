@@ -441,6 +441,15 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
   auto& monitor = freg.monitor();
   // the split path's background and increments for the face sweeps
   IdealMoistPerturbations const* split = split_flux ? &perturb : nullptr;
+  // a disabled direction's hydro flux is zero: its total is rewritten each
+  // stage too, so the sources' posts (diffusion energy) never accumulate
+  bool const off[3] = {options->disable_flux_x1(), options->disable_flux_x2(),
+                       options->disable_flux_x3()};
+  for (int d = 1; d <= 3; ++d)
+    if (off[d - 1] && freg.total(d).defined()) {
+      freg.slot(d, "riemann").zero_();
+      freg.post_slot(d, "riemann");
+    }
   //// ------------ (2) Calculate dimension 1 flux ------------ ////
   if (u.size(DIM1) > 1) {
     // Hydrostatic wall revision is a PHYSICAL-boundary operation: it copies

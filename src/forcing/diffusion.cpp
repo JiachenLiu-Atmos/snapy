@@ -561,20 +561,12 @@ void DiffusionImpl::add(torch::Tensor du, StageState const& s) {
     return;
   }
 
-  // post_fluxes ran this stage: the energy rows are in the register and
-  // only the other rows enter du here (A.rst 3.7)
-  bool posted =
-      posted_[0].defined() || posted_[1].defined() || posted_[2].defined();
-  auto fluxes = posted ? posted_ : cartesian_fluxes(w, temp);
-  posted_ = {};
+  // the energy rows are post_fluxes' (A.rst 3.7): only the others enter du
+  auto fluxes = cartesian_fluxes(w, temp);
   if (!fluxes[0].defined() && !fluxes[1].defined() && !fluxes[2].defined())
     return;
   auto div = coord->divergence(fluxes[0], fluxes[1], fluxes[2]);
-  if (posted) {
-    du.narrow(0, 0, IPR) -= dt * div.narrow(0, 0, IPR);
-  } else {
-    du -= dt * div;
-  }
+  du.narrow(0, 0, IPR) -= dt * div.narrow(0, 0, IPR);
 }
 
 std::array<torch::Tensor, 3> DiffusionImpl::cartesian_fluxes(

@@ -23,6 +23,7 @@
 
 // tests
 #include "device_testing.hpp"
+#include "diffusion_energy.hpp"
 
 using namespace snap;
 
@@ -96,7 +97,7 @@ torch::Tensor sheared_state(std::shared_ptr<MeshBlockImpl> const& block,
 torch::Tensor tendency(std::shared_ptr<MeshBlockImpl> const& block,
                        torch::Tensor const& w, torch::Tensor const& temp) {
   auto du = torch::zeros_like(w);
-  block->phydro->pdiffusion->forward(du, w, temp, 0.1);
+  diffuse(*block, du, w, temp, 0.1);
   return du;
 }
 
@@ -188,7 +189,7 @@ torch::Tensor stratified_tendency(std::shared_ptr<MeshBlockImpl> const& block,
   w[IPR] = w[IDN] * Rd * temp;
   *cv = peos->specific_heat_cv(w, temp).max().item<double>();
   auto du = torch::zeros_like(w);
-  block->phydro->pdiffusion->forward(du, w, temp, 1.);
+  diffuse(*block, du, w, temp, 1.);
   auto interior = block->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
   return du[heat ? IPR : IVY].index(interior).reshape(-1).cpu();
 }
@@ -278,7 +279,7 @@ TEST_P(DeviceTest, viscous_sine_mode_decays_at_the_scaled_rate) {
   for (int n = 0; n < nsteps; ++n) {
     auto temp = block->phydro->peos->compute("W->T", {w});
     auto du = torch::zeros_like(w);
-    block->phydro->pdiffusion->forward(du, w, temp, dt);
+    diffuse(*block, du, w, temp, dt);
     w[IVY] += du[IVY];  // rho = 1
     fill_periodic_x1(w, coord->options->nghost());
   }
@@ -319,7 +320,7 @@ TEST_P(DeviceTest, conductive_sine_mode_decays_at_the_scaled_rate) {
   for (int n = 0; n < nsteps; ++n) {
     auto temp = peos->compute("W->T", {w});
     auto du = torch::zeros_like(w);
-    block->phydro->pdiffusion->forward(du, w, temp, dt);
+    diffuse(*block, du, w, temp, dt);
     // p = rho Rd T and dT = dE / (rho cv): dp = (Rd / cv) dE
     w[IPR] += du[IPR] * Rd / peos->specific_heat_cv(w, temp);
     fill_periodic_x1(w, coord->options->nghost());

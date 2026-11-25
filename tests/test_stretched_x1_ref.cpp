@@ -19,6 +19,7 @@
 #include "../src/hydro/hydro_dispatch.hpp"
 #include "../src/hydro/x1_mass_covariance.hpp"
 #include "../src/recon/x1_rows.hpp"
+#include "diffusion_energy.hpp"
 using namespace snap;
 
 namespace {
@@ -154,8 +155,8 @@ TEST(StretchedX1Ref, viscous_heating_exact_on_linear_velocity) {
   Diffusion d(DiffusionOptionsImpl::from_yaml(
                   YAML::Load("diffusion: {nu_iso: 2., dynamic: true}")),
               b->phydro.get());
-  auto du = d->forward(torch::zeros_like(w), w,
-                       b->phydro->peos->compute("W->T", {w}), 0.5);
+  auto du = diffuse(*d, *b, torch::zeros_like(w), w,
+                    b->phydro->peos->compute("W->T", {w}), 0.5);
   EXPECT_LT((du[IPR].narrow(-1, 3, 24) - 4.e-6 / 3.).abs().max().item<double>(),
             1.e-16);
 }
