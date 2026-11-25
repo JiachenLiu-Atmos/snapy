@@ -472,26 +472,9 @@ void refuse_in_segment_capture(char const* what) {
 
 void StageExecutor::run_local(int block, Variables& vars, double dt,
                               int stage) {
-  auto* pmb = block_at(block);
-  if (mode(block) != "cuda-graph") {
-    ++_eager;
-    pmb->advance_local(vars, dt, stage);
-    return;
-  }
-  schedule(block);                 // rebuilt if its signature moved
-  if (_schedule_rebuilt[block]) {  // its segments moved: drop its graphs
-    invalidate(block);
-    _schedule_rebuilt[block] = 0;
-  }
-  check_strict(block, vars, stage);
-  if (auto why = capture_reasons(block, vars); !why.empty()) {
-    log_eager(block, why);
-    ++_eager;
-    pmb->advance_local(vars, dt, stage);
-    return;
-  }
   // the stage without its entry exchange: the Mesh exchanges last
-  run_segments(block, vars, dt, stage, /*with_host=*/false);
+  dispatch(block, vars, dt, stage, /*with_host=*/false,
+           [&]() { block_at(block)->advance_local(vars, dt, stage); });
 }
 
 void StageExecutor::align_captures(std::vector<Variables>& vars, double dt,
@@ -777,12 +760,18 @@ void StageExecutor::check_strict(int block, Variables const& vars,
 
 void StageExecutor::run_stage(int block, Variables& vars, double dt,
                               int stage) {
+  dispatch(block, vars, dt, stage, /*with_host=*/true,
+           [&]() { run_eager(block, vars, dt, stage); });
+}
+
+void StageExecutor::dispatch(int block, Variables& vars, double dt, int stage,
+                             bool with_host,
+                             std::function<void()> const& eager) {
   if (mode(block) != "cuda-graph") {
     ++_eager;
-    run_eager(block, vars, dt, stage);
+    eager();
     return;
   }
-
   schedule(block);                 // rebuilt if its signature moved
   if (_schedule_rebuilt[block]) {  // its segments moved: drop its graphs
     invalidate(block);
@@ -792,10 +781,10 @@ void StageExecutor::run_stage(int block, Variables& vars, double dt,
   if (auto why = capture_reasons(block, vars); !why.empty()) {
     log_eager(block, why);
     ++_eager;
-    run_eager(block, vars, dt, stage);
+    eager();
     return;
   }
-  run_segments(block, vars, dt, stage, /*with_host=*/true);
+  run_segments(block, vars, dt, stage, with_host);
 }
 
 std::shared_ptr<StageExecutor::Captured> StageExecutor::graph_at(

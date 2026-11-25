@@ -3,6 +3,7 @@
 // C/C++
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -182,6 +183,11 @@ class StageExecutor {
   //! exchange), eager ones eagerly, the rest captured or replayed
   void run_segments(int block, Variables& vars, double dt, int stage,
                     bool with_host);
+  //! run_stage's and run_local's one dispatch: the mode, the schedule, strict
+  //! and the capture reasons; a block that runs eagerly runs `eager`, the
+  //! others run_segments(with_host)
+  void dispatch(int block, Variables& vars, double dt, int stage,
+                bool with_host, std::function<void()> const& eager);
   std::shared_ptr<Captured> graph_at(Slot const& slot) const;
   void capture(int block, int segment, Variables& vars, double dt, int stage);
   void replay(int block, int segment, Variables& vars, double dt, int stage);
