@@ -114,6 +114,29 @@ class Exchange {
                                                     int tag,
                                                     bool process_only) const;
 
+  //! one side of a seam exchange: side (L, R, B, T = 0..3) of dim (2 or 3);
+  //! resolve_seam fills the peer block, the peer's side and whether the
+  //! edge runs the other way (CS_FACE_EDGES rev; the caller flips along n);
+  //! seam_exchange posts `send` when defined and, when `take`, receives the
+  //! peer's into `recv` (a remote peer: the caller's fixed buffer, or one
+  //! allocated like `send`) or hands over the peer's posted tensor (a
+  //! same-process peer: the same tensor at every replay)
+  struct SeamSide {
+    int dim, side;
+    torch::Tensor send, recv;
+    bool take = true;
+    int peer = -1, peer_side = -1;
+    bool reversed = false;
+  };
+  //! the peer of a side: false when it has none (process_only: a
+  //! same-process peer counts as none)
+  bool resolve_seam(SeamSide& s, bool process_only) const;
+  //! the host part of every seam exchange: post every send (a board or the
+  //! process group, tag + the peer's side), then take every receive (tag +
+  //! this side); all posts before any take, so a cross-direction panel seam
+  //! completes in one call
+  void seam_exchange(std::vector<SeamSide>& sides, int tag) const;
+
   //! the x1 reference anchor relay down the column (row 6): the running
   //! face value from the block above; undefined when the column is not
   //! split or this block is its top

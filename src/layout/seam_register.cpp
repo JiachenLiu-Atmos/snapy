@@ -16,20 +16,18 @@
 
 #include "cubed_sphere_constants.h"
 #include "cubed_sphere_layout.hpp"
+#include "exchange.hpp"
 
 namespace snap {
 
 namespace {
 
-//! a block side of the cubed sphere: L/R are x2 faces, B/T x3 faces
+//! a panel seam side of the block: the exchange's side, whether the two
+//! normals are opposite and whether this block owns the seam
 struct PanelSide {
-  int side, dim, peer, peer_side;
-  bool reversed, opposite, owner;
+  Exchange::SeamSide ex;
+  bool opposite, owner;
 };
-
-//! (dy, dx) of the L, R, B, T neighbours (cubed_sphere_layout.cpp get_side)
-constexpr std::array<std::array<int, 2>, 4> kSideOffset = {
-    {{0, -1}, {0, 1}, {-1, 0}, {1, 0}}};
 
 }  // namespace
 
@@ -46,16 +44,16 @@ void reconcile_panel_seams(FluxRegister& reg, MeshBlockImpl const* pmb,
   int ng = c->options->nghost();
   int is = c->il(), ni = c->iu() + 1 - is;
 
+  Exchange ex(pmb);
   std::vector<PanelSide> sides;
   for (int s = 0; s < 4; ++s) {
     int dim = s < 2 ? 2 : 3;
     if (!reg.total(dim).defined()) continue;
-    int nb =
-        layout->neighbor_rank(iloc, {kSideOffset[s][0], kSideOffset[s][1], 0});
-    if (nb < 0 || layout->panel_of(nb) == panel) continue;
-    auto e = CS_FACE_EDGES[panel][s];
-    sides.push_back(
-        {s, dim, nb, e.nside, e.rev != 0, (s % 2) == (e.nside % 2), rank < nb});
+    Exchange::SeamSide side{dim, s};
+    if (!ex.resolve_seam(side, false) || layout->panel_of(side.peer) == panel)
+      continue;
+    side.take = rank > side.peer;  // the lower rank owns the seam
+    sides.push_back({side, (s % 2) == (side.peer_side % 2), !side.take});
   }
   if (sides.empty()) return;
 
@@ -92,7 +90,7 @@ void reconcile_panel_seams(FluxRegister& reg, MeshBlockImpl const* pmb,
       v.push_back(reg.kept(dim, part));
     return v;
   };
-  int nvar = reg.total(sides.front().dim).size(0);
+  int nvar = reg.total(sides.front().ex.dim).size(0);
   PanelRotation rot;
 
   // a side's rotation operands, built once per grid (SeamRotationCache)
@@ -121,91 +119,61 @@ void reconcile_panel_seams(FluxRegister& reg, MeshBlockImpl const* pmb,
 
   // pack: owners' rows, one message per side in Cartesian momentum, into
   // the block's fixed board buffers (V3 B3: a captured segment's graphs
-  // write them before the cut and the peer's graphs read them after it)
-  int nsides = static_cast<int>(sides.size());
-  std::vector<torch::Tensor> mine(nsides), rbufs(nsides);
-  for (int k = 0; k < nsides; ++k) {
-    auto const& sd = sides[k];
-    if (!sd.owner) continue;
-    std::vector<torch::Tensor> rows;
-    for (auto const& t : rows_of(sd.dim)) rows.push_back(slab(t, sd.side));
-    auto payload = torch::cat(rows, 0);
-    auto const& op = operands(sd.side);
-    for (int64_t r0 = 0; r0 < payload.size(0); r0 += nvar)
-      rot.face_rows_to_cart_(payload.narrow(0, r0 + IVX, 3), panel, op);
-    mine[k] = pmb->board_buffer({tag, sd.side, 0}, payload);
-    mine[k].copy_(payload);
-  }
-
-  // receivers' own values elsewhere and, for a remote owner, a fixed receive
-  // buffer
+  // write them before the cut and the peer's graphs read them after it);
+  // receivers' own values elsewhere and, for a remote owner, a fixed
+  // receive buffer
+  auto seams = std::make_shared<std::vector<Exchange::SeamSide>>();
   std::array<torch::Tensor, 3> peer, faces;
-  for (int k = 0; k < nsides; ++k) {
-    auto const& sd = sides[k];
-    if (sd.owner) continue;
-    int d = sd.dim - 1;
-    if (!peer[d].defined()) {
-      peer[d] = torch::cat(rows_of(sd.dim), 0);  // own values elsewhere
-      faces[d] = torch::zeros(reg.total(sd.dim).sizes().slice(1),
-                              reg.total(sd.dim).options().dtype(torch::kBool));
+  for (auto const& sd : sides) {
+    auto s = sd.ex;
+    int d = s.dim - 1;
+    if (sd.owner) {
+      std::vector<torch::Tensor> rows;
+      for (auto const& t : rows_of(s.dim)) rows.push_back(slab(t, s.side));
+      auto payload = torch::cat(rows, 0);
+      auto const& op = operands(s.side);
+      for (int64_t r0 = 0; r0 < payload.size(0); r0 += nvar)
+        rot.face_rows_to_cart_(payload.narrow(0, r0 + IVX, 3), panel, op);
+      s.send = pmb->board_buffer({tag, s.side, 0}, payload);
+      s.send.copy_(payload);
+    } else {
+      if (!peer[d].defined()) {
+        peer[d] = torch::cat(rows_of(s.dim), 0);  // own values elsewhere
+        faces[d] = torch::zeros(reg.total(s.dim).sizes().slice(1),
+                                reg.total(s.dim).options().dtype(torch::kBool));
+      }
+      if (!layout->is_local_block(s.peer))
+        s.recv = pmb->board_buffer({tag, s.side, 1},
+                                   slab(peer[d], s.side).contiguous());
     }
-    if (!layout->is_local_block(sd.peer))
-      rbufs[k] = pmb->board_buffer({tag, sd.side, 1},
-                                   slab(peer[d], sd.side).contiguous());
+    seams->push_back(s);
   }
 
-  // the host part, a cut in a captured segment: post or send the owners'
-  // buffers, take or receive the peers'. A local take hands over the
-  // owner's fixed buffer, the same tensor at every replay
-  auto got = std::make_shared<std::vector<torch::Tensor>>(nsides);
-  exchange_cut([layout, sides, mine, rbufs, got, tag]() {
-    std::vector<std::vector<torch::Tensor>> sbufs;
-    std::vector<CommWorkPtr> sends;
-    sbufs.reserve(sides.size());
-    for (size_t k = 0; k < sides.size(); ++k) {
-      auto const& sd = sides[k];
-      if (!sd.owner) continue;
-      int t = tag + sd.peer_side;
-      if (layout->is_local_block(sd.peer)) {
-        layout->post_to_local_block(sd.peer, mine[k], t);
-      } else {
-        sbufs.push_back({mine[k]});
-        sends.push_back(layout->send_to_block(sbufs.back(), sd.peer, t));
-      }
-    }
-    for (size_t k = 0; k < sides.size(); ++k) {
-      auto const& sd = sides[k];
-      if (sd.owner) continue;
-      int t = tag + sd.side;
-      if (layout->is_local_block(sd.peer)) {
-        (*got)[k] = layout->take_from_local_block(sd.peer, t);
-      } else {
-        std::vector<torch::Tensor> rbuf = {rbufs[k]};
-        layout->recv_from_block(rbuf, sd.peer, t)->wait();
-        (*got)[k] = rbufs[k];
-      }
-    }
-    for (auto& sw : sends) sw->wait();
-  });
+  // the host part, a cut in a captured segment: the owners' buffers posted
+  // or sent, the peers' taken or received into the fixed buffers (a local
+  // take hands over the owner's fixed buffer, the same tensor at every
+  // replay)
+  exchange_cut([ex, seams, tag]() { ex.seam_exchange(*seams, tag); });
 
   // unpack: receivers map the owner's rows into this side and replace, per
   // dim
-  for (int k = 0; k < nsides; ++k) {
+  for (size_t k = 0; k < sides.size(); ++k) {
     auto const& sd = sides[k];
     if (sd.owner) continue;
-    int d = sd.dim - 1;
-    auto like = slab(peer[d], sd.side);
-    auto g = (*got)[k];
-    if (sd.reversed) g = g.flip(1);
+    auto const& s = (*seams)[k];
+    int d = s.dim - 1;
+    auto like = slab(peer[d], s.side);
+    auto g = s.recv;
+    if (s.reversed) g = g.flip(1);
     if (sd.opposite)
       g = -g;
     else
       g = g.clone();  // a board hands over the owner's tensor
-    auto const& op = operands(sd.side);
+    auto const& op = operands(s.side);
     for (int64_t r0 = 0; r0 < g.size(0); r0 += nvar)
       rot.cart_to_face_rows_(g.narrow(0, r0 + IVX, 3), panel, op);
     like.copy_(g);
-    slab(faces[d].unsqueeze(0), sd.side).fill_(true);
+    slab(faces[d].unsqueeze(0), s.side).fill_(true);
   }
   for (int d = 1; d < 3; ++d)
     if (peer[d].defined())
