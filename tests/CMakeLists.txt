@@ -517,6 +517,9 @@ snapy_add_python_test(test_graph_chemistry_slot TIMEOUT 600 LABELS "python;hydro
 # its global phase
 snapy_add_python_test(test_graph_mesh_chemistry TIMEOUT 900 LABELS "python;hydro;eos")
 snapy_add_python_test(test_graph_implicit TIMEOUT 600 LABELS "python;hydro;implicit")
+# audit-3 lead 4: with the x1 flux off the implicit solve books its transfers
+# in the register
+snapy_add_python_test(test_implicit_register_x1_off TIMEOUT 600 LABELS "python;hydro;implicit")
 # the block's EfStatus meters (positivity census, lim_cut/lim_flux) and the
 # budget line under graph equal eager: the capture warm-ups count nothing
 snapy_add_python_test(test_graph_positivity_meters_match_eager TIMEOUT 600 LABELS "python;hydro;eos")
@@ -535,6 +538,7 @@ set_tests_properties(
   test_graph_implicit_python test_graph_stretched_x1_python
   test_graph_positivity_meters_match_eager_python
   test_graph_mesh_many_blocks_python
+  test_implicit_register_x1_off_python
   PROPERTIES SKIP_RETURN_CODE 125)
 snapy_add_python_test(test_fp32_restart TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-restart")
 snapy_add_python_test(test_fp32_policy TIMEOUT 300 LABELS "python;hydro;fp32-foundations;fp32-compute")
