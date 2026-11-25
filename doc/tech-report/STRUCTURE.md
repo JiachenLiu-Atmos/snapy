@@ -103,7 +103,7 @@ more than one new chapter; each piece has the single home given above.
 | S4 cost catalogue: one short list of the eager-path folds, each pointing to its home (4, 6, 9, 10), plus the counting method's home (16) | 11 | pointers only; the code is described in the home chapters |
 | the execution default (cuda-graph non-strict on CUDA, eager on CPU, explicit eager honoured) | 11.4 (re-pin marker: default-graph ea3e5777/8854ccd4) | see hypothesis H1 |
 | graph = eager bitwise rule; why eager is launch-bound and graph faster | 11 | launches per step and timings as measured, cited from their committed source (see 4.2); no H100 headline |
-| launch-counting procedure (profiler trace; kernel, memcpy and memset events over N steps) | 16 | `docs/v3/closing/tools/speed/bench.py` on the closing-plan branch (`--profile`, `SPEED_PROF_TRACE`) |
+| launch-counting procedure (profiler trace; kernel, memcpy and memset events over N steps) | 16 | `docs/v3/closing/tools/speed/bench.py` (`--profile`, `SPEED_PROF_TRACE`) at cshsgy/snapy `be267b702c074eae3aa05e12759357e2ee9f4b51` (v3/closing-dryrun-plan) |
 | graph-safe coding (no host reads, no host-to-device copies inside a captured segment, fixed shapes, device dt, host state replay does not refresh) | 11.5 (re-pin marker: #316) | `src/utils/step_dt.*`, `src/mesh/state_store.hpp`; the copy rule's example at `70f6e15e` is `src/recon/x1_reference.hpp:140` (rows built on the host at `:62` copied to the device in `evaluate`), see 4.3 |
 | mesh-agree (a Mesh whose blocks disagree runs eager) | 13 | `StageExecutor::agree` in `src/mesh/stage_executor.cpp` |
 | exchange cuts and multi-block capture (B3) | 13 | `src/mesh/exchange_cut.hpp`, `src/layout/exchange.*` |
@@ -143,13 +143,12 @@ prescribed and with what; chapter 10 says how the register books them.
 
 ### 4.2 Measured numbers
 
-The S4 table (main eager, the default, explicit eager; ms/step and launches/step; two GPUs, one of them shared,
-with that note) and the bound as ruled (the default CUDA path at least as fast as main eager on every S4 cell;
-CPU eager within 5%; the CUDA eager gap reported) are committed in `docs/v3/closing` on the closing-plan branch
-(`v3/closing-dryrun-plan`, UCzhangxi/snapy), not in this report. Chapter 11 cites that file for the numbers and
-the bound, chapter 16 cites it for the procedure's results, and neither writes a number of its own. The
-counting procedure itself (profiler trace; kernel, memcpy and memset events over N steps) is described in 16.
-Until that file is committed, 11 and 16 carry the citation as an open slot, not a number.
+The S4 table (main eager, the default, explicit eager; ms/step and launches/step, with the GPUs and their notes)
+and the bound as ruled are committed in `docs/v3/closing/s4_eager_gap.md` at cshsgy/snapy `be267b702c074eae3aa05e12759357e2ee9f4b51`
+(`v3/closing-dryrun-plan`), not in this report. Chapter 11 (11.6) cites that file at that commit for the numbers and
+the bound, chapter 16 (16.3) cites it for the procedure's results, and neither repeats a number of its own. The
+counting procedure itself (profiler trace; kernel, memcpy and memset events over N steps, with
+`docs/v3/closing/tools/speed/bench.py` at the same commit) is described in 16.3.
 
 ### 4.3 Writing around a fix that has not landed
 
@@ -168,15 +167,25 @@ One pin per package (STYLE.md 3.1, `code_pin.yml`): the whole report moves to th
 execution default, by `tools/code_anchors.py bump`; chapter 11 is not pinned separately. This structure stays
 pinned at `70f6e15e` until that commit is on `v3/final`. At `939f7928` (a fast-forward) only
 `src/hydro/flux_register.cpp` changes; line numbers cited here in that file move by up to 10 after line ~204
-(e.g. `:459-465` is `:469-475`, `:502` is `:512`), and those up to line ~204 do not.
+(e.g. `:459-465` is `:469-475`, `:502` is `:512`), and those up to line ~204 do not. At the default-graph head
+`8854ccd43911cea86f9197c3298bc45b68c3146b` (on #316 `dfd5a4c9`; not on `v3/final` at this writing) the
+`src/mesh/stage_executor.cpp` anchors move by +20 to +27 (e.g. `StageExecutor::config_reasons` `:558` is `:579`)
+and the `src/mesh/meshblock_options.cpp` anchors after line ~58 by +1 (`is_wall_boundary` `:168` is `:169`); at the wallbatch-slots head `ed6cadbf` the
+`src/hydro/flux_register.cpp` anchors move by +15 to +87 where they move, and the `src/mesh/meshblock_advance.cpp`
+anchors after line ~160 by +1. Section 6 gives each moved anchor at its batch head; the
+anchors themselves stay at `939f7928` until the re-pin.
 
 ## 5. Hypotheses (not checked in code)
 
-- **H1** (confirmed in review; re-pin marker: default-graph ea3e5777/8854ccd4, not on GitHub at this writing). The S4 default (cuda-graph, non-strict, on CUDA; eager on CPU; an explicit
-  `eager` honoured) is a ruling, not yet code at the pin: at `70f6e15e` `integration.execution` defaults to
-  `eager` and `execution_strict` to false (`src/mesh/meshblock.hpp:96-97`). Chapter 11 is written against the
-  commit that lands the default, to which the whole report is re-pinned (section 4.4), and cites the bound
-  as ruled from `docs/v3/closing` (section 4.2; a ruling, not checked here).
+- **H1** (confirmed in code; re-pin marker: default-graph 8854ccd4). The S4 default (cuda-graph, non-strict, on
+  CUDA; eager on CPU; an explicit `eager` honoured) is code at `8854ccd43911cea86f9197c3298bc45b68c3146b`
+  (jihenghu/snapy `v3-closing/default-graph`, RED `ea3e5777`, on #316 `dfd5a4c9`; a non-author check passed on
+  CUDA sm_61 and CPU), but not yet on `v3/final`: at `70f6e15e` and at `939f7928` `integration.execution` defaults
+  to `eager` and `execution_strict` to false (`src/mesh/meshblock.hpp:96-97`). At `8854ccd4` it defaults to `auto`
+  (`src/mesh/meshblock.hpp:98`), which `StageExecutor::mode` (`src/mesh/stage_executor.cpp:107-115`) resolves to
+  cuda-graph on a CUDA block and eager otherwise. Chapter 11 is written against the commit that lands the default,
+  to which the whole report is re-pinned (section 4.4), and cites the bound as ruled from
+  `docs/v3/closing/s4_eager_gap.md` at cshsgy/snapy `be267b70` (section 4.2).
 - **H2.** Old 10's chemistry material splits cleanly into the chemistry segment (11) and the kintera contract
   (E); not checked against the old chapter's sections.
 - **H3** (resolved in review; two meanings). The positivity census (`PositivityLimiter::census_`,
@@ -196,7 +205,14 @@ pinned at `70f6e15e` until that commit is on `v3/final`. At `939f7928` (a fast-f
 
 ## 6. Section outline
 
-Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df059e883e830d` (function or class name in the same cell); the report re-pins to the closing head when it lands (section 4.4). A **Re-pin marker** names the batch commit that will move a section's anchors or change its code (#316, wallbatch-slots, EfStatus, default-graph); the anchors stay at the pin until it lands. Anchors, test files, ctest names and tolerances were resolved by reading the code at that commit; tolerances are quoted from the test source ("bitwise" where the test compares with `torch.equal`/`torch::equal`); `allclose`/`isclose`/`assert_allclose` calls are read argument by argument (positional rtol/atol included, the library default stated where none is given), and a Tests cell lists every tolerance found in that file, so the writer quotes the one on the assertion the section relies on. Figures marked **new** are to be written; the others are existing scripts under `doc/tech-report/`, to be re-checked at the pin. A section with no test or no figure says so.
+Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df059e883e830d` (function or class name in the same cell); the report re-pins to the closing head when it lands (section 4.4). A **Re-pin marker** names the batch commit that will move a section's anchors or change its code (#316, wallbatch-slots, EfStatus, default-graph); the anchors stay at the pin until it lands. Where the batch head is on GitHub (#316 `dfd5a4c97d9a5f48bb8349ba76e2b9976f320975`, wallbatch-slots `ed6cadbf29ed784cfaaa291943b91aa0972e96ad`, default-graph `8854ccd43911cea86f9197c3298bc45b68c3146b`), the marker also gives each anchor's line at that head, resolved the same way, and what the batch changes in the section; **Re-pin tests** are the tests the batch adds, resolved at its head. Anchors, test files, ctest names and tolerances were resolved by reading the code at that commit; tolerances are quoted from the test source ("bitwise" where the test compares with `torch.equal`/`torch::equal`); `allclose`/`isclose`/`assert_allclose` calls are read argument by argument (positional rtol/atol included, the library default stated where none is given), and a Tests cell lists every tolerance found in that file, so the writer quotes the one on the assertion the section relies on. Figures marked **new** are to be written; the others are existing scripts under `doc/tech-report/`, to be re-checked at the pin. A section with no test or no figure says so.
+
+The batches a re-pin marker names:
+
+- **#316 dfd5a4c9:** RED 75e0fec1 (test_graph_stretched_x1), fix dfd5a4c9 (XinyueWang05/snapy v3-closing/stretched-x1ref-capture; x1_reference.hpp +6/-1 at :59, the reference rows built on the grid's device).
+- **wallbatch-slots ed6cadbf:** RED c6551414 (test_graph_monitor_amounts), db5869d2 (fixed device storage for the wall batch and the count masks), 91739778 (the wall slots follow the stage's push order), ed6cadbf (the wall weights' scalar operands in the wide dtype on the device); cshsgy/snapy v3-closing/wallbatch-slots = ed6cadbf.
+- **EfStatus e119b3f9:** e119b3f9 (stage_executor.cpp +6 at :696 inside save_list, lines after it +6); b417b7c6 / 3c1c0c20 (3c1c0c20 is chengcli/snapy v3/graph-efstatus-meters; conversion_trips on the save list, not re-read here).
+- **default-graph 8854ccd4:** RED ea3e5777 (test_default_execution), 8854ccd4 (jihenghu/snapy v3-closing/default-graph, on #316 dfd5a4c9; non-author check passed on CUDA sm_61 and CPU): StageExecutor::mode :107-115, allow-list :600-601, split-panel refusal :623-628, forcing lift :629-634 at 8854ccd4.
 
 ### Chapter 1. Overview: the V3 step and the code map
 
@@ -206,7 +222,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/mesh.cpp:367` `MeshImpl::forward`; `src/mesh/meshblock_advance.cpp:88` `MeshBlockImpl::forward`; `src/mesh/stage_executor.cpp:741` `StageExecutor::run_stage`; `src/mesh/segment.cpp:40` `StageSchedule::add`
 - **Tests:** `test_mesh_executor.release` (bitwise (equal x2)); `test_stage_schedule.release` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** `src/snapy_report/ch01/figures/fig_stage_flow.py` (deck: none (diagram)); **new** `src/snapy_report/ch01/figures/fig_v3_step.py` (deck: none (diagram))
-- **Re-pin marker:** EfStatus e119b3f9 (on GitHub: stage_executor.cpp +6 at :696 inside save_list, lines after shift +6); b417b7c6 / 3c1c0c20 not on GitHub (conversion_trips on the save list, unchecked). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** EfStatus e119b3f9; default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at 8854ccd4: `src/mesh/stage_executor.cpp:768` `StageExecutor::run_stage` (+27); the other 3 unchanged
 
 #### 1.2 Construction and dependencies
 
@@ -214,6 +231,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/meshblock.cpp:107` `MeshBlockImpl::reset`; `src/hydro/hydro.cpp:21` `HydroImpl::HydroImpl`
 - **Tests:** `test_uniform_module_tree.release` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** `src/snapy_report/ch01/figures/fig_construction_flow.py` (deck: none (diagram)); `src/snapy_report/ch01/figures/fig_dependencies_flow.py` (deck: none (diagram))
+- **Re-pin marker:** default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at 8854ccd4: none move
 
 #### 1.3 Code map
 
@@ -281,6 +300,9 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/layout/seam_register.hpp:41` `SeamRotationCache`; `src/coord/coord_rotation.cpp:72` `PanelRotation::face_operands`
 - **Tests:** `test_seam_rotation_cache_python` (bitwise (equal x3))
 - **Figures/tables:** **new** `src/snapy_report/ch03/figures/fig_seam_cache.py` (deck: test_seam_rotation_cache's six-panel deck)
+- **Re-pin marker:** default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at 8854ccd4: none move
+  - 8854ccd4 test_seam_rotation_cache sets execution: eager (it counts the kernels each stage launches)
 
 ### Chapter 4. Reconstruction, Riemann solvers and the hydro sweep
 
@@ -320,7 +342,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/hydro/hydro.cpp:531` `HydroImpl::_hydro_ref_x1`; `src/recon/x1_reference.hpp:41` `HydroReferenceX1Operator`
 - **Tests:** `test_hydro_ref_x1.release` (bitwise (equal x16); allclose(rtol=atol=2e-12 FP64, 2e-5 FP32) through expect_close (tests/test_hydro_ref_x1.cpp:203-204), GPU arm 2e-12 (:267-269); compared < 1e-6); `test_hydro_ref_x1_rf_wall.release` (no numeric tolerance in the source (pass/fail checks only)); `test_stretched_x1_ref.release` (EXPECT_NEAR 1.e-12)
 - **Figures/tables:** `src/snapy_report/ch05/figures/fig_refkernel_scan.py` (deck: none (diagram))
-- **Re-pin marker:** #316 (dfd5a4c9, on GitHub: x1_reference.hpp +6/-1 at :59, HydroReferenceX1Operator). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** #316 dfd5a4c9 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at dfd5a4c9: none move
 
 #### 5.2 Well-balanced face states
 
@@ -395,7 +418,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/meshblock_advance.cpp:239` `MeshBlockImpl::stage_forcing`
 - **Tests:** `test_jit_user_forcing_python` (assert_close(rtol=dtype default (default), atol=dtype default (default))); `test_forcing_species_clip_python` (constants tol=1.e-14); `test_source_registry.release` (bitwise (equal x2); allclose(rtol=1.e-12, atol=1.e-12))
 - **Figures/tables:** `src/snapy_report/ch09/figures/fig_user_forcing.py` (deck: none (diagram)); `src/snapy_report/ch09/figures/fig_sponge_profile.py` (deck: none (analytic))
-- **Re-pin marker:** wallbatch-slots 91739778 + ed6cadbf (on GitHub: flux_register.cpp/.hpp rewritten, apply_wall_planes_ :701, meshblock_advance.cpp +1 at ~:161). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** wallbatch-slots ed6cadbf (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at ed6cadbf: `src/mesh/meshblock_advance.cpp:240` `MeshBlockImpl::stage_forcing` (+1)
 
 ### Chapter 8. Moist physics, positivity, floors and limiters
 
@@ -405,7 +429,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/meshblock_advance.cpp:357` `MeshBlockImpl::stage_saturation`
 - **Tests:** `test_fix_vapor_deficit.release` (EXPECT_NEAR 1.e-15); `test_condensate_conservation.release` (bitwise (equal x1); allclose(rtol=1.e-12, atol=1.e-12); allclose(rtol=1.e-6, atol=1.e-6) x2); `test_wall_saturation.release` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** `src/snapy_report/ch10/figures/fig_satadj_timeline.py` (deck: none (diagram)); `src/snapy_report/ch10/figures/fig_fixvapor_column.py` (deck: data/fixvapor_column.csv from ch10/evidence/fixvapor_column_run.py (a 64-cell spherical-polar MeshBlock through snapy's own repair; rerun at the pin))
-- **Re-pin marker:** wallbatch-slots 91739778 + ed6cadbf (on GitHub: flux_register.cpp/.hpp rewritten, apply_wall_planes_ :701, meshblock_advance.cpp +1 at ~:161). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** wallbatch-slots ed6cadbf (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at ed6cadbf: `src/mesh/meshblock_advance.cpp:358` `MeshBlockImpl::stage_saturation` (+1)
 
 #### 8.2 Sedimentation
 
@@ -441,7 +466,7 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/eos/ef_status.hpp:20` `EfStatus`
 - **Tests:** `test_flux_positivity_python` (compared < 1e-12); `test_cycle_diagnostics.release` (EXPECT_NEAR 1.e-12, 1.e-9, 1.e-9 * flux, 1.e-9 * ke_total); `test_fp32_compute_python` (bitwise (equal x2); compared < 2.0e-5)
 - **Figures/tables:** none
-- **Re-pin marker:** EfStatus e119b3f9 (on GitHub: stage_executor.cpp +6 at :696 inside save_list, lines after shift +6); b417b7c6 / 3c1c0c20 not on GitHub (conversion_trips on the save list, unchecked). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** EfStatus e119b3f9 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
 
 ### Chapter 9. Time integration: RK stages, dt and step acceptance
 
@@ -451,7 +476,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/meshblock_advance.cpp:313` `MeshBlockImpl::stage_combine`
 - **Tests:** `test_mesh_executor.release` (bitwise (equal x2))
 - **Figures/tables:** `src/snapy_report/ch07/figures/fig_rk_stages.py` (deck: none (diagram))
-- **Re-pin marker:** wallbatch-slots 91739778 + ed6cadbf (on GitHub: flux_register.cpp/.hpp rewritten, apply_wall_planes_ :701, meshblock_advance.cpp +1 at ~:161). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** wallbatch-slots ed6cadbf (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at ed6cadbf: `src/mesh/meshblock_advance.cpp:314` `MeshBlockImpl::stage_combine` (+1)
 
 #### 9.2 The time step
 
@@ -473,7 +499,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/meshblock_advance.cpp:150` `MeshBlockImpl::stage_advance`
 - **Tests:** `test_dry_carry_zero_base_python` (allclose(rtol=0., atol=1.e-12); constants rtol=0); `test_tracer_ratio_python` (compared < 1e-14, 1e-12)
 - **Figures/tables:** none
-- **Re-pin marker:** wallbatch-slots 91739778 + ed6cadbf (on GitHub: flux_register.cpp/.hpp rewritten, apply_wall_planes_ :701, meshblock_advance.cpp +1 at ~:161). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** wallbatch-slots ed6cadbf (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at ed6cadbf: none move
 
 ### Chapter 10. The flux register, monitor amounts and conservation budgets
 
@@ -483,7 +510,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/hydro/flux_register.cpp:503` `FluxRegister::add`; `src/hydro/flux_register.cpp:532` `FluxRegister::scale`; `src/hydro/flux_register.cpp:545` `FluxRegister::overwrite_`
 - **Tests:** `test_flux_register.release` (bitwise (equal x27); allclose(rtol=0., atol=0.))
 - **Figures/tables:** **new** `src/snapy_report/ch10/figures/fig_register_order.py` (deck: none (diagram))
-- **Re-pin marker:** wallbatch-slots 91739778 + ed6cadbf (on GitHub: flux_register.cpp/.hpp rewritten, apply_wall_planes_ :701, meshblock_advance.cpp +1 at ~:161). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** wallbatch-slots ed6cadbf (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at ed6cadbf: `src/hydro/flux_register.cpp:545` `FluxRegister::add` (+42); `src/hydro/flux_register.cpp:574` `FluxRegister::scale` (+42); `src/hydro/flux_register.cpp:587` `FluxRegister::overwrite_` (+42)
 
 #### 10.2 Prescribed faces and their reapplication
 
@@ -491,7 +519,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/hydro/flux_register.cpp:724` `FluxRegister::apply_prescribed`; `src/hydro/hydro_forward.cpp:299` `HydroImpl::forward`
 - **Tests:** `test_prescribed_after_sources.release` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** none
-- **Re-pin marker:** wallbatch-slots 91739778 + ed6cadbf (on GitHub: flux_register.cpp/.hpp rewritten, apply_wall_planes_ :701, meshblock_advance.cpp +1 at ~:161). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** wallbatch-slots ed6cadbf (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at ed6cadbf: `src/hydro/flux_register.cpp:771` `FluxRegister::apply_prescribed` (+47); the other 1 unchanged
 
 #### 10.3 The wall batch
 
@@ -499,7 +528,9 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/hydro/flux_register.cpp:296` `WallBatch::flush`; `src/hydro/flux_register.cpp:278` `WallBatch::push`
 - **Tests:** `test_graph_monitor_amounts.release` (bitwise (equal x4))
 - **Figures/tables:** none
-- **Re-pin marker:** wallbatch-slots 91739778 + ed6cadbf (on GitHub: flux_register.cpp/.hpp rewritten, apply_wall_planes_ :701, meshblock_advance.cpp +1 at ~:161). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** wallbatch-slots ed6cadbf (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at ed6cadbf: `src/hydro/flux_register.cpp:380` `WallBatch::flush` (+84); `src/hydro/flux_register.cpp:365` `WallBatch::push` (+87)
+  - ed6cadbf db5869d2 moves the wall batch and the count masks into fixed device storage (flux_register.cpp/.hpp), registered with the state store in MeshBlockImpl::register_flux_storage (meshblock.cpp +12); 91739778 keeps the stage's push order in the wall slots and begins the batch each stage (meshblock_advance.cpp +1 in stage_advance)
 
 #### 10.4 Amounts and the stage fold
 
@@ -507,7 +538,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/hydro/flux_register.cpp:239` `RegisterMonitor::fold_`
 - **Tests:** `test_graph_monitor_amounts.release` (bitwise (equal x4)); `test_conservation_budget.release` (bitwise (equal x1))
 - **Figures/tables:** none
-- **Re-pin marker:** wallbatch-slots 91739778 + ed6cadbf (on GitHub: flux_register.cpp/.hpp rewritten, apply_wall_planes_ :701, meshblock_advance.cpp +1 at ~:161). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** wallbatch-slots ed6cadbf (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at ed6cadbf: `src/hydro/flux_register.cpp:254` `RegisterMonitor::fold_` (+15)
 
 #### 10.5 Monitor counts
 
@@ -515,7 +547,9 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/hydro/flux_register.cpp:75` `RegisterMonitor::count`; `src/hydro/flux_register.cpp:92` `RegisterMonitor::flush_counts`
 - **Tests:** `test_fp32_face_floor_counts_python` (no numeric tolerance in the source (pass/fail checks only)); `test_cycle_diagnostics.release` (EXPECT_NEAR 1.e-12, 1.e-9, 1.e-9 * flux, 1.e-9 * ke_total)
 - **Figures/tables:** none
-- **Re-pin marker:** wallbatch-slots 91739778 + ed6cadbf (on GitHub: flux_register.cpp/.hpp rewritten, apply_wall_planes_ :701, meshblock_advance.cpp +1 at ~:161). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** wallbatch-slots ed6cadbf (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at ed6cadbf: `src/hydro/flux_register.cpp:139` `RegisterMonitor::flush_counts` (+47); the other 1 unchanged
+  - ed6cadbf db5869d2 gives the count masks fixed device storage (RegisterMonitor in flux_register.hpp)
 
 #### 10.6 Rollback and redo, through replay
 
@@ -523,7 +557,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/hydro/flux_register.cpp:472` `FluxRegister::rollback`; `src/hydro/flux_register.cpp:65` `RegisterMonitor::rollback`
 - **Tests:** `test_graph_monitor_amounts.release` (bitwise (equal x4))
 - **Figures/tables:** none
-- **Re-pin marker:** wallbatch-slots 91739778 + ed6cadbf (on GitHub: flux_register.cpp/.hpp rewritten, apply_wall_planes_ :701, meshblock_advance.cpp +1 at ~:161). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** wallbatch-slots ed6cadbf (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at ed6cadbf: `src/hydro/flux_register.cpp:514` `FluxRegister::rollback` (+42); the other 1 unchanged
 
 #### 10.7 Budgets and the budget series
 
@@ -540,7 +575,9 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/segment.cpp:56` `StageSchedule::regroup`; `src/mesh/stage_executor.cpp:772` `StageExecutor::run_segments`
 - **Tests:** `test_stage_schedule.release` (no numeric tolerance in the source (pass/fail checks only)); `test_stage_segments.release` (bitwise (equal x1)); `test_mesh_executor.release` (bitwise (equal x2))
 - **Figures/tables:** **new** `src/snapy_report/ch11/figures/fig_segments.py` (deck: none (diagram))
-- **Re-pin marker:** EfStatus e119b3f9 (on GitHub: stage_executor.cpp +6 at :696 inside save_list, lines after shift +6); b417b7c6 / 3c1c0c20 not on GitHub (conversion_trips on the save list, unchecked); default-graph ea3e5777 / 8854ccd4 (not on GitHub; unchecked): the execution default, H1, capture by default. Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** EfStatus e119b3f9; default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at 8854ccd4: `src/mesh/stage_executor.cpp:798` `StageExecutor::run_segments` (+26); the other 1 unchanged
+  - 8854ccd4 test_mesh_executor sets execution: eager (the eager executor path against the pre-executor sequence)
 
 #### 11.2 Capture, warm-up, the save list and replay
 
@@ -548,7 +585,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/stage_executor.cpp:827` `StageExecutor::capture`; `src/mesh/stage_executor.cpp:685` `StageExecutor::save_list`; `src/mesh/stage_executor.cpp:984` `StageExecutor::replay`
 - **Tests:** `test_stage_executor_capture_python` (bitwise (equal x5)); `test_graph_pool_recapture_python` (bitwise (equal x1)); `test_state_store.release` (bitwise (equal x5))
 - **Figures/tables:** none
-- **Re-pin marker:** EfStatus e119b3f9 (on GitHub: stage_executor.cpp +6 at :696 inside save_list, lines after shift +6); b417b7c6 / 3c1c0c20 not on GitHub (conversion_trips on the save list, unchecked). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** EfStatus e119b3f9; default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at 8854ccd4: `src/mesh/stage_executor.cpp:854` `StageExecutor::capture` (+27); `src/mesh/stage_executor.cpp:712` `StageExecutor::save_list` (+27); `src/mesh/stage_executor.cpp:1011` `StageExecutor::replay` (+27)
 
 #### 11.3 The refusal list and the allow-lists
 
@@ -556,6 +594,9 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/stage_executor.cpp:558` `StageExecutor::config_reasons`; `src/mesh/stage_executor.cpp:524` `StageExecutor::capture_reasons`
 - **Tests:** `test_execution_capability_python` (no numeric tolerance in the source (pass/fail checks only)); `test_graph_capture_lifts_python` (bitwise (equal x1)); `test_graph_outflow_refused_python` (bitwise (equal x2)); `test_graph_user_forcing_python` (bitwise (equal x3))
 - **Figures/tables:** **new** `src/snapy_report/ch11/figures/tab_refusals.py` (deck: none (table from config_reasons))
+- **Re-pin marker:** default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at 8854ccd4: `src/mesh/stage_executor.cpp:579` `StageExecutor::config_reasons` (+21); `src/mesh/stage_executor.cpp:545` `StageExecutor::capture_reasons` (+21)
+  - 8854ccd4 the refusal list gains the split-panel refusal (a cubed-sphere panel split into several blocks, #317), at :623-628; the allow-list is at :600-601 and the forcing lift at :629-634
 
 #### 11.4 The default and strict
 
@@ -563,7 +604,10 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/meshblock_options.cpp:17` `MeshBlockOptionsImpl::from_yaml`
 - **Tests:** `test_execution_capability_python` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** none
-- **Re-pin marker:** default-graph ea3e5777 / 8854ccd4 (not on GitHub; unchecked): the execution default, H1, capture by default. Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at 8854ccd4: none move
+  - 8854ccd4 integration.execution takes auto (the default, also with no key), eager or cuda-graph (meshblock.hpp:98, checked in meshblock_options.cpp:58-59); StageExecutor::mode (:107-115) resolves auto to cuda-graph on a CUDA block and eager otherwise, and an explicit value is honoured; non-strict, each eager reason is logged once per block
+- **Re-pin tests:** `test_default_execution_python` (default-graph: RED ea3e5777, fix 8854ccd4; at 8854ccd4: bitwise (equal x2))
 
 #### 11.5 Graph = eager bitwise, graph-safe code and the device dt
 
@@ -571,14 +615,18 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/utils/step_dt.cpp:14` `StepDt::value`; `src/utils/step_dt.cpp:25` `StepDt::divide`; `src/utils/step_dt.cpp:36` `StepDt::scaled`; `src/mesh/stage_executor.cpp:263` `StageExecutor::device_dt`; `src/mesh/state_store.hpp:24` `StateStore`
 - **Tests:** `test_sk3_capture_moist_python` (bitwise (equal x4)); `test_graph_implicit_dt_python` (bitwise (equal x3)); `test_graph_chemistry_slot_python` (bitwise (equal x3))
 - **Figures/tables:** none
-- **Re-pin marker:** #316 (dfd5a4c9, on GitHub: x1_reference.hpp +6/-1 at :59, HydroReferenceX1Operator). Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** #316 dfd5a4c9; default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at dfd5a4c9: none move
+  - at 8854ccd4: `src/mesh/stage_executor.cpp:283` `StageExecutor::device_dt` (+20); the other 4 unchanged
+  - dfd5a4c9 the stretched x1 reference rows are built on the grid's device, so no host-to-device copy runs inside a captured segment; test_graph_stretched_x1 is its test
+- **Re-pin tests:** `test_graph_stretched_x1_python` (#316: RED 75e0fec1, fix dfd5a4c9; at dfd5a4c9: bitwise (equal x1); constants rtol=1.e-13)
 
 #### 11.6 The S4 cost catalogue and the measured gap
 
-- **Derivation:** none (catalogue): pointers to 4.3, 6.3, 9.4, 10.3 and 10.5; the measured eager-graph gap cited from docs/v3/closing/s4_eager_gap.md; method in 16.3
+- **Derivation:** none (catalogue): pointers to 4.3, 6.3, 9.4, 10.3 and 10.5; the measured eager-graph gap and the bound as ruled are cited from `docs/v3/closing/s4_eager_gap.md` at cshsgy/snapy `be267b702c074eae3aa05e12759357e2ee9f4b51` (v3/closing-dryrun-plan), and no number is repeated here; method in 16.3
 - **Code:** none in `src/` (method or record section)
 - **Tests:** none (no test covers this section at the pin)
-- **Figures/tables:** table cited from `docs/v3/closing/s4_eager_gap.md on v3/closing-dryrun-plan`
+- **Figures/tables:** table cited from `docs/v3/closing/s4_eager_gap.md` at cshsgy/snapy `be267b702c074eae3aa05e12759357e2ee9f4b51` (v3/closing-dryrun-plan)
 
 #### 11.7 Eager ops inside a captured stage: the user forcing and the chemistry segment
 
@@ -586,6 +634,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/stage_executor.cpp:129` `StageExecutor::build_schedule`; `src/mesh/stage_executor.cpp:110` `StageExecutor::chemistry_slot`
 - **Tests:** `test_graph_chemistry_slot_python` (bitwise (equal x3)); `test_graph_mesh_chemistry_python` (bitwise (equal x1)); `test_graph_user_forcing_python` (bitwise (equal x3)); `test_sk4_chemistry_source_python` (bitwise (equal x2))
 - **Figures/tables:** none
+- **Re-pin marker:** default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at 8854ccd4: `src/mesh/stage_executor.cpp:149` `StageExecutor::build_schedule` (+20); `src/mesh/stage_executor.cpp:130` `StageExecutor::chemistry_slot` (+20)
 
 ### Chapter 12. Precision: the FP32 policy
 
@@ -639,6 +689,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/stage_executor.cpp:340` `exchange_cut`; `src/mesh/stage_executor.cpp:476` `StageExecutor::align_captures`
 - **Tests:** `test_mesh_capture.release` (bitwise (equal x2)); `test_mesh_capture_moist_python` (bitwise (equal x1)); `test_cubed_sphere_capture_python` (bitwise (equal x1))
 - **Figures/tables:** **new** `src/snapy_report/ch13/figures/fig_exchange_cut.py` (deck: none (diagram))
+- **Re-pin marker:** default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at 8854ccd4: `src/mesh/stage_executor.cpp:360` `exchange_cut` (+20); `src/mesh/stage_executor.cpp:497` `StageExecutor::align_captures` (+21)
 
 #### 13.4 Mesh-agree
 
@@ -646,6 +698,9 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/stage_executor.cpp:508` `StageExecutor::agree`
 - **Tests:** `test_mesh_disagree.release` (bitwise (equal x1))
 - **Figures/tables:** none
+- **Re-pin marker:** default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at 8854ccd4: `src/mesh/stage_executor.cpp:529` `StageExecutor::agree` (+21)
+  - 8854ccd4 the blocks' resolved modes (StageExecutor::mode) are compared, not the deck key (stage_executor.cpp:557-560)
 
 #### 13.5 The x1 seam split
 
@@ -662,6 +717,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/meshblock_exchange.cpp:220` `MeshBlockImpl::apply_boundaries`; `src/mesh/meshblock_options.cpp:168` `MeshBlockOptionsImpl::is_wall_boundary`
 - **Tests:** `test_radiating_boundary.release` (bitwise (equal x11); allclose(rtol=1e-05 (default), atol=1e-08 (default)) x6; allclose(rtol=1.e-5, atol=1.e-6) x4; allclose(rtol=1.e-12, atol=1.e-9) x2; allclose(rtol=1.e-12, atol=1.e-12) x5; allclose(rtol=1.e-10, atol=1.e-10)); `test_outflow_stale_ghosts_python` (constants REST_TOL=1.0e-3)
 - **Figures/tables:** `src/snapy_report/ch11/figures/fig_reflecting_stencil.py` (deck: none (diagram)); `src/snapy_report/ch11/figures/fig_outflow_stencil.py` (deck: none (diagram))
+- **Re-pin marker:** default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at 8854ccd4: `src/mesh/meshblock_options.cpp:169` `MeshBlockOptionsImpl::is_wall_boundary` (+1); the other 1 unchanged
 
 #### 14.2 Which faces are prescribed, and with what
 
@@ -674,7 +731,7 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 
 - **Derivation:** solid mask; fill of solid cells; the implicit solve on stratified solids
 - **Code:** `src/bc/internal_boundary.cpp:66` `InternalBoundaryImpl::forward`; `src/bc/rectify_solid.cpp:109` `rectify_solid`
-- **Tests:** `test_implicit_stratified_solid_python` (bitwise (equal x1); compared < 1.e-12, 1e-12); `test_rectify.release` (no numeric tolerance in the source (pass/fail checks only))
+- **Tests:** `test_implicit_stratified_solid_python` (bitwise (equal x1); compared < 1e-12, 1.e-12); `test_rectify.release` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** `src/snapy_report/ch11/figures/fig_solids_stencil.py` (deck: none (diagram))
 
 ### Chapter 15. Configuration, output and restart
@@ -685,6 +742,9 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** `src/mesh/meshblock_options.cpp:17` `MeshBlockOptionsImpl::from_yaml`; `src/hydro/hydro_options.cpp:19` `HydroOptionsImpl::from_yaml`
 - **Tests:** `test_options_table.release` (no numeric tolerance in the source (pass/fail checks only)); `test_options_defaults.release` (bitwise (equal x1)); `test_yaml_keys.release` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** `src/snapy_report/ch12/figures/fig_yaml_flow.py` (deck: none (diagram))
+- **Re-pin marker:** default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+  - at 8854ccd4: none move
+  - 8854ccd4 the key integration.execution gains the value auto and defaults to it (meshblock.hpp:98, meshblock_options.cpp:58-59); Appendix I follows
 
 #### 15.2 Output writers
 
@@ -704,7 +764,7 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 
 #### 16.1 The bitwise gates
 
-- **Derivation:** none (method): the face-deck harness (harness348) and the dump set (dumpset349) compared byte for byte between commits, CPU with CPU and CUDA with CUDA; both are tools on the closing-plan branch, with no ctest of their own (test_straka is a reference L2 comparison, not a bitwise gate)
+- **Derivation:** none (method): the face-deck harness (harness348) and the dump set (dumpset349) compared byte for byte between commits, CPU with CPU and CUDA with CUDA; both are tools on the closing-plan branch, pinned by path at cshsgy/snapy `be267b702c074eae3aa05e12759357e2ee9f4b51` (v3/closing-dryrun-plan): `docs/v3/closing/tools/harness348/h348.py` (and its `decks/`), `docs/v3/closing/tools/dumpset349/dumpset349.py` with `compare.py`, run by `docs/v3/closing/tools/gates.sh`, with no ctest of their own (test_straka is a reference L2 comparison, not a bitwise gate)
 - **Code:** none in `src/` (method or record section)
 - **Tests:** none (no test covers this section at the pin)
 - **Figures/tables:** **new** `src/snapy_report/ch16/figures/tab_gates.py` (deck: the dump-set and harness decks (closing-plan tools))
@@ -715,14 +775,14 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** none in `src/` (method or record section)
 - **Tests:** `test_stage_executor_capture_python` (bitwise (equal x5))
 - **Figures/tables:** **new** `src/snapy_report/ch16/figures/tab_capture_sweep.py` (deck: the sweep's committed record (open slot))
-- **Re-pin marker:** default-graph ea3e5777 / 8854ccd4 (not on GitHub; unchecked): the execution default, H1, capture by default. Anchors stay at the pin until the batch lands.
+- **Re-pin marker:** default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
 
 #### 16.3 Launch counting and the S4 table
 
-- **Derivation:** none (method): profiler trace; kernel, memcpy and memset events over N steps; numbers cited from docs/v3/closing/s4_eager_gap.md
+- **Derivation:** none (method): profiler trace; kernel, memcpy and memset events over N steps, taken with `docs/v3/closing/tools/speed/bench.py` (`--profile`, `SPEED_PROF_TRACE`) at cshsgy/snapy `be267b702c074eae3aa05e12759357e2ee9f4b51` (v3/closing-dryrun-plan); the table and its numbers are cited from `docs/v3/closing/s4_eager_gap.md` at cshsgy/snapy `be267b702c074eae3aa05e12759357e2ee9f4b51` (v3/closing-dryrun-plan), and no number is repeated here
 - **Code:** none in `src/` (method or record section)
 - **Tests:** none (no test covers this section at the pin)
-- **Figures/tables:** table cited from `docs/v3/closing/s4_eager_gap.md on v3/closing-dryrun-plan`
+- **Figures/tables:** table cited from `docs/v3/closing/s4_eager_gap.md` at cshsgy/snapy `be267b702c074eae3aa05e12759357e2ee9f4b51` (v3/closing-dryrun-plan)
 
 #### 16.4 Regression provenance
 
@@ -730,6 +790,8 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 - **Code:** none in `src/` (method or record section)
 - **Tests:** `test_flux_positivity_carry.release` (bitwise (equal x4); EXPECT_NEAR 0.; constants tol=1.e-12); `test_graph_monitor_amounts.release` (bitwise (equal x4)); `test_seam_rotation_cache_python` (bitwise (equal x3)); `test_mesh_disagree.release` (bitwise (equal x1))
 - **Figures/tables:** **new** `src/snapy_report/ch16/figures/tab_regressions.py` (deck: none (table))
+- **Re-pin marker:** #316 dfd5a4c9; wallbatch-slots ed6cadbf; default-graph 8854ccd4 (batches: section 6 intro). Anchors stay at the pin until the batch lands.
+- **Re-pin tests:** `test_graph_stretched_x1_python` (#316: RED 75e0fec1, fix dfd5a4c9; at dfd5a4c9: bitwise (equal x1); constants rtol=1.e-13); `test_graph_monitor_amounts.release` `GraphSaveList.user_forcing_graph_books_wall_rates_like_eager` (wallbatch-slots: RED c6551414, fix db5869d2 then 91739778; at ed6cadbf: bitwise (equal x7)); `test_flux_register.release` `FluxRegister.wall_prescription_books_in_float32_on_the_device` (wallbatch-slots: added with ed6cadbf; at ed6cadbf: bitwise (equal x28); allclose(rtol=0., atol=0.)); `test_default_execution_python` (default-graph: RED ea3e5777, fix 8854ccd4; at 8854ccd4: bitwise (equal x2))
 
 #### 16.5 CPU, CUDA and MPS reproducibility
 
@@ -742,18 +804,21 @@ Code anchors are `path:line` at snapy `v3/final` = `939f7928398f302080cc34aee6df
 
 | limit | home | anchor at the pin |
 |---|---|---|
-| Multi-rank capture is refused (P1) | 11.3, 13.4 | `src/mesh/stage_executor.cpp:558` `StageExecutor::config_reasons` |
-| EOS and Riemann solvers outside the allow-lists run eager | 11.3 | `src/mesh/stage_executor.cpp:558` `StageExecutor::config_reasons` |
+| Multi-rank capture is refused (P1) | 11.3, 13.4 | `src/mesh/stage_executor.cpp:558` `StageExecutor::config_reasons` (re-pin marker: default-graph 8854ccd4; at 8854ccd4: `src/mesh/stage_executor.cpp:579` `StageExecutor::config_reasons` (+21)) |
+| EOS and Riemann solvers outside the allow-lists run eager | 11.3 | `src/mesh/stage_executor.cpp:558` `StageExecutor::config_reasons` (re-pin marker: default-graph 8854ccd4; at 8854ccd4: `src/mesh/stage_executor.cpp:579` `StageExecutor::config_reasons` (+21)) |
 | An x1 split (pz > 1) is refused for capture and for the implicit solve | 13.5, 6.2 | `src/hydro/hydro.cpp:436` `HydroImpl::_apply_implicit_correction` |
-| The stretched-x1 capture (host-to-device copy in a captured segment) | 11.5 | `src/recon/x1_reference.hpp:41` `HydroReferenceX1Operator` (re-pin marker: #316 (dfd5a4c9, on GitHub: x1_reference.hpp +6/-1 at :59, HydroReferenceX1Operator)) |
+| The stretched-x1 capture (host-to-device copy in a captured segment) | 11.5 | `src/recon/x1_reference.hpp:41` `HydroReferenceX1Operator` (re-pin marker: #316 dfd5a4c9; at dfd5a4c9: none move) |
 | FP32 on the cubed sphere needs anomaly storage, which is Cartesian only | 12.3 | `src/eos/ideal_moist.cpp:79` `IdealMoistImpl::perturbations` |
-| A registered chemistry step runs as an eager segment between captured ones (a Mesh block keeps it in the graph) | 11.7 | `src/mesh/stage_executor.cpp:110` `StageExecutor::chemistry_slot` |
+| A registered chemistry step runs as an eager segment between captured ones (a Mesh block keeps it in the graph) | 11.7 | `src/mesh/stage_executor.cpp:110` `StageExecutor::chemistry_slot` (re-pin marker: default-graph 8854ccd4; at 8854ccd4: `src/mesh/stage_executor.cpp:130` `StageExecutor::chemistry_slot` (+20)) |
 | MPS has no FP64: the wide dtype is FP32 there | 12.1 | `src/mesh/precision_policy.hpp:31` `PrecisionPolicy` |
-| MPS runs eager only, and the moist column stops before saturation (no kintera MPS kernel) | 12.1, 16.5 | `src/mesh/stage_executor.cpp:515` `StageExecutor::vars_reasons` |
+| MPS runs eager only, and the moist column stops before saturation (no kintera MPS kernel) | 12.1, 16.5 | `src/mesh/stage_executor.cpp:515` `StageExecutor::vars_reasons` (re-pin marker: default-graph 8854ccd4; at 8854ccd4: `src/mesh/stage_executor.cpp:536` `StageExecutor::vars_reasons` (+21)) |
+| MPS hard refusal: anomaly storage cannot move to MPS (its reference is FP64, which MPS does not have); `Fp64StoreImpl::to(Device)` stops with an error, it does not fall back | 12.3, 12.1 | `src/hydro/fp64_store.hpp:23` `Fp64StoreImpl` |
+| MPS hard refusal: a stretched x1 grid (geometry/x1f or cells/x1rat) is not supported on MPS (#280); the hydro stops with an error, it does not fall back | 3.1, 16.5 | `src/hydro/hydro.cpp:302` `HydroImpl::_check_stretched_x1` |
+| A cubed-sphere panel split into several blocks (nb2 or nb3 > 1) cannot be captured (#317): an explicit cuda-graph fails capture at the pin (stated in 8854ccd4's commit message; not run here) | 11.3, 13.3 | `src/mesh/stage_executor.cpp:558` `StageExecutor::config_reasons` (re-pin marker: default-graph 8854ccd4; at 8854ccd4: `src/mesh/stage_executor.cpp:579` `StageExecutor::config_reasons` (+21); 8854ccd4 it is refused with its reason and runs eager (:623-628)) |
 
 ### Appendices
 
-A-F and H-J are indexes, tables or generated references with no sections of their own; they are built from the chapters (C test index from the Tests lines above, D and I from the options schema, J from the tree at the pin). G (the V3 lane map) carries `docs/v3/DESIGN.rst` on happysky19/snapy `v3-design/DESIGN` `449636b3e1963b5fc7d44407cb7d6db437e8b016`, Table 1 (lines 36-80) and Table 7 (lines 209-275), mapped to these chapters. E (external components) cites kintera, pyharp, pydisort and commux by their versions at the pin (no `code_pin.yml` entry; STYLE.md 3.1).
+A-F and H-J are indexes, tables or generated references with no sections of their own; they are built from the chapters (C test index from the Tests lines above, D and I from the options schema, J from the tree at the pin). G (the V3 lane map) carries `docs/v3/DESIGN.rst` on happysky19/snapy `v3-design/DESIGN` `449636b3e1963b5fc7d44407cb7d6db437e8b016`, Table 1 (lines 36-80) and Table 7 (lines 209-275), mapped to these chapters. E (external components) cites kintera, pyharp, pydisort and commux by their versions at the pin (no `code_pin.yml` entry; STYLE.md 3.1). I carries a re-pin marker (default-graph 8854ccd4): `integration.execution` gains the value `auto` and defaults to it (`src/mesh/meshblock.hpp:98`, checked in `src/mesh/meshblock_options.cpp:58-59` at 8854ccd4; `eager` at `src/mesh/meshblock.hpp:96` at the pin), so I is regenerated at the re-pin.
 
 ## 7. Figures and tables: how the repo makes them
 
