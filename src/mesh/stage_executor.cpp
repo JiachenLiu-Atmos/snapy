@@ -358,11 +358,12 @@ struct CutScope {
 }  // namespace
 #endif
 
-void exchange_cut(std::function<void()> host) {
+void exchange_cut(std::function<void()> host,
+                  std::function<void()> const& outside) {
 #ifdef USE_CUDA
   auto* c = g_cut;
   if (c == nullptr || c->in_host) {
-    host();
+    outside ? outside() : host();
     return;
   }
   c->close();
@@ -378,7 +379,7 @@ void exchange_cut(std::function<void()> host) {
   c->steps->push_back({nullptr, host});
   c->begin();
 #else
-  host();
+  outside ? outside() : host();
 #endif
 }
 

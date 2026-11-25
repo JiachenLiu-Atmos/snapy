@@ -74,12 +74,9 @@ void MeshBlockImpl::begin_exchange(Variables &vars,
 
 void MeshBlockImpl::launch_exchange(SyncOptions const &opts,
                                     std::vector<CommWorkPtr> &works) const {
-  if (!in_segment_capture()) {
-    _playout->launch_exchange(this, opts, works);
-    return;
-  }
-  // B3: a cut. The host step is the rendezvous with this process's blocks
-  // (and their seam copies) or the communicator, waited on, so the unpack
+  // B3: a cut in a segment capture (exchange_cut decides; else the launch as
+  // is). The host step is the rendezvous with this process's blocks (and
+  // their seam copies) or the communicator, waited on, so the unpack
   // (finalize_exchange: deserialize into the ghosts) is device work in the
   // segment's next graph. It runs again at every replay, when the pack ran
   // inside a graph and set no host state: it restores the send and receive
@@ -93,7 +90,7 @@ void MeshBlockImpl::launch_exchange(SyncOptions const &opts,
     _playout->launch_exchange(this, opts, w);
     for (auto &x : w)
       if (x) x->wait();
-  });
+  }, [&]() { _playout->launch_exchange(this, opts, works); });
 }
 
 void MeshBlockImpl::finalize_exchange(Variables &vars, SyncOptions const &opts,

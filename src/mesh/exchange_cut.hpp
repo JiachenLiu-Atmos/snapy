@@ -18,15 +18,15 @@ namespace snap {
 //! On a thread capturing a segment (StageExecutor::capture), exchange_cut
 //! ends the segment's current graph, runs `host` and keeps it, then captures
 //! what follows into a new graph of the same segment: a replay runs the
-//! graphs in order with the kept host steps between them. Anywhere else
-//! (eager, warm-up) it runs `host`. `host` must read and write only storage
-//! that outlives the capture (an exchange's cached buffers), since it runs
-//! again at every replay.
+//! graphs in order with the kept host steps between them. Anywhere else it
+//! runs `outside`, or `host` if none. `host` must touch only storage that
+//! outlives the capture (an exchange's cached buffers): it reruns at replays.
 //!
 //! The blocks of one process meet at the rendezvous, so a multi-block Mesh
 //! captures a segment with cuts on all its blocks together (each on its
 //! worker thread, thread-local capture mode) and replays them together.
-void exchange_cut(std::function<void()> host);
+void exchange_cut(std::function<void()> host,
+                  std::function<void()> const& outside = {});
 
 //! true on a thread capturing a segment, outside the host step of a cut: a
 //! cross-block exchange there must go through exchange_cut (a board or
