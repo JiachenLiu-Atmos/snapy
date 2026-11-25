@@ -400,7 +400,7 @@ void MeshBlockImpl::stage_boundaries(Variables &vars, StepDt dt, int stage) {
 
 torch::Tensor MeshBlockImpl::axial_closure_sums() const {
   auto const &s = phydro->axial_closure_sums();  // device, FP64 (MPS: FP32)
-  auto wide = pcoord->x1v.is_mps() ? torch::kFloat32 : torch::kFloat64;
+  auto wide = PrecisionPolicy::wide(pcoord->x1v.device());
   return s.defined() ? s.clone()
                      : torch::zeros({2}, pcoord->x1v.options().dtype(wide));
 }

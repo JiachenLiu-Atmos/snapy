@@ -208,7 +208,7 @@ void PositivityLimiter::census_(PositivityInputs const& in,
     status_->slot(hits_) += (theta.index(cells) < 1.).sum();
     return;
   }
-  auto wide = theta.is_mps() ? torch::kFloat32 : torch::kFloat64;
+  auto wide = PrecisionPolicy::wide(theta.device());
   auto ti = theta.index(cells).to(wide);
   status_->slot(hits_) += (ti < 1.).sum();
   // severe: theta < 0.9 and withheld mass above round-off of the gas (#256)
@@ -245,7 +245,7 @@ void PositivityLimiter::post_(FluxRegister& reg, PositivityInputs const& in,
     if (d == 1 && hits_ == EfStatus::kPosHits) {
       // the flux theta removes (>= 0 while the ghost theta is in [0,1])
       auto cells = pmb_->part({0, 0, 0}, PartOptions().exterior(false));
-      auto wide = theta.is_mps() ? torch::kFloat32 : torch::kFloat64;
+      auto wide = PrecisionPolicy::wide(theta.device());
       auto pre = f.abs();
       auto cut = pre - (f * factor).to(f.scalar_type()).abs();
       status_->slot(EfStatus::kLimFlux) += pre.index(cells).to(wide).sum();
