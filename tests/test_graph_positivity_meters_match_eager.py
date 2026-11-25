@@ -25,10 +25,20 @@ positivity_severe) are positive at the end, and the graph block captured and
 replayed with no eager segment. On CPU the cuda-graph setting runs eager and
 must equal eager.
 
+A second case, co4, adds conversion order 4 and one conserved tracer
+(unlimited cp5), and starts with an isothermal dip (rho and p x 0.3) next to
+the lower x1 wall: the wall's one-sided ghosts are not positive there, so the
+conversion falls back (hydro.conversion_trips, a module buffer outside the
+EfStatus) and the scalar's positivity census (scalar.positivity_hits) counts.
+dt 0.05 (0.025 mid-run). Its eager conversion_trips and scalar
+positivity_hits must be positive at the end too.
+
 RED at 939f7928: after the first step (three captures) the graph block's
-positivity_hits, positivity_severe, positivity_min and lim_flux differ from
-eager's; the warm-ups of each capture are counted, and they ran on states past
-the stage's.
+positivity_hits, positivity_severe, positivity_min, lim_cut and lim_flux
+differ from eager's in both cases, and in co4 also conversion_trips (96 vs
+24) and scalar.positivity_hits; the warm-ups of each capture are counted,
+and they ran on states past the stage's. At e119b3f9 (the EfStatus slots
+saved) only conversion_trips still differs.
 
   python test_graph_positivity_meters_match_eager.py
 """
@@ -39,22 +49,65 @@ import tempfile
 
 import torch
 
-from snapy import kIPR
+from snapy import kICY, kIDN, kIPR, kIV1, kIV2
 
 from cuda_build import build_has_cuda, skip
-from test_graph_chemistry_slot import (assert_equal, build, config,
+from test_graph_chemistry_slot import (QVAPOR, assert_equal, build, config,
                                        forward_both, moist_state)
 
 METERS = ("positivity_hits", "positivity_severe", "positivity_min",
           "lim_cut", "lim_flux", "conversion_trips")
 
 
-def make(precision, device, execution="eager"):
+DT = {"moist": 1.0, "co4": 0.05}  # the step's dt (halved mid-run)
+
+
+def make(precision, device, execution="eager", case="moist"):
     cfg = config(precision, execution)
     cfg["dynamics"]["flux-covariance"] = True  # runs the positivity limiter
     cfg["integration"]["ncycle_out"] = 1  # the budget's cycle line, every cycle
+    if case == "co4":
+        # conversion order 4 (its fallback count, hydro.conversion_trips) and
+        # one conserved tracer, unlimited cp5, so the scalar's positivity
+        # census runs too (flux-covariance; an upper-bound needs the EOS
+        # limiter, which keeps a case eager)
+        cfg["dynamics"]["conversion-order"] = 4
+        cfg["scalar"] = {"nvar": 1, "names": ["tracer"],
+                         "reconstruct": {"type": "cp5", "shock": False},
+                         "riemann-solver": {"type": "upwind"}}
     block = build(cfg, device)
-    return block, moist_state(block)
+    return block, (co4_state(block) if case == "co4" else moist_state(block))
+
+
+def co4_state(block):
+    """moist_state's column with an isothermal dip (rho and p x 0.3) in the
+    first two cells above the lower x1 wall, so the wall's one-sided ghosts
+    (Conversion::fill_walls) are not positive there and the conversion keeps
+    the old ghosts, a trip; and a tracer top-hat in x2."""
+    thermo = block.module("hydro.eos.thermo")
+    eos = block.module("hydro.eos")
+    u = block.module("hydro").buffer("D").double().clone().zero_()
+    z = block.module("coord").buffer("x1v").view(1, 1, -1).expand_as(u[kIDN])
+    x2 = block.module("coord").buffer("x2v").view(1, -1, 1).expand_as(u[kIDN])
+    g, t0, gam, p0, rd = 10.44, 300.0, 6.5e-3, 1.0e5, 287.0
+    temp = (t0 - gam * z).clamp_min(200.0)
+    pres = p0 * (temp / t0) ** (g / (rd * gam))
+    rho = pres / (rd * temp)
+    y = torch.zeros_like(u[kICY:])
+    y[0] = QVAPOR
+    ie = thermo.compute("VT->U", [thermo.compute("DY->V", [rho, y]), temp])
+    u[kIDN] = rho * (1.0 - y.sum(0))
+    u[kICY:] = rho * y
+    u[kIPR] = ie
+    w = eos.compute("U->W", [u.to(block.module("hydro").buffer("D").dtype)])
+    w[kIV2] = 0.5 * torch.sin(2.0 * torch.pi * x2 / 4.0e3)
+    w[kIV1] = 0.2 * torch.cos(2.0 * torch.pi * x2 / 4.0e3) * torch.sin(torch.pi * z / 1.0e4)
+    il = 3  # the first interior x1 cell (nghost 3)
+    w[kIDN, :, 8:10, il:il + 2] *= 0.3
+    w[kIPR, :, 8:10, il:il + 2] *= 0.3
+    ratio = (((x2 / 4.0e3) % 1.0) < 0.5).to(w.dtype).unsqueeze(0)
+    state, _ = block.initialize({"hydro_w": w, "scalar_r": ratio})
+    return state
 
 
 def meters(block):
@@ -100,11 +153,12 @@ def assert_meters(pair, dt, where):
     return me
 
 
-def run(precision, device, nsteps):
-    pair = (make(precision, device, "cuda-graph"), make(precision, device))
+def run(precision, device, nsteps, case="moist"):
+    pair = (make(precision, device, "cuda-graph", case),
+            make(precision, device, case=case))
     (block, state), (ref, expected) = pair
     for step in range(nsteps):
-        dt = 0.5 if nsteps // 3 <= step < 2 * nsteps // 3 else 1.0
+        dt = DT[case] * (0.5 if nsteps // 3 <= step < 2 * nsteps // 3 else 1.0)
         if step == nsteps - 3:  # a rebind between steps recaptures
             for fields in (state, expected):
                 for k in ("hydro_u", "scalar_s"):
@@ -117,40 +171,46 @@ def run(precision, device, nsteps):
         ra, rb = block.check_redo(state), ref.check_redo(expected)
         assert ra == rb == 0, (precision, step, "check_redo", ra, rb)
         assert_equal(state, expected, (precision, step))
-        me = assert_meters(pair, dt, (precision, device.type, step))
+        me = assert_meters(pair, dt, (case, precision, device.type, step))
         if step == 0:
             assert me["hydro.lim_flux"].item() > 0, (
-                precision, "the limiter was offered no flux; the case is vacuous", me)
-            print(precision, device.type, "eager meters after step 1:",
+                case, precision, "the limiter was offered no flux; vacuous", me)
+            print(case, precision, device.type, "eager meters after step 1:",
                   {k: v.tolist() for k, v in me.items()})
     # positivity_severe is above FP32 round-off only in FP64 here
     nonzero = ["hydro.positivity_hits", "hydro.lim_cut"]
     if precision == "float64":
         nonzero.append("hydro.positivity_severe")
+    if case == "co4":
+        nonzero += ["hydro.conversion_trips", "scalar.positivity_hits"]
     for k in nonzero:
-        assert me[k].item() > 0, (precision, "vacuous: eager %s is zero" % k, me)
-    print(precision, device.type, "eager meters at the end:",
+        assert k in me and me[k].item() > 0, (
+            case, precision, "vacuous: eager %s is zero" % k, me)
+    print(case, precision, device.type, "eager meters at the end:",
           {k: v.tolist() for k, v in me.items()})
     return block.execution_report()
 
 
 def main():
     torch.set_num_threads(1)
-    for precision in ("float64", "float32"):
-        report = run(precision, torch.device("cpu"), 3)
-        assert report["captures"] == 0 and report["replays"] == 0, report
-        print(precision, "CPU: cuda-graph runs eager and its meters equal eager:", report)
+    for case in ("moist", "co4"):
+        for precision in ("float64", "float32"):
+            report = run(precision, torch.device("cpu"), 3 if case == "moist" else 9, case)
+            assert report["captures"] == 0 and report["replays"] == 0, report
+            print(case, precision, "CPU: cuda-graph runs eager and its meters equal eager:",
+                  report)
     if not build_has_cuda():
         skip("CUDA unavailable (graph part)")
     failed = []
-    for precision in ("float64", "float32"):
-        try:
-            report = run(precision, torch.device("cuda"), 9)
-            assert report["captures"] > 0 and report["replays"] > 0, report
-            assert report["eager"] == 0, report
-            print(precision, "graph meters and budget line equal eager:", report)
-        except (AssertionError, RuntimeError) as e:
-            failed.append("%s: %s" % (precision, str(e).strip()))
+    for case in ("moist", "co4"):
+        for precision in ("float64", "float32"):
+            try:
+                report = run(precision, torch.device("cuda"), 9, case)
+                assert report["captures"] > 0 and report["replays"] > 0, report
+                assert report["eager"] == 0, report
+                print(case, precision, "graph meters and budget line equal eager:", report)
+            except (AssertionError, RuntimeError) as e:
+                failed.append("%s %s: %s" % (case, precision, str(e).strip()))
     for f in failed:
         print("FAIL", f)
     print("PASSED" if not failed else "FAILED (%d)" % len(failed))
