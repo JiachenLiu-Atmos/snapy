@@ -16,6 +16,7 @@ namespace snap {
 class HydroImpl;
 class ReconstructImpl;
 class RegisterMonitor;
+class RiemannSolverImpl;
 struct IdealMoistPerturbations;
 using Variables = std::map<std::string, torch::Tensor>;
 
@@ -28,6 +29,10 @@ struct FaceDir {
 
 //! FaceFloor (C.rst 3.7): the faces the reconstruction's floors changed
 void post_face_floors(ReconstructImpl const& recon, RegisterMonitor& monitor);
+//! C5: the solver's events of its last solve (riemann.pstar_clamp,
+//! riemann.llf)
+void post_riemann_events(RiemannSolverImpl const& solver,
+                         RegisterMonitor& monitor);
 
 //! the face states [wl, wr] of w along dir. perturb: the split path's
 //! background and increments (null on the total path); the FP32 split path

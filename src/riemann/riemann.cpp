@@ -345,12 +345,6 @@ torch::Tensor RiemannSolverImpl::solve(torch::Tensor wl, torch::Tensor wr,
   return flx;
 }
 
-torch::Tensor RiemannSolverImpl::event_counts() const {
-  auto n = torch::zeros({2}, torch::kInt64);
-  for (auto const& [row, mask] : events) n[row] += mask.sum().cpu();
-  return n;
-}
-
 RiemannSolver RiemannSolverImpl::create(RiemannSolverOptions const& opts,
                                         torch::nn::Module* p,
                                         std::string const& name) {

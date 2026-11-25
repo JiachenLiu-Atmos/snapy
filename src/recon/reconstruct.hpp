@@ -171,9 +171,6 @@ class ReconstructImpl : public torch::nn::Cloneable<ReconstructImpl> {
   //! that ran posts a pair, so a forward with the floors off launches
   //! nothing for the census. Empty without a parent Hydro.
   std::vector<std::pair<int, torch::Tensor>> floored;
-  //! the counts as int64 (3,), rows without a pair at 0 (a host-side
-  //! convenience for tests: it allocates)
-  torch::Tensor floor_counts() const;
 };
 
 TORCH_MODULE(Reconstruct);

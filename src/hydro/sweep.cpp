@@ -21,11 +21,17 @@ static torch::Tensor static_face_gauge(torch::Tensor const& p0, int axis) {
 }
 
 void post_face_floors(ReconstructImpl const& recon, RegisterMonitor& monitor) {
-  // one add_ per floor that ran (V3 S4): the counts are reduced already
+  // one mask per floor that ran: the monitor reduces the stage's masks
+  // together at its flush
   static char const* const names[] = {"face_floor.rho", "face_floor.p",
                                       "face_floor.species"};
-  for (auto const& [row, count] : recon.floored)
-    monitor.count(names[row], count);
+  for (auto const& [row, mask] : recon.floored) monitor.count(names[row], mask);
+}
+
+void post_riemann_events(RiemannSolverImpl const& solver,
+                         RegisterMonitor& monitor) {
+  static char const* const names[] = {"riemann.pstar_clamp", "riemann.llf"};
+  for (auto const& [row, mask] : solver.events) monitor.count(names[row], mask);
 }
 
 torch::Tensor reconstruct_faces(HydroImpl& hydro, FaceDir const& dir,
@@ -103,9 +109,7 @@ void riemann_solve(HydroImpl& hydro, torch::Tensor lr, int dim,
                    torch::Tensor central) {
   // the solve's events (C5): hllc's clamped contact pressure, roe's LLF
   auto post_events = [&] {
-    static char const* const names[] = {"riemann.pstar_clamp", "riemann.llf"};
-    for (auto const& [row, count] : hydro.priemann->events)
-      hydro.flux_register().monitor().count(names[row], count);
+    post_riemann_events(*hydro.priemann, hydro.flux_register().monitor());
   };
   if (!perturb) {
     hydro.priemann->forward(lr[ILT], lr[IRT], dim, flux, face_pressure,

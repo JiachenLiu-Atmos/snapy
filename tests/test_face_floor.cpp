@@ -16,6 +16,7 @@
 
 #include <snap/forcing/forcing.hpp>
 #include <snap/hydro/hydro.hpp>
+#include <snap/hydro/sweep.hpp>
 #include <snap/mesh/meshblock.hpp>
 
 using namespace snap;
@@ -123,7 +124,13 @@ void floor_counts_equal_the_faces_changed(torch::Device device,
   auto recon = block->phydro->precon1;
   auto raw = recon->forward(w, kX1, /*floor=*/false).clone();
   auto out = recon->forward(w, kX1);
-  auto n = recon->floor_counts();
+  // the one counting path: the sweep's post of the masks, the monitor's sum
+  auto& mon = block->phydro->flux_register().monitor();
+  post_face_floors(*recon, mon);
+  mon.flush_counts();
+  auto n = [&](char const* name) {
+    return mon.counters[mon.counter_index(name)].item<int64_t>();
+  };
 
   int nghost = recon->pinterp1->stencils() / 2 + 1;
   int il = nghost, iu = w.size(kX1) - nghost;
@@ -135,9 +142,9 @@ void floor_counts_equal_the_faces_changed(torch::Device device,
   };
   EXPECT_GT(changed(IDN), 0);
   EXPECT_GT(changed(IPR), 0);
-  EXPECT_EQ(n[0].item<int64_t>(), changed(IDN));
-  EXPECT_EQ(n[1].item<int64_t>(), changed(IPR));
-  EXPECT_EQ(n[2].item<int64_t>(), 0);
+  EXPECT_EQ(n("face_floor.rho"), changed(IDN));
+  EXPECT_EQ(n("face_floor.p"), changed(IPR));
+  EXPECT_EQ(n("face_floor.species"), 0);
 }
 
 // ... and the hydro posts them, with the well-balanced fallbacks, into the

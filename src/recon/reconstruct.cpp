@@ -243,12 +243,6 @@ void ReconstructImpl::reset() {
                                 this, "interp2");
 }
 
-torch::Tensor ReconstructImpl::floor_counts() const {
-  auto n = torch::zeros({3}, torch::kInt64);
-  for (auto const& [row, mask] : floored) n[row] += mask.sum().cpu();
-  return n;
-}
-
 void ReconstructImpl::set_x1_faces(torch::Tensor const& x1f) {
   pinterp1->set_x1_coeffs(x1f);
   pinterp2->set_x1_coeffs(x1f);
@@ -271,7 +265,8 @@ torch::Tensor ReconstructImpl::forward(torch::Tensor w, int dim, bool floor) {
   }
 
   // FaceFloor's counts: the faces a floor changes, on the computed faces;
-  // a floor that runs posts one reduced count (V3 S4: no zero-filled slots)
+  // a floor that runs leaves its mask, which the sweep posts and the monitor
+  // reduces with the stage's other masks (no zero-filled slots)
   floored.clear();
   auto faces = [&](torch::Tensor const& x) {
     // face iu+1 exists only when a ghost cell follows (as the slices of

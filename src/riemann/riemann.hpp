@@ -109,9 +109,6 @@ class RiemannSolverImpl : public torch::nn::Cloneable<RiemannSolverImpl> {
   //! masks together (V3 S4). Only a solver that has the event posts it
   //! (lmars posts none), so no zero slot is filled per solve
   std::vector<std::pair<int, torch::Tensor>> events;
-  //! the events as int64 (2,), rows without a pair at 0 (a host-side
-  //! convenience for tests: it allocates)
-  torch::Tensor event_counts() const;
 
   //! non-owning reference to parent
   HydroImpl const* phydro = nullptr;
