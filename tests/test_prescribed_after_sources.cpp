@@ -16,6 +16,7 @@
 #include <snap/forcing/source_term.hpp>
 #include <snap/hydro/flux_register.hpp>
 #include <snap/mesh/meshblock.hpp>
+#include <tuple>
 
 using namespace snap;
 
@@ -142,6 +143,93 @@ TEST(FluxRegister, a_source_post_on_the_walls_does_not_reach_du) {
   EXPECT_EQ(diff.max().item<double>(), 0.)
       << "the wall post reached du, max |d du_IPR| = "
       << diff.max().item<double>();
+}
+
+// a conducting column: diffusion with a prescribed wall temperature on the
+// reflecting x1 walls (the Cartesian form the diffusion module accepts), a
+// uniform density and a temperature linear in x1
+char const* kConductingDeck = R"(
+reference-state: {Tref: 300., Pref: 1.e5}
+species:
+  - name: dry
+    composition: {O: 0.42, N: 1.56, Ar: 0.01}
+    cv_R: 2.5
+geometry:
+  type: cartesian
+  bounds: {x1min: 0., x1max: 6., x2min: 0., x2max: 1., x3min: 0., x3max: 1.}
+  cells: {nx1: 6, nx2: 1, nx3: 1, nghost: 3}
+distribute: {layout: slab, nb2: 1, nb3: 1, verbose: false}
+dynamics:
+  equation-of-state: {type: ideal-gas, limiter: false}
+  reconstruct:
+    vertical: {type: weno5, scale: false, shock: false}
+    horizontal: {type: weno5, scale: false, shock: false}
+  riemann-solver: {type: lmars}
+boundary-condition:
+  external: {x1-inner: reflecting, x1-outer: reflecting}
+integration: {type: rk3, cfl: 0.9, implicit-scheme: 0, nlim: -1, tlim: 1.e6,
+              ncycle_out: 0}
+forcing:
+  diffusion: {dynamic: true, nu_iso: 0., kappa_iso: 2.}
+)";
+
+MeshBlock conducting_column(Variables& vars, double t_inner, double t_outer) {
+  char fname[] = "/tmp/test-conducting-column-XXXXXX";
+  int fd = mkstemp(fname);
+  EXPECT_NE(fd, -1);
+  if (fd != -1) close(fd);
+  std::ofstream(fname) << kConductingDeck;
+  auto options = MeshBlockOptionsImpl::from_yaml(fname);
+  std::remove(fname);
+  options->hydro()->diffusion()->temperature_inner(t_inner).temperature_outer(
+      t_outer);
+  auto block = MeshBlock(options);
+  block->to(torch::kCPU, torch::kFloat64);
+  auto co = block->pcoord;
+  auto w = torch::zeros({block->phydro->peos->nvar(), co->options->nc3(),
+                         co->options->nc2(), co->options->nc1()},
+                        torch::kFloat64);
+  auto temperature = 300. + 10. * co->x1v.view({1, 1, -1});
+  double gas = block->phydro->peos->species_cv_ref() *
+               (block->phydro->peos->options->gammad() - 1.);
+  w[IDN].fill_(1.);
+  w[IPR] = gas * temperature;  // rho = 1
+  vars["hydro_w"] = w;
+  block->initialize(vars);
+  return block;
+}
+
+// A wall whose boundary prescribes a temperature has no mass flux but
+// conducts: the diffusion's energy flux on that plane reaches du in a full
+// step and nothing is booked as its removal. Raising the lower wall 5 K above
+// the linear profile injects K dT / (dz/2) = 20 per unit time; the walls
+// without a prescribed temperature stay at zero flux and book nothing.
+TEST(FluxRegister, a_prescribed_wall_temperature_conducts_in_a_full_step) {
+  auto run = [](double t_inner, double t_outer) {
+    Variables vars;
+    auto block = conducting_column(vars, t_inner, t_outer);
+    auto u0 = vars.at("hydro_u").clone();
+    double dt = 0.5 * block->max_time_step(vars);
+    block->forward(vars, dt, 0);  // rk3 stage 0: u1 = u0 + dt du
+    auto cells = block->part({0, 0, 0}, PartOptions().exterior(false).ndim(3));
+    auto volume = block->pcoord->cell_volume();
+    double de = ((vars.at("hydro_u") - u0)[IPR] * volume)
+                    .index(cells)
+                    .sum()
+                    .item<double>();
+    auto booked = block->phydro->flux_register()
+                      .monitor()
+                      .amounts("boundary.prescribed")[IPR]
+                      .item<double>();
+    return std::make_tuple(de, booked, dt);
+  };
+  auto [de, booked, dt] = run(305., 360.);
+  EXPECT_NEAR(de, 20. * dt, 1.e-9 * 20. * dt)
+      << "the prescribed-temperature wall did not conduct into du";
+  EXPECT_EQ(booked, 0.) << "the conduction was booked as a removal";
+  auto [de0, booked0, dt0] = run(0., 0.);
+  EXPECT_NEAR(de0, 0., 1.e-9 * 20. * dt0) << "a reflecting wall conducted";
+  EXPECT_EQ(booked0, 0.);
 }
 
 // The mark the post-implicit apply reads: every add, scale and replace sets
