@@ -167,12 +167,16 @@ void StageExecutor::build_schedule(int block) const {
   // so this segment keeps no dt in its key; a host read under capture
   // throws (StepDt::value)
   stage.reads_host_dt = false;
-  // the thermo's tables and buffers, and the register monitor's amounts on
-  // the register's device, before the save list (K.rst 3.5; 86a1e571)
-  stage.prepare = [this, block](torch::Device device, torch::Dtype dtype,
-                                at::IntArrayRef shape) {
+  // the thermo's tables and buffers, the implicit correction's scratch,
+  // status and FP64-stage predicate (V3 C1), and the register monitor's
+  // amounts on the register's device, before the save list (K.rst 3.5)
+  stage.prepare = [this, block](Variables const& vars) {
     auto* pmb = block_at(block);
-    pmb->prepare_thermo(device, dtype, shape);
+    auto const& u = vars.at("hydro_u");
+    pmb->prepare_thermo(u.device(), u.scalar_type(), u.sizes());
+    auto w = vars.find("hydro_w");
+    if (w != vars.end() && w->second.defined())
+      pmb->phydro->prepare_implicit(w->second);
     pmb->place_flux_storage();
     pmb->register_flux_storage();
   };
@@ -904,22 +908,14 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
   // first capture; from then on no kintera table is built inside the
   // warm-up or the capture (a missing one throws)
   // The segment's ops prepare (Op::prepare, outside capture) with the
-  // state's device, dtype and shape: advance's prepares the thermo and
-  // the monitor's amounts (still on the host before a block's first step),
-  // so the save list below holds them from the first capture on.
+  // block's variables: advance's prepares the thermo, the implicit scratch
+  // and the monitor's amounts (still on the host before a block's first
+  // step), so the save list below holds them from the first capture on.
   {
     SyncDebugOff off;
-    auto const& u = vars.at("hydro_u");
     for (int i : seg.ops)
-      if (sched.ops()[i].prepare)
-        sched.ops()[i].prepare(u.device(), u.scalar_type(), u.sizes());
+      if (sched.ops()[i].prepare) sched.ops()[i].prepare(vars);
   }
-  // V3 C1: the implicit correction's scratch, status and FP64-stage predicate
-  // are allocated here, not in the warm-up, and registered, so the save list
-  // holds them
-  auto wit = vars.find("hydro_w");
-  if (wit != vars.end() && wit->second.defined())
-    pmb->phydro->prepare_implicit(wit->second);
   pmb->register_flux_storage();
   kintera::NoTableBuild no_table_build;
   auto handles = save_list(block, vars);

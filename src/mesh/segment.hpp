@@ -54,8 +54,8 @@ struct Op {
   //! in its graph key, so a new dt recaptures; all others read the device dt
   bool reads_host_dt = false;
   //! runs outside capture, before the save list and the warm-up, with the
-  //! state's device, dtype and shape (may be empty)
-  std::function<void(torch::Device, torch::Dtype, at::IntArrayRef)> prepare;
+  //! block's variables (may be empty)
+  std::function<void(Variables const&)> prepare;
   std::function<void(Variables&, StageContext const&)> run;
 };
 
