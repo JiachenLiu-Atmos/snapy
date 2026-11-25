@@ -45,31 +45,17 @@ torch::Tensor const& X1Momentum::before_solve(torch::Tensor const& w) {
   return wc1_;
 }
 
-torch::Tensor const& X1Momentum::after_solve(torch::Tensor const& flux1, int ny,
-                                             torch::Tensor const& mc,
-                                             StepDt dt) {
+torch::Tensor const& X1Momentum::after_solve(torch::Tensor const& flux1,
+                                             int ny) {
   auto pc = hydro_->pmb->pcoord;
   int is = pc->il(), ie = pc->iu() + 1;
   // phi: mass transfer rate through face i (below i), explicit flux plus
   // the implicit transfer per unit time
   // V3 I-4: A_f total(1) on the mass rows; total(1) holds the solve's
-  // posts by now (G-R11), so no separate mc / dt term
-  if (flux1.defined()) {
-    // no species rows: the dry flux is the whole mass flux
-    auto f1 =
-        ny > 0 ? flux1[IDN] + flux1.narrow(0, ICY, ny).sum(0) : flux1[IDN];
-    torch::mul_out(phi_, area_.narrow(-1, 0, f1.size(-1)), f1);
-  } else {  // the x1 flux is off: the solve posts nothing (hydro.cpp)
-    phi_.zero_();
-    // the x1 flux is off only with an implicit solve, which captures since
-    // V3 C4: a device dt's 1/dt is formed on the device (the same FP64
-    // quotient) and added as add's alpha (axpy_), so no host dt is read
-    if (mc.defined() && mc.numel() > 0) {
-      StepDt rate = dt.on_device() ? StepDt::device(dt.tensor().reciprocal())
-                                   : StepDt(1. / dt.value());
-      axpy_(phi_, mc[IVZ], rate);
-    }
-  }
+  // posts by now (G-R11), the x1 flux on or off, so no separate mc / dt term
+  // no species rows: the dry flux is the whole mass flux
+  auto f1 = ny > 0 ? flux1[IDN] + flux1.narrow(0, ICY, ny).sum(0) : flux1[IDN];
+  torch::mul_out(phi_, area_.narrow(-1, 0, f1.size(-1)), f1);
   // m1 lives in row IVX of the Coriolis input wc2 = (1, m1, 0, 0), x1
   // ghosts stay 0: only the rows driven by rho w are added here, the
   // w-free rows went in before the implicit solve

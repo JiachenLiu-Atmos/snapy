@@ -13,8 +13,8 @@ a forced retry restores the step and replays the same graphs.
 
 The six-panel cubed sphere of test_cubed_sphere_capture (B3) with an
 implicit scheme, FP64, strict, is run the same way, with the x1 flux on and
-off: with it off, the x1 mass-flux w term reads the solve's transfer per
-unit time, mc / dt, which reads the device dt too.
+off: with it off, the x1 mass-flux w term reads the solve's posts in the x1
+total, which divide by the device dt too.
 
 RED before C4: a strict cuda-graph case with an implicit scheme is refused
 at its first launch ("implicit-scheme is not 0"); the sphere with the x1

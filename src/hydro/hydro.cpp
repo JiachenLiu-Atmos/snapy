@@ -439,10 +439,8 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
                                                     Variables const& other,
                                                     StepDt post_dt) {
   if (!picorr) return torch::Tensor();
-  // V3 I-4: the solve posts its face transfers into total(1), which the
-  // Riemann slot rewrites each stage; with the x1 flux off nothing does, so
-  // nothing is posted and m1 keeps the solve's own transfer
-  FluxRegister* reg = options->disable_flux_x1() ? nullptr : &freg;
+  // V3 I-4: the solve posts its face transfers into total(1), which the hydro
+  // rewrites each stage, its flux on or off
 
   // Implicit x1 solve has no cross-rank coupling, so nb1 > 1 would silently
   // solve each rank's own sub-column. Full column <=> both x1 faces physical.
@@ -477,7 +475,7 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
   }
   auto solid = other.count("solid") ? other.at("solid") : torch::Tensor();
   auto correction = picorr->forward_masked(du, wi, peos->adiabatic_index(wi),
-                                           dt, solid, reg, post_dt);
+                                           dt, solid, &freg, post_dt);
   // V3 I-6: the predicated FP64 stage, always run with the FP32 solve and
   // its fallback: only the columns whose FP32 solve failed are solved again,
   // from rhs64 and wi64, and no host read decides it; the other columns keep
@@ -486,7 +484,7 @@ torch::Tensor HydroImpl::_apply_implicit_correction(torch::Tensor& du,
   if (solve_float && options->icorr()->fallback_fp64()) {
     retry = picorr->stage_failed();
     picorr->forward_masked(rhs64, wi64, peos->adiabatic_index(wi64), dt, solid,
-                           reg, post_dt, retry);
+                           &freg, post_dt, retry);
     correction = picorr->merge_fp64(retry);
     picorr->count_fp64_columns(retry);
     freg.monitor().count("implicit.fp64_columns", retry);

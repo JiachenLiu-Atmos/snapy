@@ -1202,10 +1202,7 @@ torch::Tensor HydroImpl::forward(StepDt dt, torch::Tensor u,
   // by the post_implicit Coriolis and coord's x1 metric source
   if (mass_w) {
     auto pc = pmb->pcoord;
-    auto const& wc2 = px1m->after_solve(
-        _flux1.defined() && !options->disable_flux_x1() ? _flux1
-                                                        : torch::Tensor(),
-        ny, implicit_mass_correction(), dt);
+    auto const& wc2 = px1m->after_solve(_flux1, ny);
     auto m1 = px1m->m1();
     for (auto const& r : sources.runs(SourcePhase::post_implicit))
       sources.run(r, du, {w, temp, dt, wc2});
