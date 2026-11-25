@@ -74,12 +74,7 @@ void MeshBlockImpl::begin_exchange(Variables &vars,
 
 void MeshBlockImpl::launch_exchange(SyncOptions const &opts,
                                     std::vector<CommWorkPtr> &works) const {
-  // a lone block (one per process, no process group) exchanges with no
-  // other block: its launch is at most its own periodic copies, device work
-  // that stays inside the graph, as before B3
-  bool lone = _playout->options->blocks_per_process() <= 1 &&
-              !_playout->has_process_group();
-  if (!in_segment_capture() || lone) {
+  if (!in_segment_capture()) {
     _playout->launch_exchange(this, opts, works);
     return;
   }

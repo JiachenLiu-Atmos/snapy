@@ -213,6 +213,8 @@ class StageExecutor {
   //! (a block's graphs replay one after another on one stream); {0, 0}
   //! until its first capture
   std::vector<std::pair<uint64_t, uint64_t>> _pools;
+  //! per block, its own capture stream (a cudaStream_t), never destroyed
+  std::vector<void*> _capture_streams;
   int _config_generation = 0;
   //! run_local runs on the block worker pool
   std::atomic<int64_t> _captures{0}, _replays{0}, _eager{0};

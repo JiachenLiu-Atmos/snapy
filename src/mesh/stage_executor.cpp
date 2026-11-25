@@ -100,6 +100,7 @@ StageExecutor::StageExecutor(std::vector<MeshBlockImpl*> blocks)
   _schedule_sig.assign(_blocks.size(), -1);
   _schedule_rebuilt.assign(_blocks.size(), 0);
   _pools.assign(_blocks.size(), {0, 0});
+  _capture_streams.assign(_blocks.size(), nullptr);
   for (int b = 0; b < num_blocks(); ++b) build_schedule(b);
 }
 StageExecutor::~StageExecutor() = default;
@@ -872,7 +873,18 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
   auto const& seg = sched.segments().at(segment);
   auto device = vars.at("hydro_u").device().index();
   auto current = at::cuda::getCurrentCUDAStream(device);
-  auto side = at::cuda::getStreamFromPool(false, device);
+  // the block's own capture stream: the shared pool hands its streams out in
+  // turn (also to the Mesh's worker streams), so with many blocks two
+  // concurrent captures could get one stream. Created once, never destroyed:
+  // a graph's outputs can outlive the executor, and the caching allocator
+  // may still record events on the stream they were captured on
+  if (!_capture_streams[block]) {
+    cudaStream_t s = nullptr;
+    C10_CUDA_CHECK(cudaStreamCreateWithFlags(&s, cudaStreamNonBlocking));
+    _capture_streams[block] = s;
+  }
+  auto side = at::cuda::getStreamFromExternal(
+      static_cast<cudaStream_t>(_capture_streams[block]), device);
   // the device dt, set on the current stream before the side stream waits;
   // a segment with an op that still reads the host dt captures that dt (and
   // keeps it in its key), every other one the block's device dt (V3 D)
@@ -963,7 +975,8 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
         multi ? cudaStreamCaptureModeThreadLocal : cudaStreamCaptureModeGlobal;
     cut.begin();
     try {
-      CutScope scope(&cut);
+      // a lone block's exchanges reach no other block: no cut context
+      CutScope scope(multi ? &cut : nullptr);
       run_eager(block, vars, wdt, stage, segment);
     } catch (...) {
       // end an open capture so the stream leaves capture mode. A graph whose
