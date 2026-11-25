@@ -396,6 +396,11 @@ class CoordinateImpl {
   torch::Tensor divergence(torch::Tensor flux1, torch::Tensor flux2,
                            torch::Tensor flux3) const;
 
+  //! divergence's x1 term before the division by the cell volume:
+  //! A_{i+1} F_{i+1} - A_i F_i over the interior cells (last axis), the face
+  //! area in the flux's dtype and device
+  torch::Tensor x1_face_difference(torch::Tensor const& flux1) const;
+
   //! cell-centered vector curl
   virtual torch::Tensor curl(torch::Tensor velocity) const;
 
