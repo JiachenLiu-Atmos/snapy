@@ -11,7 +11,7 @@
 #include <snap/mesh/meshblock.hpp>
 
 #include "cubed_sphere_constants.h"
-#include "cubed_sphere_layout.hpp"
+#include "cubed_sphere_layout.hpp"  // CS_FACE_EDGES
 #include "layout.hpp"
 
 namespace snap {
@@ -46,7 +46,7 @@ FaceKind Exchange::kind(int face) const {
   if (nb < 0) return FaceKind::interior;
   if (nb == rank) return FaceKind::periodic;
   if (layout->options->is_cubed_sphere() &&
-      layout->panel_of(nb) != std::get<2>(iloc))
+      layout->panel_of(nb) != layout->panel_of(rank))
     return FaceKind::panel;
   if (dz != 0) return FaceKind::seam_x1;
   // the neighbour past a domain edge is the wrapped one
@@ -158,9 +158,9 @@ bool Exchange::resolve_seam(SeamSide& s, bool process_only) const {
                                  {kOffset[s.side][0], kOffset[s.side][1], 0});
   }
   if (peer < 0 || (process_only && layout->is_local_block(peer))) return false;
-  int panel = std::get<2>(iloc);
-  bool cubed = s.dim != 1 && dynamic_cast<CubedSphereLayoutImpl const*>(
-                                 layout.get()) != nullptr;
+  // the panel and the sphere test come from the layout, as kind() does
+  int panel = layout->panel_of(layout->options->rank());
+  bool cubed = s.dim != 1 && layout->options->is_cubed_sphere();
   s.peer = peer;
   if (cubed && layout->panel_of(peer) != panel) {
     auto e = CS_FACE_EDGES[panel][s.side];
