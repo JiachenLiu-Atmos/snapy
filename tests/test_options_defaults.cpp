@@ -113,3 +113,36 @@ TEST(OptionsDefaults, scalar_reconstruct_section) {
   EXPECT_EQ(read("{shock: true}")->interp()->type(), "dc");
   EXPECT_THROW(read("{type: weno5, scale: true}"), c10::Error);
 }
+
+// the execution keys are checked once, by the deck reader
+// (MeshBlockOptionsImpl::from_yaml): a bad value is still refused
+TEST(OptionsDefaults, execution_values_are_checked_by_the_reader) {
+  auto read = [](std::string const& intg) {
+    auto tmpl = (std::filesystem::temp_directory_path() /
+                 "test-options-execution-XXXXXX")
+                    .string();
+    std::vector<char> path(tmpl.begin(), tmpl.end());
+    path.push_back('\0');
+    char* f = path.data();
+    close(mkstemp(f));
+    std::ofstream(f) << "geometry: {type: cartesian, bounds: {x1min: 0., "
+                        "x1max: 1., x2min: 0., x2max: 1., x3min: 0., x3max: "
+                        "1.}, cells: {nx1: 8, nx2: 1, nx3: 1, nghost: 2}}\n"
+                     << "dynamics: {equation-of-state: {type: ideal-gas}}\n"
+                     << "integration: {" << intg << "}\n";
+    std::string msg;
+    try {
+      MeshBlockOptionsImpl::from_yaml(f);
+    } catch (c10::Error const& e) {
+      msg = e.what();
+    }
+    std::remove(f);
+    return msg;
+  };
+  EXPECT_EQ(read("execution: eager"), "");
+  EXPECT_NE(read("execution: graph").find("must be auto, eager or cuda-graph"),
+            std::string::npos);
+  EXPECT_NE(read("execution: eager, execution-strict: true")
+                .find("execution-strict needs execution: cuda-graph"),
+            std::string::npos);
+}

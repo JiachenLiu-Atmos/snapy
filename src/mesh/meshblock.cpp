@@ -216,14 +216,6 @@ void MeshBlockImpl::reset() {
   register_flux_storage();
 
   //// ------- (10) stage executor (StageExecutor::mode) ------- ////
-  TORCH_CHECK(options->execution() == "auto" ||
-                  options->execution() == "eager" ||
-                  options->execution() == "cuda-graph",
-              "integration/execution must be auto, eager or cuda-graph, got '",
-              options->execution(), "'");
-  TORCH_CHECK(!(options->execution() == "eager" && options->execution_strict()),
-              "integration/execution-strict needs execution: cuda-graph "
-              "(eager is never refused)");
   // a Mesh's executor is kept only by the block it holds (a clone gets its own)
   if (_mesh_executor && _executor &&
       _executor_index < _executor->num_blocks() &&
