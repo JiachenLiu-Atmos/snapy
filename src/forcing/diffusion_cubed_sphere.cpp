@@ -169,8 +169,7 @@ std::array<Tensor, 3> DiffusionImpl::cubed_sphere_fluxes(Tensor w,
   auto block = phydro->pmb;
   auto c = block->pcoord;
   auto op = c->options;
-  int panel = std::get<2>(
-      block->get_layout()->loc_of(block->options->layout()->rank()));
+  int panel = block->get_layout()->panel_of(block->options->layout()->rank());
   Box lo{c->kl(), c->jl(), c->il()}, hi{c->ku() + 1, c->ju() + 1, c->iu() + 1};
   auto a = c->x2v.to(w.options()).view({1, -1, 1});
   auto b = c->x3v.to(w.options()).view({-1, 1, 1});
@@ -391,8 +390,7 @@ Tensor DiffusionImpl::forward_cubed_sphere(Tensor du, Tensor w, Tensor temp,
                                            double dt) {
   auto block = phydro->pmb;
   auto c = block->pcoord;
-  int panel = std::get<2>(
-      block->get_layout()->loc_of(block->options->layout()->rank()));
+  int panel = block->get_layout()->panel_of(block->options->layout()->rank());
   auto a = c->x2v.to(w.options()).view({1, -1, 1});
   auto b = c->x3v.to(w.options()).view({-1, 1, 1});
   // post_fluxes ran this stage: the energy rows are in the register and
