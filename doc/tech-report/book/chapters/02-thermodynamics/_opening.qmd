@@ -1,6 +1,8 @@
-This chapter follows conserved state through the EOS[^rg-ba9e60e5ab2e] and the final-stage phase solve. It describes the
-five EOS types, their energy conventions and the identities required by transport and temperature floors.
-Floors belong to @sec-ch08; rejection and condensate repair belong to @sec-ch10.
+This chapter follows the conserved state through the EOS[^rg-ba9e60e5ab2e] and the last stage's phase solve. It
+defines the stored rows and their maps to the primitive state, including anomaly storage, and describes the five
+EOS types, their energy conventions and the identities the floors and the transport rely on. Two of the types,
+`ideal-gas` and `ideal-moist`, may be captured in a CUDA[^rg-6f633b2ccc44] graph; the other three always run eager
+(@sec-ch02-other-eos). Floors belong to @sec-ch08; rejection and condensate repair belong to @sec-ch10.
 
 ```{python}
 #| label: fig-ch02-dependencies
@@ -15,20 +17,23 @@ Switch-combination coverage is recorded in @sec-ch12-matrix.
 
 | scheme | switch | default | order | main test |
 |---|---|---|---|---|
-| conservation laws | none | always | transport-dependent | wall saturation |
-| EOS interface | `type`[^rg-05f4e1b392d6] | moist-mixture | not applicable | hydro options |
-| ideal gas | `ideal-gas` | unselected | local algebra | zero offset |
-| ideal moist | `ideal-moist` | unselected | local algebra | temperature map |
-| moist mixture | `moist-mixture` | selected | iterative tolerance | EOS round trip |
-| ANEOS | `aneos` | unselected | external | none |
-| shallow water | `shallow-water` | unselected | local algebra | shallow examples |
-| consistency | none | required | identity | temperature map |
-| saturation | `uv-solver`[^rg-82c623ddbaeb] | auto | iterative tolerance | saturation redo |
+| conservation laws and variables | `anomaly` | always; anomaly off | transport-dependent | `test_anomaly_storage` |
+| EOS interface | `type`[^rg-05f4e1b392d6] | `moist-mixture` | not applicable | `test_hydro_options` |
+| ideal gas | `ideal-gas` | unselected | exact algebra | `test_eos` (zero offset) |
+| ideal moist | `ideal-moist` | unselected | exact algebra | `test_eos_temp2inteng` |
+| other types and capture | `type` | not captured | not applicable | `test_eos`, `test_aneos_gamma` |
+| moist mixture | `moist-mixture` | the default type | iterative tolerance | `test_eos` (moist mixture) |
+| ANEOS | `aneos` | unselected | external | `test_aneos_gamma` (stand-in) |
+| shallow water | `shallow-water` | unselected | exact algebra | examples, `FULL_TESTS` only |
+| consistency | none | required | identity | `test_eos_temp2inteng` |
+| saturation | `uv-solver`[^rg-82c623ddbaeb] | `auto` | iterative tolerance | `test_check_redo_saturation` |
 
 : Chapter scope; no measured convergence order is asserted. {#tbl-ch02-scope}
 
 <!-- reader glossary notes -->
 [^rg-ba9e60e5ab2e]: EOS — equation of state
+
+[^rg-6f633b2ccc44]: CUDA — NVIDIA's parallel computing platform
 
 [^rg-05f4e1b392d6]: type — implementation selector for the enclosing options block
 

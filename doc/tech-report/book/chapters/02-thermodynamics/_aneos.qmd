@@ -1,10 +1,12 @@
 ## External tabulated EOS interface (`aneos`) {#sec-ch02-aneos}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: OUTLINE.md section 2; src/eos/aneos.cpp, src/eos/aneos/aneos_thermo.hpp,
-         src/eos/aneos/aneos_thermo_dummy.cpp at the pin
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md section 6, chapter 2.4; src/eos/aneos.cpp, src/eos/aneos/aneos_thermo.hpp,
+         src/eos/aneos/aneos_thermo_dummy.cpp, tests/test_aneos_gamma.cpp at the pin
 status: draft
+author: chengcli
+reviewer: XinyueWang05
 -->
 
 ### Summary
@@ -26,7 +28,7 @@ tree therefore says how accurate the material model is.
 
 **Guarantee / limits.** None from this tree: the shipped provider throws in its constructor.
 
-**Evidence.** @tbl-ch02-aneos-tests: no ctest; `aneos_check.py` prints a labelled illustration `[I1]`, not a check.
+**Evidence.** @tbl-ch02-aneos-tests: `test_aneos_gamma.release` with a stand-in provider; `aneos_check.py` `[I1]`.
 :::
 
 Local symbols: none.
@@ -51,7 +53,7 @@ the heat capacity is constant.
 ### Numerical method
 
 `_cons2prim` applies the conserved floors, divides the momenta by $\rho$, subtracts the kinetic energy and calls
-`DU->PTL`; it caches the returned $T$ for a later `W->T`. `_prim2cons` multiplies and adds the kinetic energy back
+`DU->PTL`; it caches the returned $T$ in the provider. `W->T` and `W->I` call `DP->TUL` again. `_prim2cons` multiplies and adds the kinetic energy back
 after `DP->TUL`. The temperature floor calls `DT->PUL`. Every call is cell-local; no interpolation stencil is
 shipped. There is no metric raise or lower, so on a nonorthogonal grid the kinetic energy is wrong.
 
@@ -102,7 +104,7 @@ prim[IDN] = cons[IDN];
 auto out = prim.narrow(0, IVX, 3);
 torch::div_out(out, cons.narrow(0, IVX, 3), prim[IDN]);
 
-auto ke = 0.5 * (prim.narrow(0, IVX, 3) * cons.narrow(0, IVX, 3)).sum(0);
+auto ke = kinetic_energy_(prim, cons.narrow(0, IVX, 3));
 auto ie = cons[IPR] - ke;
 
 auto [P, T, L] = pthermo->compute("DU->PTL", {cons[IDN], ie});
@@ -120,22 +122,36 @@ apply_primitive_limiter_(prim);
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| none | external table behaviour | missing evidence | no linked provider is tested |
+| {{< code tests/test_aneos_gamma.cpp AneosGamma.implicit_index_takes_the_solved_state >}} (`test_aneos_gamma.release`) | the implicit solve takes its sound speed (`DP->TUL`) from the solid-filled state it solves | exact | `rho.masked_select(solid) == 2.` and `EXPECT_GT(checked, 0)` |
+| none | the behaviour of a real ANEOS table | missing evidence | no real provider is linked in any test |
 | `aneos_check.py` `[I1]` (this report) | an illustration of @eq-ch02-aneos-gamma | none | labelled as an illustration |
 
 : Tests of the ANEOS wrapper. {#tbl-ch02-aneos-tests}
 
-The script prints one labelled illustration and validates nothing.[^an-run] `[I1]`: $c_s=500$ m s$^{-1}$,
-$\rho=2$ kg m$^{-3}$ and $p=10^5$ Pa give $\gamma=5.0$.
+`test_aneos_gamma.release` links its own stand-in `ANEOSThermoImpl`, a strong definition that replaces the shipped
+weak stubs and records the density of every `DP->TUL` call; it tests the wrapper's wiring, not a material. At the
+pin it passes.[^an-ctest] The script prints one labelled illustration and validates nothing.[^an-run] `[I1]`:
+$c_s=500$ m s$^{-1}$, $\rho=2$ kg m$^{-3}$ and $p=10^5$ Pa give $\gamma=5.0$.
 
-[^an-run]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the script itself; run:
+[^an-ctest]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1 -V -R <name>` for the fifteen chapter-2 ctests `test_eos.release`, `test_aneos_gamma.release`,
+    `test_hydro_options.release`, `test_flux_positivity_carry.release`, `test_wall_saturation.release`,
+    `test_two_cards_species.release`, `test_anomaly_storage_python`, `test_anomaly_storage_cuda_python`,
+    `test_eos_temp2inteng_python`, `test_eos_species_sum_layout_python`, `test_eos_species_registry_python`,
+    `test_sk1_failure_counter_python`, `test_sk1_failure_counter_cuda_python`, `test_check_redo_saturation_python` and
+    `test_check_redo_saturation_cuda_python`, run together with one anchored `-R` pattern, in the `tests` directory of a
+    README CUDA Release build at the pin; CPU, and one CUDA GPU for the CUDA cases, 1 rank; Python 3.11.13, torch
+    2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 15 of 15 ctests passed.
+
+[^an-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the script itself; run:
     `python3 src/snapy_report/ch02/checks/aneos_check.py`, CPU,
     double, 1 process; Python 3.11.13, numpy 2.4.6, sympy 1.14.0; output identical to the committed file]. Output `aneos_check.out`,
     line `[I1]`.
 
 ### Limits
 
-1. **No provider, no evidence.** No external ANEOS run, and no wall, seam or forcing compatibility run, is claimed.
-2. **Partial API.** No moist species; no `W->A`; the base heat-capacity method returns zero.
-3. **Nonorthogonal grids.** No metric raise or lower (Numerical method).
-4. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
+1. **No provider, no evidence.** No run with a real ANEOS table, and no wall, seam or forcing compatibility run, is
+   claimed; the one ctest uses a stand-in provider.
+2. **No capture.** A CUDA graph refuses `aneos` (@sec-ch02-other-eos).
+3. **Partial API.** No moist species; no `W->A`; the base heat-capacity method returns zero.
+4. **Nonorthogonal grids.** No metric raise or lower (Numerical method).
+5. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.

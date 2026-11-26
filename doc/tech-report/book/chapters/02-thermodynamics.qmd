@@ -12,6 +12,8 @@
 
 {{< include 02-thermodynamics/_h2he-check.qmd >}}
 
+{{< include 02-thermodynamics/_other-eos.qmd >}}
+
 {{< include 02-thermodynamics/_moist-mixture.qmd >}}
 
 {{< include 02-thermodynamics/_aneos.qmd >}}

@@ -1,1 +1,11 @@
-[^h2he-run]: [sha: 68f4e066974ede87e4379285c4fba895b970b7f1; deck: the element weights and temperature grids in `src/snapy_report/ch02/checks/h2he_check.py`; run: `python src/snapy_report/ch02/checks/h2he_check.py`, CPU float64, one process; Python 3.11.13, numpy 2.4.6, sympy 1.14.0]. Fourteen checks cover deck molar-mass and heat-capacity arithmetic (C1–C10) and sampled or limiting H2 rotor heat capacities (C11–C14). They do not re-derive the ideal-moist compressibility factors, energy equation, or frozen-composition adiabatic index. Output: `src/snapy_report/ch02/checks/h2he_check.out`. This is an independent port and algebra check, not execution of snapy or kintera. Rounded arithmetic is checked to half the last displayed decimal unit; rotor limiting checks use 0.01, and extrema are sampled every 0.5 K.
+[^h2he-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062 (the decks), kintera
+    0429d795f79a0665afeca565e5a05c87ab4ba1e2 and pyharp 4721715855e937c1e8b218e964c0655f46e56e29 (the constants and the
+    rotor kernel `h2_rot`, whose constants and weights the port uses); deck: the element weights and temperature grids in
+    `src/snapy_report/ch02/checks/h2he_check.py`; run: `python src/snapy_report/ch02/checks/h2he_check.py`, CPU float64,
+    one process; Python 3.11.13, numpy 2.4.6, sympy 1.14.0; output identical to the committed file]. Fourteen checks
+    cover deck molar-mass and heat-capacity arithmetic (C1–C10) and sampled or limiting H$_2$ rotor heat capacities
+    (C11–C14): equilibrium $c_p/R=3.50018$ at 1000 K, normal $2.50000$ at 20 K, and on a 0.5 K grid an equilibrium
+    maximum of 4.56869 at 50.5 K over 40–120 K and a normal maximum of 3.25225 over 20–200 K. They do not re-derive
+    the ideal-moist factors, the energy equation or the adiabatic index. Output:
+    `src/snapy_report/ch02/checks/h2he_check.out`. This is an independent port and algebra check, not a run of snapy or
+    kintera.

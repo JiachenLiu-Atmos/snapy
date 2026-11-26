@@ -1,11 +1,12 @@
 ## How snapy differs from a hydrostatic primitive-equation core (`none`) {#sec-ch02-pecore}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: src/hydro/hydro_forward.cpp, src/eos/ideal_gas.cpp, src/coord/coordinate.cpp, src/coord/spherical_polar.cpp,
-         src/hydro/hydro.cpp, src/implicit/implicit_hydro.cpp, src/forcing/const_gravity.cpp, src/forcing/coriolis.cpp
-         at the pin; the sections each row of the table cites
-author: Zoey Hu
+         src/hydro/hydro.cpp, src/implicit/implicit_hydro.cpp, src/forcing/const_gravity.cpp, src/forcing/coriolis.cpp,
+         src/hydro/gravity_work.hpp at the pin; the sections each row of the table cites
+author: Zoey Hu; re-read at the pin by chengcli
+reviewer: XinyueWang05
 status: draft
 -->
 
@@ -38,10 +39,11 @@ meets a difference, each with the section that states it.
 | Where does pressure come from? | From the equation of state of each cell's conserved state, not from integrating a hydrostatic column. | @sec-ch02-interface |
 | Is pressure the vertical coordinate? | No: $x_1$ is a fixed height or radius; there is no pressure, sigma or hybrid coordinate. | @sec-appa-conventions |
 | Are sound waves in the solution? | Yes: the explicit step is bounded by $\lvert v\rvert+c_s$ in every direction. | @sec-ch09-cfl |
-| Can the vertical sound-wave bound be removed? | Yes, by the vertically implicit correction, which acts in $x_1$ only and needs the whole column on one rank. | @sec-ch09-vic-options |
+| Can the vertical sound-wave bound be removed? | Yes, by the vertically implicit correction, which acts in $x_1$ only; the hydro refuses it unless both $x_1$ faces of the block are physical, that is `nb1`[^rg-ce9cfa9601d0] is 1, so the whole column is one block. | @sec-ch09-vic-options |
 | Is there a hydrostatic switch? | `non-hydrostatic`[^rg-0dd1d9434f28] below 1 replaces part of gravity by the cell's own pressure difference; even at 0 the vertical velocity stays prognostic. | @sec-ch05-hsmode |
-| Is the geometry shallow? | No: on the spherical grids every metric quantity uses the radius of its own cell; gravity is one constant, `grav1`. | @sec-ch03-sphpolar, @sec-ch06-cell |
-| Is the Coriolis force traditional? | Not by default: the full rotation vector is used; `traditional: true` keeps its radial part, on the cubed sphere only. | @sec-ch07-coriolis |
+| Is the geometry shallow? | No: on the spherical grids every metric quantity uses the radius of its own cell; gravity is one constant vector, `forcing/const-gravity`. | @sec-ch03-sphpolar, @sec-ch06-cell |
+| Where is the work of gravity booked? | At the $x_1$ faces, as a potential-energy flux difference of the scheme's own mass fluxes (the face form), with a corrected-PE[^rg-087095a1af94] term on Cartesian, spherical-polar and cubed-sphere grids; there is no cell form and no global energy fixer in V3, and setup refuses both. | @sec-ch06-face, @sec-ch06-dwork |
+| Is the Coriolis force traditional? | Not by default: the full rotation vector is used; `traditional: true` keeps its radial part, on the cubed sphere only (shallow water always uses it there). | @sec-ch07-coriolis |
 
 : Where snapy at the pin differs from a hydrostatic primitive-equation core. {#tbl-ch02-pecore}
 
@@ -64,8 +66,10 @@ implicit correction exists (@sec-ch09).
 | grid types, none a pressure coordinate | {{< code src/coord/coordinate.cpp CoordinateImpl::create >}} | `Unknown coordinate type` | `geometry.type` |
 | radius in the spherical widths | {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::center_width2 >}} | `x1v` | `spherical-polar` |
 | acoustic step bound | {{< code src/hydro/hydro.cpp HydroImpl::max_time_step >}} | `cs` | `integration/cfl` |
-| vertically implicit correction | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}} | `vic_solve_full` | `integration/implicit-scheme` |
+| vertically implicit correction | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}} | `vic_stage` | `integration/implicit-scheme` |
+| one block per column for the correction | {{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}} | `nb1 = 1` | `integration/implicit-scheme` |
 | hydrostatic split, constant gravity | {{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}} | `non-hydrostatic` | `forcing/const-gravity` |
+| gravity work at the faces; cell form and fixer refused | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `face_gravity_work` | `forcing/const-gravity/gravity-work` |
 | traditional option, default off | {{< code src/forcing/coriolis.cpp CoriolisOptionsImpl::from_yaml >}} | `traditional`[^rg-eec0b8420f25] | `forcing/coriolis` |
 
 : Code map of the differences. {#tbl-ch02-pecore-code}
@@ -90,7 +94,11 @@ The table lists differences of the equations and the numerics only. Differences 
 convection schemes) are not listed; the forcing modules snapy has are the subject of @sec-ch07.
 
 <!-- reader glossary notes -->
+[^rg-ce9cfa9601d0]: nb1 — number of blocks along the first coordinate direction
+
 [^rg-0dd1d9434f28]: non-hydrostatic — fraction of the vertical body force retained by the non-hydrostatic treatment
+
+[^rg-087095a1af94]: PE — potential energy
 
 [^rg-eec0b8420f25]: traditional — whether to use the traditional Coriolis approximation
 <!-- end reader glossary notes -->

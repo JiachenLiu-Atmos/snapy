@@ -12,8 +12,8 @@ TARGETS = {
     'species': 'book/chapters/02-thermodynamics/_howto-species.qmd',
     'condensate': 'book/chapters/10-moist-coupling/_howto-condensate.qmd',
 }
-PIN = '919936da07d80a310b98ab11da184972a3203274'
-KINTERA = ('chengcli/kintera', 'c55b13b2204997d2d09e04498558ab9495d8ee77')  # kintera v2.6.2
+PIN = '73c45a7c8c991209924e1137992352c335575062'
+KINTERA = ('chengcli/kintera', '0429d795f79a0665afeca565e5a05c87ab4ba1e2')  # kintera v2.6.13
 
 
 def _reader(repo, sha):
@@ -113,7 +113,9 @@ def one_stage(block, nvar, vapour, pressure):
 ```'''
 
 
-def generate(report):
+def generate(report, keys=None):
+    # only the requested targets (default: both); a legacy chapter's target is not built (check(), --write)
+    keys = set(TARGETS) if keys is None else set(keys)
     repo, sha = code_anchors.read_pin(report / 'code_pin.yml')
     if sha != PIN:
         raise ValueError('N6 needs review when the code pin changes')
@@ -126,51 +128,52 @@ def generate(report):
     reaction, reaction_cite = snap('examples/bryan.yaml', r'^reactions:\n(?:  [^\n]+\n)+')
     load, load_cite = snap('src/eos/equation_of_state.cpp',
         r'  op->thermo\(\) = kintera::ThermoOptionsImpl::from_yaml\(filename, op->verbose\(\)\);')
-    nvar, nvar_cite = snap('src/eos/ideal_moist.hpp',
-        r'    return 4 \+ pthermo->options->vapor_ids\(\)\.size\(\) \+\n[^;]+;')
+    nvar, nvar_cite = snap('src/eos/moist_base.hpp',
+        r'  int nvar\(\) const override \{ return 4 \+ nspecies\(\) \+ 1; \}')
     icy, icy_cite = snap('python/csrc/snapy.cpp', r'  m\.attr\("kICY"\) = \(int\)snap::ICY;')
-    gate, gate_cite = snap('src/mesh/meshblock.cpp',
+    gate, gate_cite = snap('src/mesh/meshblock_advance.cpp',
         r'  if \(stage == pintg->stages\.size\(\) - 1 && phydro->options->eos\(\)->thermo\(\) &&\n'
         r'      phydro->options->eos\(\)->thermo\(\)->reactions\(\)\.size\(\) > 0\)')
-    writeback, writeback_cite = snap('src/mesh/meshblock.cpp', r'    hydro_u\.narrow\(0, ICY, ny\) = yfrac \* rho;')
-    cause, cause_cite = snap('src/mesh/meshblock.cpp',
+    writeback, writeback_cite = snap('src/mesh/meshblock_advance.cpp', r'    hydro_u\.narrow\(0, ICY, ny\) = yfrac \* rho;')
+    cause, cause_cite = snap('src/mesh/meshblock_redo.cpp',
         r'"the saturation adjustment left a cell unadjusted, or the VIC "')
 
     phase, phase_cite = kin('src/species.cpp',
         r'    TORCH_CHECK\(phase\.empty\(\) \|\| phase == "gas" \|\| phase == "liquid" \|\|\n[^;]+;')
     cv, cv_cite = kin('src/species.cpp', r'      species_cref_R\.push_back\(5\. / 2\.\);')
     u0, u0_cite = kin('src/species.cpp', r'      species_uref_R\.push_back\(0\.\);')
-    clear, clear_cite = kin('src/species.cpp', r'  clear_species_registry\(\);\n  loaded_species = [^\n]+')
+    clear, clear_cite = kin('src/species.cpp', r'  clear_species_registry\(\);\n\n  for \(const auto& sp : config\["species"\]\) \{')
     ref, ref_cite = kin('src/thermo/thermo_options.cpp', r'  vapor_set\.insert\(species_names\[0\]\);')
     inert, inert_cite = kin('src/thermo/thermo_options.cpp',
         r'    if \(species_phases\[i\] == "gas"\) \{\n.*?      vapor_set\.insert\(name\);')
-    nucleation, nucleation_cite = kin('src/thermo/thermo_options.cpp',
-        r'    thermo->nucleation\(\) =\n        NucleationOptionsImpl::from_yaml\(config\["reactions"\]\);\n'
-        r'    add_to_vapor_cloud\(vapor_set, cloud_set, thermo->nucleation\(\)\);')
-    product, product_cite = kin('src/thermo/nucleation.cpp',
-        r'      if \(species_phases\[id\] == "gas"\) \{\n        vapor_set\.insert\(name\);\n'
-        r'        op->has_gas_products = true;\n      \} else \{\n        cloud_set\.insert\(name\);\n      \}')
-    reactant, reactant_cite = kin('src/thermo/nucleation.cpp',
-        r'      TORCH_CHECK\(species_phases\[id\]\.empty\(\) \|\| species_phases\[id\] == "gas",\n[^;]+;')
-    signature, signature_cite = kin('src/utils/user_funcs.hpp', r'^using user_func1 = double \(\*\)\(double\);')
-    pair, pair_cite = kin('src/vapors/vapor_functions.h',
-        r'^DISPATCH_MACRO\ninline double h2o_bryan\(double T\) \{.*?\n\}\n\nDISPATCH_MACRO\n'
-        r'inline double h2o_bryan_ddT\(double T\) \{.*?\n\}')
-    cpu_table, cpu_table_cite = kin('src/func_table.cpp',
-        r'^user_func1 func1_table_cpu\[\] = \{\n    h2o_ideal,[^\n]+')
-    cpu_names, cpu_names_cite = kin('src/func_table.cpp',
-        r'^std::vector<std::string> func1_names = \{\n    "h2o_ideal",[^\n]+\n    "h2o_bryan_ddT",[^\n]+')
-    cuda_table, cuda_table_cite = kin('src/func_table.cu',
-        r'^__device__ user_func1 func1_table_cuda\[\] = \{\n    nullptr,\n    h2o_ideal,\n    h2o_ideal_ddT,\n'
-        r'    h2o_bryan,\n    h2o_bryan_ddT,')
-    host_lookup, host_lookup_cite = kin('src/utils/user_funcs.hpp', r'      funcs\.push_back\(func_table\[id\]\);')
-    device_lookup, device_lookup_cite = kin('src/utils/user_funcs.cu', r'      h_idx\.push_back\(id \+ 1\);(?=.*?get_device_func2)')
-    unknown, unknown_cite = kin('src/utils/user_funcs.hpp',
-        r'      throw std::runtime_error\("Function " \+ name \+ " not registered\."\);')
-    ddt, ddt_cite = kin('src/thermo/log_svp.hpp', r'    for \(auto& name : _logsvp_ddT\) name \+= "_ddT";')
-    rebuild, rebuild_cite = kin('README.md',
-        r'^# 3\. Configure and build the C\+\+ library\ncmake -B build\ncmake --build build --parallel\n.*?pip install \.')
-    formulas, formulas_cite = kin('src/func_table.cpp', r'    "h2o_ideal",[^\n]+\n[^\n]+"nh3_ideal",[^\n]+')
+    if 'condensate' in keys:
+        nucleation, nucleation_cite = kin('src/thermo/thermo_options.cpp',
+            r'    thermo->nucleation\(\) =\n        NucleationOptionsImpl::from_yaml\(config\["reactions"\]\);\n'
+            r'    add_to_vapor_cloud\(vapor_set, cloud_set, thermo->nucleation\(\)\);')
+        product, product_cite = kin('src/thermo/nucleation.cpp',
+            r'      if \(species_phases\[id\] == "gas"\) \{\n        vapor_set\.insert\(name\);\n'
+            r'        op->has_gas_products = true;\n      \} else \{\n        cloud_set\.insert\(name\);\n      \}')
+        reactant, reactant_cite = kin('src/thermo/nucleation.cpp',
+            r'      TORCH_CHECK\(species_phases\[id\]\.empty\(\) \|\| species_phases\[id\] == "gas",\n[^;]+;')
+        signature, signature_cite = kin('src/utils/user_funcs.hpp', r'^using user_func1 = double \(\*\)\(double\);')
+        pair, pair_cite = kin('src/vapors/vapor_functions.h',
+            r'^DISPATCH_MACRO\ninline double h2o_bryan\(double T\) \{.*?\n\}\n\nDISPATCH_MACRO\n'
+            r'inline double h2o_bryan_ddT\(double T\) \{.*?\n\}')
+        cpu_table, cpu_table_cite = kin('src/func_table.cpp',
+            r'^user_func1 func1_table_cpu\[\] = \{\n    h2o_ideal,[^\n]+')
+        cpu_names, cpu_names_cite = kin('src/func_table.cpp',
+            r'^std::vector<std::string> func1_names = \{\n    "h2o_ideal",[^\n]+\n    "h2o_bryan_ddT",[^\n]+')
+        cuda_table, cuda_table_cite = kin('src/func_table.cu',
+            r'^__device__ user_func1 func1_table_cuda\[\] = \{\n    nullptr,\n    h2o_ideal,\n    h2o_ideal_ddT,\n'
+            r'    h2o_bryan,\n    h2o_bryan_ddT,')
+        host_lookup, host_lookup_cite = kin('src/utils/user_funcs.hpp', r'      funcs\.push_back\(func_table\[id\]\);')
+        device_lookup, device_lookup_cite = kin('src/utils/user_funcs.cu', r'      h_idx\.push_back\(id \+ 1\);(?=.*?get_device_func2)')
+        unknown, unknown_cite = kin('src/utils/user_funcs.hpp',
+            r'      throw std::runtime_error\("Function " \+ name \+ " not registered\."\);')
+        ddt, ddt_cite = kin('src/thermo/log_svp.hpp', r'    for \(auto& name : _logsvp_ddT\) name \+= "_ddT";')
+        rebuild, rebuild_cite = kin('README.md',
+            r'^# 3\. Configure and build the C\+\+ library\ncmake -B build\ncmake --build build --parallel\n.*?pip install \.')
+        formulas, formulas_cite = kin('src/func_table.cpp', r'    "h2o_ideal",[^\n]+\n[^\n]+"nh3_ideal",[^\n]+')
 
     KINTERA_REF = f'snapy@{sha} and kintera@{ksha}'
     vapour_py, cloud_py, reaction_py = _entry(vapour), _entry(cloud), _entry(reaction.split('\n', 1)[1])
@@ -188,7 +191,7 @@ Adding a condensate, which a reaction names, is @sec-ch10-satadj.
 
 {SETUP}
 
-1. Write the species entry. Its values are those of the deck ({vapour_cite}).
+1. Write the species entry. Its values are those of the deck (`H2O` in {vapour_cite}).
 
 ```python
 vapour = {vapour_py}
@@ -225,26 +228,26 @@ torch.testing.assert_close(after[snapy.kICY], before[snapy.kICY],
 print("N6 species: H2O with phase gas adds state row", snapy.kICY)
 ```
 
-- **Contract.** Reading: the EOS builds its species table from the same YAML card ({load_cite}):
+- **Contract.** Reading: the EOS builds its species table from the same YAML card (`from_yaml` in {load_cite}):
 
   ```cpp
   {load}
   ```
 
 - Keys: `name`, `composition` (the molar mass comes from it), `cv_R`, `u0_R` and `phase`. A missing `cv_R`
-  defaults as `{cv}` ({cv_cite}); a missing `u0_R` as `{u0}` ({u0_cite}).
+  defaults to 5/2 (`species_cref_R` in {cv_cite}); a missing `u0_R` to 0 (`species_uref_R` in {u0_cite}).
 - Phase: empty, `gas`, `liquid` or `solid`; anything else is refused ({phase_cite}).
-- Reference species: the first entry is always a state species ({ref_cite}); the dry air goes first.
-- State rows: a species is a row when a reaction names it or when it declares a phase ({inert_cite});
+- Reference species: the first entry is always a state species (`vapor_set` in {ref_cite}); the dry air goes first.
+- State rows: a species is a row when a reaction names it or when it declares a phase (`vapor_set` in {inert_cite});
   a listed species with neither is in kintera's table but not in the state.
-- Row count: the five hydro rows plus one per species after the first ({nvar_cite}):
+- Row count: the five hydro rows plus one per species after the first (`nvar` in {nvar_cite}):
 
   ```cpp
   {nvar}
   ```
 
   The first species row is `kICY` ({icy_cite}).
-- One table per process: each card clears kintera's species table and loads its own ({clear_cite});
+- One table per process: each card clears kintera's species table and loads its own (`clear_species_registry` in {clear_cite});
   `kintera.species_names()` lists the card loaded last, as step 5 checks.
 
 CI checks the contract, and the runtime test runs on a pin build.
@@ -254,7 +257,9 @@ composition; a phase change is added in the reaction list (@sec-ch10-satadj).
 <!-- end reader-reference: species-contract -->
 '''
 
-    condensate = f'''<!-- generated reader-reference: condensate-contract -->
+    condensate = None
+    if 'condensate' in keys:
+        condensate = f'''<!-- generated reader-reference: condensate-contract -->
 <!-- Generated by tools/gen_species_contract.py; do not edit. -->
 #### How to add one
 
@@ -376,7 +381,8 @@ Then rebuild and reinstall kintera, so that snapy links the new table ({rebuild_
     crash of `[C5]` is undefined behaviour, observed as exit status -11 on this build.
 <!-- end reader-reference: condensate-contract -->
 '''
-    return {'species': species, 'condensate': condensate}
+    out = {'species': species, 'condensate': condensate}
+    return {k: v for k, v in out.items() if k in keys}
 
 
 def check(report=REPORT):
@@ -386,7 +392,7 @@ def check(report=REPORT):
         print('[N6 species contract] skipped: every target is in a chapter in tools/code-anchors-legacy.txt')
         return 0
     try:
-        expected = generate(Path(report))
+        expected = generate(Path(report), live)
         errors = []
         for key, target in live.items():
             if (Path(report) / target).read_text() != expected[key]:
@@ -401,7 +407,8 @@ def check(report=REPORT):
 
 if __name__ == '__main__':
     if '--write' in sys.argv:
-        for key, text in generate(REPORT).items():
+        live = [k for k, t in TARGETS.items() if not code_anchors.legacy_chapter_of(t, REPORT)]
+        for key, text in generate(REPORT, live).items():
             (REPORT / TARGETS[key]).write_text(text)
     else:
         sys.exit(check())

@@ -1,57 +1,55 @@
 ## Temperature-dependent moist thermodynamics (`moist-mixture`) {#sec-ch02-moist-mixture}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: OUTLINE.md section 2; src/eos/moist_mixture.cpp at the pin; kintera src/thermo/thermo_y.cpp,
-         src/thermo/eval_uhs.cpp, src/thermo/thermo.hpp at kintera c55b13b2204997d2d09e04498558ab9495d8ee77
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md section 6, chapter 2.4; src/eos/moist_mixture.cpp at the pin; kintera src/thermo/thermo_y.cpp,
+         src/thermo/thermo.hpp, src/thermo/eval_uhs.cpp, src/thermo/h2_rotation.h, src/species.cpp,
+         src/species.hpp at the kintera pin
 status: draft
+author: chengcli
+reviewer: XinyueWang05
 -->
 
 ### Summary
 
-The moist-mixture EOS is the default. It lets each species' heat capacity depend on temperature, through the nine-coefficient thermodynamic
-polynomial fits or a quantum rotor for molecular hydrogen, and it lets a gas depart from the ideal gas law through a
-compressibility factor. Temperature can then no longer be read off the energy by one division. The EOS solves for
-it by Newton iteration in kintera, and then evaluates pressure and sound speed at that temperature. The iteration
-stops at a relative tolerance, which sets how closely the two directions of the conversion agree.
+The moist-mixture EOS is the default `type`. It hands the thermodynamics to kintera, which can let a species'
+heat capacity depend on temperature (nine-coefficient NASA polynomials, or a quantum rotor for H$_2$) and can let a
+gas depart from the ideal gas law through a compressibility factor. Temperature then no longer follows from the
+energy by one division. kintera solves for it, by one exact correction when every heat capacity is constant and by
+Newton iteration otherwise, and the EOS evaluates pressure and sound speed at that temperature. A CUDA graph does
+not capture a block that uses it (@sec-ch02-other-eos).
 
 ::: {.callout-note title="At a glance"}
-**Purpose.** Inverts the energy for $T$ by Newton, @eq-ch02-moist-mixture-newton, then gives $p$ and $c_s$, @eq-ch02-moist-mixture-speed.
+**Purpose.** Inverts the energy for $T$, @eq-ch02-moist-mixture-newton, then gives $p$ and $c_s$, @eq-ch02-moist-mixture-speed.
 
-**Data.** Reads $\mathbf U$ or $\mathbf W$ with the species rows and the thermo card; writes the other, $T$, $\gamma$, $c_s$, $\hat h_n$.
+**Data.** Reads $\mathbf U$ or $\mathbf W$ with the species rows and the thermo card; writes the other, $T$, $\gamma$, $c_s$, $\hat h_n$[^rg-9ebbecfa7643].
 
-**Placement.** At every state conversion of every stage; a cache keyed on the primitive tensor avoids repeated inversions.
+**Placement.** Every state conversion of every stage; a cache keyed on the primitive tensor avoids repeated inversions.
 
-**Activation.** The default, `type: moist-mixture`, with a species card; `max-iter`[^rg-ff9aa5fe35e3] (10) and `ftol`[^rg-50d718f8d670] ($10^{-6}$) tune the Newton.
+**Activation.** The default, `type: moist-mixture`; kintera's `max-iter`[^rg-ff9aa5fe35e3] (100) and `ftol`[^rg-50d718f8d670] ($10^{-6}$) tune the Newton.
 
-**Guarantee / limits.** After the stop the temperature error is below $(\Upsilon/2)(\mathtt{ftol}\,T)^2$ plus a derived rounding term; only $Z_n=1$ is supported by evidence.
+**Guarantee / limits.** Exact inversion for constant capacities; the sound speed is shown only for $Z_n=1$.
 
-**Evidence.** @tbl-ch02-moist-mixture-tests: two ctests by source reading, `moist-mixture_check.py` `[C1]`–`[C5]`.
+**Evidence.** @tbl-ch02-moist-mixture-tests: `test_eos.release`, `test_flux_positivity_carry.release`, `moist-mixture_check.py`.
 :::
 
-Local symbols: $\tilde c_n=\rho_n/\mu_n$ the molar concentration
-[mol m$^{-3}$]; $Z_n$[^rg-48897db479d9] the compressibility factor of gas $n$ [-]; $c_T$[^rg-fec99d6838c5] the isothermal sound speed [m s$^{-1}$];
-$U(T)$ the internal energy density at fixed composition [J m$^{-3}$] and $\Psi(T)=\mathrm dU/\mathrm dT$ the
-volumetric heat capacity [J m$^{-3}$ K$^{-1}$], $\Psi_{\min}$ its minimum between the start and the root;
-$\Upsilon=\max\lvert\mathrm d\Psi/\mathrm dT\rvert/\Psi_{\min}$ [K$^{-1}$]; $\varsigma$ the contraction factor of the Newton error [-];
-$\psi$ the error of a Newton iterate [K]; $T_{\mathrm{mid}}$ an intermediate temperature [K]; $\Xi_U$ the magnitude sum of
-the energy residual [J m$^{-3}$]; $N_{\mathrm{rnd}}$ the number of roundings in one molar energy; $T_{\mathrm{int}}$ an
-integration temperature [K]; $e_n(T)$ the specific internal energy of species $n$; $c_{v,n}^{\mathrm{ref}}$ its
-tabulated constant capacity; $J$ a rotational quantum number; $k_{\mathrm B}$ Boltzmann's constant [J K$^{-1}$]; $T_{\mathrm{rot}}$ the rotational temperature of
-H$_2$ [K]; angle brackets a normalized ensemble average over $J$.
+Local symbols: $\tilde c_n=\rho_n/\mu_n$ the molar concentration [mol m$^{-3}$]; $Z_n$ the compressibility factor
+of gas $n$ [-]; $c_T$[^rg-fec99d6838c5] the isothermal sound speed [m s$^{-1}$]; $U(T)$ the internal energy density at fixed
+composition [J m$^{-3}$] and $\Psi(T)=\mathrm dU/\mathrm dT$ the volumetric heat capacity [J m$^{-3}$ K$^{-1}$];
+$J$ a rotational quantum number; $T_{\mathrm{rot}}$ the rotational temperature of H$_2$ [K]; angle brackets a
+normalized average over $J$.
 
 ### Derivation
 
-kintera's `DY->V` returns partial mass densities $\rho_n$[^rg-49a92914133c], dry air included, in a tensor named `V`; snapy
-multiplies by $1/\mu_n$ to get $\tilde c_n$[^rg-642707a05b55]. The name `V` is neither a cell volume nor a concentration.
+kintera's `DY->V` returns the partial mass densities $\rho_n$, dry air included, in a tensor named `V`; snapy
+multiplies by $1/\mu_n$ to get $\tilde c_n$. The name `V` is neither a cell volume nor a concentration.
 
 #### Sound speed at fixed composition
 
-1. *Pressure of the gases.* $p=\mathcal RT\sum_{n\in\{\mathrm d\}\cup\mathcal V}\tilde c_nZ_n(\tilde c_n)$; each
-   $Z_n$ depends on its own concentration only, as kintera's `eval_czh_ddC` gives one derivative per gas.
+1. *Pressure of the gases.* `VT->P` gives $p=\mathcal RT\sum_{n\in\{\mathrm d\}\cup\mathcal V}\tilde c_nZ_n$.
 2. *Compress at fixed composition and $T$.* Every $\tilde c_n$ is proportional to $\rho$, so
-   $\partial\tilde c_n/\partial\rho=\tilde c_n/\rho$ and the chain rule gives $c_T^2=(\partial p/\partial\rho)_T$
-   below.
+   $\partial\tilde c_n/\partial\rho=\tilde c_n/\rho$. If each $Z_n$ depends on its own $\tilde c_n$ only, the chain
+   rule gives the first row below.
 3. *Adiabatic correction.* $c_s^2=\gamma c_T^2$ with the frozen $\gamma=c_p/c_v$ of all species.
 
 $$
@@ -64,111 +62,125 @@ c_s&=\sqrt{\gamma}\,c_T.
 \end{aligned}
 $$ {#eq-ch02-moist-mixture-speed}
 
-@eq-ch02-moist-mixture-speed is implemented by `_adiabatic_index` in {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_adiabatic_index >}}.
+@eq-ch02-moist-mixture-speed is implemented by `MoistMixtureImpl::_isothermal_sound_speed`
+({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_isothermal_sound_speed >}}) and
+`MoistMixtureImpl::_adiabatic_index` ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_adiabatic_index >}}).
+For $Z_n=1$ it is $c_s^2=\gamma p/\rho$.
 
-For $Z_n=1$ this is $c_s^2=\gamma p/\rho$. Step 3 is exact only for an ideal gas; for $Z_n\ne1$ the isentropic
-speed needs the temperature derivative of $Z_n$ as well, which the formula omits. The evidence covers $Z_n=1$
-only: the enthalpy test of @tbl-ch02-moist-mixture-tests asserts $Z=1$ for the dry gas of its card
-(the moist-mixture enthalpy test with the H$_2$ rotor in {{< code tests/test_flux_positivity_carry.cpp >}}).
+::: {.callout-warning title="Open issue"}
+**Unverified.** That the code's sum is $(\partial p/\partial\rho)_{T}$ (check `[V10]` of `v3_relations_check.py`)
+rests on the assumption of step 2, that each $Z_n$ depends on its own $\tilde c_n$ only. That assumption has not
+been checked against kintera. It is settled by reading, at the kintera pin 0429d795, the `czh` and `czh_ddC`
+function tables that `tables_for` builds and the `call_func2` kernel that `eval_czh_ddC` runs
+(`eval_czh_ddC` in
+[`kintera eval_uhs.cpp:215-233`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/eval_uhs.cpp#L215-L233)):
+the formula holds if each species' function reads only $T$ and its own $\tilde c_n$, and trivially if the tables
+are empty so that $Z_n=1$. Step 3 is exact only for $Z_n=1$; for $Z_n\ne1$ the isentropic speed also needs
+$\partial Z_n/\partial T$, which the formula omits.
+:::
+
+The evidence covers $Z_n=1$ only: `moist_mixture_nasa9_h2_enthalpy_matches_internal_plus_pressure` asserts
+$Z_{\mathrm d}=1$ exactly for the dry gas of its card (Tests layer).
 
 #### Temperature from energy
 
-4. *Linearize the energy.* At fixed partial densities $U(T)=\rho_{\mathrm d}e_{\mathrm d}(T)+\sum_n\rho_ne_n(T)$
-   and $\mathrm dU/\mathrm dT=\Psi(T)$, the volumetric heat capacity.
-5. *One Newton step* solves $U(T)=\rho e$ for the linearization:
+4. *Linearize the energy.* At fixed partial densities $U(T)=\sum_n\tilde c_nu_n(T)$ over dry air and every species,
+   with $u_n$ the molar internal energy, and $\mathrm dU/\mathrm dT=\Psi(T)$.
+5. *Start* at the constant-capacity temperature $T^{(0)}=(\rho e-\sum_n\rho_nu^{\star}_n)/\sum_n\rho_nc^{\mathrm{ref}}_{v,n}$.
+6. *Correct.* Each Newton step solves $U(T)=\rho e$ for the linearization:
 
 $$
-T\leftarrow T+
-\frac{\rho e-\rho_{\mathrm d}e_{\mathrm d}(T)-\sum_n\rho_ne_n(T)}
-{\rho_{\mathrm d}c_{v,\mathrm d}(T)+\sum_n\rho_nc_{v,n}(T)}
+T\leftarrow T+\frac{\rho e-\sum_n\tilde c_nu_n(T)}{\sum_n\tilde c_nc_{v,n}(T)} .
 $$ {#eq-ch02-moist-mixture-newton}
 
-@eq-ch02-moist-mixture-newton is implemented by `_intEng_to_temp` in [`kintera thermo_y.cpp:495-517`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/thermo_y.cpp#L495-L517).
+@eq-ch02-moist-mixture-newton is the step of `_intEng_to_temp` in
+[`kintera thermo_y.cpp:450-462`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_y.cpp#L450-L462),
+run by `solve` in
+[`kintera thermo_y.cpp:385-414`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_y.cpp#L385-L414).
+How many steps run is set once per thermo, in `reset`, by `temp_plan`
+([`kintera thermo_y.cpp:100-103`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_y.cpp#L100-L103)):
 
-6. *The start* is the constant-capacity temperature $(\rho e-\sum\rho_nu^{\star}_n)/\sum\rho_nc_{v,n}^{\mathrm{ref}}$,
-   exact when no capacity depends on $T$; then the loop exits after one step.
+- `exact`: no NASA-9 or H$_2$ capacity and no extra energy term. Then $U$ is linear in $T$, the start of step 5 is
+  the root, and `solve` runs a single Newton step as its one correction, with no host read.
+- `newton`: otherwise. Under capture (or `SolveMode::fixed`) it runs `max_iter` passes and updates every cell until
+  the largest relative step over all cells falls below `ftol`; from then on the whole tensor is frozen, every cell
+  together, because the run flag is one 0-dimensional tensor; otherwise (`eager_exit`) it stops when the largest relative step
+  $\lvert1-T_{\mathrm{old}}/T_{\mathrm{new}}\rvert$ over all cells is below `ftol`, a host read per pass, and warns
+  "max iterations reached" after `max_iter` passes.
 
-#### What the stopping rule guarantees
+A solve whose run flag is still set at the end (in `exact`, one that produced a non-finite $T$) adds one to row 1 of
+kintera's failure counter (row 2 for the pressure inversion): at most one per solve call, not one per cell
+([`kintera thermo_y.cpp:388-412`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_y.cpp#L388-L412)); those rows reach the register's monitor as `thermo.temp_solve` and `thermo.pres_solve` (@sec-ch13).
 
-The loop stops when the relative step $\lvert1-T_{\mathrm{old}}/T_{\mathrm{new}}\rvert$ falls below `ftol` in every
-cell, or after `max-iter` steps with a warning. Let $T_\ast$ be the root, and $\psi_{\mathrm{old}}$,
-$\psi_{\mathrm{new}}$ the errors of two successive iterates ($\psi_{\mathrm{start}}$ that of the starting guess).
+**What the stopping rule guarantees (`eager_exit`).** Let $T_\ast$ be the root and $\psi$ the error of an iterate.
+Taylor's theorem gives $\lvert\psi_{\mathrm{new}}\rvert\le(\Upsilon/2)\psi_{\mathrm{old}}^2$ with
+$\Upsilon=\max\lvert\mathrm d\Psi/\mathrm dT\rvert/\Psi_{\min}$; if $\varsigma=(\Upsilon/2)\lvert\psi^{(0)}\rvert<\tfrac12$
+the errors contract by $\varsigma$, and the step bounds the error, $\lvert\psi_{\mathrm{old}}\rvert\le\lvert
+T_{\mathrm{new}}-T_{\mathrm{old}}\rvert/(1-\varsigma)$. So at the stop, $\lvert T_{\mathrm{new}}-T_\ast\rvert\le
+(\Upsilon/2)\bigl(\mathtt{ftol}\,T/(1-\varsigma)\bigr)^2$ plus the rounding of the residual, which is of order
+$\epsilon_{\mathrm m}\sum_n\tilde c_n\lvert u_n\rvert/\Psi$. `[C4]` and `[C5]` of `moist-mixture_check.py` check
+the Newton error identity and the bound.
 
-1. *Newton error.* Taylor's theorem with $U(T_\ast)=\rho e$ gives
-   $\psi_{\mathrm{new}}=U''(T_{\mathrm{mid}})\psi_{\mathrm{old}}^2/(2\Psi(T_{\mathrm{old}}))$ for some $T_{\mathrm{mid}}$
-   between $T_{\mathrm{old}}$ and $T_\ast$, so $\lvert\psi_{\mathrm{new}}\rvert\le(\Upsilon/2)\psi_{\mathrm{old}}^2$.
-2. *Contraction.* If $\varsigma=(\Upsilon/2)\lvert\psi_{\mathrm{start}}\rvert<\tfrac12$, every error shrinks by at
-   least $\varsigma$.
-3. *Step bounds error.* The step is $\psi_{\mathrm{new}}-\psi_{\mathrm{old}}$, so
-   $\lvert\psi_{\mathrm{old}}\rvert\le\lvert T_{\mathrm{new}}-T_{\mathrm{old}}\rvert/(1-\varsigma)$.
-4. *Rounding of the residual.* The update line of the excerpt below (`out` in
-   [`kintera thermo_y.cpp:509`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/thermo_y.cpp#L509))
-   computes $\rho e-\sum_n\tilde c_nu_n(T)$ over dry air and the $N_y$ species. With $N_{\mathrm{rnd}}$ roundings in each molar energy
-   $u_n$, one in each product, $N_y$ in the sum and one in the subtraction, and every partial result bounded by
-   $\Xi_U=\lvert\rho e\rvert+\sum_n\tilde c_n\sum_j\lvert u_{n,j}\rvert$ (the magnitudes $u_{n,j}$ of the terms of
-   $u_n$), the computed residual is off by at most $(N_{\mathrm{rnd}}+2)(N_y+1)(\epsilon_{\mathrm m}/2)\Xi_U$. Divided by the
-   capacity, that is a temperature error of $(N_{\mathrm{rnd}}+2)(N_y+1)(\epsilon_{\mathrm m}/2)\Xi_U/\Psi$, the same scale
-   $\epsilon_{\mathrm m}\Xi/\Psi$ as the thermal-energy bound of @sec-ch02-ideal-moist. The `+=` adds
-   $(\epsilon_{\mathrm m}/2)T$, and the rounding of the last step itself $(N_y+3)(\epsilon_{\mathrm m}/2)\,\mathtt{ftol}\,T$.
-5. *Hence at the stop*, with $\lvert T_{\mathrm{new}}-T_{\mathrm{old}}\rvert<\mathtt{ftol}\,T$ and to first order in
-   $\epsilon_{\mathrm m}$[^rg-6cbda9c29330]:
-
-$$
-\lvert T_{\mathrm{new}}-T_\ast\rvert\le\frac\Upsilon2\left(\frac{\mathtt{ftol}\,T}{1-\varsigma}\right)^2
-+(N_{\mathrm{rnd}}+2)(N_y+1)\frac{\epsilon_{\mathrm m}}{2}\frac{\Xi_U}{\Psi_{\min}}
-+\frac{\epsilon_{\mathrm m}}{2}\bigl(1+(N_y+3)\,\mathtt{ftol}\bigr)T .
-$$
-
-With `ftol` $=10^{-6}$, $T=300$ K and $\Upsilon=10^{-3}$ K$^{-1}$ the first term is about $5\times10^{-11}$ K: the stopping
-rule is far tighter than its value suggests, and the rounding terms are what remain. They grow with the energy
-zeros: when $\sum_n\tilde c_n\lvert u^{\star}_n\rvert$ is $10^5$ times $\Psi T$, the second term is about $10^5$
-times $\epsilon_{\mathrm m}T$. For the quadratic energies of `[C5]`, $N_{\mathrm{rnd}}=5$.
-
-The pressure inversion `PV->T` is Newton on $T\sum\tilde c_nZ_n-p/\mathcal R$ with the derivative replaced by
-$\sum\tilde c_n(c_{p,n}-c_{v,n})/\mathcal R$ over the gases, after flooring each gas concentration at `gas_floor`
-($10^{-20}$ mol m$^{-3}$) in `_pres_to_temp`,
-[`kintera thermo_y.cpp:439-472`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/thermo_y.cpp#L439-L472).
-For $Z_n=1$ that derivative is exact and the starting guess already solves the equation.
+The pressure inversion `PV->T` (`_pres_to_temp`,
+[`kintera thermo_y.cpp:416-440`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_y.cpp#L416-L440))
+floors each gas concentration at `gas_floor` ($10^{-20}$ mol m$^{-3}$), starts at $T=p/(\mathcal R\sum\tilde c_n)$
+and subtracts $f/\sum\tilde c_n(c_{p,n}-c_{v,n})/\mathcal R$ with $f=T\sum\tilde c_nZ_n-p/\mathcal R$. Its plan is
+exact when no species has a compressibility function, because the start then solves $f=0$.
 
 #### Temperature-dependent capacities
 
-For the nine-coefficient polynomial fits, integrate $c_{p,n}/R_n$ term by term to get $\hat h_n/R_n$ and subtract $T$. Referencing the integral to
-300 K keeps the energy zero of the constant-capacity table:
+For a species with NASA-9 data and `use-nasa9-cp` on, kintera integrates $c_{p,n}/R_n$ and subtracts $T$; the
+integral is referenced to $T_0=300$ K (`kNasa9Tref`), which keeps the energy zero of the constant-capacity table:
 
 $$
-e_n(T)=u_n^\star+c_{v,n}^{\mathrm{ref}}\,300\,\mathrm K
-+\int_{300\,\mathrm K}^{T}[c_{p,n}(T_{\mathrm{int}})-R_n]\,\mathrm dT_{\mathrm{int}}
+e_n(T)=u_n^\star+c_{v,n}^{\mathrm{ref}}\,T_0
++\int_{T_0}^{T}[c_{p,n}(T_{\mathrm{int}})-R_n]\,\mathrm dT_{\mathrm{int}} .
 $$ {#eq-ch02-moist-mixture-integral}
 
-@eq-ch02-moist-mixture-integral is implemented by `n9` in [`kintera eval_uhs.cpp:285-300`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/eval_uhs.cpp#L285-L300).
+@eq-ch02-moist-mixture-integral is `intEng_nasa` in `eval_intEng_R` and `eval_nasa9`
+([`kintera eval_uhs.cpp:52-69`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/eval_uhs.cpp#L52-L69),
+`intEng_nasa` in [`kintera eval_uhs.cpp:263`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/eval_uhs.cpp#L263)).
+For the selected species the NASA-9 and H$_2$ branches replace the generic energy through `torch::where`; they do
+not add to it.
 
-For the selected species the polynomial-fit and H$_2$ branches replace the generic energy, `intEng_R_extra` included,
-through `torch::where`; they do not add to it.
-
-For molecular hydrogen each rotational level $J$ has energy $k_{\mathrm B}T_{\mathrm{rot}}J(J+1)$, with levels 0
-to 40 and $T_{\mathrm{rot}}=87.55$ K. Normalizing the weights $(2J+1)\exp[-T_{\mathrm{rot}}J(J+1)/T]$ and
+For H$_2$ with `use-h2-cp` on, each rotational level $J$ has energy $k_{\mathrm B}T_{\mathrm{rot}}J(J+1)$, with
+$J=0,\dots,40$ and $T_{\mathrm{rot}}=87.55$ K. Normalizing the weights $(2J+1)\exp[-T_{\mathrm{rot}}J(J+1)/T]$ and
 differentiating the mean rotational energy gives the variance form
 
 $$
 \frac{c_{v,\mathrm H_2}}{R_{\mathrm H_2}}
 =\frac32+\left(\frac{T_{\mathrm{rot}}}{T}\right)^2
-\left(\langle[J(J+1)]^2\rangle-\langle J(J+1)\rangle^2\right)
+\left(\langle[J(J+1)]^2\rangle-\langle J(J+1)\rangle^2\right).
 $$ {#eq-ch02-moist-mixture-rotor}
 
-@eq-ch02-moist-mixture-rotor is implemented by `h2_rot_reduce` in [`kintera eval_uhs.cpp:83-92`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/eval_uhs.cpp#L83-L92).
+@eq-ch02-moist-mixture-rotor is `h2_rot` and `h2_rot_eval` in
+[`kintera h2_rotation.h:10-43`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/h2_rotation.h#L10-L43).
+`h2-cp-mode: equilibrium` (the default) multiplies the odd-$J$ weights by three in one ensemble; `normal` averages
+separately normalized even and odd ensembles with weights $\tfrac14$ and $\tfrac34$. The sum is truncated at
+$J=40$; no error bound for the truncation is derived here.
 
-Equilibrium mode multiplies the odd-level weights by three. Normal mode averages separately normalized even and
-odd ensembles with weights $\tfrac14$ and $\tfrac34$, variances included. The sum is truncated at $J=40$; no
-temperature-range error bound is derived here.
+**The opt-in switches.** `reference-state` accepts exactly `Tref`, `Pref`, `use-nasa9-cp`, `use-h2-cp` and
+`h2-cp-mode`, and refuses any other key with a suggestion (`keys` in
+[`kintera species.cpp:232-243`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/species.cpp#L232-L243)).
+`use_nasa9_cp` and `use_h2_cp` default to false and `h2_cp_mode` to `equilibrium`
+([`kintera species.hpp:104-119`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/species.hpp#L104-L119));
+the NASA-9 switch applies to a species whose **name** has an entry in `data/nasa9.dat` (293 entries at the kintera pin;
+the decks' `H2O`, `H2S` and `NH3`, and `H2` and `He`, have one, and no entry is named `dry`), and the rotor only to a species named exactly `H2`. Gas entropy follows either switch.
+`ideal-moist` reads only the constant `cref_R`, so neither switch reaches its dynamics
+(@sec-ch02-ideal-moist).
 
-**H2/He opt-in contract (kintera v2.6.2).** **T-12.** `reference-state:` accepts exactly `Tref`, `Pref`, `use-nasa9-cp`, `use-h2-cp` and `h2-cp-mode`. Anything else is refused with a suggestion ([kintera species.cpp#L225-L240](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/species.cpp#L225-L240)). **T-13.** `use-h2-cp` (default **false**) swaps in a rigid-rotor partition-function $c_p$, $c_v$ and energy, **only for a species named exactly `H2`** ([kintera species.hpp#L112-L121](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/species.hpp#L112-L121), [eval_uhs.cpp#L95-L104](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/eval_uhs.cpp#L95-L104), [thermo_options.cpp#L73-L87](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/thermo_options.cpp#L73-L87)). **T-14.** `h2-cp-mode` takes `equilibrium` (the default: ortho$\leftrightarrow$para equilibrate, single Boltzmann sum, odd-J weight 3) or `normal` (fixed para:ortho = 1:3, each internally equilibrated). Any other value is refused ([kintera eval_uhs.cpp#L106-L126](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/eval_uhs.cpp#L106-L126), [thermo_options.cpp#L75-L82](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/thermo_options.cpp#L75-L82)). **T-15.** The rotor uses $T_{\mathrm{rot}}$ = 87.55 K and J = 0…40. $c_p$/R = 5/2 + $c_{v,\mathrm{rot}}$/R ([kintera eval_uhs.cpp#L73-L75](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/eval_uhs.cpp#L73-L75), [L133](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/eval_uhs.cpp#L133)). **T-16.** An independent float64 port gives $c_p/R=3.50018$ at 1000 K in equilibrium mode and $2.50000$ at 20 K in normal mode. On a 0.5 K grid, the equilibrium maximum over 40-120 K is 4.56869 at 50.5 K; the normal maximum over 20-200 K is 3.25225. These sampled results are not a kintera runtime test (C11-C14, @sec-ch02-ideal-moist). **T-17.** `use-nasa9-cp` (default **false**) swaps in NASA-9 $c_p$(T) for species whose **name** has an entry in `data/nasa9.dat`. Its header comment says it affects $c_p$, $c_v$ and energy but not entropy, and should not be combined with condensation of a NASA-9 vapor ([kintera species.hpp#L104-L110](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/species.hpp#L104-L110), [species.cpp#L190-L201](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/species.cpp#L190-L201), [eval_uhs.cpp#L12-L22](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/eval_uhs.cpp#L12-L22)). **T-18.** `nasa9.dat` has entries `H2`, `He`, `H2O`, `H2S` and `NH3`, and none named `dry` ([kintera nasa9.dat#L652](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/data/nasa9.dat#L652), [L692](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/data/nasa9.dat#L692), [L717](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/data/nasa9.dat#L717), [L947](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/data/nasa9.dat#L947), [L1082](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/data/nasa9.dat#L1082) (search of the file at the tag)). **T-19.** `ideal-moist` reads only the constant `cref_R`, so neither switch reaches its dynamics (T-9). Only `moist-mixture` (T-10) and kintera's own thermo calls use them ([ideal_moist.cpp#L37-L46](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L37-L46), [kintera thermo_y.cpp#L453-L454](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/thermo_y.cpp#L453-L454)). **T-20.** No example or test card at the pin sets `use-h2-cp` or `use-nasa9-cp` (search of `examples/` and `tests/` at [ccf40f95](https://github.com/chengcli/snapy/tree/c0c38593d3d3f37bebe204a590610fd7daa05a5f/examples)). **Hypothesis H-1, not run:** with `use-h2-cp: true` on an `ideal-moist` deck containing `H2`, kintera thermo calls would use the rotor capacity while the dynamics keep the constant capacity, so the two would disagree within one step.
+Exact and truncated: with constant capacities the inversion is exact; with NASA-9 or H$_2$ capacities it stops at
+`ftol` as bounded above. The rotor sum is truncated at $J=40$.
 
 ### Numerical method
 
-`U->W` subtracts the metric kinetic energy, forms the partial densities, calls `VU->T` and then `VT->P`. `W->I`,
-`W->T`, `W->A` and `WA->L` reuse the cached $T$ when the primitive tensor is the same object at the same mutation
-version, and refresh it with `PV->T` otherwise. The floors invalidate the cache. Every operation is local to a
-cell; the cache is not a stencil, and no wall or seam order follows from the inversion.
+`U->W` (`MoistMixtureImpl::_cons2prim`,
+{{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_cons2prim >}}) applies the conserved limiter, forms
+$\rho$, $y_n$, $v$ and $\rho e$ as in @eq-ch02-laws-state, writes `DY->V` and then `VU->T` into fixed buffers
+(`ivol`, `temp`), and evaluates `VT->P`. `W->I`, `W->T`, `W->A` and `WA->L` reuse the cached temperature when
+the primitive tensor is the same object at the same mutation version (`MoistMixtureImpl::_ensure_cache`,
+{{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_ensure_cache >}}), and refresh it with `PV->T` otherwise.
+With the limiter on, the cache is dropped after the floors. Every operation is local to a cell.
 
 ```{python}
 #| label: fig-ch02-moist-mixture-flow
@@ -181,10 +193,9 @@ make_fig()
 
 ### Code
 
-**A minimal input.** The default type needs only `reference-state` and a species card; the Newton keys are read by
-kintera:
+**A minimal input.** The default type needs a species card; the Newton keys are kintera's:
 
-<!-- reader glossary keys -->Keys in this fragment: `species`[^rg-e2c86a33eac7], `composition`[^rg-e540c1be9eba], `O`[^rg-1252b434cf3f], `N`[^rg-b5dfd97dcd83], `Ar`[^rg-34cd1c5ea1e1].
+<!-- reader glossary keys -->Keys in this fragment: `O`[^rg-1252b434cf3f], `Ar`[^rg-34cd1c5ea1e1].
 ```yaml
 reference-state: {Tref: 300., Pref: 1.e5}
 species:
@@ -194,23 +205,18 @@ species:
 dynamics:
   equation-of-state:
     type: moist-mixture
-    max-iter: 10       # Newton steps before a warning
+    max-iter: 100      # Newton passes
     ftol: 1.e-6        # relative temperature step that stops the loop
 ```
 
-This dry-only species card needs a compatible driver, such as `straka.release` on the dry deck named in the preface. Example drivers expect their own species: adding it to `bryan.yaml` makes
-`bryan.release` request the absent `H2O` species ({{< code examples/bryan.cpp main >}}).
-
 **What is refused, and why.**
 
-1. *No species card.* `reset` stops with "[MoistMixture] thermo pointer is null"
-   (a species card is read only when `reference-state` is present).
-2. *A key outside the list*, by `check_keys`, as in @sec-ch02-interface.
+1. *No thermo options.* `MoistMixtureImpl::reset` ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::reset >}})
+   stops with "[MoistMixture] thermo pointer is null".
+2. *A key outside the list*, by `check_keys` (@sec-ch02-interface), and a `reference-state` key outside the five.
 3. *A key the class lacks* throws "Unknown abbreviation: " and the key.
-
-Not refused: a Newton that reaches `max-iter` warns "ThermoYImpl::_intEng_to_temp: max iterations reached" (or
-`_pres_to_temp`) and returns its last iterate; the step goes on. `gammad` and `weight` of the EOS block are
-replaced in `reset` by the dry species of the card.
+4. *`eager_exit` under capture*: kintera refuses it ("solve mode eager_exit is not capturable"); a moist-mixture
+   block is not captured in any case (@sec-ch02-other-eos).
 
 | what | code link | symbol | switch |
 |---|---|---|---|
@@ -218,99 +224,59 @@ replaced in `reset` by the dry species of the card.
 | conserved to primitive | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_cons2prim >}} | `_cons2prim` | `moist-mixture` |
 | species enthalpy | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::species_enthalpy >}} | `species_enthalpy` | `moist-mixture` |
 | sound speed | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_isothermal_sound_speed >}} | `_isothermal_sound_speed` | `moist-mixture` |
-| cache | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_ensure_cache >}} | `_ensure_cache` | `moist-mixture` |
-| pressure Newton | [`kintera thermo_y.cpp:439-472`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/thermo_y.cpp#L439-L472) | `_pres_to_temp` | `ftol`, `max-iter` |
-| Newton defaults | [`kintera thermo.hpp:80-87`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/thermo.hpp#L80-L87) | `max_iter` | `ftol`, `max-iter` |
+| Newton | [`kintera thermo_y.cpp:385-414`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_y.cpp#L385-L414) | `solve` | `ftol`, `max-iter` |
+| Newton defaults | [`kintera thermo.hpp:171-173`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo.hpp#L171-L173) | `max_iter` | `ftol`, `max-iter` |
 
 : Code map of the moist mixture. {#tbl-ch02-moist-mixture-code}
-
-**The excerpt.** The inversion in `MoistMixtureImpl::_cons2prim`, and the loop body of kintera's
-`_intEng_to_temp`:
-
-```cpp
-auto ke = 0.5 * (prim.narrow(0, IVX, 3) * cons.narrow(0, IVX, 3)).sum(0);
-auto ie = cons[IPR] - ke;
-
-ivol.set_(pthermo->compute("DY->V", {prim[IDN], prim.narrow(0, ICY, ny)}));
-temp.set_(pthermo->compute("VU->T", {ivol, ie}));
-prim[IPR] = pthermo->compute("VT->P", {ivol, temp});
-
-// kintera ThermoYImpl::_intEng_to_temp
-out.set_((intEng - u0_sum) / cv0_sum);
-while (iter++ < options->max_iter()) {
-  auto u = eval_intEng_R(out, conc, options) * constants::Rgas;
-  auto cv = eval_cv_R(out, conc, options) * constants::Rgas;
-  auto temp_pre = out.clone();
-  out += (intEng - (u * conc).sum(-1)) / (cv * conc).sum(-1);
-  if ((1. - temp_pre / out).abs().max().item<double>() < options->ftol()) {
-    converged = true;
-    break;
-  }
-}
-```
-
-`ie` is $\rho e$; `DY->V` gives $\rho_n$; `VU->T` is the loop below it. The first loop line is step 6; the
-`+=` line is @eq-ch02-moist-mixture-newton with `u * conc` summing to $U(T)$ and `cv * conc` to $\Psi(T)$; the test
-is the stopping rule, a maximum over all cells.
 
 ### Tests
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| {{< code tests/test_eos.cpp DeviceTest.moist_mixture >}} (`test_eos.release`) | conserved-primitive round trip; $\gamma=1.4$ for the dry card; a mutated pressure invalidates the cached $T$ | $10^{-6}$ abs. and rel. | `torch::allclose`, set in the test; sized for the single-precision arm |
-| the moist-mixture enthalpy test with the H$_2$ rotor in {{< code tests/test_flux_positivity_carry.cpp >}} (`test_flux_positivity_carry.release`) | polynomial-fit/H$_2$ carried enthalpies sum to $E+p$; $Z=1$ exactly | $10^{-9}$ relative; exact | the test's comment: measured residual near $10^{-16}$, far below the $10^{-6}$ miss of dropping $K$ |
-| `moist-mixture_check.py` `[C1]`–`[C5]` (this report) | polynomial-fit antiderivative; rotor capacity; synthetic pressure loop; symbolic $c_T$, Newton update and Newton error; Newton stop inside the derived bound | exact; $2\times10^{-6}$; $10^{-9}$ K; exact; bound above | stated in the check |
+| {{< code tests/test_eos.cpp DeviceTest.moist_mixture >}} (`test_eos.release`) | conserved round trip; $\gamma=1.4$ for the dry card; a mutated pressure changes the cached $T$ to its reference | rtol $10^{-6}$, atol $10^{-6}$ | `torch::allclose(..., 1.E-6, 1.E-6)`, four calls, one `EXPECT_FALSE` |
+| {{< code tests/test_flux_positivity_carry.cpp flux_positivity.moist_mixture_nasa9_h2_enthalpy_matches_internal_plus_pressure >}} (`test_flux_positivity_carry.release`) | with NASA-9 and H$_2$ on, the carried enthalpies sum to $E+p$; $Z_{\mathrm d}=1$ for the dry gas | as in the test; $Z_{\mathrm d}$ exact | `EXPECT_NEAR(z, 1., 0.)` |
+| `moist-mixture_check.py` `[C1]`–`[C5]` (this report) | NASA-9 antiderivative; rotor capacity; synthetic pressure loop; symbolic $c_T$ and Newton error; Newton stop inside the bound | as stated in the check | the check |
 
 : Tests of the moist mixture. {#tbl-ch02-moist-mixture-tests}
 
-The check is independent algebra and isolated loop ports, not kintera.[^mm-run] `[C1]`: the nine-coefficient polynomial antiderivative
-differentiates back exactly. `[C2]`: the rotor capacity matches a central difference of the rotor energy to
-$5.7\times10^{-9}$ in both modes. `[C3]`: the pressure loop with a synthetic $Z(T)=1+10^{-3}T$ stops after 4 steps,
-$5.7\times10^{-14}$ K from the root. `[C4]`: sympy confirms steps 2 and 5. `[C5]`: over two decks of 200 random mixtures with linear capacities, with energy zeros up to $10^5$ and up to $10^{10}$ J mol$^{-1}$, the error at the stop is at most 0.547
-and 0.081 of the derived bound of step 5; the step-1 Newton error identity is also checked by sympy in `[C4]`.
+The check is independent algebra and isolated loop ports, not kintera.[^mm-run] At the pin both ctests
+pass.[^mm-ctest]
 
-The ctest cases have not been run for this report at the pin: **pending a pinned ctest run**.
+[^mm-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062 and kintera 0429d795f79a0665afeca565e5a05c87ab4ba1e2
+    (the ported update and stop test are those of `solve` in `eager_exit`); deck: the check itself, seed 5; run:
+    `python3 src/snapy_report/ch02/checks/moist-mixture_check.py`, CPU, double, 1 process; Python 3.11.13, numpy
+    2.4.6, sympy 1.14.0; output identical to the committed file]. Output `moist-mixture_check.out`.
 
-[^mm-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; kintera c55b13b2204997d2d09e04498558ab9495d8ee77 for
-    the ported loops; deck: the
-    check itself, seed 5; run: `python3 src/snapy_report/ch02/checks/moist-mixture_check.py`, CPU, double, 1 process;
-    Python 3.11.13, numpy 2.4.6, sympy 1.14.0, mpmath 1.3.0; output identical to the committed file]. Output
-    `moist-mixture_check.out`, lines `[C1]`–`[C5]`.
+[^mm-ctest]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1 -V -R <name>` for the fifteen chapter-2 ctests `test_eos.release`, `test_aneos_gamma.release`,
+    `test_hydro_options.release`, `test_flux_positivity_carry.release`, `test_wall_saturation.release`,
+    `test_two_cards_species.release`, `test_anomaly_storage_python`, `test_anomaly_storage_cuda_python`,
+    `test_eos_temp2inteng_python`, `test_eos_species_sum_layout_python`, `test_eos_species_registry_python`,
+    `test_sk1_failure_counter_python`, `test_sk1_failure_counter_cuda_python`, `test_check_redo_saturation_python` and
+    `test_check_redo_saturation_cuda_python`, run together with one anchored `-R` pattern, in the `tests` directory of a
+    README CUDA Release build at the pin; CPU, and one CUDA GPU for the CUDA cases, 1 rank; Python 3.11.13, torch
+    2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 15 of 15 ctests passed.
 
 ### Limits
 
-1. **Nonideal gases.** No $Z_n\ne1$ sound speed is supported by evidence at the pin, and the formula omits
-   $\partial Z_n/\partial T$ (step 3).
-2. **Nonconvergence is a warning.** A Newton that hits `max-iter` returns its last iterate; it does not feed the
-   saturation failure counter of @sec-ch02-saturation.
-3. **Phase closure.** The nine-coefficient polynomial switch and `use-h2-cp` of the reference-state card change this EOS but not the energy function of the phase
-   solve (@sec-ch02-saturation); H$_2$ dissociation is not claimed.
-4. **Missing evidence.** No compiled kintera heat-capacity curve is shown; the formula checks measure no accuracy
-   of the installed library.
+1. **Nonideal gases.** The sound speed is supported by evidence only for $Z_n=1$; the formula omits
+   $\partial Z_n/\partial T$ and its concentration derivative is unverified (open issue above).
+2. **Nonconvergence.** In `eager_exit` a Newton that hits `max-iter` warns and returns its last iterate; in every
+   mode an unconverged cell is counted in the failure counter, not refused.
+3. **No capture.** A moist-mixture block runs eager (@sec-ch02-other-eos).
+4. **Missing evidence.** No compiled kintera heat-capacity curve is shown; the formula checks measure no accuracy of
+   the installed library.
 5. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
 
 <!-- reader glossary notes -->
+[^rg-9ebbecfa7643]: $\hat h_n$ — specific enthalpy of species $n$ [J kg$^{-1}$], $\hat h_n = u^{\star}_n + c_{p,n}T$ for a gas and without the $R_nT$ term for a condensate; always with the hat, because $h$ is the cell width (§1)
+
 [^rg-ff9aa5fe35e3]: max-iter — maximum number of iterations
 
 [^rg-50d718f8d670]: ftol — relative convergence tolerance
 
-[^rg-48897db479d9]: $Z_n$ — compressibility factor of gas species $n$, $p_n = Z_n\rho_nR_nT$, dimensionless [-]; $Z_n=1$ at the pin, because kintera's `func2` registry is empty. Capital, because $z$ is the Cartesian height (§1)
-
 [^rg-fec99d6838c5]: $c_T$ — isothermal sound speed [m s$^{-1}$], $c_s = \sqrt{\gamma}\,c_T$
 
-[^rg-49a92914133c]: $\rho_n$ — partial density of species $n$, $\rho y_n$ [kg m$^{-3}$]
-
-[^rg-642707a05b55]: $\tilde c_n$ — molar concentration of species $n$ [mol m$^{-3}$]; the tilde separates it from the specific heats $c_{v,n}, c_{p,n}$ and the sound speed $c_s$
-
-[^rg-6cbda9c29330]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14)
-
-[^rg-e2c86a33eac7]: species — species definitions or selection in the enclosing thermodynamic block
-
-[^rg-e540c1be9eba]: composition — elemental composition of a species
-
 [^rg-1252b434cf3f]: O — oxygen count in the composition mapping
-
-[^rg-b5dfd97dcd83]: N — nitrogen count in the composition mapping
 
 [^rg-34cd1c5ea1e1]: Ar — argon count in the composition mapping
 <!-- end reader glossary notes -->

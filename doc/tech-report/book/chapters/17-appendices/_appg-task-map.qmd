@@ -67,7 +67,7 @@
 
 **Q-011.** What names, units and sign conventions does snapy use for winds, pressure, temperature, density and tracers? Is there a mapping table to common GCM conventions (omega vs w, potential temperature vs temperature, mixing ratio vs mass fraction)? See Conventions at a glance, @sec-appa-conventions. Not covered: a cross-model mapping to GCM conventions; the conventions table is delivered at the linked section.
 
-**Q-012.** How do I set the planet: radius, rotation rate, gravity (constant or height-dependent), and the gas properties of an H2–He mixture (including any ortho/para treatment)? See Constant-heat-capacity moist mixture, @sec-ch02-ideal-moist. Not covered: a planet-setup recipe spanning radius, rotation and gravity; gravity is constant only (@sec-ch06-cell); H2-He assumptions are delivered here, with the thermo opt-in contract in @sec-ch02-moist-mixture.
+**Q-012.** How do I set the planet: radius, rotation rate, gravity (constant or height-dependent), and the gas properties of an H2–He mixture (including any ortho/para treatment)? See Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist. Not covered: a planet-setup recipe spanning radius, rotation and gravity; gravity is constant only (@sec-ch06-cell); H2-He assumptions are delivered here, with the thermo opt-in contract in @sec-ch02-moist-mixture.
 
 **Q-013.** Which grids and geometries are available (cubed sphere, lat-lon, polar caps, channel or beta-plane), and how do I choose a resolution comparable to my old T85 or C96 runs? See Grids and geometry, @sec-ch03. Not covered: resolution guidance; that spherical-polar is the lat-lon grid; no channel or beta-plane.
 
@@ -77,7 +77,7 @@
 
 **Q-016.** Should I run in float32 or float64, and what does each cost or risk? See Expose the C++ API to Python, @sec-ch01-python. Not covered: a recommendation and a cost comparison.
 
-**Q-017.** Which exact equation set does snapy solve, with every source term written out? How do I map the paper's "Methods" paragraph to that set and to a released version? See Conservation laws and stage ordering, @sec-ch02-laws. Not covered: the full equation set with Coriolis, diffusion and geometric terms in one place.
+**Q-017.** Which exact equation set does snapy solve, with every source term written out? How do I map the paper's "Methods" paragraph to that set and to a released version? See Conservation laws and variables, @sec-ch02-laws. Not covered: the full equation set with Coriolis, diffusion and geometric terms in one place.
 
 **Q-018.** What is the overall discretization? Finite volume on cell averages? Which variables are reconstructed (primitive, conserved, characteristic), and why? See The finite-volume update and the flux divergence, @sec-ch04-divergence. Not covered: the reason primitives are reconstructed.
 
@@ -157,7 +157,7 @@
 
 **Q-071.** How do I test that a new condensate conserves total water (vapor + condensate) and moist energy through a phase change? What tolerance should I expect: round-off or truncation? See Saturation adjustment in the step, @sec-ch10-satadj. Not covered: a recipe for a new condensate.
 
-**Q-072.** How do I add a new condensate species? Where do I declare its thermodynamic data (cp, latent heat, saturation curve), how does it enter the state vector, and what name and index does it get? See Constant-heat-capacity moist mixture, @sec-ch02-ideal-moist. Not covered: an add-a-species procedure; the saturation curve.
+**Q-072.** How do I add a new condensate species? Where do I declare its thermodynamic data (cp, latent heat, saturation curve), how does it enter the state vector, and what name and index does it get? See Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist. Not covered: an add-a-species procedure; the saturation curve.
 
 **Q-077.** How do boundary conditions interact with the hydrostatic or well-balanced treatment? Do my ghost cells need a hydrostatic extrapolation to keep an atmosphere at rest exactly at rest? See Keep wall ghosts consistent with the hydrostatic reference, @sec-ch11-wb. Not covered: whether a user boundary callback must extrapolate hydrostatically.
 

@@ -1,10 +1,13 @@
 ## EOS interface and dispatch (`type`) {#sec-ch02-interface}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: OUTLINE.md section 2; src/eos/equation_of_state.cpp, src/eos/equation_of_state.hpp,
-         src/input/check_keys.cpp and the five concrete EOS files at the pin
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md section 6, chapter 2; src/eos/equation_of_state.cpp, src/eos/equation_of_state.hpp,
+         src/input/check_keys.cpp and the five concrete EOS files at the pin; kintera src/thermo/thermo_options.cpp
+         at the kintera pin
 status: draft
+author: chengcli
+reviewer: XinyueWang05
 -->
 
 ### Summary
@@ -30,8 +33,8 @@ chooses which other parts of the model can run with it.
 :::
 
 Local symbols: none. The conversion keys are API[^rg-1c8abe3405fb] labels, not mathematical symbols: `W` the primitive state
-$\mathbf W$[^rg-f3dd2ef14420], `U` the conserved state $\mathbf U$, `I` the internal energy density $\rho e$, `T` the temperature,
-`A` the adiabatic index $\gamma$[^rg-b007763f49e5], `L` the sound speed $c_s$[^rg-ee4f949231f5], `K` the specific kinetic energy and `E` the species
+$\mathbf W$, `U` the conserved state $\mathbf U$, `I` the internal energy density $\rho e$, `T` the temperature,
+`A` the adiabatic index $\gamma$, `L` the sound speed $c_s$[^rg-ee4f949231f5], `K` the specific kinetic energy and `E` the species
 energy densities.
 
 ### Derivation
@@ -54,6 +57,7 @@ exchange. @tbl-ch02-interface-keys lists which class answers which key at the pi
 | key family | ideal gas | moist types | ANEOS | shallow water |
 |---|---|---|---|---|
 | `W->U`, `U->W` | yes | yes | yes | yes |
+| `W->U'`, `U'->W` (anomaly storage) | no | ideal moist only | no | no |
 | `W->I`, `UT->I` | yes | yes | yes | throws unknown abbreviation |
 | `W->T` | yes | yes | yes | undefined tensor |
 | `W->A`, `WA->L` | yes | yes | no | index undefined; speed yes |
@@ -68,10 +72,13 @@ Thus `DY->V` takes density and mass fractions to partial densities; `VU->T` take
 Here kintera's `U` is a thermodynamic scalar field, not snapy's whole conserved state;
 @sec-ch02-moist-mixture shows the calls.
 
-A present EOS map supplies these defaults in `from_yaml`: `gammad`[^rg-b7ffd4b95bd2] 1.4, `weight`[^rg-d9d44df55887] 0.029 kg mol$^{-1}$, density
-floor $10^{-6}$ kg m$^{-3}$, pressure floor $10^{-3}$ Pa, temperature floor 20 K, `limiter`[^rg-309fcf86ab26] false and an empty
-`eos-file`[^rg-27b3fa8c4007]. When the map is absent, the struct defaults stay: density and pressure floors of $10^{-10}$ in their
-units. The two moist classes overwrite `gammad` and `weight` from the dry species of their thermo in `reset`.
+The defaults are the struct's, and `from_yaml` reads each key with the struct value as its fallback, so a deck
+without the key and a program that builds the options in code get the same values: `gammad`[^rg-b7ffd4b95bd2] 1.4,
+`weight`[^rg-d9d44df55887] 0.029 kg mol$^{-1}$, density floor $10^{-6}$ kg m$^{-3}$, pressure floor $10^{-3}$ Pa,
+temperature floor 20 K, `limiter`[^rg-309fcf86ab26] false, an empty `eos-file`[^rg-27b3fa8c4007] and `verbose` false
+({{< code src/eos/equation_of_state.hpp EquationOfStateOptionsImpl >}}). `from_yaml` also reads the kintera thermo
+options from the same file. The two moist classes overwrite `gammad` and `weight` from the dry species of their
+thermo in `reset`.
 
 ```{python}
 #| label: fig-ch02-interface-flow
@@ -86,7 +93,7 @@ make_fig()
 
 **A minimal input.** One key selects the class; the floors are optional:
 
-<!-- reader glossary keys -->Keys in this fragment: `density-floor`[^rg-240c1a06e2a9], `pressure-floor`[^rg-1b01182530e7].
+<!-- reader glossary keys -->Keys in this fragment: `equation-of-state`[^rg-40c7b90c688a], `density-floor`[^rg-240c1a06e2a9], `pressure-floor`[^rg-1b01182530e7].
 ```yaml
 dynamics:
   equation-of-state:
@@ -106,12 +113,16 @@ dynamics:
 2. *An unknown key*, by `check_keys` ({{< code src/input/check_keys.cpp check_keys >}}), with "unknown key
    'dynamics/equation-of-state/KEY'. Valid keys: …; read by kintera: max-iter, ftol, uv-solver.". A misspelt floor
    would otherwise load silently and run without it.
-3. *An invalid `uv-solver`*, by kintera when it parses the same block, with "Invalid UV solver: " and the value
-   (`uv_solver` in [`kintera thermo_options.cpp:105-111`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/thermo_options.cpp#L105-L111)).
+3. *An invalid `uv-solver`*, by kintera when it parses the same block, with "Invalid UV solver: " and the value;
+   the accepted values are `auto`, `kkt` and `partition`
+   (`uv_solver` in [`kintera thermo_options.cpp:95-101`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_options.cpp#L95-L101)).
 4. *An unknown `type`*, at construction, with "EquationOfState: Unknown type: " and the value.
-5. *A moist class without thermo options*, in `reset`, with "[IdealMoist] thermo pointer is null" or
-   "[MoistMixture] thermo pointer is null" (a species card is read only when `reference-state`[^rg-35ab985da77b] is present).
-6. *A conversion key the class lacks*, at the call, with "Unknown abbreviation: " and the key.
+5. *An ideal gas with species or reactions*, at construction, with "ideal-gas has no vapor, cloud or reaction
+   support; use ideal-moist or moist-mixture" and the counts.
+6. *A moist class without thermo options*, in `reset`, with "[IdealMoist] thermo pointer is null" or
+   "[MoistMixture] thermo pointer is null"; kintera builds thermo options only when the card has a
+   `reference-state`[^rg-35ab985da77b] block.
+7. *A conversion key the class lacks*, at the call, with "Unknown abbreviation: " and the key.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
@@ -141,7 +152,7 @@ if (opts->type() == "ideal-gas") {
 ```
 
 Each branch is one column of @tbl-ch02-interface-keys (the two moist classes share one); the last line is
-refusal 4.
+refusal 4. The excerpt leaves out the check of refusal 5 at the top of the `ideal-gas` branch.
 
 **Not provided:** the interface a new EOS class must implement and the steps to add one; the EOS is not one of the
 extension points this report gives a "How to add one" contract for, and at the pin there is no registration hook
@@ -158,14 +169,23 @@ a class must answer. What the existing classes answer is @tbl-ch02-interface-key
 
 : Tests of the EOS interface. {#tbl-ch02-interface-tests}
 
-No report check is attached: the section derives nothing. The three ctest cases run on CPU, one rank, and have not
-been run for this report at the pin: **pending a pinned ctest run**. No ctest asserts refusal 4 or refusal 6.
+No report check is attached: the section derives nothing. The three ctest cases run on CPU, one rank; at the
+pin `test_hydro_options.release` passes.[^interface-run] No ctest of this table asserts refusals 4, 5 or 7.
+
+[^interface-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1 -V -R <name>` for the fifteen chapter-2 ctests `test_eos.release`, `test_aneos_gamma.release`,
+    `test_hydro_options.release`, `test_flux_positivity_carry.release`, `test_wall_saturation.release`,
+    `test_two_cards_species.release`, `test_anomaly_storage_python`, `test_anomaly_storage_cuda_python`,
+    `test_eos_temp2inteng_python`, `test_eos_species_sum_layout_python`, `test_eos_species_registry_python`,
+    `test_sk1_failure_counter_python`, `test_sk1_failure_counter_cuda_python`, `test_check_redo_saturation_python` and
+    `test_check_redo_saturation_cuda_python`, run together with one anchored `-R` pattern, in the `tests` directory of a
+    README CUDA Release build at the pin; CPU, and one CUDA GPU for the CUDA cases, 1 rank; Python 3.11.13, torch
+    2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 15 of 15 ctests passed.
 
 ### Limits
 
 1. **Temperature floor.** `from_yaml` does not check that the temperature floor is positive and finite.
-2. **Default needs a card.** The default `moist-mixture` without species fails in `reset` (refusal 5), not in the
-   parser.
+2. **Default needs a card.** The default `moist-mixture` without thermo options fails in `reset` (refusal 6), not
+   in the parser.
 3. **Partial APIs.** ANEOS and shallow water do not answer the full moist API; a forcing or diagnostic that asks
    them for `W->E` or `U->K` throws at the call.
 4. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
@@ -174,10 +194,6 @@ been run for this report at the pin: **pending a pinned ctest run**. No ctest as
 [^rg-bfc59acc94e7]: YAML — YAML Ain't Markup Language, the structured input format used for decks
 
 [^rg-1c8abe3405fb]: API — application programming interface
-
-[^rg-f3dd2ef14420]: $\mathbf W$ — primitive state vector $(\rho, v_1, v_2, v_3, p, y_1..y_{N_y})$
-
-[^rg-b007763f49e5]: $\gamma$ — mixture ratio of specific heats $c_p/c_v$, local, varies with composition, dimensionless [-]; $\gamma_{\mathrm{d}}$ is the dry value
 
 [^rg-ee4f949231f5]: $c_s$ — sound speed [m s$^{-1}$]
 
@@ -188,6 +204,8 @@ been run for this report at the pin: **pending a pinned ctest run**. No ctest as
 [^rg-309fcf86ab26]: limiter — whether the enclosing component enables its limiter
 
 [^rg-27b3fa8c4007]: eos-file — equation-of-state table file read by the linked provider
+
+[^rg-40c7b90c688a]: equation-of-state — equation-of-state options
 
 [^rg-240c1a06e2a9]: density-floor — minimum admissible density
 

@@ -13,7 +13,7 @@ _LEGACY = {k: code_anchors.legacy_chapter_of(t) for k, t in c.TARGETS.items()}
 _ALL_LEGACY = all(_LEGACY.values())
 
 
-@pytest.mark.skipif(_ALL_LEGACY, reason=f"{sorted(set(_LEGACY.values()))} in tools/code-anchors-legacy.txt")
+@pytest.mark.skipif(_ALL_LEGACY, reason=f"{sorted({v for v in _LEGACY.values() if v})} in tools/code-anchors-legacy.txt")
 def test_clean_contract():
     assert c.check() == 0
 
@@ -30,10 +30,13 @@ def test_contract_drift(tmp_path, key, old, new):
     if _LEGACY[key]:
         pytest.skip(f"{_LEGACY[key]} is in tools/code-anchors-legacy.txt")
     (tmp_path / 'code_pin.yml').write_text((c.REPORT / 'code_pin.yml').read_text())
-    clean = c.generate(c.REPORT)
-    for k, target in c.TARGETS.items():
-        (tmp_path / target).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / target).write_text(clean[k])
+    legacy = c.REPORT / 'tools' / code_anchors.LEGACY_FILE.name  # the same live targets in tmp_path
+    (tmp_path / 'tools').mkdir(exist_ok=True)
+    (tmp_path / 'tools' / legacy.name).write_text(legacy.read_text())
+    clean = c.generate(c.REPORT, [k for k in c.TARGETS if not _LEGACY[k]])
+    for k, text in clean.items():
+        (tmp_path / c.TARGETS[k]).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / c.TARGETS[k]).write_text(text)
     assert c.check(tmp_path) == 0
     assert old in clean[key]
     (tmp_path / c.TARGETS[key]).write_text(clean[key].replace(old, new))

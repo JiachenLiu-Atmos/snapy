@@ -1,97 +1,95 @@
 ## Ideal gas conversion (`ideal-gas`) {#sec-ch02-ideal-gas}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: OUTLINE.md section 2; src/eos/ideal_gas.cpp, src/eos/ideal_gas_impl.h, src/coord/coord_utils_impl.h
-         at the pin
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md section 6, chapter 2.2; src/eos/ideal_gas.cpp, src/eos/ideal_gas_impl.h,
+         src/eos/eos_dispatch.cpp, src/eos/equation_of_state.cpp at the pin
 status: draft
+author: chengcli
+reviewer: XinyueWang05
 -->
 
 ### Summary
 
-The ideal gas is the simplest EOS: one gas with constant heat capacity. It turns the conserved total energy into
-pressure by removing the kinetic energy and scaling what is left. On a grid whose axes are not at right angles
-the kinetic energy pairs the two kinds of velocity components, which the conversion handles explicitly. The
-floors can clip a state, so the two directions of the conversion are exact inverses only before the floors act.
+The ideal gas is the simplest closure: one dry gas with a constant ratio of specific heats. It turns the stored
+energy into pressure and back, gives the temperature and the sound speed, and has no species rows. It is the
+closure of every dry test deck, and one of the two closures a CUDA graph may capture (@sec-ch02-other-eos).
 
 ::: {.callout-note title="At a glance"}
-**Purpose.** Converts conserved and primitive states with $p=(\gamma_{\mathrm d}-1)(E-K)$, @eq-ch02-ideal-gas-pressure.
+**Purpose.** Pressure from the stored energy, @eq-ch02-ideal-gas-pressure, and its inverse.
 
-**Data.** Reads `hydro_u` ($\rho$, $m_a$, $E$) or `hydro_w` ($\rho$, $\mathbf v$[^rg-e34067e65a82], $p$[^rg-4a97e2fbfd24]); writes the other, $T$[^rg-a8a15585c552] and $c_s$.
+**Data.** Reads $\rho$, $\mathbf m$, $E$; writes $p$, $T$[^rg-a8a15585c552], $c_s$. Constants $\gamma_{\mathrm d}$ and $\mu_{\mathrm d}$.
 
-**Placement.** At every conserved-to-primitive and primitive-to-conserved conversion of every stage.
+**Placement.** Every `"U->W"` and `"W->U"` of the block; `"W->A"` and `"WA->L"` for the Riemann solver.
 
-**Activation.** `type: ideal-gas`; default EOS `moist-mixture`. Keys `gammad`, `weight`.
+**Activation.** `dynamics/equation-of-state/type: ideal-gas`; the constants come from the deck.
 
-**Guarantee / limits.** Exact algebra before the floors; pressure round-off below $\epsilon_{\mathrm m}(1+2K/\rho e)$, which grows as the Mach number squared.
+**Guarantee / limits.** Exact inverse in exact arithmetic; no species, no anomaly storage.
 
-**Evidence.** @tbl-ch02-ideal-gas-tests: one ctest by source reading, `ideal-gas_check.py` `[C1]`–`[C3]`.
+**Evidence.** @tbl-ch02-ideal-gas-tests: one ctest on the energy offset; the round trip is checked algebraically.
 :::
-
-Local symbols: $K=\tfrac12\sum_av^am_a$ the kinetic energy density
-[J m$^{-3}$]; $\mathrm{Ma}$ the Mach number $\lvert\mathbf v\rvert/c_s$; $\eta_j$ the relative error of one
-rounding.
 
 ### Derivation
 
 #### From the gas law to the pressure
 
-1. *Two laws for one gas.* A calorically perfect gas has $e=c_{v,\mathrm d}T$ and $p=\rho R_{\mathrm d}T$, with
-   $T$ in K and $c_{v,\mathrm d}$, $R_{\mathrm d}$[^rg-5c552fe80570] in J kg$^{-1}$ K$^{-1}$.
-2. *Eliminate $T$.* With $R_{\mathrm d}=(\gamma_{\mathrm d}-1)c_{v,\mathrm d}$ the two laws give
-   $p=(\gamma_{\mathrm d}-1)\rho e$.
-3. *Remove the kinetic energy.* The conserved row holds $E=\rho e+K$. The kinetic energy pairs the contravariant
-   velocity with the covariant momentum, $K=\tfrac12\sum_av^am_a$, so the momentum is raised before the product.
-4. *The sound speed.* Along an isentrope $p\propto\rho^{\gamma_{\mathrm d}}$, so
-   $c_s^2=\mathrm dp/\mathrm d\rho=\gamma_{\mathrm d}p/\rho$.
+Dry air with gas constant $R_{\mathrm d}=\mathcal R/\mu_{\mathrm d}$ [J kg$^{-1}$ K$^{-1}$] and constant
+$\gamma_{\mathrm d}$ has $c_{v,\mathrm d}=R_{\mathrm d}/(\gamma_{\mathrm d}-1)$. The steps are:
+
+1. *Gas law.* $p=\rho R_{\mathrm d}T$.
+2. *Caloric law.* $e=c_{v,\mathrm d}T$, so $\rho e=\rho c_{v,\mathrm d}T=p/(\gamma_{\mathrm d}-1)$.
+3. *Kinetic energy.* $\rho e=E-\tfrac12\sum_av_am_a$, the last row of @eq-ch02-laws-state, with the metric of
+   @eq-ch02-laws-metric.
+4. *Sound speed.* Along an isentrope $p\propto\rho^{\gamma_{\mathrm d}}$, so $c_s^2=\mathrm dp/\mathrm d\rho
+   =\gamma_{\mathrm d}p/\rho$.
 
 Together:
 
 $$
 \begin{aligned}
-\rho e&=E-\tfrac12\sum_{a=1}^3v^a m_a,\\
+\rho e&=E-\tfrac12\sum_{a=1}^3v_am_a,\\
 p&=(\gamma_{\mathrm d}-1)\rho e,\\
 T&=p/(\rho R_{\mathrm d}),\\
 c_s^2&=\gamma_{\mathrm d}p/\rho.
 \end{aligned}
 $$ {#eq-ch02-ideal-gas-pressure}
 
-@eq-ch02-ideal-gas-pressure is implemented by `ideal_gas_cons2prim` in {{< code src/eos/ideal_gas_impl.h ideal_gas_cons2prim >}}.
+@eq-ch02-ideal-gas-pressure is implemented by `ideal_gas_cons2prim`
+({{< code src/eos/ideal_gas_impl.h ideal_gas_cons2prim >}}) for the first two rows, by the `"W->T"` branch of
+`IdealGasImpl::compute` ({{< code src/eos/ideal_gas.cpp IdealGasImpl::compute >}}) for the third, and by
+`EquationOfStateImpl::ideal_sound_speed_`
+({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::ideal_sound_speed_ >}}) for the fourth.
 
-A cell average of a uniform state obeys the same relations, because integrating over the cell multiplies mass and
-energy by its volume and dividing by the volume undoes it. For a nonuniform cell the relations are a closure on
-the averages, not the average of the pointwise EOS.
+#### The inverse, and the energy at a given temperature
 
-#### Round-off of the pressure
+`IdealGasImpl::_prim2cons` ({{< code src/eos/ideal_gas.cpp IdealGasImpl::_prim2cons >}}) runs the steps
+backwards: $\rho$ is copied, $\mathbf m$ is formed and lowered, and $E=p/(\gamma_{\mathrm d}-1)+\tfrac12\sum_av_am_a$.
+Substituting this $E$ into the first two rows of @eq-ch02-ideal-gas-pressure returns $p$ exactly (`[V3]` of
+`v3_relations_check.py`), because the kinetic energy that is added is the one that is subtracted
+(@eq-ch02-laws-metric).
 
-The subtraction $E-K$ is where precision is lost. One rounding returns $\mathrm{fl}(a\circ b)=(a\circ b)(1+\eta_j)$
-with $\lvert\eta_j\rvert\le\epsilon_{\mathrm m}/2$ and $\epsilon_{\mathrm m}=2^{-52}$. Take an orthogonal cell,
-where the raise of step 3 is exact, and follow `ideal_gas_cons2prim`:
+The key `"UT->I"`, the internal energy of a state at a given temperature, is
+`IdealGasImpl::_temp2intEng` ({{< code src/eos/ideal_gas.cpp IdealGasImpl::_temp2intEng >}}):
+$\rho e=\rho c_{v,\mathrm d}T$ with $c_{v,\mathrm d}$ from `IdealGasImpl::species_cv_ref`
+({{< code src/eos/ideal_gas.cpp IdealGasImpl::species_cv_ref >}}). At the state's own temperature
+$T=p/(\rho R_{\mathrm d})$ it equals the `"W->I"` value $p/(\gamma_{\mathrm d}-1)$ (`[V3]`). The temperature
+floor of @sec-ch08 relies on this equality. The ideal gas carries no energy offset: its reference energy
+$u^\star_{\mathrm d}$ is zero.
 
-1. *Velocity.* $\hat v^a=(m_a/\rho)(1+\eta_1)$: one rounding.
-2. *Kinetic energy.* Three products and two additions of terms $v^am_a\ge0$; the factor $\tfrac12$ is exact. So
-   $\hat K=K(1+\eta_K)$ with $\lvert\eta_K\rvert\le4\cdot\epsilon_{\mathrm m}/2$.
-3. *Thermal energy.* $\widehat{\rho e}=(E-\hat K)(1+\eta_2)$, so
-   $\lvert\widehat{\rho e}-\rho e\rvert/\rho e\le(\epsilon_{\mathrm m}/2)(1+4K/\rho e)$.
-4. *Pressure.* $\gamma_{\mathrm d}-1$ is exact for $1\le\gamma_{\mathrm d}\le2$ (Sterbenz), and the product adds
-   one rounding.
-
-Adding the first-order terms,
-
-$$
-\left\lvert\frac{\hat p-p}{p}\right\rvert\le\epsilon_{\mathrm m}\left(1+\frac{2K}{\rho e}\right),
-\qquad \frac{K}{\rho e}=\frac{\gamma_{\mathrm d}(\gamma_{\mathrm d}-1)}{2}\,\mathrm{Ma}^2 .
-$$
-
-At $\mathrm{Ma}=10$ and $\gamma_{\mathrm d}=1.4$ the factor is 57, about $1.3\times10^{-14}$ relative; the loss
-grows as the square of the Mach number.
+Exact and truncated: every relation here is exact in exact arithmetic. In floating point the round trip
+$\mathbf W\to\mathbf U\to\mathbf W$ loses digits only through the subtraction $E-\tfrac12\sum v_am_a$, which
+cancels when the kinetic energy dominates; the error of $p$ is then about the rounding of $E$ times
+$E/(\rho e)$.
 
 ### Numerical method
 
-`_cons2prim` applies the conserved floors, runs the fused kernel `ideal_gas_cons2prim` over all cells through a
-`TensorIterator`, then applies the primitive floors. `_prim2cons` applies the primitive floors, multiplies the
-velocities by density, lowers them with `coord_vec_lower_`, adds the kinetic energy and applies the conserved
-floors. Both are local to each cell; there is no stencil and no stage dependence.
+The conversion is pointwise: one cell's rows give that cell's primitives, with no stencil and no ghosts.
+`IdealGasImpl::_cons2prim` ({{< code src/eos/ideal_gas.cpp IdealGasImpl::_cons2prim >}}) applies the conserved
+limiter, runs the fused kernel over every cell through a tensor iterator, and applies the primitive limiter. The
+kernel is dispatched on CPU by `ideal_gas_cons2prim_cpu`
+({{< code src/eos/eos_dispatch.cpp ideal_gas_cons2prim_cpu >}}) and on CUDA by its `.cu` twin; MPS runs the CPU
+kernel on the host. The kernel reads $\cos\vartheta$ per cell, so the same code serves Cartesian and
+cubed-sphere grids (@eq-ch02-laws-metric). @fig-ch02-ideal-gas-flow shows the order.
 
 ```{python}
 #| label: fig-ch02-ideal-gas-flow
@@ -104,24 +102,19 @@ make_fig()
 
 ### Code
 
-**A minimal input.** No species card is needed:
+**A minimal input.**
 
 ```yaml
 dynamics:
-  equation-of-state:
-    type: ideal-gas
-    gammad: 1.4        # ratio of specific heats [-]
-    weight: 29.e-3     # molar mass [kg mol^-1]; R_d = R / weight
+  equation-of-state: {type: ideal-gas}
 ```
 
 **What is refused, and why.**
 
-1. *A key outside the list*, by `check_keys`, as in @sec-ch02-interface.
-2. *A moist conversion key.* `W->E` and `U->K` throw "Unknown abbreviation: " and the key: the class has no
-   species rows, so a species energy has no meaning.
-
-The parser does not refuse `gammad` $\le1$ or `weight` $\le0$; either gives a nonphysical or infinite pressure at
-the first conversion.
+1. *An unknown key.* `IdealGasImpl::compute` answers `"W->U"`, `"U->W"`, `"W->I"`, `"W->T"`, `"UT->I"`,
+   `"W->A"` and `"WA->L"`; any other key stops with "Unknown abbreviation". There is no primed key, so the ideal
+   gas cannot read stored anomalies; `HydroImpl::reset` refuses anomaly storage for it at setup
+   (@sec-ch02-laws).
 
 | what | code link | symbol | switch |
 |---|---|---|---|
@@ -129,75 +122,44 @@ the first conversion.
 | primitive to conserved | {{< code src/eos/ideal_gas.cpp IdealGasImpl::_prim2cons >}} | `_prim2cons` | `ideal-gas` |
 | conserved to primitive | {{< code src/eos/ideal_gas.cpp IdealGasImpl::_cons2prim >}} | `_cons2prim` | `ideal-gas` |
 | fused kernel | {{< code src/eos/ideal_gas_impl.h ideal_gas_cons2prim >}} | `ideal_gas_cons2prim` | `ideal-gas` |
-| metric raise | {{< code src/coord/coord_utils_impl.h coord_vec_raise_impl >}} | `coord_vec_raise_impl` | |
+| energy at a temperature | {{< code src/eos/ideal_gas.cpp IdealGasImpl::_temp2intEng >}} | `_temp2intEng` | `ideal-gas` |
 
 : Code map of the ideal gas. {#tbl-ch02-ideal-gas-code}
-
-**The excerpt.** The fused kernel `ideal_gas_cons2prim`, one cell:
-
-```cpp
-PRIM(IDN) = CONS(IDN);
-
-PRIM(IVX) = CONS(IVX) / PRIM(IDN);
-PRIM(IVY) = CONS(IVY) / PRIM(IDN);
-PRIM(IVZ) = CONS(IVZ) / PRIM(IDN);
-
-coord_vec_raise_impl(&PRIM(IVY), &PRIM(IVZ), *cos_theta);
-
-auto ke = 0.5 * (PRIM(IVX) * CONS(IVX) + PRIM(IVY) * CONS(IVY) +
-                 PRIM(IVZ) * CONS(IVZ));
-auto ie = CONS(IPR) - ke;
-
-PRIM(IPR) = (gammad - 1.) * ie;
-```
-
-The divisions are step 1 of the round-off derivation; the raise is step 3 of the pressure derivation; `ke` is $K$
-and `ie` is $\rho e$ of @eq-ch02-ideal-gas-pressure; the last line is its second row. The CPU and MPS[^rg-eacc0154b64b] backends of
-the kernel are `ideal_gas_cons2prim_cpu` and `ideal_gas_cons2prim_mps`
-({{< code src/eos/eos_dispatch.cpp ideal_gas_cons2prim_cpu >}}).
 
 ### Tests
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| {{< code tests/test_eos.cpp DeviceTest.ideal_gas_internal_energy_offset_is_zero >}} (`test_eos.release`) | the internal-energy offset of the ideal gas is zero | $10^{-12}$ abs. and rel. | `torch::allclose`, set in the test |
-| `ideal-gas_check.py` `[C1]`–`[C3]` (this report) | metric inverse; symbolic pressure and sound speed; pressure round-off inside the derived bound | $10^{-12}$; exact; bound above | stated in the check |
+| {{< code tests/test_eos.cpp DeviceTest.ideal_gas_internal_energy_offset_is_zero >}} (`test_eos.release`) | the energy offset of the ideal gas is zero | rtol $10^{-12}$, atol $10^{-12}$ | `torch::allclose(..., 1.E-12, 1.E-12)` in the test |
+| `v3_relations_check.py` `[V3]` (this report) | round trip of $p$, `"UT->I"` equals `"W->I"`, isentropic sound speed | exact | sympy simplifies the difference to 0 |
 
 : Tests of the ideal gas. {#tbl-ch02-ideal-gas-tests}
 
-The check is independent algebra and a float64 port of the kernel.[^ig-run] `[C1]`: a state on a nonorthogonal
-metric survives the conserved-primitive round trip with residual 0. `[C2]`: sympy confirms steps 2 and 4.
-`[C3]`: over 2000 random states with $K/\rho e$ up to 279, the measured pressure error is at most 0.724 of the
-derived bound on the recorded run; these digits depend on the NumPy/BLAS[^rg-94c9e8b11c53] reduction order. The check
-requires the measured error to stay within the bound, not to reproduce 0.724 on every host.
+No ctest of the chapter-2 set runs the ideal-gas round trip $\mathbf W\to\mathbf U\to\mathbf W$: the two
+round-trip cases in `test_eos.cpp` (`cons2prim_hydro_ideal_ncloud5` and `prim2cons_hydro_ideal_ncloud5`) are
+inside a block comment and are not compiled. The algebra is checked by `[V3]`; the floating-point round trip is
+**missing evidence** in this section. At the pin `test_eos.release` passes, including the ideal-gas offset case on
+CPU and CUDA in FP32 and FP64.[^ideal-gas-run]
 
-No ctest runs a conserved-primitive round trip of the ideal gas: the round-trip case in `tests/test_eos.cpp` is
-inside a block comment. The offset case runs on CPU and CUDA in single and double precision, one rank, and has
-not been run for this report at the pin: **pending a pinned ctest run**.
-
-[^ig-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; deck: the check itself, seed 3; run:
-    `python3 src/snapy_report/ch02/checks/ideal-gas_check.py`,
-    CPU, double, 1 process; Python 3.11.13, numpy 2.4.6, sympy 1.14.0; output identical to the committed file].
-    Output `ideal-gas_check.out`, lines `[C1]`–`[C3]`.
+[^ideal-gas-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs
+    (`tests/test_eos.yaml`, `tests/test_anomaly_storage.yaml`, `tests/test_eos_temp2inteng.yaml` and the decks the other
+    tests build); run: `ctest -j1 -V -R <name>` for the eight ctests `test_eos.release`, `test_aneos_gamma.release`,
+    `test_anomaly_storage_python`, `test_anomaly_storage_cuda_python`, `test_eos_temp2inteng_python`,
+    `test_eos_species_sum_layout_python`, `test_sk1_failure_counter_python` and `test_sk1_failure_counter_cuda_python`,
+    run together with one anchored `-R` pattern, in the `tests` directory of a README CUDA Release build at the pin; CPU
+    and one CUDA GPU, FP32 and FP64 as each test sets them, 1 rank; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6,
+    kintera 2.6.13, pyharp 2.8.2]. 8 of 8 ctests passed; `test_eos.release` ran 43 gtest cases, 18 of them on CUDA.
 
 ### Limits
 
-1. **Floors.** A floor that clips the state makes the reverse map inexact; that is their purpose.
-2. **Not provided:** a nonorthogonal round-off derivation; the bound above assumes an orthogonal cell
-   and excludes the raise, which adds roundings of order $\epsilon_{\mathrm m}/\sin^2$ of the axis angle.
-3. **No round-trip ctest** of the ideal gas exists at the pin (Tests above).
-4. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
+1. **No floating-point round-trip test** in the chapter-2 tests (Tests layer). Other tests run ideal-gas decks
+   end to end; this section does not cite them for the conversion.
+2. **Not provided:** a round-off bound for the conversion on a nonorthogonal cell; the estimate in the Derivation
+   layer is the conditioning of $E-\tfrac12\sum v_am_a$ only, and the metric raise adds its own roundings.
+3. **One gas, constant $\gamma_{\mathrm d}$.** No species, no temperature-dependent heat capacity.
+4. **No anomaly storage** (refused at setup, @sec-ch02-laws).
+5. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
 
 <!-- reader glossary notes -->
-[^rg-e34067e65a82]: $\mathbf v = (v_1,v_2,v_3)$ — velocity [m s$^{-1}$]
-
-[^rg-4a97e2fbfd24]: $p$ — pressure [Pa]
-
 [^rg-a8a15585c552]: $T$ — temperature [K]
-
-[^rg-5c552fe80570]: $R_{\mathrm{d}}$, $R_n$ — specific gas constants of dry air and species $n$ [J kg$^{-1}$ K$^{-1}$]; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L40-L43)
-
-[^rg-eacc0154b64b]: MPS — Metal Performance Shaders
-
-[^rg-94c9e8b11c53]: BLAS — Basic Linear Algebra Subprograms; notation only; see @sec-appa
 <!-- end reader glossary notes -->
