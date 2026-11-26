@@ -1,0 +1,281 @@
+## VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column (`vic_assemble_full_impl`) {#sec-ch09-vic-assembly}
+
+<!-- PROVENANCE
+pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
+sources: OUTLINE.md 7.7; src/implicit/flux_decomposition_impl.h; src/implicit/vic_assemble_full_impl.h;
+         src/implicit/vic_assemble_partial_impl.h; src/implicit/implicit_dispatch.cpp; src/hydro/hydro.cpp;
+         src/hydro/hydro_forward.cpp; tests/test_vic_partial_tangential.cpp; chengcli/snapy#329
+status: draft
+-->
+
+### Summary
+
+The VIC replaces the explicit $x_1$ flux divergence by an implicit one. It does not re-solve the Riemann
+problem. It linearises a Roe flux about the current state, holding the dissipation matrices $\mathsf A^{\pm}$[^rg-4a54e60dbe83] fixed, so the
+correction is one linear block-tridiagonal solve per column.
+
+**Answered at @sec-ch06-vic:** the gravity rows of the operator ($\Phi$[^rg-0a1fd4ddd1bd] and the face work).
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Builds the blocks $\mathsf A_i$[^rg-f27c52b093cb], $\mathsf B_i$, $\mathsf C_i$ of each column's implicit system; @eq-ch09-vic-blocks.
+
+**Data.** Reads the stage primitives, face areas, volumes, $\Delta t_c$[^rg-ef9cc5da16c2], the solid mask and, for $N=3$, the explicit increment; writes $N\times N$ blocks per cell and, for $N=3$, the right-hand-side term $\mathbf f^{\mathrm{tan}}_i$.
+
+**Placement.** Every stage with a VIC, after the explicit increment and before the sweep.
+
+**Activation.** `integration/implicit-scheme` 1 ($3\times3$) or 9 ($5\times5$).
+
+**Guarantee / limits.** A linearisation about the stage state with $\mathsf A^{\pm}$ frozen; `vic-partial` does not solve for $m_2$, $m_3$ but ties their increments to the mass increment, @eq-ch09-vic-fold.
+
+**Evidence.** @tbl-ch09-vic-assembly-tests; `test_backward_substitution.release`, `test_vic_partial_tangential.release`, `vic_assembly_check.py` `[C1]`–`[C7]`.
+:::
+
+Local symbols: $\mathbf U_{\mathrm{sv},i}$ is the solved state of cell $i$[^rg-08791d945d56]; $\mathbf F(\mathbf U_{\mathrm{sv}})$ the Euler $x_1$
+flux function of the solved variables and $\hat{\mathbf F}_{i\pm1/2}$ its linearised Roe form at a face (not the
+numerical flux $\mathbf F_1$ of @sec-ch04); $\mathsf J_i=\partial\mathbf F/\partial\mathbf U_{\mathrm{sv}}$ at cell $i$;
+$A_{i\pm1/2}$[^rg-3abea64fa557] [m$^2$] the $x_1$ face areas and $V_i$[^rg-fa9bde3c600c] [m$^3$] the cell volume; $\Delta t_c$ [s] the step handed to the solve
+(@sec-ch09-vic-stage); $\zeta_n=n(\epsilon_{\mathrm m}/2)/(1-n\epsilon_{\mathrm m}/2)$ bounds the relative error of $n$
+roundings. The solved variables are $(\rho, \rho v_1, E)$ ($N=3$) or $(\rho, \rho v_1, \rho v_2, \rho v_3, E)$ ($N=5$),
+in [kg m$^{-3}$], [kg m$^{-2}$ s$^{-1}$] and [J m$^{-3}$], total-mass basis; an entry of a block is in [unit of its
+row's variable]/([unit of its column's variable] s), so s$^{-1}$ on its diagonal. For the partial system,
+$a\in\{2,3\}$ names a tangential direction; $\tilde m_{a,i}$ [kg m$^{-2}$ s$^{-1}$] is the part of the explicit
+tangential-momentum increment of cell $i$ that its explicit mass increment does not carry; $\mathsf A_i[m_a]$,
+$\mathsf B_i[m_a]$, $\mathsf C_i[m_a]$ are the $m_a$ columns of the full blocks, restricted to the rows
+$(\rho,\rho v_1,E)$; and $\mathbf f^{\mathrm{tan}}_i$ is the right-hand-side term they make (@eq-ch09-vic-fold).
+
+### Derivation
+
+Let $\mathbf U_{\mathrm{sv}} = (\rho, \rho v_1, [\rho v_2, \rho v_3,] E)$ be the solved variables of a cell, with the total
+density $\rho$ first (total-mass basis; the conserved $\mathbf U$ starts with the dry density instead). The Roe flux
+at face $i+\tfrac12$ is
+$\hat{\mathbf F}_{i+1/2} = \tfrac12\big(\mathbf F(\mathbf U_{\mathrm{sv},i}) + \mathbf F(\mathbf U_{\mathrm{sv},i+1})\big) - \tfrac12\mathsf A^+(\mathbf U_{\mathrm{sv},i+1}-\mathbf U_{\mathrm{sv},i})$,
+and at $i-\tfrac12$ the same with $\mathsf A^-$, where $\mathsf A^{\pm} = \mathsf R\lvert\Lambda\rvert\mathsf R^{-1}$ at the Roe
+average of the two cells. The residual of row $i$ is
+$\mathbf U_{\mathrm{sv},i}/\Delta t_c + (A_{i+1/2}\hat{\mathbf F}_{i+1/2} - A_{i-1/2}\hat{\mathbf F}_{i-1/2})/V_i - \Phi\,\mathbf U_{\mathrm{sv},i}$,
+with $\Phi$ the gravity Jacobian of @sec-ch06. Differentiating it with $\mathsf A^{\pm}$ frozen:
+
+1. $\partial\hat{\mathbf F}_{i+1/2}/\partial\mathbf U_{\mathrm{sv},i}=\tfrac12(\mathsf J_i+\mathsf A^+)$ and
+   $\partial\hat{\mathbf F}_{i-1/2}/\partial\mathbf U_{\mathrm{sv},i}=\tfrac12(\mathsf J_i-\mathsf A^-)$.
+2. $\partial\hat{\mathbf F}_{i-1/2}/\partial\mathbf U_{\mathrm{sv},i-1}=\tfrac12(\mathsf J_{i-1}+\mathsf A^-)$ and
+   $\partial\hat{\mathbf F}_{i+1/2}/\partial\mathbf U_{\mathrm{sv},i+1}=\tfrac12(\mathsf J_{i+1}-\mathsf A^+)$.
+3. Multiplying by $\pm A_{i\pm1/2}/V_i$, adding $\mathsf I/\Delta t_c$ on the diagonal and subtracting $\Phi$ gives the
+   blocks of row $i$:
+
+$$
+\begin{aligned}
+\mathsf A_i &= \frac{1}{2V_i}\Big(A_{i-1/2}\mathsf A^- + A_{i+1/2}\mathsf A^+ + (A_{i+1/2}-A_{i-1/2})\mathsf J_i\Big) - \Phi + \frac{\mathsf I}{\Delta t_c}, \\
+\mathsf B_i &= -\frac{A_{i-1/2}}{2V_i}\big(\mathsf A^- + \mathsf J_{i-1}\big), \\
+\mathsf C_i &= -\frac{A_{i+1/2}}{2V_i}\big(\mathsf A^+ - \mathsf J_{i+1}\big).
+\end{aligned}
+$$ {#eq-ch09-vic-blocks}
+
+@eq-ch09-vic-blocks is assembled by {{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}}.
+The diagonal carries $\Delta t_c$, not $\Delta t$: the kernel sets `Dt.setConstant(1. / dt)` and adds it to the diagonal,
+and the `dt`[^rg-fa83dd56e348] it receives is `dt_corr` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). Steps 1 to 3 are checked
+symbolically on generic $2\times2$ blocks; since the Euler flux is homogeneous of degree one,
+$\mathbf F(\mathbf U)=\mathsf J(\mathbf U)\,\mathbf U$, the check writes the flux of each cell that way (`[C6]`). With face
+work on, @sec-ch06 adds its rows to the energy row of the three blocks.
+
+4. *The ported kernels.* Built from the ported kernels on a spherical shell, the blocks agree with central
+   differences of the frozen-$\mathsf A^{\pm}$ residual to $8\times10^{-9}$ of the block size, the truncation of the
+   difference quotient (`[C3]`).
+5. *Why the frozen matrices are the right ones.* The coded left eigenvectors invert the right ones (`[C1]`), and
+   $\mathsf R\Lambda\mathsf R^{-1}$ with signed eigenvalues is the flux Jacobian at the Roe state, with the Roe property
+   $\mathsf R\Lambda\mathsf R^{-1}(\mathbf U_{\mathrm{sv}}^{\mathrm R}-\mathbf U_{\mathrm{sv}}^{\mathrm L}) = \mathbf F^{\mathrm R} - \mathbf F^{\mathrm L}$ for
+   one $\gamma$[^rg-a833b4dd424e] (`[C2]`).
+6. *The partial system.* The $3\times3$ system keeps the rows and columns $(\rho,\rho v_1,E)$ of the full blocks; the
+   tangential momenta $m_a=\rho v_a$ are not unknowns. Their increments are tied to the mass increment of the same
+   cell, $\delta m_{a,i}=v_{a,i}\,\delta\rho_i+\tilde m_{a,i}$ with
+   $\tilde m_{a,i}=\Delta^{\mathrm{stg}}m_{a,i}-v_{a,i}\,\Delta^{\mathrm{stg}}\rho_i$ from the explicit increment.
+   Substituting this into the $(\rho,\rho v_1,E)$ rows of the full system gives the partial blocks and a
+   right-hand-side term:
+
+$$
+\begin{aligned}
+\mathsf A^{\mathrm f}_i\mathbf e_\rho &= \mathsf A^{(3)}_i\mathbf e_\rho + \sum_{a=2,3} v_{a,i}\,\mathsf A_i[m_a], \\
+\mathsf B^{\mathrm f}_i\mathbf e_\rho &= \mathsf B^{(3)}_i\mathbf e_\rho + \sum_{a=2,3} v_{a,i-1}\,\mathsf B_i[m_a], \\
+\mathsf C^{\mathrm f}_i\mathbf e_\rho &= \mathsf C^{(3)}_i\mathbf e_\rho + \sum_{a=2,3} v_{a,i+1}\,\mathsf C_i[m_a], \\
+\mathbf f^{\mathrm{tan}}_i &= \sum_{a=2,3}\big(\mathsf A_i[m_a]\,\tilde m_{a,i}+\mathsf B_i[m_a]\,\tilde m_{a,i-1}+\mathsf C_i[m_a]\,\tilde m_{a,i+1}\big),
+\end{aligned}
+$$ {#eq-ch09-vic-fold}
+
+   where $\mathsf A^{(3)}_i$, $\mathsf B^{(3)}_i$, $\mathsf C^{(3)}_i$ are the $(\rho,\rho v_1,E)$ blocks of
+   @eq-ch09-vic-blocks, $\mathbf e_\rho$ selects the density column (the other two columns are unchanged), the
+   folded blocks $\mathsf A^{\mathrm f}_i$, $\mathsf B^{\mathrm f}_i$, $\mathsf C^{\mathrm f}_i$ are the ones solved, and the sweep solves with $\mathbf f_i-\mathbf f^{\mathrm{tan}}_i$ (@sec-ch09-vic-sweep). $\Phi$ and $\mathsf I/\Delta t_c$
+   have no $m_a$ columns, so the $m_a$ columns are those of the flux terms and of the face work. At a closed end the
+   wall mirror keeps $m_a$, so a face merged into $\mathsf A_i$ takes cell $i$'s $v_a$ and $\tilde m_{a}$.
+   With $v_a=0$ and $\tilde m_a=0$ this is the full system restricted to $(\rho,\rho v_1,E)$, as is the frozen-$m_a$
+   assembly the kernel builds without the explicit increment (`[C4]`: $3.3\times10^{-16}$ at rest, $3.7\times10^{-3}$
+   at 50 m/s for the frozen form). Under a uniform tangential wind with $\tilde m_a=0$ the full solve keeps
+   $\delta m_a=v_a\,\delta\rho$ to $1.5\times10^{-14}$ and $1.9\times10^{-15}$, and the folded partial solve equals it on $(\rho,\rho v_1,E)$ to
+   $7.9\times10^{-15}$ at $v=(50,0)$ m/s and $4.2\times10^{-15}$ at $(400,-30)$ m/s, where the frozen-$m_a$ solve is off by
+   $6.7\times10^{-2}$ and $2.1$ (`[C7]`).
+7. *Round-off.* An entry of $\mathsf A_i$ is three products summed with two additions, one subtraction of areas,
+   the factor `half_inv_vol` (itself one division), $-\Phi$ and $+1/\Delta t_c$ (one division, one addition): seven
+   roundings on the longest path (a conservative count including the area subtraction). The $\zeta_8$ bound below remains valid. With $\mathsf A^{\pm}$ and $\mathsf J$ as computed, the entry is within $\zeta_8\approx4\epsilon_{\mathrm m}$
+   of the sum of the magnitudes of its terms; $\mathsf B_i$ and $\mathsf C_i$ take four roundings, $\zeta_4$.
+
+In the code, @eq-ch09-vic-blocks is the block set-up with `half_inv_vol` $=1/(2V_i)$, `area_i` $=A_{i-1/2}$ and
+`area_ip1` $=A_{i+1/2}$ ({{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}}).
+
+### Numerical method
+
+See @fig-ch09-vic-stencil for the block row.
+
+```{python}
+#| label: fig-ch09-vic-stencil
+#| fig-cap: "The block row of cell $i$. The Roe dissipation matrices $\\mathsf A^{\\pm}$ sit on the two faces (orange) with the face areas $A_{i-1/2}$, $A_{i+1/2}$; the flux Jacobians $\\mathsf J$ sit in the three cells (blue). The blocks $\\mathsf A_i$, $\\mathsf B_i$, $\\mathsf C_i$ combine them as in @eq-ch09-vic-blocks, with $-\\Phi$ and $\\mathsf I/\\Delta t_c$ on the diagonal; the content of $\\Phi$ belongs to the gravity chapter."
+#| fig-alt: "Three cells in a row with orange faces between them, labelled with the Roe matrices and face areas, and the formulas for the three blocks underneath."
+#| echo: false
+from snapy_report.ch09.figures.fig_vic_stencil import make_fig
+make_fig()
+```
+
+Each face takes its two neighbours' primitives. `RoeAverage` weights by $\sqrt\rho$ and averages the total
+enthalpy ({{< code src/implicit/flux_decomposition_impl.h RoeAverage >}}); the caller passes the mean $\gamma$ of the two cells.
+`Eigenvalue` returns $|v_1-c_s|$, $|v_1|$, $|v_1+c_s|$, $|v_1|$, $|v_1|$ ({{< code src/implicit/flux_decomposition_impl.h Eigenvalue >}}).
+`Eigenvector` writes out the eigenvectors and their inverse by hand
+({{< code src/implicit/flux_decomposition_impl.h Eigenvector >}}), and `FluxJacobian` the Euler flux Jacobian in conserved
+variables ({{< code src/implicit/flux_decomposition_impl.h FluxJacobian >}}). The full kernel forms $\mathsf A^{\pm}$ as `Am` and `Ap`
+at the lower and upper face ({{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}}) and then the blocks. The partial kernel copies
+the $(\rho, \rho v_1, E)$ rows and columns out of the same $5\times5$ matrices into `Am2` and `Ap2`
+({{< code src/implicit/vic_assemble_partial_impl.h vic_assemble_partial_impl >}}). With the explicit increment `du` and the
+output `rhs_corr` set, it also copies the $m_a$ columns of the same matrices into `AmT`, `ApT`, `dfp_T`, `dfc_T`,
+`dfn_T`, forms `aT`, `bT`, `cT` from them with the same terms as `a[i]`, `b[i]`, `c[i]` (and the face work), and
+`fold_cell` adds $v_a$ times them to the density column of each block and $\tilde m_a$ times them to `rhs_corr`
+(@eq-ch09-vic-fold). An exact zero $v_a$ or $\tilde m_a$ is skipped, so a wind-free column gets the same blocks and a
+zero `rhs_corr`, bit for bit. A face to a solid neighbour is merged into `a[i]` like a wall face and takes cell $i$'s $v_a$ and $\tilde m_a$.
+`vic_assemble_partial_cpu` passes the explicit increment and stores `rhs_corr` in `delta`, which the sweep reads
+before it overwrites it ({{< code src/implicit/implicit_dispatch.cpp vic_assemble_partial_cpu >}}); a solid cell gets a
+zero there.
+
+On the CPU the assembly runs the columns in parallel and fills each cell independently. A solid cell gets
+$\mathsf A_i=\mathsf I/\Delta t_c$, $\mathsf B_i=\mathsf C_i=0$, and its fluid neighbour sees a mirror of itself instead of the solid's state; both are
+in `vic_assemble_full_cpu` ({{< code src/implicit/implicit_dispatch.cpp vic_assemble_full_cpu >}}), as the check confirms (`[C5]`). Before the assembly, the host
+removes the EOS[^rg-a70646e99981] reference energy from the energy tendency and takes $\gamma$ from the EOS, through
+`internal_energy_offset` ({{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}}). It also rotates the velocity into the local orthonormal frame, through
+`prim2local1_` ({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}}).
+
+### Code
+
+The host entry point that applies the vertically implicit correction is
+{{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}}, declared in
+{{< code src/hydro/hydro.hpp HydroImpl::_apply_implicit_correction >}}:
+
+```cpp
+torch::Tensor HydroImpl::_apply_implicit_correction(
+    torch::Tensor& du, torch::Tensor const& w,
+    double dt, Variables const& other);
+```
+
+`du` is the explicit conserved-state increment, corrected in place; `w` is the stage primitive state;
+the `dt` argument supplies the correction interval in seconds (`dt_corr`, the step multiplied by a valid current `rk3` stage's
+`wght2`, or the step itself otherwise); and `other` is the named tensor map (`Variables`). When `other`
+contains `solid`, the method uses that mask and `fill_solid_hydro_w` to supply solid-cell primitives and
+zero their increment. The EOS and implicit solver are owned by the hydro module, not additional arguments.
+The return is the conserved-state correction tensor, or an undefined tensor when no implicit solver is
+configured. The caller and stage weighting are in
+{{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} and @sec-ch09-vic-stage.
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| Roe average | {{< code src/implicit/flux_decomposition_impl.h RoeAverage >}} | `RoeAverage` | |
+| eigenvalues | {{< code src/implicit/flux_decomposition_impl.h Eigenvalue >}} | `Eigenvalue` | |
+| eigenvectors | {{< code src/implicit/flux_decomposition_impl.h Eigenvector >}} | `Eigenvector` | |
+| flux Jacobian | {{< code src/implicit/flux_decomposition_impl.h FluxJacobian >}} | `FluxJacobian` | |
+| full blocks | {{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}} | `half_inv_vol` | `implicit-scheme` 9 |
+| partial blocks | {{< code src/implicit/vic_assemble_partial_impl.h vic_assemble_partial_impl >}} | `half_inv_vol` | `implicit-scheme` 1 |
+| partial: $m_a$ fold, $\mathbf f^{\mathrm{tan}}_i$ | {{< code src/implicit/vic_assemble_partial_impl.h vic_assemble_partial_impl >}} | `fold_cell` | `implicit-scheme` 1 |
+| partial: column loop, `rhs_corr` in `delta` | {{< code src/implicit/implicit_dispatch.cpp vic_assemble_partial_cpu >}} | `vic_assemble_partial_cpu` | `implicit-scheme` 1 |
+| column loop, solid cells | {{< code src/implicit/implicit_dispatch.cpp vic_assemble_full_cpu >}} | `vic_assemble_full_cpu` | |
+| host: energy offset, $\gamma$ | {{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}} | `_apply_implicit_correction` | |
+| host: dispatch | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}} | `vic_assemble_full` | |
+
+: Code map of the VIC assembly. {#tbl-ch09-vic-assembly-code}
+
+**How to use it.** The assembly has no key of its own: it runs whenever `implicit-scheme` is 1 or 9, and the card,
+its refusals and the gravity it needs are those of @sec-ch09-vic-options. @eq-ch09-vic-blocks is these lines
+({{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}}):
+
+```cpp
+  a[i] = (Am * area_i + Ap * area_ip1 + (area_ip1 - area_i) * dfdq_curr) *
+             half_inv_vol -
+         Phi;
+  a[i].diagonal() += Dt;
+  b[i] = -(Am + dfdq_prev) * area_i * half_inv_vol;
+  c[i] = -(Ap - dfdq_next) * area_ip1 * half_inv_vol;
+```
+
+`a`, `b`, `c` are $\mathsf A_i$, $\mathsf B_i$, $\mathsf C_i$; `Am`, `Ap` are $\mathsf A^-$, $\mathsf A^+$; `dfdq_prev`, `dfdq_curr`,
+`dfdq_next` are $\mathsf J_{i-1}$, $\mathsf J_i$, $\mathsf J_{i+1}$; and `Dt` is the vector of $1/\Delta t_c$.
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `tests/test_backward_substitution.cpp` (`test_backward_substitution.release`), `species_relabeling_preserves_mixture_density` | `CopyPrimitives` gives the same face primitives whether 0.4 of the mass is one species or two, and the density it passes is the total density | `EXPECT_DOUBLE_EQ` (4 ulp) | round-off |
+| `tests/test_vic_partial_tangential.cpp` (`test_vic_partial_tangential.release`), `equals_the_reduced_full_matrix` | on a 3-cell column with wind and gravity, for no face work, Cartesian face work, face work and diffusive cell work, in the interior and both wall cells: the partial blocks are the full ones with @eq-ch09-vic-fold substituted, and `rhs_corr` is $\mathbf f^{\mathrm{tan}}_i$, which exceeds $10^{-6}$ | $10^{-12}$ absolute | round-off on entries of order 1 |
+| same file, `a_wind_free_column_is_unchanged_bitwise` | with $v_a=0$ the folded blocks equal the frozen ones byte for byte and `rhs_corr` is $+0$ | exact | contract |
+| gravity column tests | rest states of tall and solid-walled columns with the VIC; listed with the gravity terms in @sec-ch06 | as there | @sec-ch06 |
+| this section's check, `vic_assembly_check.py` | `[C1]`–`[C7]` | $10^{-14}$ to $10^{-6}$, $10^{-10}$ for `[C7]`; exact for `[C6]` | stated in the check |
+
+: Tests of the VIC assembly (@tbl-ch09-ctest-run for the run at the pin). {#tbl-ch09-vic-assembly-tests}
+
+`test_backward_substitution.release` and `test_vic_partial_tangential.release` pass at the pin (@tbl-ch09-ctest-run), with
+{{< code tests/test_backward_substitution.cpp vic_flux_decomposition.species_relabeling_preserves_mixture_density >}}
+as the first one's assembly case and {{< code tests/test_vic_partial_tangential.cpp vic_partial_tangential.equals_the_reduced_full_matrix >}}
+comparing the partial blocks with the full ones. No ctest compares the blocks with a difference quotient; that is the check's job.
+`vic_assembly_check.py` ports the assembly kernels line for line, with zero gravity.[^ch09-vic-assembly-run]
+`[C1]` inverts the eigenvectors within $10^{-14}$ over 200 Roe states; `[C2]` matches the Jacobian and the Roe
+property within $10^{-12}$; `[C3]` matches the difference quotient within $10^{-6}$;
+`[C4]` gives a relative difference of the frozen-$m_a$ solve below $10^{-12}$ at $v=0$ and above $10^{-6}$ at 50 m/s; `[C5]` keeps a solid
+row exact; `[C6]` derives the three blocks exactly; `[C7]` ports @eq-ch09-vic-fold and the sweep's subtraction, and
+asks for $10^{-10}$ between the folded and the full solve under a uniform wind and more than $10^{-3}$ for the
+frozen one. `[C7]` fails when the density-column term of the fold is removed (folded $6.7\times10^{-2}$ and $2.1$).
+The CUDA assembly shares the same headers and is not run here.
+
+[^ch09-vic-assembly-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: the check itself; run:
+    `PYTHONPATH=src python3 src/snapy_report/ch09/checks/vic_assembly_check.py`,
+    CPU, double, 1 process; Python 3.12.10, numpy 2.5.4, sympy 1.14.0; output identical to the committed
+    `vic_assembly_check.out`; `[C1]`–`[C6]` print the same numbers as at the previous code pin]. The fold is
+    credited to chengcli/snapy#329.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+The operator is a linearisation with $\mathsf A^{\pm}$ frozen. It is not the Jacobian of the explicit Riemann solver
+the stage used, so the implicit and explicit fluxes are not the same function.
+:::
+
+1. **Mean $\gamma$.** The Roe average at a face uses the mean $\gamma$ of the two cells. The Roe property holds
+   only when they are equal (`[C2]` tests one $\gamma$).
+2. **Partial system.** `vic-partial` does not solve the $m_2$, $m_3$ rows: it assumes each cell's tangential
+   momentum changes by $v_a$ times its mass change plus the explicit remainder (@eq-ch09-vic-fold). That is exact
+   for a uniform tangential wind (`[C7]`). Where $v_a$ varies along the column, the full solve can move $m_a$ in a
+   way the partial one cannot. The `[C7]` comparison is a port with zero gravity; no run quantifies the difference
+   in a sheared column.
+3. **No difference-quotient test of the blocks.** No ctest compares $\mathsf A_i$, $\mathsf B_i$, $\mathsf C_i$ with a
+   difference quotient; `test_vic_partial_tangential` compares the partial blocks with the full ones. The column
+   tests check rest states only.
+
+<!-- reader glossary notes -->
+[^rg-4a54e60dbe83]: $\mathsf A^{\pm}$ — the Roe dissipation matrices $\mathsf R\lvert\Lambda\rvert\mathsf R^{-1}$ at faces $i\pm\tfrac12$
+
+[^rg-0a1fd4ddd1bd]: $\Phi$ — the gravity source Jacobian; upright, not sans-serif like the other matrices, because the math font has no sans-serif Greek and `\mathsf` drops the glyph in the PDF
+
+[^rg-f27c52b093cb]: $\mathsf A_i, \mathsf B_i, \mathsf C_i$ — the diagonal, lower and upper blocks of row $i$ of the block-tridiagonal system
+
+[^rg-ef9cc5da16c2]: $\Delta t_c$ — the time step handed to the implicit solve: $w_{2,s}\Delta t$ under rk3 and rk3s4, $\Delta t$ under rk1 and rk2
+
+[^rg-08791d945d56]: $i, j, k$ — cell indices in $x_1, x_2, x_3$
+
+[^rg-3abea64fa557]: $A_{i\pm1/2}$ — $x_1$ face area
+
+[^rg-fa9bde3c600c]: $V_i$ — cell volume
+
+[^rg-fa83dd56e348]: dt — time-step duration
+
+[^rg-a833b4dd424e]: $\gamma$ — mixture ratio of specific heats $c_p/c_v$, local, varies with composition, dimensionless [-]; $\gamma_{\mathrm{d}}$ is the dry value
+
+[^rg-a70646e99981]: EOS — equation of state
+<!-- end reader glossary notes -->

@@ -97,7 +97,7 @@ the lowest interior cell $i_l$:
 4. *No cell goes negative.* Cell $i$ ends with $H_{n,i}+J^{\mathrm{tr}}_{n,i-1/2}-J^{\mathrm{tr}}_{n,i+1/2}=A_i-J^{\mathrm{tr}}_{n,i+1/2}$.
    An upward $J^{\mathrm{tr}}_{n,i+1/2}$ is at most $A_i$, and a downward one adds mass, so the result is $\ge0$.
 5. *Conservation.* Each face value is used by both of its cells, so the column total is unchanged.
-6. *A uniform ratio is untouched.* The VIC[^rg-828441330efe] clamps the dry transfer by the same rule (@sec-ch07-vic-redistribute).
+6. *A uniform ratio is untouched.* The VIC[^rg-828441330efe] clamps the dry transfer by the same rule (@sec-ch09-vic-redistribute).
    With one ratio $r_n$ everywhere, $J^{\mathrm{tr}}=r_nJ^{\mathrm{d}}$ and $H_n=r_nH_{\mathrm d}$, so every tracer bound is
    $r_n$ times a dry bound the dry transfer already meets, and the cap does not bind (the `through` test measures it).
 
@@ -126,7 +126,7 @@ import no snapy.
 stage to the hydro module, and on stage zero saves the step-start state and, when the gravity-work fixer is on,
 resets its bookkeeping. With `implicit_radial`[^rg-4ddc775769de] diffusion on the cubed sphere it first takes a radial conduction
 half step and refills the ghosts, and takes the second half step after the last stage's average
-(@sec-ch09-csdiffusion). The
+(@sec-ch07-csdiffusion). The
 hydro call (@sec-ch01-hydro) returns a time-integrated increment; the scalar call (@sec-ch01-scalar) then uses the
 hydro dry-mass flux and the implicit dry transfer. Native dry sources carry the tracers before the callbacks; user dry
 sources carry them after all callbacks, from the saved pre-callback scalar increment. A callback result may contain

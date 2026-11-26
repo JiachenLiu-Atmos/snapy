@@ -113,7 +113,7 @@ The assertions are in {{< code tests/test_x1_seam_split.cpp X1SeamSplit.x1_mass_
 the arm is registered with `SNAP_X1_MASS_COVARIANCE=1` in {{< code tests/CMakeLists.txt >}}.
 
 No snapy runtime test is executed for this chapter. CUDA and multi-rank entries describe registration only.
-The independent checks and their outputs are catalogued in @sec-ch15-ch12-tests.
+The independent checks and their outputs are catalogued in @sec-ch16-ch12-tests.
 
 The independent report check verifies the mass-weighted mean identity in `[C4]`.[^ch12-mass-covariance-run]
 It models the stated contract; it does not execute the compiled solver.

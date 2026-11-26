@@ -1,0 +1,170 @@
+## Configuration and switch evidence {#sec-ch16-ch12-tests}
+
+<!-- PROVENANCE
+pin: snapy@919936da07d80a310b98ab11da184972a3203274
+sources: tests named in the Code table; tests/CMakeLists.txt at the pin
+status: draft
+-->
+
+### Summary
+
+A numerical test can pass while exercising the wrong option, loading the wrong package, or accepting a misspelt
+key as if it were absent. The configuration tests of @sec-ch12 guard against that: they check a default and its
+override through the YAML reader rather than through a direct call, they require an unknown key to be refused
+with a message that names it, and they check that a setup guard refuses what the scheme cannot deliver. This
+section collects those tests; they are the preconditions for reading the switch matrix of @sec-ch12-matrix.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Ties the chapter 12 claims (package origin, option parsing, key refusal, setup guards) to six registered tests.
+
+**Data.** Parsed booleans, exception messages and the refusal of a split column; no physical quantity.
+
+**Placement.** Verification outside the simulation step, in a build at the code pin.
+
+**Activation.** Select the tests by their ctest name; the seam arms set their switch in the registration.
+
+**Guarantee / limits.** A refusal contract says nothing about the accuracy of the scheme it guards.
+
+**Evidence.** The Tests layer below, @tbl-ch16-ch12-tests-assertions.
+:::
+
+Local symbols: none; the YAML boolean `wb-wall-clamp` and the integer
+scheme selectors are dimensionless configuration values.
+
+The six tests fall into three groups: the import-path precondition shared with @sec-ch16-ch01, three parser
+contracts (an unsupported implicit scheme, the wall-clamp default and override, an unknown geometry key), and
+two setup guards of the $x_1$ column split.
+
+### Derivation
+
+Why the catalogue reads these tests the way it does, each step tied to the source at the pin.
+
+1. *Check a default through the parser.* `hydro_options.wb_wall_clamp_ships_enabled`
+   ({{< code tests/test_hydro_options.cpp hydro_options.wb_wall_clamp_ships_enabled >}}) writes a minimal card
+   with an ideal-gas EOS and no override and requires `wb_wall_clamp()` to be true after `from_yaml`; a direct
+   call to the solver would not show what a user's file gets.
+2. *Check the override through the same path.* The same case rewrites the card with `wb-wall-clamp: false` and requires the
+   parsed value to be false, proving the key is read, not just accepted.
+3. *Require a refusal that names the key.* `yaml_keys.geometry_cells_refuses_an_unknown_key`
+   ({{< code tests/test_yaml_keys.cpp yaml_keys.geometry_cells_refuses_an_unknown_key >}}) passes `nx4` to
+   `expect_refused` ({{< code tests/test_yaml_keys.cpp expect_refused overload=1 >}}), which requires the key
+   path to appear in the exception message. Accepting an unused key could silently run the wrong grid.
+4. *Require a refusal with a reason.* `hydro_options.reject_unsupported_implicit_scheme`
+   ({{< code tests/test_hydro_options.cpp hydro_options.reject_unsupported_implicit_scheme >}}) requires the
+   message to contain "Unsupported implicit scheme". `X1SeamSplit.x1_mass_covariance_needs_3_x1_cells`
+   ({{< code tests/test_x1_seam_split.cpp X1SeamSplit.x1_mass_covariance_needs_3_x1_cells >}}) requires a
+   two-cell block to be refused with "needs at least 3 x1 cells" and a three-cell block to construct without
+   throwing. `X1SeamSplit.vic_refuses_x1_split`
+   ({{< code tests/test_x1_seam_split.cpp X1SeamSplit.vic_refuses_x1_split >}}) requires one block to step and a
+   column split in $x_1$ to be refused with "requires nb1 = 1".
+5. *Read none of these as accuracy.* Every row is a boolean, a string or an exception; no row measures the
+   error of the scheme it selects, which is the business of the other sections and of @sec-ch16.
+
+### Numerical method
+
+Read the assertion and its registration, then run the selection in a build configured from the code pin
+(@fig-ch16-evidence, @sec-ch16). The two seam rows are `seam_arm` registrations that filter the executable to
+one case and require exactly one passing test, so an empty filter fails the entry
+({{< code tests/CMakeLists.txt >}}). Record device, precision, process count and every skip separately.
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| package origin | {{< code tests/test_python_import_path.py >}} | top-level assertions | `SNAPY_TEST_PYTHONPATH` |
+| unsupported implicit scheme | {{< code tests/test_hydro_options.cpp hydro_options.reject_unsupported_implicit_scheme >}} | `hydro_options.reject_unsupported_implicit_scheme` | `implicit-scheme`[^rg-0659223b0ffa] |
+| wall clamp default and override | {{< code tests/test_hydro_options.cpp hydro_options.wb_wall_clamp_ships_enabled >}} | `hydro_options.wb_wall_clamp_ships_enabled` | `wb-wall-clamp` |
+| unknown geometry key | {{< code tests/test_yaml_keys.cpp yaml_keys.geometry_cells_refuses_an_unknown_key >}} | `yaml_keys.geometry_cells_refuses_an_unknown_key` | `geometry/cells` |
+| three-cell guard | {{< code tests/test_x1_seam_split.cpp X1SeamSplit.x1_mass_covariance_needs_3_x1_cells >}} | `X1SeamSplit.x1_mass_covariance_needs_3_x1_cells` | `SNAP_X1_MASS_COVARIANCE` |
+| implicit split refused | {{< code tests/test_x1_seam_split.cpp X1SeamSplit.vic_refuses_x1_split >}} | `X1SeamSplit.vic_refuses_x1_split` | `implicit-scheme` |
+
+: Assertions this catalogue reads. {#tbl-ch16-ch12-tests-sources}
+
+**How to select the tests.** From the repository root, with `build` the directory configured from the code pin,
+list the selection and then run it:
+
+```bash
+ctest --test-dir build -N -R '^test_(hydro_options|yaml_keys)\.release$'
+ctest --test-dir build --output-on-failure -R '^test_(hydro_options|yaml_keys)\.release$'
+```
+
+The other rows are selected the same way:
+
+```bash
+ctest --test-dir build -N -R '^test_python_import_path_python$'
+ctest --test-dir build -N -R '^test_x1_seam_split_x1_mass_covariance\.release$'
+ctest --test-dir build -N -R '^test_x1_seam_split_vic_refuses_split\.release$'
+```
+
+Run each listed selection with `--output-on-failure` in place of `-N`. The clamp case writes its own
+minimal card, a parser input rather than a simulation deck:
+
+<!-- reader glossary keys -->Keys in this fragment: `dynamics`[^rg-cfcf7fa5ce69], `equation-of-state`[^rg-722d6de4a9a9], `type`[^rg-32f5eba3262f].
+```yaml
+dynamics:
+  equation-of-state:
+    type: ideal-gas
+  wb-wall-clamp: false
+```
+
+The unknown-key case loads the fixture `test_cycle_diagnostics.yaml` from the build's test directory
+({{< code tests/test_yaml_keys.cpp expect_refused overload=2 >}}), so run from the configured build. An empty
+selection prints "No tests were found!!!" and is not a result (@sec-ch16).
+
+The contract of the clamp case, from `hydro_options.wb_wall_clamp_ships_enabled`
+({{< code tests/test_hydro_options.cpp hydro_options.wb_wall_clamp_ships_enabled >}}):
+
+```cpp
+EXPECT_TRUE(snap::HydroOptionsImpl::from_yaml(f)->wb_wall_clamp());
+write(f, "  wb-wall-clamp: false\n");
+EXPECT_FALSE(snap::HydroOptionsImpl::from_yaml(f)->wb_wall_clamp());
+```
+
+`write` truncates and rewrites the card with the override; the two reads of the same file give the default and the override.
+No equation is implemented here: this is a precondition for selecting the scheme whose errors @sec-ch16 defines.
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `test_python_import_path_python` | the package origin and the search-path order are right | exact paths; exit 125 when unconfigured | the script |
+| `test_hydro_options.release` | an unsupported implicit scheme is refused with a reason | message contains "Unsupported implicit scheme" | the test |
+| `test_hydro_options.release` | the wall clamp is on by default and the override is read | boolean equality | the test |
+| `test_yaml_keys.release` | an unknown geometry key is refused and named | message contains the key path | `expect_refused` |
+| `test_x1_seam_split_x1_mass_covariance.release` | two owned cells are refused with a reason; three are accepted | message contains "needs at least 3 x1 cells"; no throw | the test |
+| `test_x1_seam_split_vic_refuses_split.release` | one block steps; a column split in $x_1$ is refused | message contains "requires nb1 = 1" | the test |
+
+: Acceptance criteria at the code pin; CPU run evidence is recorded below, with CUDA coverage limited explicitly. {#tbl-ch16-ch12-tests-assertions}
+
+`expect_refused` has two overloads, one for a card already loaded and one that loads the fixture
+({{< code tests/test_yaml_keys.cpp expect_refused overload=1 >}}; {{< code tests/test_yaml_keys.cpp expect_refused overload=2 >}}).
+The report-only `src/snapy_report/ch12/checks/configuration_check.py` checks parser truth tables and the reference,
+covariance and energy identities on ports; it does not execute the C++ option caches.
+
+The option row checks the default and the explicit override through YAML parsing. The unknown-key
+row requires a diagnostic naming the bad key; neither measures the numerical accuracy of a selected
+scheme.[^ch16-ch12-run]
+
+[^ch16-ch12-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; deck: this section's CPU selections;
+    run: `ctest --output-on-failure -E '^test_shallow_xy_decomp$'` from `build/tests`,
+    Ubuntu CPU, Release, ranks as registered by each test; Python 3.11.17, torch 2.10.0].
+    The [pinned test run](https://github.com/chengcli/snapy/actions/runs/38197324901) records 128 passed tests on Ubuntu. Each CPU selection above appears as Passed in those logs.
+    The CUDA-only selection, where listed, is not covered: recovery checked both test logs and the dated
+    N8 validation log; neither records `test_weno5_cuda_line.release`. Its pass status remains
+    **missing evidence**, not inferred from the CUDA example runs.
+
+### Limits
+
+A minimum-cell guard establishes a refusal contract, not the accuracy of the mass covariance. A runtime result
+needs the complete switch environment as well as the package origin, device and rank count; the unmeasured
+combinations of @sec-ch12-matrix stay unmeasured here.
+
+<!-- reader glossary notes -->
+[^rg-0659223b0ffa]: implicit-scheme — implicit time-integration scheme selector
+
+[^rg-cfcf7fa5ce69]: dynamics — hydrodynamic options block
+
+[^rg-722d6de4a9a9]: equation-of-state — equation-of-state options
+
+[^rg-32f5eba3262f]: type — implementation selector for the enclosing options block
+<!-- end reader glossary notes -->

@@ -48,9 +48,9 @@ def test_warning_exit_and_reachable_includes(tmp_path, capsys):
 def test_audited_boundary_and_spatial_prose_is_converted():
     book = Path(__file__).resolve().parents[2] / "book"
     files = list((book / "chapters/11-boundaries").glob("*.qmd"))
-    files.append(book / "chapters/15-verification/_ch04-spatial-discretization.qmd")
+    files.append(book / "chapters/16-verification/_ch04-spatial-discretization.qmd")
     files.append(book / "chapters/08-positivity/_eoslimiter.qmd")
-    files.append(book / "chapters/07-time-integration/_vic-assembly.qmd")
+    files.append(book / "chapters/09-time-integration/_vic-assembly.qmd")
     assert not [(p.name, hit) for p in files for hit in lint.findings(p.read_text())]
 
 
@@ -95,8 +95,8 @@ AUDITED_NOTES.update({
     "04-spatial-discretization/_roe.qmd": 2,
     "04-spatial-discretization/_fluxcov.qmd": 1,
     "05-well-balanced/_x1cent.qmd": 1,
-    "07-time-integration/_cfl.qmd": 1,
-    "07-time-integration/_split.qmd": 1,
+    "09-time-integration/_cfl.qmd": 1,
+    "09-time-integration/_split.qmd": 1,
     "08-positivity/_theta.qmd": 1,
     "08-positivity/_borrow.qmd": 1,
 })

@@ -139,7 +139,7 @@ The arm dictionaries are `ARMS` in {{< code tests/test_horizontal_flux_covarianc
 {{< code tests/test_gravity_work_radial_exact.py main >}}).
 
 No snapy runtime test is executed for this chapter. CUDA and multi-rank entries describe registration only.
-The independent checks and their outputs are catalogued in @sec-ch15-ch12-tests.
+The independent checks and their outputs are catalogued in @sec-ch16-ch12-tests.
 
 The independent report check verifies the parser truth table and XC implication in `[C1]`.[^ch12-environment-run]
 It models the stated contract; it does not execute the compiled solver.

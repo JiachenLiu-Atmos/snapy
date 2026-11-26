@@ -167,7 +167,7 @@ setup failures:
   |---|---|
   | `book/chapters/04-spatial-discretization.qmd:85` | 04 — **excluded** |
   | `book/chapters/04-spatial-discretization/_fluxcov.qmd:334` | 04 — **excluded** |
-  | `book/chapters/07-time-integration.qmd:49` | 07 |
+  | `book/chapters/09-time-integration.qmd:49` | 07 |
   | `book/chapters/10-moist-coupling.qmd:60` | 10 |
 
 ### Authorship exclusions

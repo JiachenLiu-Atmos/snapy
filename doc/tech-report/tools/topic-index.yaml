@@ -270,56 +270,56 @@ sections:
     - energy conservation with gravity, implicit
 
   # Chapter 7. Time integration
-  sec-ch07-cfl:
+  sec-ch09-cfl:
     - time step: [dt, CFL, Courant number, cfl key]
     - CFL number, meaning: [Courant-Friedrichs-Lewy]
     - time step, why it is small: [run gets slower on a finer grid]
     - time step, implicit vertical
-  sec-ch07-exchange:
+  sec-ch09-exchange:
     - ghost exchange, when in a step
-  sec-ch07-redo:
+  sec-ch09-redo:
     - step rejection and redo: [redo, retry a step, max_redo]
     - blow-up, NaN and negative density: [crash, instability]
     - time step, halving after a failure
-  sec-ch07-rk:
+  sec-ch09-rk:
     - time integrator: [Runge-Kutta, SSP-RK, rk3, integration type]
     - time order of accuracy
     - test problems: [benchmarks, standard test cases, dynamical-core test cases, Straka density current]
     - verification evidence, test problems
-  sec-ch07-split:
+  sec-ch09-split:
     - operator splitting: [splitting, step boundary]
     - saturation adjustment, when in a step
     - kinetics, when in a step
-  sec-ch07-vic-assembly:
+  sec-ch09-vic-assembly:
     - implicit scheme: [VIC, vertically implicit correction, implicit solver]
     - implicit scheme, linear system: [block tridiagonal, linearization, Jacobian]
-  sec-ch07-vic-closure:
+  sec-ch09-vic-closure:
     - implicit scheme
     - implicit scheme, top and bottom boundary
-  sec-ch07-vic-options:
+  sec-ch09-vic-options:
     - implicit scheme
     - implicit scheme, turning on: [implicit-scheme key]
     - vertical acoustics, implicit
     - implicit correction, what it is
-  sec-ch07-vic-pivot:
+  sec-ch09-vic-pivot:
     - precision, implicit solver
     - implicit scheme
     - implicit scheme, solver tolerance: [pivot tolerance]
-  sec-ch07-vic-redistribute:
+  sec-ch09-vic-redistribute:
     - implicit scheme
     - implicit scheme, tracers and condensates
-  sec-ch07-vic-reject:
+  sec-ch09-vic-reject:
     - implicit scheme
     - implicit scheme, failure and rollback
-  sec-ch07-vic-stage:
+  sec-ch09-vic-stage:
     - "`_apply_implicit_correction` and its inputs"
     - implicit scheme
     - implicit scheme, time order with Runge-Kutta: [implicit-explicit coupling, IMEX]
-  sec-ch07-vic-steady:
+  sec-ch09-vic-steady:
     - implicit scheme
     - implicit scheme, steady state: [does the implicit correction change the steady state, rest state with VIC]
     - steady state: [equilibrium state, fixed point of the step]
-  sec-ch07-vic-sweep:
+  sec-ch09-vic-sweep:
     - implicit scheme
     - implicit scheme, solve: [Thomas algorithm, tridiagonal solve]
 
@@ -359,39 +359,39 @@ sections:
     - well-balanced scheme, positivity at faces
 
   # Chapter 9. Diffusion, viscosity and forcing
-  sec-ch09-coriolis:
+  sec-ch07-coriolis:
     - Coriolis force: [rotation, planetary rotation, rotation rate]
-  sec-ch09-framework:
+  sec-ch07-framework:
     - forcing, adding a new one: [forcing module, source term module]
     - forcing block: [forcing key]
     - source terms, how they enter a step
-  sec-ch09-heating:
+  sec-ch07-heating:
     - heating and cooling: [body heating, internal heat flux, Newtonian cooling]
     - bottom heating, top cooling
-  sec-ch09-plume:
+  sec-ch07-plume:
     - plume forcing (not installed)
-  sec-ch09-relax:
+  sec-ch07-relax:
     - relaxation at the bottom: [nudging, bottom relaxation]
     - lower boundary without a surface, relaxation
-  sec-ch09-sponge:
+  sec-ch07-sponge:
     - sponge layer: [Rayleigh drag, damping layer, top sponge]
     - dissipation and damping
     - lower boundary without a surface, sponge
-  sec-ch09-turbulence:
+  sec-ch07-turbulence:
     - turbulence closure (not built): [subgrid model]
-  sec-ch09-user:
+  sec-ch07-user:
     - forcing, from Python: [TorchScript forcing, user forcing, prototype forcing]
-  sec-ch09-csdiffusion:
+  sec-ch07-csdiffusion:
     - viscosity and heat conduction, cubed sphere: [spherical-shell diffusion, conduction on the sphere]
     - implicit radial conduction: [SDIRK]
     - wall temperature, prescribed
-  sec-ch09-viscosity:
+  sec-ch07-viscosity:
     - numerical diffusion/dissipation
     - viscosity and heat conduction: [diffusion, hyperviscosity]
     - dissipation and damping
-  sec-ch09-wallcoef:
+  sec-ch07-wallcoef:
     - viscosity at a wall
-  sec-ch09-x1profile:
+  sec-ch07-x1profile:
     - viscosity, height-dependent profile
 
   # Chapter 10. Moist physics coupling
@@ -530,44 +530,44 @@ sections:
     - output files, combining and inspecting: [pd-combine, pd-inspect]
 
   # Chapter 15. Verification catalogue
-  sec-ch15-metrics:
+  sec-ch16-metrics:
     - verification evidence, reading: [convergence order, two-grid order estimate]
     - agreement with a reference result
     - test problems
     - verification evidence, test problems
     - test case, reproducing: [reproduce a documented test]
-  sec-ch15-invariants:
+  sec-ch16-invariants:
     - invariant check: [invariant test, zero in zero out, absent species]
     - conservation budget, measured drift: [mass budget, energy budget, drift per step]
     - angular momentum, global axial: [axial angular momentum, AAM drift]
     - floor, what it changes: [clamp inventory, positivity floor list]
     - break test: [red test, breaking a check on purpose]
-  sec-ch15-ch01:
+  sec-ch16-ch01:
     - verification, overview tests
-  sec-ch15-ch02-tests:
+  sec-ch16-ch02-tests:
     - verification, thermodynamics
-  sec-ch15-ch03-tests:
+  sec-ch16-ch03-tests:
     - verification, grids
-  sec-ch15-ch04-tests:
+  sec-ch16-ch04-tests:
     - verification, discretization: [convergence tests]
     - convergence order, measured
-  sec-ch15-ch05-tests:
+  sec-ch16-ch05-tests:
     - verification, well-balance: [rest state test]
-  sec-ch15-ch10-tests:
+  sec-ch16-ch10-tests:
     - verification, moist physics
-  sec-ch15-ch11:
+  sec-ch16-ch11:
     - verification, boundary conditions
-  sec-ch15-ch12-tests:
+  sec-ch16-ch12-tests:
     - verification, configuration
 
   # Chapter 16. Known limits
-  sec-ch16-wrong:
+  sec-ch17-wrong:
     - known limits, wrong results possible: [known bugs, pitfalls]
-  sec-ch16-restricted:
+  sec-ch17-restricted:
     - known limits, restricted applicability: [limits of validity]
-  sec-ch16-usability:
+  sec-ch17-usability:
     - known limits, performance and usability: [performance]
-  sec-ch16-pending:
+  sec-ch17-pending:
     - known limits, gravity work and vertical seams
 
   # Appendix A. Notation

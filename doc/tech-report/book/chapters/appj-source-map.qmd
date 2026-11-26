@@ -34,7 +34,7 @@ not is said so.
 | [`src/`](https://github.com/chengcli/snapy/tree/919936da07d80a310b98ab11da184972a3203274/src) | the C++ core: the `snap` shared library, plus a CUDA library when `CUDA` is on; one directory per module (next table) | @sec-ch01 |
 | `snap` | a symbolic link to `src`, so the code includes its own headers as `<snap/...>` | none |
 | [`python/`](https://github.com/chengcli/snapy/tree/919936da07d80a310b98ab11da184972a3203274/python) | the `snapy` package (`package_dir` in `setup.py`): bindings in `csrc/` compiled into the extension `snapy.snapy`, type stubs in `snapy/`, the `pd-combine` and `pd-inspect` tools in `api/` | @sec-ch01-python, @sec-ch14-tools |
-| [`tests/`](https://github.com/chengcli/snapy/tree/919936da07d80a310b98ab11da184972a3203274/tests) | the ctest suite: C++ and Python tests and the `run_*` drivers registered in `tests/CMakeLists.txt` | @sec-appc, @sec-ch15 |
+| [`tests/`](https://github.com/chengcli/snapy/tree/919936da07d80a310b98ab11da184972a3203274/tests) | the ctest suite: C++ and Python tests and the `run_*` drivers registered in `tests/CMakeLists.txt` | @sec-appc, @sec-ch16 |
 | [`examples/`](https://github.com/chengcli/snapy/tree/919936da07d80a310b98ab11da184972a3203274/examples) | example drivers (`.cpp`) and their input decks (`.yaml`) | [Install and run](#sec-preface-install), @sec-ch10-kinetics |
 | [`cmake/`](https://github.com/chengcli/snapy/tree/919936da07d80a310b98ab11da184972a3203274/cmake) | build macros, `Find*` modules for the dependencies, fetch scripts for Eigen, fmt, GoogleTest, kintera and yaml-cpp | @sec-ch12-build, @sec-ch01-dependencies |
 | [`api/`](https://github.com/chengcli/snapy/tree/919936da07d80a310b98ab11da184972a3203274/api) | `pd-run` and `slurm.sbatch`, launch scripts installed with the package | @sec-ch14-launch |
@@ -57,8 +57,8 @@ not is said so.
 | `hydro/` | the hydro module: its options, the stage increment, well-balanced references, flux positivity | yes, with CUDA | @sec-ch01-hydro, @sec-ch05, @sec-ch08 |
 | `recon/` | reconstruction: donor cell, PLM, CP3/CP5, WENO3/WENO5, PPM | yes, with CUDA | @sec-ch04-framework |
 | `riemann/` | Riemann solvers: Roe, LMARS, HLLC, shallow-water Roe, plume Roe | yes, with CUDA | @sec-ch04-riemann |
-| `implicit/` | the vertically implicit correction: assembly, block sweep, redistribution | yes, with CUDA | @sec-ch07-vic-options |
-| `forcing/` | forcing modules: gravity, Coriolis, diffusion, heating, relaxation, sponges | yes | @sec-ch09, @sec-ch06 |
+| `implicit/` | the vertically implicit correction: assembly, block sweep, redistribution | yes, with CUDA | @sec-ch09-vic-options |
+| `forcing/` | forcing modules: gravity, Coriolis, diffusion, heating, relaxation, sponges | yes | @sec-ch07, @sec-ch06 |
 | `scalar/` | the passive-scalar module | yes | @sec-ch01-scalar, @sec-ch10-tracer |
 | `sedimentation/` | sedimentation velocities and their hydro coupling | yes, with CUDA | @sec-ch10-sed |
 | `mesh/` | `MeshBlock` and `Mesh`, their options, the cycle diagnostics | yes | @sec-ch01-construction, @sec-ch01-mesh |
@@ -66,8 +66,8 @@ not is said so.
 | `output/` | output types (NetCDF, PnetCDF, restart; HDF5 only with `HDF5OUTPUT` defined), their combine and field loaders | yes | @sec-ch14-netcdf, @sec-ch14-restart, @sec-ch13-output-diag |
 | `input/` | deck key checks, command line, restart reading, signals | yes | @sec-ch01-options |
 | `utils/` | logging, CUDA helpers and shared kernels | yes, with CUDA | @sec-ch01-dispatch |
-| `math/`, `interface/` | headers only: LU routines (used by `implicit`), array adapters (used by `output`) | headers | @sec-ch07-vic-pivot |
-| `diagnostics/`, `turbulence/`, `parallel/`, `z.junk/` | not in the library's source lists | no | @sec-ch09-turbulence |
+| `math/`, `interface/` | headers only: LU routines (used by `implicit`), array adapters (used by `output`) | headers | @sec-ch09-vic-pivot |
+| `diagnostics/`, `turbulence/`, `parallel/`, `z.junk/` | not in the library's source lists | no | @sec-ch07-turbulence |
 
 : Module directories of `src/` at the pin. {#tbl-appj-src}
 

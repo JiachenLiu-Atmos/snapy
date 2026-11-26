@@ -123,7 +123,7 @@ The assertion is `EXPECT_EQ` in
 `expected_default_backend` ({{< code tests/test_process_group.cpp expected_default_backend >}}).
 
 No snapy runtime test is executed for this chapter. CUDA and multi-rank entries describe registration only.
-The independent checks and their outputs are catalogued in @sec-ch15-ch12-tests.
+The independent checks and their outputs are catalogued in @sec-ch16-ch12-tests.
 
 The independent report check verifies the compiled-alternative containment in `[C7]`.[^ch12-macros-run]
 It models the stated contract; it does not execute the compiled solver.

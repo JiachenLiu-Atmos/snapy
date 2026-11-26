@@ -146,7 +146,7 @@ The assertions are {{< code tests/test_process_group.cpp LayoutOptions.DefaultsT
 {{< code tests/test_process_group.cpp ProcessGroupContext.SkipsSingleProcessCommunication >}}.
 
 No snapy runtime test is executed for this chapter. CUDA and multi-rank entries describe registration only.
-The independent checks and their outputs are catalogued in @sec-ch15-ch12-tests.
+The independent checks and their outputs are catalogued in @sec-ch16-ch12-tests.
 
 The independent report check verifies the shared-port assignment predicate in `[C8]`.[^ch12-layout-run]
 It models the stated contract; it does not execute the compiled solver.

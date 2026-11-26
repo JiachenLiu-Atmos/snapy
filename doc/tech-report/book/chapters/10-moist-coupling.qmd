@@ -14,7 +14,7 @@ reaction kinetics that the example drivers, not the library, run between steps; 
 dry air; and the settling of condensates. One rule runs through all of them: latent heat is never a separate term.
 It is the difference of the species reference energies, so every operator here except sedimentation writes the
 species rows only and leaves the total energy, the momentum and the dry air alone. Sedimentation moves condensate
-with its own energy and momentum. The redo machinery in general belongs to @sec-ch07-redo and the positivity
+with its own energy and momentum. The redo machinery in general belongs to @sec-ch09-redo and the positivity
 limiter's theory to @sec-ch08.
 
 ```{python}
@@ -39,7 +39,7 @@ make_fig()
 : The schemes of this chapter, their switches and defaults, and the test that carries each one. "Driver" means
 the scheme is in the example drivers, not in the library, and has no library switch. `limiter` defaults to
 false both in the C++ options struct and in YAML[^rg-58283354e312]. Full ctest names and tolerances are in each scheme's Tests
-layer and in @sec-ch15-ch10-tests. {#tbl-ch10-schemes}
+layer and in @sec-ch16-ch10-tests. {#tbl-ch10-schemes}
 
 | ctest name | result at the pin |
 |---|---|
@@ -78,7 +78,7 @@ layer and in @sec-ch15-ch10-tests. {#tbl-ch10-schemes}
 
 {{< include 10-moist-coupling/_sed.qmd >}}
 
-The limits this chapter states are collected with those of the other chapters in @sec-ch16-wrong, @sec-ch16-restricted and @sec-ch16-usability.
+The limits this chapter states are collected with those of the other chapters in @sec-ch17-wrong, @sec-ch17-restricted and @sec-ch17-usability.
 
 <!-- reader glossary notes -->
 [^rg-8e24f1f74511]: limiter — whether the enclosing component enables its limiter

@@ -60,7 +60,7 @@ explains it, is listed in @sec-appi.
 ### Derivation
 
 No separate continuum equation is introduced by the parser; the configuration resolves into the schemes of
-the preceding sections and of @sec-ch04 to @sec-ch07. Changing the gravity-work mode changes the budget the
+the preceding sections and of @sec-ch04 to @sec-ch09. Changing the gravity-work mode changes the budget the
 solver conserves (@sec-ch06-dwork), not an output label, so validation is part of the numerical contract:
 incompatible options must not run silently. Check line `[C10]` holds both halves: over ten option pairs the
 validator rejects exactly the two marked incompatible and accepts the rest, and the corrected budget functional
@@ -188,7 +188,7 @@ The hydro-options assertions are
 {{< code tests/test_implicit_options_type.py main >}}.
 
 No snapy runtime test is executed for this chapter. CUDA and multi-rank entries describe registration only.
-The independent checks and their outputs are catalogued in @sec-ch15-ch12-tests.
+The independent checks and their outputs are catalogued in @sec-ch16-ch12-tests.
 
 The independent report check verifies the option-pair validator and budget distinction in `[C10]`.[^ch12-yaml-run]
 It models the stated contract; it does not execute the compiled solver.

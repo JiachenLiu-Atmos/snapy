@@ -357,14 +357,14 @@ Code anchors are `path:line` at snapy `v3/final` = `73c45a7c8c991209924e11379923
 - **Derivation:** (I + b dt J') delta = b dt L per column; block tridiagonal LU with the wall third points by Woodbury
 - **Code:** `src/implicit/implicit_hydro.cpp:301` `ImplicitHydroImpl::forward_masked`; `src/implicit/vic_kernels.h:176` `vic_solve_column`
 - **Tests:** `test_implicit_face_work_jacobian.release` (no numeric tolerance in the source (pass/fail checks only)); `test_implicit_gravity_tall_column_python` (constants W_TOL=1.0e-7); `test_lu_failure.release` (bitwise (equal x14))
-- **Figures/tables:** `src/snapy_report/ch07/figures/fig_vic_stencil.py` (deck: none (diagram)); `src/snapy_report/ch07/figures/fig_vic_sweep.py` (deck: none (diagram))
+- **Figures/tables:** `src/snapy_report/ch09/figures/fig_vic_stencil.py` (deck: none (diagram)); `src/snapy_report/ch09/figures/fig_vic_sweep.py` (deck: none (diagram))
 
 #### 6.3 Column status, the FP64 retry and the S4 status truth table
 
 - **Derivation:** status bits per column; the predicated FP64 stage solves only failed columns; status() as one table lookup (S4); the solve posts its face transfers into the x1 total of the register, also with the x1 flux off (the disabled direction's total is rewritten to zero each stage)
 - **Code:** `src/implicit/implicit_hydro.cpp:223` `ImplicitHydroImpl::status`; `src/hydro/hydro.cpp:431` `HydroImpl::_apply_implicit_correction`
 - **Tests:** `test_fp32_vic_pivot_python` (no numeric tolerance in the source (pass/fail checks only)); `test_fp32_implicit_python` (bitwise (equal x1); constants rtol=1.0e-13; compared < 2.0e-6); `test_implicit_register_x1_off_python` (bitwise (equal x1))
-- **Figures/tables:** `src/snapy_report/ch07/figures/fig_vic_reject.py` (deck: none (diagram))
+- **Figures/tables:** `src/snapy_report/ch09/figures/fig_vic_reject.py` (deck: none (diagram))
 
 #### 6.4 The implicit solve on the device dt (pointer to 11.5)
 
@@ -380,7 +380,7 @@ Code anchors are `path:line` at snapy `v3/final` = `73c45a7c8c991209924e11379923
 - **Derivation:** -2 Omega x v projected on the local frame; the x1 mass-flux w terms from the x1 total of the register (A_f times the dry and species mass rows), which holds the implicit solve's posts, the x1 flux on or off
 - **Code:** `src/forcing/coriolis.cpp:110` `CoriolisImpl::add`; `src/forcing/x1_momentum.cpp:48` `X1Momentum::after_solve`
 - **Tests:** `test_forcing.release` (bitwise (equal x3); allclose(rtol=1e-05 (default), atol=1e-08 (default)) x9; allclose(rtol=1.e-12, atol=1.e-12); allclose(rtol=1.e-13, atol=0.) x2; allclose(rtol=1.e-8, atol=1.e-8); allclose(rtol=1.e-10, atol=1.e-10); allclose(rtol=1.e-10, atol=1.e-8); allclose(rtol=1.e-10, atol=0.); EXPECT_NEAR 1.e-9); `test_implicit_register_x1_off_python` (bitwise (equal x1))
-- **Figures/tables:** `src/snapy_report/ch09/figures/fig_coriolis_projection.py` (deck: none (diagram))
+- **Figures/tables:** `src/snapy_report/ch07/figures/fig_coriolis_projection.py` (deck: none (diagram))
 
 #### 7.2 Axial angular momentum: flux form and closure
 
@@ -394,14 +394,14 @@ Code anchors are `path:line` at snapy `v3/final` = `73c45a7c8c991209924e11379923
 - **Derivation:** second-order diffusion operators on Cartesian, cubed-sphere and radial grids; the energy rows go through the register only (post_fluxes, also with a flux direction off), add() takes the other rows; the diffusive time-step bound
 - **Code:** `src/forcing/diffusion.cpp:551` `DiffusionImpl::add`; `src/forcing/diffusion_cubed_sphere.cpp:365` `DiffusionImpl::post_fluxes`; `src/forcing/diffusion.cpp:709` `DiffusionImpl::max_time_step`
 - **Tests:** `test_diffusion.release` (allclose(rtol=1e-05 (default), atol=1e-08 (default)) x3; allclose(rtol=1.e-6, atol=1.e-6); allclose(rtol=1.e-5, atol=1.e-5) x2; allclose(rtol=3.e-4, atol=3.e-4); allclose(rtol=1.e-10, atol=1.e-10); allclose(rtol=1.e-12, atol=0.) x4; EXPECT_NEAR 1.e-12, 1.e-3, 1.e-4 * full, 1.e-6, dtype == torch::kFloat64 ? 1.e-9 : 1.e-3); `test_diffusion_cubed_sphere.release` (allclose(rtol=0., atol=1.e-12); allclose(rtol=1.e-11, atol=1.e-12); allclose(rtol=1.e-8, atol=1.e-10); allclose(rtol=1.e-12, atol=1.e-9); allclose(rtol=1.e-8, atol=1.e-8); EXPECT_NEAR 0.02 * analytical, 1.e-10, 1.e-11, 1.e-12 * energy0); `test_diffusion_moist.release` (bitwise (equal x1); allclose(rtol=1.e-5, atol=1.e-5); allclose(rtol=1.e-12, atol=1.e-12); allclose(rtol=1.e-6, atol=1.e-6); EXPECT_NEAR 1.e-12 * expected, 1.e-3)
-- **Figures/tables:** `src/snapy_report/ch09/figures/fig_viscosity_stencil.py` (deck: none (diagram)); `src/snapy_report/ch09/figures/fig_csdiffusion_stencil.py` (deck: none (diagram))
+- **Figures/tables:** `src/snapy_report/ch07/figures/fig_viscosity_stencil.py` (deck: none (diagram)); `src/snapy_report/ch07/figures/fig_csdiffusion_stencil.py` (deck: none (diagram))
 
 #### 7.4 Other forcings and the user stage forcing
 
 - **Derivation:** heating, relaxation and sponge terms (one table); the TorchScript stage forcing and its species clip
 - **Code:** `src/mesh/meshblock_advance.cpp:235` `MeshBlockImpl::stage_forcing`
 - **Tests:** `test_jit_user_forcing_python` (assert_close(rtol=dtype default (default), atol=dtype default (default))); `test_forcing_species_clip_python` (constants tol=1.e-14); `test_source_registry.release` (bitwise (equal x2); allclose(rtol=1.e-12, atol=1.e-12))
-- **Figures/tables:** `src/snapy_report/ch09/figures/fig_user_forcing.py` (deck: none (diagram)); `src/snapy_report/ch09/figures/fig_sponge_profile.py` (deck: none (analytic))
+- **Figures/tables:** `src/snapy_report/ch07/figures/fig_user_forcing.py` (deck: none (diagram)); `src/snapy_report/ch07/figures/fig_sponge_profile.py` (deck: none (analytic))
 
 ### Chapter 8. Moist physics, positivity, floors and limiters
 
@@ -454,21 +454,21 @@ Code anchors are `path:line` at snapy `v3/final` = `73c45a7c8c991209924e11379923
 - **Derivation:** SSP-RK3 weights (w0, w1, w2) from pyharp; u^{s+1} = w0 u0 + w1 u1 + w2 dt L(u1)
 - **Code:** `src/mesh/meshblock_advance.cpp:309` `MeshBlockImpl::stage_combine`
 - **Tests:** `test_mesh_executor.release` (bitwise (equal x2))
-- **Figures/tables:** `src/snapy_report/ch07/figures/fig_rk_stages.py` (deck: none (diagram))
+- **Figures/tables:** `src/snapy_report/ch09/figures/fig_rk_stages.py` (deck: none (diagram))
 
 #### 9.2 The time step
 
 - **Derivation:** acoustic CFL bound per direction, then the sources' bounds; the global minimum over blocks
 - **Code:** `src/hydro/hydro.cpp:333` `HydroImpl::max_time_step`; `src/mesh/meshblock_advance.cpp:65` `MeshBlockImpl::global_time_step`
 - **Tests:** `test_implicit_cfl.release` (no numeric tolerance in the source (pass/fail checks only)); `test_shear_cfl_python` (no numeric tolerance in the source (pass/fail checks only)); `test_implicit_advection_cfl_python` (no numeric tolerance in the source (pass/fail checks only))
-- **Figures/tables:** `src/snapy_report/ch07/figures/fig_cfl_bounds.py` (deck: none (analytic))
+- **Figures/tables:** `src/snapy_report/ch09/figures/fig_cfl_bounds.py` (deck: none (analytic))
 
 #### 9.3 Step acceptance and the redo decision
 
 - **Derivation:** none (control flow): redo causes stacked on the device, one host read, MAX over ranks; floor, clamp, limiter, NaN, saturation, solve
 - **Code:** `src/mesh/meshblock_redo.cpp:90` `MeshBlockImpl::local_redo_flag_tensor`; `src/mesh/meshblock_redo.cpp:168` `MeshBlockImpl::decide_retry`; `src/mesh/meshblock_redo.cpp:32` `MeshBlockImpl::apply_redo`
 - **Tests:** `test_check_redo_floor_python` (bitwise (equal x11)); `test_check_redo_parallel.release` (bitwise (equal x3))
-- **Figures/tables:** `src/snapy_report/ch07/figures/fig_redo_flow.py` (deck: none (diagram))
+- **Figures/tables:** `src/snapy_report/ch09/figures/fig_redo_flow.py` (deck: none (diagram))
 
 #### 9.4 The implicit tracer transfer (S4 padded shifts)
 
@@ -699,14 +699,14 @@ Code anchors are `path:line` at snapy `v3/final` = `73c45a7c8c991209924e11379923
 - **Derivation:** none (method): the face-deck harness (harness348) and the dump set (dumpset349) compared byte for byte between commits, CPU with CPU and CUDA with CUDA; both are tools on the closing-plan branch, pinned by path at cshsgy/snapy `be267b702c074eae3aa05e12759357e2ee9f4b51` (v3/closing-dryrun-plan): `docs/v3/closing/tools/harness348/h348.py` (and its `decks/`), `docs/v3/closing/tools/dumpset349/dumpset349.py` with `compare.py`, run by `docs/v3/closing/tools/gates.sh`, with no ctest of their own (test_straka is a reference L2 comparison, not a bitwise gate)
 - **Code:** none in `src/` (method or record section)
 - **Tests:** none (no test covers this section at the pin)
-- **Figures/tables:** **new** `src/snapy_report/ch16/figures/tab_gates.py` (deck: the dump-set and harness decks (closing-plan tools))
+- **Figures/tables:** **new** `src/snapy_report/ch17/figures/tab_gates.py` (deck: the dump-set and harness decks (closing-plan tools))
 
 #### 16.2 The capture sweep
 
 - **Derivation:** none (method): every shipped test run under the cuda-graph default; table of captured / refused (reason) / failed
 - **Code:** none in `src/` (method or record section)
 - **Tests:** `test_stage_executor_capture_python` (bitwise (equal x5))
-- **Figures/tables:** **new** `src/snapy_report/ch16/figures/tab_capture_sweep.py` (deck: the sweep's committed record (open slot))
+- **Figures/tables:** **new** `src/snapy_report/ch17/figures/tab_capture_sweep.py` (deck: the sweep's committed record (open slot))
 
 #### 16.3 Launch counting and the S4 table
 
@@ -720,14 +720,14 @@ Code anchors are `path:line` at snapy `v3/final` = `73c45a7c8c991209924e11379923
 - **Derivation:** none (record): each regression test with the issue and the RED/GREEN commits it came from
 - **Code:** none in `src/` (method or record section)
 - **Tests:** `test_flux_positivity_carry.release` (bitwise (equal x4); EXPECT_NEAR 0.; constants tol=1.e-12); `test_graph_monitor_amounts.release` (bitwise (equal x7)); `test_seam_rotation_cache_python` (bitwise (equal x3)); `test_mesh_disagree.release` (bitwise (equal x1)); `test_graph_stretched_x1_python` (bitwise (torch.equal of every block's state after every step, tests/test_graph_stretched_x1.py:85); its rtol=1.e-13 (:51-52) is the tolerance of the balance_column solve that builds the initial state, not a comparison tolerance); `test_flux_register.release` (bitwise (equal x29); allclose(rtol=0., atol=0.)); `test_default_execution_python` (bitwise (equal x2)); `test_graph_positivity_meters_match_eager_python` (bitwise (equal x1)); `test_prescribed_after_sources.release` (EXPECT_NEAR tol0; constants tol=1.e-12); `test_implicit_register_x1_off_python` (bitwise (equal x1)); `test_graph_mesh_many_blocks_python` (bitwise (equal x1)); `test_mesh_worker_streams.release` (no numeric tolerance in the source (pass/fail checks only)); `test_mesh_block_job_failure_python` (no numeric tolerance in the source (pass/fail checks only)). Provenance on `v3/final`: test_graph_stretched_x1 #316 (RED 213189c4, fix 069769ba); test_graph_monitor_amounts `GraphSaveList.user_forcing_graph_books_wall_rates_like_eager` (RED 8019073b, fix a78dc50f then fa734fff); test_flux_register `FluxRegister.wall_prescription_books_in_float32_on_the_device` (added with 9766b2d7), the rebuilt-weights slot (RED 2a20e4fc, fix ead839e3) and the solid-mask x1 wall rows (RED 715d8b39, fix 9e03e4d3); test_default_execution (RED 53c46723, fix 02e4ef05; split panels RED c7bbca02, fix b81f1c1f); test_graph_positivity_meters_match_eager (RED e276ece3 and 897ef787, fix 66614c32 then 4c023985; `kConvTrips` d0d83bf6); test_flux_positivity_carry (RED 83ef60c7, fix 2b0914c8); test_prescribed_after_sources (RED abd8670f, fix c7401fdb; the conducting wall RED fae998e0, fix e71206ef); test_diffusion (RED 875ec321, fix 3d898fd7); test_implicit_register_x1_off (RED 28b84f9b, fix b860b16e); test_graph_mesh_many_blocks (RED c9977805, fix 838028c6 to e474ff90); test_mesh_worker_streams (RED 10027e12, fix 2a25a3ff); test_mesh_block_job_failure (RED 0affeb86, fix 17c05904 and 9cf0bcb2)
-- **Figures/tables:** **new** `src/snapy_report/ch16/figures/tab_regressions.py` (deck: none (table))
+- **Figures/tables:** **new** `src/snapy_report/ch17/figures/tab_regressions.py` (deck: none (table))
 
 #### 16.5 CPU, CUDA and MPS reproducibility
 
 - **Derivation:** none (method): CPU and CUDA are compared bitwise; MPS is held to err = max|mps - cpu| / max|cpu| <= max(1e-4, 3 x the CPU FP32-vs-FP64 error) per arm, the reconstruction arms exactly 0
 - **Code:** none in `src/` (method or record section)
 - **Tests:** `test_mps_matches_cpu_python` (err = max|mps - cpu| / max|cpu| <= max(TOL=1e-4, 3 x the CPU FP32-vs-FP64 error) per arm; the reconstruction arms exactly 0 (tests/test_mps_matches_cpu.py:4-9, :27)); `test_weno5_cuda_line.release` (bitwise (equal x1))
-- **Figures/tables:** `src/snapy_report/ch15/figures/fig_evidence.py` (deck: none (diagram))
+- **Figures/tables:** `src/snapy_report/ch16/figures/fig_evidence.py` (deck: none (diagram))
 
 ### Chapter 17. Known limits (pointer rows only)
 

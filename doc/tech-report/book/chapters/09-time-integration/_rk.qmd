@@ -1,0 +1,283 @@
+## Explicit SSP Runge-Kutta stages in Shu-Osher form (`integration/type`) {#sec-ch09-rk}
+
+<!-- PROVENANCE
+pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy); pyharp@4721715855e937c1e8b218e964c0655f46e56e29
+sources: OUTLINE.md 7.1; src/mesh/meshblock.cpp; pyharp src/integrator/integrator.cpp; sources/canoe__POSITIVITY_TECH_REPORT.md §3
+status: draft
+-->
+
+### Summary
+
+The time integrator is pyharp's `IntegratorImpl`. snapy calls it once per stage to average three states: the state
+at the start of the step, the state of the current stage and the full-step tendency that the stage computed. All
+four tableaux are strong-stability-preserving (SSP) Runge-Kutta schemes in Shu-Osher form, so every stage is a
+convex combination of the step-start state and a forward-Euler step. A property that a forward-Euler step keeps
+under a time-step limit, such as the nonnegativity of a species density under the positivity limiter of
+@sec-ch08, the stage keeps under the same limit scaled by the SSP coefficient.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Advances the state over one step in one to four stages, each a convex combination; @eq-ch09-rk-stage.
+
+**Data.** Reads $\mathbf U^n$, the stage state and $\Delta t\,\mathcal L$, ghosts included; writes the next stage state.
+
+**Placement.** The whole step: stage 0 saves $\mathbf U^n$, and each stage ends with the average.
+
+**Activation.** `integration/type`: `rk1` (or `euler`), `rk2`, `rk3` (default), `rk3s4`; read by pyharp.
+
+**Guarantee / limits.** Order 1, 2, 3, 3; SSP with $c_{\mathrm{SSP}}$ = 1, 1, 1, 2; one `cfl`[^rg-b169a835b08c] for every type.
+
+**Evidence.** @tbl-ch09-rk-tests; `test_forcing.release`, `test_straka`, `rk_check.py` `[C1]`–`[C7]`.
+:::
+
+Local symbols: $\mathcal Y$ [-] is the scalar of the test equation $\mathrm d\mathcal Y/\mathrm dt=\mathcal G\mathcal Y$,
+$\mathcal G$ [s$^{-1}$] its constant rate and $\mathcal Z=\mathcal G\Delta t$ [-]; $\Delta t_{\mathrm{FE}}$ [s] is the
+largest forward-Euler step that keeps a convex functional from growing; $c^{(s)}_{\mathrm{FE}}$ [-] is the forward-Euler fraction of
+stage $s$ and $c_{\mathrm{SSP}}=\min_s c^{(s)}_{\mathrm{FE}}$ [-] the SSP coefficient, the factor by which a scheme's step may exceed
+$\Delta t_{\mathrm{FE}}$ with the same guarantee; $\zeta_n=n(\epsilon_{\mathrm m}/2)/(1-n\epsilon_{\mathrm m}/2)$ [-] bounds
+the relative error of $n$ roundings. $C$[^rg-3f6709e93486] stays the Courant number of @sec-ch09-cfl.
+
+The state averaged is $\mathbf U$[^rg-9e4fb7fc3006] with its ghosts ($\rho_{\mathrm d}$[^rg-f449a62578a1], $\rho_n$[^rg-055f669ed8ed], $m_a$, $E$[^rg-9da2c0961e5e], total-mass basis) and the
+passive-scalar densities $\rho_{\mathrm d}r_n$ (dry-mass basis). The type is read from YAML[^rg-14d76ead90d3] with default `rk3`; an
+unknown type throws. The step-start registers and the stage index that the VIC needs are set by snapy's stage
+driver.
+
+The steps of one time step, from reconstruction to the final update: the step size is set once (@sec-ch09-cfl);
+then each stage reconstructs the face states, solves the Riemann problems, limits the fluxes, forms the flux
+divergence and adds the forcings and the vertical implicit correction (`HydroImpl::forward`), adds the user stage
+forcings, takes the average of @eq-ch09-rk-stage with the conserved limiter and refills any solid cells; on the
+last stage only, the phase adjustment and the gravity-work fixer follow when they are on; and every stage ends by
+filling the physical ghosts. @sec-ch02-laws lists the same order with the code that runs it, and @sec-ch01-hydro
+follows one increment through it.
+
+### Derivation
+
+Let $\mathcal L(\mathbf U)$ be the semi-discrete right-hand side, so that the stage tendency is
+$\Delta\mathbf U = \Delta t\,\mathcal L(\mathbf U)$, the full-step increment that `HydroImpl::forward` returns
+(@sec-ch04, @sec-ch07). With $\mathbf U^{(0)}=\mathbf U^n$, stage $s$ forms
+
+$$
+\mathbf U^{(s+1)} = w_0^{(s)}\,\mathbf U^n + w_1^{(s)}\,\mathbf U^{(s)} + w_2^{(s)}\,\Delta t\,\mathcal L(\mathbf U^{(s)}) ,
+$$ {#eq-ch09-rk-stage}
+
+implemented as `pintg->forward(stage, _hydro_u0, hydro_u, fut_hydro_du)`
+({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}), whose body is the linear combination of `IntegratorImpl::forward`
+([`pyharp integrator.cpp:101-122`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L101-L122)). The weights $(w_0^{(s)},w_1^{(s)},w_2^{(s)})$ of each stage are set in the
+`IntegratorImpl` constructor ([`pyharp integrator.cpp:33-85`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L33-L85)):
+
+| type | stage 1 | stage 2 | stage 3 | stage 4 |
+|---|---|---|---|---|
+| `rk1` | $(0,1,1)$ | | | |
+| `rk2` | $(0,1,1)$ | $(\tfrac12,\tfrac12,\tfrac12)$ | | |
+| `rk3` | $(0,1,1)$ | $(\tfrac34,\tfrac14,\tfrac14)$ | $(\tfrac13,\tfrac23,\tfrac23)$ | |
+| `rk3s4` | $(\tfrac12,\tfrac12,\tfrac12)$ | $(0,1,\tfrac12)$ | $(\tfrac23,\tfrac13,\tfrac16)$ | $(0,1,\tfrac12)$ |
+
+: Stage weights $(w_0^{(s)},w_1^{(s)},w_2^{(s)})$ of the four integrator types. {#tbl-ch09-rk-weights}
+
+*Order.* On $\mathrm d\mathcal Y/\mathrm dt=\mathcal G\mathcal Y$ a stage of @eq-ch09-rk-stage maps
+$\mathcal Y\mapsto w_0^{(s)}\mathcal Y^n+(w_1^{(s)}+w_2^{(s)}\mathcal Z)\,\mathcal Y$, starting from $\mathcal Y^{(0)}=\mathcal Y^n$.
+Multiplying the stages out with the weights of @tbl-ch09-rk-weights (every value below is a multiple of $\mathcal Y^n$):
+
+1. `rk1`: $\mathcal Y^{(1)}=1+\mathcal Z$.
+2. `rk2`: $\mathcal Y^{(2)}=\tfrac12+\tfrac12(1+\mathcal Z)^2=1+\mathcal Z+\tfrac12\mathcal Z^2$.
+3. `rk3`: $\mathcal Y^{(2)}=\tfrac34+\tfrac14(1+\mathcal Z)^2=1+\tfrac12\mathcal Z+\tfrac14\mathcal Z^2$, and
+   $\mathcal Y^{(3)}=\tfrac13+\tfrac23(1+\mathcal Z)(1+\tfrac12\mathcal Z+\tfrac14\mathcal Z^2)=1+\mathcal Z+\tfrac12\mathcal Z^2+\tfrac16\mathcal Z^3$.
+4. `rk3s4`: $\mathcal Y^{(1)}=1+\tfrac12\mathcal Z$, $\mathcal Y^{(2)}=(1+\tfrac12\mathcal Z)^2$,
+   $\mathcal Y^{(3)}=\tfrac23+\tfrac13(1+\tfrac12\mathcal Z)^3$, and
+   $\mathcal Y^{(4)}=(1+\tfrac12\mathcal Z)\,\mathcal Y^{(3)}=1+\mathcal Z+\tfrac12\mathcal Z^2+\tfrac16\mathcal Z^3+\tfrac1{48}\mathcal Z^4$.
+5. The first three agree with $e^{\mathcal Z}$ to the order of the scheme. `rk3s4` agrees to $\mathcal Z^3$ and its
+   $\mathcal Z^4$ coefficient is $1/48$, not $1/24$, so it is third order.
+
+Steps 1 to 5 are exact (`[C5]`), and the stability polynomials agree with a port of the stage loop (`[C1]`). On a
+nonlinear equation the fitted orders are 1.01, 2.01, 3.02 and 3.01 (`[C2]`).
+
+*Strong stability.* In every tableau $w_0^{(s)}+w_1^{(s)}=1$ with $w_0^{(s)},w_1^{(s)}\ge0$, so
+
+$$
+\mathbf U^{(s+1)} = w_0^{(s)}\,\mathbf U^n + w_1^{(s)}\Big(\mathbf U^{(s)} + \frac{w_2^{(s)}}{w_1^{(s)}}\,\Delta t\,\mathcal L(\mathbf U^{(s)})\Big) .
+$$
+
+6. The stage is a convex combination of $\mathbf U^n$ and a forward-Euler step of size $(w_2^{(s)}/w_1^{(s)})\Delta t$ from
+   $\mathbf U^{(s)}$[^rg-5f595edd062e].
+7. At the first stage $\mathbf U^{(0)}=\mathbf U^n$, so the whole stage is one forward-Euler step of size
+   $w_2^{(0)}\Delta t/(w_0^{(0)}+w_1^{(0)})$.
+8. Each stage is therefore safe while its step is at most $\Delta t_{\mathrm{FE}}$, that is for
+   $\Delta t\le c^{(s)}_{\mathrm{FE}}\,\Delta t_{\mathrm{FE}}$ with $c^{(0)}_{\mathrm{FE}}=(w_0^{(0)}+w_1^{(0)})/w_2^{(0)}$ and $c^{(s)}_{\mathrm{FE}}=w_1^{(s)}/w_2^{(s)}$ for $s\ge1$.
+9. The scheme is safe for $\Delta t\le c_{\mathrm{SSP}}\Delta t_{\mathrm{FE}}$ with $c_{\mathrm{SSP}}=\min_s c^{(s)}_{\mathrm{FE}}$. From
+   @tbl-ch09-rk-weights every $c^{(s)}_{\mathrm{FE}}$ is 1 for `rk1`, `rk2` and `rk3`, and every $c^{(s)}_{\mathrm{FE}}$ is 2 for `rk3s4`, so
+   $c_{\mathrm{SSP}}$ = 1, 1, 1, 2 (`[C3]`, `[C6]`).
+
+On $\mathrm d\mathcal Y/\mathrm dt=-\mathcal Y$, where forward Euler keeps $\mathcal Y\ge0$ for $\Delta t\le1$, `rk3` keeps it up to 1
+and `rk3s4` up to 2 (`[C4]`).[^ch09-rk-ssp] $w_2^{(s)}\le w_1^{(s)}$ is the property the positivity limiter states for every
+shipped integrator, in its comment on `wght2` ({{< code src/hydro/flux_positivity.hpp flux_positivity_theta >}}).
+
+[^ch09-rk-ssp]: The argument is that of `sources/canoe__POSITIVITY_TECH_REPORT.md` §3, written out here.
+
+*Round-off.*
+
+10. The average is `wght0() * u0 + wght1() * u1 + wght2() * u2` in the working precision: three products and two
+    additions per entry, each rounded once with relative error at most $\epsilon_{\mathrm m}/2$. The weights
+    $\tfrac13$, $\tfrac23$, $\tfrac16$ are not binary fractions, so each weight carries one more rounding.
+11. With four roundings on the longest path, the computed entry differs from @eq-ch09-rk-stage by at most
+    $\zeta_4\big(\lvert w_0^{(s)}\mathbf U^n\rvert+\lvert w_1^{(s)}\mathbf U^{(s)}\rvert+\lvert w_2^{(s)}\Delta t\,\mathcal L\rvert\big)$, with
+    $\zeta_4\approx2\epsilon_{\mathrm m}=4.4\times10^{-16}$ in double, per stage.
+
+The step is first to third order in time as above; the spatial error is that of the operator, @sec-ch04.
+
+### Numerical method
+
+See @fig-ch09-rk-stages for the three stages of `rk3`.
+
+```{python}
+#| label: fig-ch09-rk-stages
+#| fig-cap: "The three stages of rk3. Sky-blue boxes are the stored states $\\mathbf U^n$, $\\mathbf U^{(1)}$, $\\mathbf U^{(2)}$ and $\\mathbf U^{n+1}$; each black arrow is one stage, labelled with its weights $w_0^{(s)}$, $w_1^{(s)}$, $w_2^{(s)}$ (green) and its full-step increment $w_2^{(s)}\\,\\Delta t\\,\\mathcal L$ (orange). The dashed grey arcs show the step-start state re-entering stages 2 and 3 with weight $w_0^{(s)}$."
+#| fig-alt: "Four boxes in a row joined by three arrows with weight labels, and two dashed arcs from the first box to the third and fourth."
+#| echo: false
+from snapy_report.ch09.figures.fig_rk_stages import make_fig
+make_fig()
+```
+
+One stage of `MeshBlockImpl::advance_local` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}) runs, in this order:
+
+1. publish the stage index for the VIC, `rk_stage` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}});
+2. at stage 0, save the step-start state `_hydro_u0` and reset the per-step marks and counters
+   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}); with the implicit radial diffusion of @sec-ch07
+   (`implicit_radial`[^rg-6e268ff2bb5e]), its `begin_step`, the physical boundaries and the ghost exchange come first, so the saved
+   state is the one after that diffusion step;
+3. the hydro tendency, `phydro->forward`, which includes the forcing loop and the VIC
+   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}});
+4. the passive-scalar tendency and the user stage forcings (@sec-ch07); with species and the equation-of-state
+   limiter on, the species part of the user forcings' increment is clipped so that it takes no species density below
+   zero, nor below what the increment before the user forcings already gave (@sec-ch08; {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}});
+5. the average @eq-ch09-rk-stage, at the last stage the implicit radial diffusion's `finish_step` when it is on,
+   and the conserved-variable limiter, `apply_conserved_limiter_`
+   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}); on a block with no species and no passive
+   scalars the limiter is skipped before the last stage, because the next stage's conversion to primitives applies
+   the same pointwise limiter; the scalars get the same average, `_scalar_s0` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}});
+6. refill immersed solids; at the last stage, the conserved-variable limiter again, the phase adjustment and the
+   gravity-work fixer (@sec-ch06); then the physical boundaries, `apply_boundaries` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}).
+
+The scalar tendency of step 4 also carries the VIC's dry-gas face transfer and the scalars' share of any dry-mass
+source in the stage (@sec-ch09-vic-redistribute).
+
+Each stage evaluates $\mathcal L$[^rg-1575971eac0a] once, so a step costs one, two, three or four operator evaluations. The
+averages are tensor arithmetic on whole arrays, ghosts included; the ghosts are rewritten by the boundary fill
+and the exchange. Nothing is fused: the dispatch path `call_average3` is commented out
+([`pyharp integrator.cpp:109-120`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L109-L120)).
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| YAML: type, cfl | [`pyharp integrator.cpp:20-31`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L20-L31) | `from_yaml` | `integration/type` |
+| stage weights | [`pyharp integrator.cpp:33-85`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L33-L85) | `wght2` | `integration/type` |
+| linear combination | [`pyharp integrator.cpp:101-122`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L101-L122) | `IntegratorImpl::forward` | |
+| `max_redo` default | [`pyharp integrator.hpp:58`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.hpp#L58) | `max_redo` | not in YAML |
+| stage driver | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `advance_local` | |
+| stage registers | {{< code src/mesh/meshblock.hpp MeshBlockImpl >}} | `_hydro_u0` | |
+| full-step increment | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `du` | |
+
+: Code map of the explicit Runge-Kutta stages. {#tbl-ch09-rk-code}
+
+**How to use it.** The integrator is chosen in the `integration`[^rg-461f2b31d34d] block, which pyharp's `from_yaml` reads
+([`pyharp integrator.cpp:20-31`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L20-L31)):
+
+<!-- reader glossary keys -->Keys in this fragment: `type`[^rg-6d5e124d3526].
+```yaml
+integration:
+  type: rk3s4     # rk1 (or euler), rk2, rk3 (default), rk3s4
+  cfl: 0.9        # default Courant factor 0.9
+```
+
+What is refused, and why:
+
+- An unknown type, for example `rk4`, stops at construction with "Integrator not implemented: requested type 'rk4'",
+  because the constructor throws a `runtime_error` for any name but the four
+  ([`pyharp integrator.cpp:79-81`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L79-L81)).
+- A key in neither snapy's nor pyharp's list stops with its path, so a typo cannot fall back to a default silently.
+  `max_redo` is such a key: "unknown key 'integration/max_redo'"
+  ({{< code src/implicit/implicit_hydro.cpp ImplicitOptionsImpl::from_yaml overload=1 >}}; Limits 1).
+
+The card, and the two refusals with these messages, were run on a build of the pin.[^ch09-rk-card] The stage of
+@eq-ch09-rk-stage is these lines; `u0`, `u1` and `u2` are $\mathbf U^n$, $\mathbf U^{(s)}$ and
+$\Delta t\,\mathcal L(\mathbf U^{(s)})$
+([`pyharp integrator.cpp:119-120`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L119-L120)):
+
+```cpp
+  auto out =
+      stages[s].wght0() * u0 + stages[s].wght1() * u1 + stages[s].wght2() * u2;
+```
+
+The stage driver calls it as `hydro_u.set_(pintg->forward(stage, _hydro_u0, hydro_u, fut_hydro_du))`
+({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}), so `_hydro_u0` is $\mathbf U^n$ and `fut_hydro_du` is the
+full-step increment.
+
+[^ch09-rk-card]: `MeshBlockOptions.from_yaml` and `MeshBlock` on the card with geometry, an ideal-moist equation of
+    state, reflecting $x_1$ walls and constant gravity added; snapy@6fbb39750f62b83df096058a4746e77d0a634bc5 Release
+    build, CPU, Python 3.12.10.
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `tests/test_forcing.cpp` (`test_forcing.release`), `native_dry_source_uses_each_rk_stage_weight` | a dry-density source in stage $s$ changes the density by $w_2^{(s)}$ times its increment, for `rk1`, `rk2`, `rk3`, `rk3s4` | $10^{-12}$ absolute | round-off on values of order 1, far above the $\zeta_4$ bound of step 11 |
+| same, `rk3_stage_is_published_by_block_step` | `rk_stage` equals the stage in each `advance_local`; the state stays finite | exact | contract |
+| `tests/run_straka.cmake` (`test_straka`) | the Straka density current, 2 ranks, against the reference solution | L2 norm of the final potential-temperature difference $<50$ K (`diff`, {{< code tests/test_straka.py diff >}}) | regression of the full rk3 path |
+| this section's check, `rk_check.py` | `[C1]`–`[C7]` | $10^{-14}$, 0.1 in the order, exact | stated in the check |
+
+: Tests of the explicit Runge-Kutta stages (@tbl-ch09-ctest-run for the run at the pin). {#tbl-ch09-rk-tests}
+
+The ctest cases pass at the pin, except that the reference comparison of `test_straka` was not made
+(@tbl-ch09-ctest-run). `rk_check.py` ports the stage formula of `advance_local` and the pyharp weights.[^ch09-rk-run]
+`[C1]` evaluates the stage loop on four complex $\mathcal Z$ and matches the four polynomials to $2.2\times10^{-16}$;
+`[C2]` fits the orders 1.01, 2.01, 3.02, 3.01 at 40, 80 and 160 steps; `[C3]` finds every stage convex with
+$c_{\mathrm{SSP}}$ = 1, 1, 1, 2; `[C4]` keeps $\mathcal Y\ge0$ up to $\Delta t=c_{\mathrm{SSP}}$. `[C5]` checks steps 1 to 5 in
+exact arithmetic, `[C6]` every stage fraction $c^{(s)}_{\mathrm{FE}}$, and `[C7]` the two ratios of Limits 3. Coverage: CPU; no CUDA
+assertion on the weights.
+
+[^ch09-rk-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5 and
+    pyharp@4721715855e937c1e8b218e964c0655f46e56e29; deck: the check itself; run:
+    `python3 src/snapy_report/ch09/checks/rk_check.py`, CPU, double, 1 process; Python 3.12.10, numpy 2.5.3, sympy 1.14.0;
+    output identical to the committed `rk_check.out`].
+
+### Limits
+
+1. **`max_redo` is not a YAML key.** pyharp's `from_yaml` never reads it
+   ([`pyharp integrator.cpp:20-31`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L20-L31)), so YAML runs keep the default `max_redo` of 5
+   ([`pyharp integrator.hpp:58`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.hpp#L58)); a driver sets it with
+   `op.intg().max_redo(n)` before building the block (@sec-ch10-redo).
+2. **pyharp is not pinned by snapy's build.** The weights cited here are those of the pyharp commit the report
+   cites;[^ch09-rk-pyharp] the property $w_2^{(s)}\le w_1^{(s)}$ that the positivity limiter relies on holds for all four
+   tableaux there and must be re-checked against the pyharp a build links.
+3. **SSP coefficient of `rk3s4`.** At the same SSP guarantee `rk3s4` takes a step $c_{\mathrm{SSP}}=2$ times that of
+   `rk3`, for 4 instead of 3 operator evaluations, so per operator evaluation it advances $2/4$ against $1/3$, 1.5
+   times as far (`[C7]`). The time-step bound does not use this: it applies the same `cfl` to every type
+   (@sec-ch09-cfl).
+
+[^ch09-rk-pyharp]: pyharp@4721715855e937c1e8b218e964c0655f46e56e29; pyharp has no `code` shortcode, so its code is
+    cited with permalinks at that commit.
+
+<!-- reader glossary notes -->
+[^rg-b169a835b08c]: cfl — Courant-number limit for the time step
+
+[^rg-3f6709e93486]: $C$ — Courant number (named: acoustic, advective, vertical acoustic)
+
+[^rg-9e4fb7fc3006]: $\mathbf U$ — conserved state vector $(\rho_d, m_1, m_2, m_3, E, \rho_1..\rho_{N_y})$
+
+[^rg-f449a62578a1]: $\rho_{\mathrm{d}}$ — dry-air density [kg m$^{-3}$]
+
+[^rg-055f669ed8ed]: $\rho_n$ — partial density of species $n$, $\rho y_n$ [kg m$^{-3}$]
+
+[^rg-9da2c0961e5e]: $E$ — total energy density, internal plus kinetic, $\rho e + \tfrac12\rho\lvert\mathbf v\rvert^2$ [J m$^{-3}$]; excludes potential energy
+
+[^rg-14d76ead90d3]: YAML — YAML Ain't Markup Language, the structured input format used for decks
+
+[^rg-5f595edd062e]: $\mathbf U^{(s)}$ — state after RK stage $s$; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/mesh/meshblock.cpp#L817-L825)
+
+[^rg-6e268ff2bb5e]: implicit_radial — whether radial heat conduction on the cubed sphere is solved implicitly, split around the explicit step (default false)
+
+[^rg-1575971eac0a]: $\mathcal L$ — the semi-discrete right-hand side (all explicit operators); notation only; see @sec-appa
+
+[^rg-461f2b31d34d]: integration — time-integration options
+
+[^rg-6d5e124d3526]: type — implementation selector for the enclosing options block
+<!-- end reader glossary notes -->

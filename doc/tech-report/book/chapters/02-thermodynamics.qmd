@@ -26,4 +26,4 @@
 
 {{< include 02-thermodynamics/_pecore.qmd >}}
 
-The limits this chapter states are collected with those of the other chapters in @sec-ch16-wrong, @sec-ch16-restricted and @sec-ch16-usability.
+The limits this chapter states are collected with those of the other chapters in @sec-ch17-wrong, @sec-ch17-restricted and @sec-ch17-usability.

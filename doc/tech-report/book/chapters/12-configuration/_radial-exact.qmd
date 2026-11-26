@@ -150,7 +150,7 @@ The script's arms, cases and tolerances are `ARMS` and `CASES` ({{< code tests/t
 switch are in {{< code tests/CMakeLists.txt >}}.
 
 No snapy runtime test is executed for this chapter. CUDA and multi-rank entries describe registration only.
-The independent checks and their outputs are catalogued in @sec-ch15-ch12-tests.
+The independent checks and their outputs are catalogued in @sec-ch16-ch12-tests.
 
 The independent report check verifies the corrected potential-energy increment in `[C5]`.[^ch12-radial-exact-run]
 It models the stated contract; it does not execute the compiled solver.
@@ -168,7 +168,7 @@ On a declared stretched $x_1$ with a five-point vertical, this switch cannot be 
 message claims for this scheme on a stretched grid is not fitted by any test at the pin (@sec-ch06-dwork,
 Limits item 5). A grid without an $x_1$ measure keeps the first-order plain face work with only a warning. A lone
 gnomonic-equiangle block with reflecting lateral walls is a mass-conservation question of the grid, not of this
-switch (@sec-ch16). Split and unsplit $x_1$ columns agree except on a periodic $x_1$ column, whose seams keep
+switch (@sec-ch17). Split and unsplit $x_1$ columns agree except on a periodic $x_1$ column, whose seams keep
 the one-sided slope.
 
 The complete switch inventory is @sec-ch12-matrix.

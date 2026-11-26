@@ -58,11 +58,11 @@ that scheme's work (@sec-ch06-dwork).[^ch06-vic-src]
 
 **The operator this section adds to.** The VIC works on a reduced state per cell, not on $\mathbf U$: the unknown
 of block row $i$ is $\mathbf q_i = (\rho, \rho v_1, E)_i$ with `implicit-scheme` 1 and
-$(\rho, \rho v_1, \rho v_2, \rho v_3, E)_i$ with 9 (@eq-ch07-vic-size), $v_1$ the $x_1$ velocity and $\rho$ the *total*
+$(\rho, \rho v_1, \rho v_2, \rho v_3, E)_i$ with 9 (@eq-ch09-vic-size), $v_1$ the $x_1$ velocity and $\rho$ the *total*
 density, dry air plus every species; the species ride on it and are redistributed after the solve
-(@sec-ch07-vic-redistribute). Each column is one block-tridiagonal system
+(@sec-ch09-vic-redistribute). Each column is one block-tridiagonal system
 $\mathsf B_i\boldsymbol\delta_{i-1} + \mathsf A_i\boldsymbol\delta_i + \mathsf C_i\boldsymbol\delta_{i+1} = \mathbf r_i$
-for the stage increment $\boldsymbol\delta$ of $\mathbf q$. Its flux part is the Roe linearisation of @sec-ch07-vic-assembly, with the same blocks
+for the stage increment $\boldsymbol\delta$ of $\mathbf q$. Its flux part is the Roe linearisation of @sec-ch09-vic-assembly, with the same blocks
 $\mathsf A_i$, $\mathsf B_i$, $\mathsf C_i$ and the frozen dissipation matrices $\mathsf A^\pm$ of appendix A, notation group 7;
 $[\mathsf A^-]_\rho$ and $[\mathsf A^+]_\rho$ are the mass rows of those two matrices. This section adds only gravity entries: the source Jacobian $\Phi$ and the energy-row work
 below. $[\mathsf X]_\rho$ and $[\mathsf X]_E$ are the mass and energy rows of a block $\mathsf X$.
@@ -198,7 +198,7 @@ $\mathbf e_{m_1}$ coefficient of $[\mathsf A_i]_E$ in @eq-ch06-vic-rows. The row
 |---|---|---|---|
 | `test_implicit_face_work_operator_python` | rest column at rest, Courant 66-657 | $10^{-7}$ m s$^{-1}$ | `W_TOL` |
 | `test_implicit_face_work_operator_python` | $E_{\mathrm{tot}}+\mathrm{PE}_d$ drift | $10^{-11}$ rel. | `EPE_TOL` |
-| `test_implicit_face_work_operator_python` | with `implicit-scheme` 9, rk3s4 converges no slower than rk3 | none: a comparison of the two fitted rates against a Courant-1/32 rk3 reference | the assertion itself (@sec-ch07-vic-stage) |
+| `test_implicit_face_work_operator_python` | with `implicit-scheme` 9, rk3s4 converges no slower than rk3 | none: a comparison of the two fitted rates against a Courant-1/32 rk3 reference | the assertion itself (@sec-ch09-vic-stage) |
 | `test_implicit_stratified_solid_python` | clamp energy, solids | $10^{-11}$ rel. | `EPE_TOL` |
 | `test_forcing.release` | energy under rk3 stage weights | $10^{-9}$ abs. | test threshold |
 
@@ -213,7 +213,7 @@ $E_{\mathrm{tot}}+\mathrm{PE}_d$ over a closed column.
 `gravity-work: face`, full and partial VIC, at acoustic Courant 65.6, 197 and 657, requiring `W_TOL` and `EPE_TOL`
 (module constants of {{< code tests/test_implicit_face_work_operator.py >}}). At the pin the same `main` also runs
 a third assertion, with no tolerance constant: it fits the $w$ error of rk3 and of rk3s4 against an
-rk3 run at Courant $1/32$ and fails if rk3s4's rate is the lower of the two (@sec-ch07-vic-stage has the rk3s4
+rk3 run at Courant $1/32$ and fails if rk3s4's rate is the lower of the two (@sec-ch09-vic-stage has the rk3s4
 weights and the measured orders). The plain arms run with
 `SNAP_GRAVITY_WORK_RADIAL_EXACT=0`; the `_radial_exact_python` entries run the same scripts with it on and measure
 $E_{\mathrm{tot}}+P$. `implicit_gravity_work_holds_under_rk3_stage_weighting` also has a CUDA case. Measured values at the pin are

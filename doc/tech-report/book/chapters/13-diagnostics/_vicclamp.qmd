@@ -30,10 +30,10 @@ was held back.
 
 Local symbols: $\Delta^{\mathrm{rd}}\rho_i$ [kg m$^{-3}$] the density change the
 redistribution books in cell $i$, dry plus all species; $M_{\mathrm{fl}}$ [kg] the floor of the scale against empty
-faces; $n_y$ the number of species rows [count]. $M_{i\mp1/2}$ are the face transfers of @eq-ch07-vic-faces;
+faces; $n_y$ the number of species rows [count]. $M_{i\mp1/2}$ are the face transfers of @eq-ch09-vic-faces;
 $y_n$[^rg-77a9a3e61751], $V_i$ and $\epsilon_{\mathrm m}$ are defined in @sec-appa.
 
-The redistribution is @sec-ch07-vic-redistribute. Without a clamp, every cell's total change equals its face
+The redistribution is @sec-ch09-vic-redistribute. Without a clamp, every cell's total change equals its face
 divergence exactly. When every species of a donor is starved, the meter reads the donor's species mass fraction.
 
 ### Derivation
@@ -41,7 +41,7 @@ divergence exactly. When every species of a donor is starved, the meter reads th
 Let $\Delta^{\mathrm{rd}}\rho_i$ [kg m$^{-3}$] be the density change that the redistribution itself books in cell
 $i$, summed over dry gas and every species, and $V_i$ [m$^3$] the cell volume, so $\Delta^{\mathrm{rd}}\rho_iV_i$
 [kg] is the redistribution's mass change of the cell. It is not the total solved change $\Delta\rho_i$[^rg-1c5169125cc0].
-Let $M_{i\mp1/2}$ [kg] be the face transfers of @eq-ch07-vic-faces, positive upward. The meter, a pure number
+Let $M_{i\mp1/2}$ [kg] be the face transfers of @eq-ch09-vic-faces, positive upward. The meter, a pure number
 written by its log name, is
 
 $$
@@ -161,7 +161,7 @@ where.
 :::
 
 1. **Not a cause.** A large reading does not reject a step. The step acceptance reads the dry-gas clamp mark
-   instead (@sec-ch07-redo).
+   instead (@sec-ch09-redo).
 2. **Restart.** Like the other meters, it starts again after a restart.
 3. **Untested combinations.** The switch combinations that a test exercises are listed in @sec-ch12-matrix.
 

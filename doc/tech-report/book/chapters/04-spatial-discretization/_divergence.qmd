@@ -116,7 +116,7 @@ make_fig()
 
 ```{python}
 #| label: fig-ch04-divergence-stage
-#| fig-cap: "The order of one Runge-Kutta stage. Each box is a step of the stage operator, in the order the code runs them; the colour marks which chapter owns the step, with orange the face work of this chapter, green the face corrections of section 4B, vermillion the species limiter of @sec-ch08 and blue the implicit correction of @sec-ch07. The divergence runs only after every face value is final."
+#| fig-cap: "The order of one Runge-Kutta stage. Each box is a step of the stage operator, in the order the code runs them; the colour marks which chapter owns the step, with orange the face work of this chapter, green the face corrections of section 4B, vermillion the species limiter of @sec-ch08 and blue the implicit correction of @sec-ch09. The divergence runs only after every face value is final."
 #| fig-alt: "A left-to-right strip of nine labelled boxes joined by arrows, from the equation of state to the implicit correction."
 #| echo: false
 from snapy_report.ch04.figures.fig_stage_pipeline import make_fig

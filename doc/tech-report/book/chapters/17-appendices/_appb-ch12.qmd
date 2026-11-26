@@ -14,7 +14,7 @@
 | @sec-ch12-radial-exact | none | See @sec-ch06-dwork for the corrected potential energy and the matching work. |  | `configuration_check.py` | n/a |
 | @sec-ch12-layout | none | No continuum derivation applies. |  | `configuration_check.py` | n/a |
 | @sec-ch12-test-environment | none | No numerical derivation applies. |  | `configuration_check.py` | n/a |
-| @sec-ch12-yaml | none | No separate continuum equation is introduced by the parser; the configuration resolves into the schemes of the preceding sections and of @sec-ch04 to @sec-ch07. |  | `configuration_check.py` | n/a |
+| @sec-ch12-yaml | none | No separate continuum equation is introduced by the parser; the configuration resolves into the schemes of the preceding sections and of @sec-ch04 to @sec-ch09. |  | `configuration_check.py` | n/a |
 | @sec-ch12-matrix | none | Coverage is a relation between a configuration and a test assertion, not a probability or an accuracy estimate. |  | `configuration_check.py` | n/a |
 
 : Derivations of @sec-ch12. {#tbl-appb-ch12}

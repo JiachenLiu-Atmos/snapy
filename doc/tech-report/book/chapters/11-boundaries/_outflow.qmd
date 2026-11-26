@@ -265,7 +265,7 @@ The stale-ghost assertions are in `run` ({{< code tests/test_outflow_stale_ghost
 
 **Not provided:** a round-off derivation for each tolerance, because the cited tests give acceptance
 criteria without deriving each round-off bound, and this book does not derive those bounds.
-Device/rank distinctions and missing runs are recorded in @sec-ch15-ch11.
+Device/rank distinctions and missing runs are recorded in @sec-ch16-ch11.
 
 The report-only checks `[C2]`, `[C3]` establish that the inverse and five sonic selectors are exact; six rational
 limiter fixtures satisfy the independent bounds with one shared scale.[^ch11-outflow-run]

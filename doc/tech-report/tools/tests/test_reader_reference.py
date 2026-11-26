@@ -106,7 +106,7 @@ def test_glossary_rejects_empty_definitions(tmp_path, capsys):
 
 @pytest.mark.parametrize('relative, expected, wrong', [
     ('12-configuration/_opening.qmd', 'MC — mass covariance', 'MC — monotonised-central'),
-    ('07-time-integration/_cfl.qmd', 'scale — ratio of the shallow-water CFL bound to the selected CFL number', 'scale — scaling in the enclosing component'),
+    ('09-time-integration/_cfl.qmd', 'scale — ratio of the shallow-water CFL bound to the selected CFL number', 'scale — scaling in the enclosing component'),
     ('14-parallelism-io.qmd', 'dt — output interval', 'dt — time-step duration'),
 ])
 def test_first_use_uses_the_local_meaning(relative, expected, wrong):

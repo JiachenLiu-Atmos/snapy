@@ -71,7 +71,7 @@ class Cell:
 
 
 def chapter_of(rel: str) -> str:
-    """`book/chapters/07-time-integration/_rk.qmd` -> `ch07`; `book/chapters/appe-.../...` -> `appe`"""
+    """`book/chapters/09-time-integration/_rk.qmd` -> `ch07`; `book/chapters/appe-.../...` -> `appe`"""
     parts = rel.split("/")
     name = parts[2] if len(parts) > 2 else rel
     m = re.match(r"(\d\d)", name)

@@ -8,7 +8,7 @@ from pathlib import Path
 import code_anchors
 
 REPORT = Path(__file__).resolve().parent.parent
-TARGET = 'book/chapters/09-diffusion-forcing/_howto.qmd'
+TARGET = 'book/chapters/07-diffusion-forcing/_howto.qmd'
 PIN = '919936da07d80a310b98ab11da184972a3203274'
 
 

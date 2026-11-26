@@ -87,7 +87,7 @@ TEMPLATE = r'''<!-- generated reader-reference: boundary-contract -->
 
 0. Prepare a four-cell Cartesian grid with two x1 ghosts at each end. Use the
    chemistry from `examples/straka_single.yaml`, PLM and one RK1 stage
-   (see @sec-ch09-user); reserve both x1 faces with `custom`.
+   (see @sec-ch07-user); reserve both x1 faces with `custom`.
 
 ```python
 from pathlib import Path

@@ -1,0 +1,112 @@
+# Time integration {#sec-ch09}
+
+<!-- PROVENANCE
+pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy); pyharp@4721715855e937c1e8b218e964c0655f46e56e29
+sources: OUTLINE.md 7
+status: draft
+-->
+
+This chapter advances the state in time. It takes as given the stage tendency of @sec-ch04 and the
+sources of @sec-ch07 and describes what is done with them: the explicit strong-stability-preserving Runge-Kutta
+stages, where the ghost exchange sits in a stage, the time-step bound, the acceptance or rejection of a step,
+and the operator-split pieces at the end of a step; then the vertically implicit correction (VIC[^rg-a6e5a3d551bf]), which
+replaces the explicit acoustic bound in $x_1$[^rg-c8bfcda97fa3] by an implicit solve along each column.
+
+Part 7A is the explicit machinery that every run uses. Part 7B is the VIC, which a run uses only with
+`integration/implicit-scheme` set. The gravity terms inside the VIC operator belong to @sec-ch06 and are not
+repeated here. The positivity limiters whose marks can reject a step are @sec-ch08; this chapter only reads
+their marks.
+
+| scheme | switch | default | order | main test |
+|---|---|---|---|---|
+| Explicit SSP[^rg-401bcab256a4] Runge-Kutta stages (@sec-ch09-rk) | `integration/type` | `rk3` | 1, 2, 3, 3 | `test_forcing` |
+| Ghost exchange in a stage (@sec-ch09-exchange) | driver API[^rg-75cdb7c1343f] | MeshBlock: before | — | `test_mesh_multi_block` |
+| Time-step bound (@sec-ch09-cfl) | `integration/cfl`, `implicit-advection-cfl`[^rg-c339a4bd9f5e], `shear-cfl`[^rg-55caa797bcec] | 0.9, 1, 0 | — | `test_implicit_advection_cfl_python` |
+| Step acceptance and redo (@sec-ch09-redo) | `max_redo` | 5 | — | `test_check_redo_floor_python` |
+| Operator split at the step boundary (@sec-ch09-split) | `thermo.reactions` | none | 1 (Lie) | `test_wall_saturation` |
+| VIC options and activation (@sec-ch09-vic-options) | `integration/implicit-scheme` | 0 (off) | — | `test_implicit_options_type_python` |
+| VIC block-tridiagonal assembly (@sec-ch09-vic-assembly) | as above | off | linearised | `test_backward_substitution`, `test_vic_partial_tangential` |
+| Stage-weighted implicit step (@sec-ch09-vic-stage) | rk3, rk3s4 | on with VIC | 1 | `test_forcing`, `test_implicit_face_work_operator_python` |
+| Block Thomas sweep and back substitution (@sec-ch09-vic-sweep) | as above | off | direct | `test_lu_failure` |
+| LU[^rg-8d321ed24b59] pivot tolerance (@sec-ch09-vic-pivot) | none | $\epsilon_{\mathrm{piv}}=8N\epsilon_{\mathrm m}$ | — | `test_lu_failure` |
+| VIC rejection and rollback (@sec-ch09-vic-reject) | none | on with VIC | — | `test_lu_failure` |
+| VIC constituent redistribution (@sec-ch09-vic-redistribute) | none | on with VIC | conservative | `test_backward_substitution` |
+| VIC column closure (@sec-ch09-vic-closure) | none | reflecting | — | none dedicated |
+
+: The schemes of this chapter. "Order" is the order in time where it applies. {#tbl-ch09-schemes}
+
+| ctest name | result at the pin |
+|---|---|
+| `test_forcing.release`, `test_wall_saturation.release`, `test_diffusion.release` | passed |
+| `test_implicit_cfl.release`, `test_implicit_advection_cfl_python`, `test_shear_cfl_python` | passed |
+| `test_check_redo_floor_python`, `test_check_redo_saturation_python`, `test_check_redo_vapor_deficit.release`, `test_fix_vapor_stale_count_python`, `test_uranus_cycle1_abort.release`, `test_straka_redo` | passed |
+| `test_check_redo_parallel.release`, `test_mesh_multi_block.release` (two processes each) | passed |
+| `test_implicit_options_type_python`, `test_hydro_options.release`, `test_backward_substitution.release`, `test_lu_failure.release`, `test_vic_partial_tangential.release`, `test_implicit_face_work_operator_python` | passed |
+| `test_straka` (two processes) | passed |
+
+: The ctest entries this chapter cites, run at the pin.[^ch09-ctest] {#tbl-ch09-ctest-run}
+
+[^ch09-ctest]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; run: `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1
+    PYTHONPATH=<site> PATH=<site>/bin:$PATH ctest -j1 -R <names>` on a Release source build of snapy@68f4e066974ede87e4379285c4fba895b970b7f1 (`cmake -B build
+    -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DSNAPY_TEST_PYTHONPATH=<site>`, `cmake --build build --parallel 8`; the Python
+    entries import this commit's snapy, installed with `pip install --no-build-isolation --no-deps --target <site> .`),
+    CPU[^rg-4bb768fd053e] only (CMake `CUDA=OFF`), double, AMD Ryzen Threadripper PRO 5975WX, one process unless stated;
+    GCC 13.3.1, CMake/CTest 3.26.5, torch 2.10.0, kintera 2.6.6, Python 3.11.13; scope: each entry's own ctest run;
+    reps: 1]. 21 of 21 passed in 104.1 s of ctest time; `test_straka` needs the package's `pd-combine`, hence the
+    `PATH` and `PYTHONPATH`. The build has no CUDA[^rg-4b8aae7361ed], so the CUDA twins of `test_forcing`,
+    `test_check_redo_saturation`, `test_lu_failure` and `test_implicit_face_work_operator` are not registered there and
+    were not run in it.
+
+## 7A. Explicit stages, time step and step acceptance {.unnumbered .unlisted}
+
+{{< include 09-time-integration/_rk.qmd >}}
+
+{{< include 09-time-integration/_exchange.qmd >}}
+
+{{< include 09-time-integration/_cfl.qmd >}}
+
+{{< include 09-time-integration/_redo.qmd >}}
+
+{{< include 09-time-integration/_split.qmd >}}
+
+## 7B. The vertically implicit correction {.unnumbered .unlisted}
+
+{{< include 09-time-integration/_vic-options.qmd >}}
+
+{{< include 09-time-integration/_vic-assembly.qmd >}}
+
+{{< include 09-time-integration/_vic-stage.qmd >}}
+
+{{< include 09-time-integration/_vic-sweep.qmd >}}
+
+{{< include 09-time-integration/_vic-pivot.qmd >}}
+
+{{< include 09-time-integration/_vic-reject.qmd >}}
+
+{{< include 09-time-integration/_vic-redistribute.qmd >}}
+
+{{< include 09-time-integration/_vic-closure.qmd >}}
+
+{{< include 09-time-integration/_vic-steady.qmd >}}
+
+The limits this chapter states are collected with those of the other chapters in @sec-ch17-wrong, @sec-ch17-restricted, @sec-ch17-usability and @sec-ch17-pending.
+
+<!-- reader glossary notes -->
+[^rg-a6e5a3d551bf]: VIC — vertically implicit correction
+
+[^rg-c8bfcda97fa3]: $x_1, x_2, x_3$ — the three coordinate directions; $x_1$ is always the vertical (radial) direction
+
+[^rg-401bcab256a4]: SSP — strong stability preserving
+
+[^rg-75cdb7c1343f]: API — application programming interface
+
+[^rg-c339a4bd9f5e]: implicit-advection-cfl — Courant limit for the implicitly treated advection
+
+[^rg-55caa797bcec]: shear-cfl — Courant limit associated with shear
+
+[^rg-8d321ed24b59]: LU — lower–upper matrix factorisation
+
+[^rg-4bb768fd053e]: CPU — central processing unit
+
+[^rg-4b8aae7361ed]: CUDA — NVIDIA's parallel computing platform
+<!-- end reader glossary notes -->

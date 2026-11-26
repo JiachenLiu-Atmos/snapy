@@ -19222,8 +19222,8 @@
    }
   }
  },
- "fig-ch07-cfl-bounds": {
-  "chapter": "ch07",
+ "fig-ch09-cfl-bounds": {
+  "chapter": "ch09",
   "series": {
    "axes0.bars.height": {
     "first": 1.0,
@@ -19448,8 +19448,8 @@
    }
   }
  },
- "fig-ch07-exchange-order": {
-  "chapter": "ch07",
+ "fig-ch09-exchange-order": {
+  "chapter": "ch09",
   "series": {
    "axes0.bars.height": {
     "first": 0.55,
@@ -19510,8 +19510,8 @@
    }
   }
  },
- "fig-ch07-redo-flow": {
-  "chapter": "ch07",
+ "fig-ch09-redo-flow": {
+  "chapter": "ch09",
   "series": {
    "axes0.bars.height": {
     "first": 0.6,
@@ -19569,8 +19569,8 @@
    }
   }
  },
- "fig-ch07-rk-stages": {
-  "chapter": "ch07",
+ "fig-ch09-rk-stages": {
+  "chapter": "ch09",
   "series": {
    "axes0.bars.height": {
     "first": 0.7,
@@ -19619,8 +19619,8 @@
    }
   }
  },
- "fig-ch07-split-step": {
-  "chapter": "ch07",
+ "fig-ch09-split-step": {
+  "chapter": "ch09",
   "series": {
    "axes0.bars.height": {
     "first": 0.7,
@@ -19672,8 +19672,8 @@
    }
   }
  },
- "fig-ch07-vic-closure": {
-  "chapter": "ch07",
+ "fig-ch09-vic-closure": {
+  "chapter": "ch09",
   "series": {
    "axes0.bars.height": {
     "first": 1.0,
@@ -19745,8 +19745,8 @@
    }
   }
  },
- "fig-ch07-vic-options": {
-  "chapter": "ch07",
+ "fig-ch09-vic-options": {
+  "chapter": "ch09",
   "series": {
    "axes0.bars.height": {
     "first": 0.34,
@@ -19819,8 +19819,8 @@
    }
   }
  },
- "fig-ch07-vic-pivot": {
-  "chapter": "ch07",
+ "fig-ch09-vic-pivot": {
+  "chapter": "ch09",
   "series": {
    "axes0.coll0.x": {
     "first": 6.309573444801943e-15,
@@ -20528,8 +20528,8 @@
    }
   }
  },
- "fig-ch07-vic-redistribute": {
-  "chapter": "ch07",
+ "fig-ch09-vic-redistribute": {
+  "chapter": "ch09",
   "series": {
    "axes0.bars.height": {
     "first": 0.6,
@@ -20807,8 +20807,8 @@
    }
   }
  },
- "fig-ch07-vic-reject": {
-  "chapter": "ch07",
+ "fig-ch09-vic-reject": {
+  "chapter": "ch09",
   "series": {
    "axes0.bars.height": {
     "first": 0.6,
@@ -20869,8 +20869,8 @@
    }
   }
  },
- "fig-ch07-vic-stage": {
-  "chapter": "ch07",
+ "fig-ch09-vic-stage": {
+  "chapter": "ch09",
   "series": {
    "axes0.line0.x": {
     "first": 0.01,
@@ -23392,8 +23392,8 @@
    }
   }
  },
- "fig-ch07-vic-stencil": {
-  "chapter": "ch07",
+ "fig-ch09-vic-stencil": {
+  "chapter": "ch09",
   "series": {
    "axes0.bars.height": {
     "first": 1.0,
@@ -23563,8 +23563,8 @@
    }
   }
  },
- "fig-ch07-vic-sweep": {
-  "chapter": "ch07",
+ "fig-ch09-vic-sweep": {
+  "chapter": "ch09",
   "series": {
    "axes0.bars.height": {
     "first": 0.36,
@@ -23945,8 +23945,8 @@
    }
   }
  },
- "fig-ch09-coriolis-projection": {
-  "chapter": "ch09",
+ "fig-ch07-coriolis-projection": {
+  "chapter": "ch07",
   "series": {
    "axes0.line0.x": {
     "first": 0.0,
@@ -24248,12 +24248,12 @@
    }
   }
  },
- "fig-ch09-deps": {
-  "chapter": "ch09",
+ "fig-ch07-deps": {
+  "chapter": "ch07",
   "series": {}
  },
- "fig-ch09-framework-order": {
-  "chapter": "ch09",
+ "fig-ch07-framework-order": {
+  "chapter": "ch07",
   "series": {
    "axes0.bars.height": {
     "first": 0.75,
@@ -24326,8 +24326,8 @@
    }
   }
  },
- "fig-ch09-heating-column": {
-  "chapter": "ch09",
+ "fig-ch07-heating-column": {
+  "chapter": "ch07",
   "series": {
    "axes0.bars.height": {
     "first": 1.0,
@@ -24446,8 +24446,8 @@
    }
   }
  },
- "fig-ch09-relax-face": {
-  "chapter": "ch09",
+ "fig-ch07-relax-face": {
+  "chapter": "ch07",
   "series": {
    "axes0.bars.height": {
     "first": 22.0,
@@ -24618,24 +24618,24 @@
    }
   }
  },
- "fig-ch09-sponge-profile": {
+ "fig-ch07-sponge-profile": {
   "candidates": {
-   "src/snapy_report/ch09/data/sponge_profile.csv::x1f_lower": {
+   "src/snapy_report/ch07/data/sponge_profile.csv::x1f_lower": {
     "how": "as committed, slice [0:20]",
     "plotted_as": "axes0.step0.edges"
    },
-   "src/snapy_report/ch09/data/sponge_profile.csv::x1f_upper": {
+   "src/snapy_report/ch07/data/sponge_profile.csv::x1f_upper": {
     "how": "as committed, slice [1:21]",
     "plotted_as": "axes0.step0.edges"
    }
   },
-  "chapter": "ch09",
+  "chapter": "ch07",
   "links": {
-   "src/snapy_report/ch09/data/sponge_profile.csv::bot_scale": {
+   "src/snapy_report/ch07/data/sponge_profile.csv::bot_scale": {
     "how": "as committed",
     "plotted_as": "axes0.step1.values"
    },
-   "src/snapy_report/ch09/data/sponge_profile.csv::top_scale": {
+   "src/snapy_report/ch07/data/sponge_profile.csv::top_scale": {
     "how": "as committed",
     "plotted_as": "axes0.step0.values"
    }
@@ -26413,8 +26413,8 @@
    }
   }
  },
- "fig-ch09-user-forcing": {
-  "chapter": "ch09",
+ "fig-ch07-user-forcing": {
+  "chapter": "ch07",
   "series": {
    "axes0.bars.height": {
     "first": 1.4,
@@ -26463,8 +26463,8 @@
    }
   }
  },
- "fig-ch09-viscosity-stencil": {
-  "chapter": "ch09",
+ "fig-ch07-viscosity-stencil": {
+  "chapter": "ch07",
   "series": {
    "axes0.bars.height": {
     "first": 1.0,
@@ -26875,8 +26875,8 @@
    }
   }
  },
- "fig-ch09-wallcoef-wall": {
-  "chapter": "ch09",
+ "fig-ch07-wallcoef-wall": {
+  "chapter": "ch07",
   "series": {
    "axes0.bars.height": {
     "first": 1.1,
@@ -27254,18 +27254,18 @@
    }
   }
  },
- "fig-ch09-x1profile-tendency": {
-  "chapter": "ch09",
+ "fig-ch07-x1profile-tendency": {
+  "chapter": "ch07",
   "links": {
-   "src/snapy_report/ch09/data/x1profile_tendency.csv::tendency_mean_of_products": {
+   "src/snapy_report/ch07/data/x1profile_tendency.csv::tendency_mean_of_products": {
     "how": "as committed",
     "plotted_as": "axes0.line1.y"
    },
-   "src/snapy_report/ch09/data/x1profile_tendency.csv::tendency_product_of_means": {
+   "src/snapy_report/ch07/data/x1profile_tendency.csv::tendency_product_of_means": {
     "how": "as committed",
     "plotted_as": "axes0.line0.y"
    },
-   "src/snapy_report/ch09/data/x1profile_tendency.csv::x1": {
+   "src/snapy_report/ch07/data/x1profile_tendency.csv::x1": {
     "how": "as committed",
     "plotted_as": "axes0.line0.x"
    }
@@ -31557,8 +31557,8 @@
    }
   }
  },
- "fig-ch15-evidence": {
-  "chapter": "ch15",
+ "fig-ch16-evidence": {
+  "chapter": "ch16",
   "series": {}
  }
 }

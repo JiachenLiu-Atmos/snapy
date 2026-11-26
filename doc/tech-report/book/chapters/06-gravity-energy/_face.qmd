@@ -82,7 +82,7 @@ The face form conserves $E_{\mathrm{tot}}+\mathrm{PE}_d$ exactly on a closed col
 Round-off is the one place this shows. Write the computed per-cell terms as $\hat b_i=b_i(1+\eta_i)$, with
 $\sum_ib_i=0$ exactly and $\lvert\eta_i\rvert\le N_{\mathrm{rd}}\,\tfrac12\epsilon_{\mathrm m}$ for the $N_{\mathrm{rd}}$ roundings of one
 cell term. Summing $n_1$[^rg-bf06c25d4aa7] such terms adds one rounding per addition, and to first order the error of a sum is the sum
-over its additions of the partial sum times that addition's rounding (as in @sec-ch09-framework). The stage
+over its additions of the partial sum times that addition's rounding (as in @sec-ch07-framework). The stage
 combination $w_0^{(s)}\mathbf U^n+w_1^{(s)}\mathbf U+w_2^{(s)}\Delta\mathbf U$ then rounds each $E_i$ five times, three products and
 two additions (`wght0`, [`pyharp integrator.cpp:120`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L120)), as the deposit of @sec-ch06-fixer rounds its addition to $E_i$. Together,
 

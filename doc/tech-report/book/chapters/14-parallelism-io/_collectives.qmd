@@ -59,7 +59,7 @@ Why every rank takes the same decision, in four steps:
 4. *A SUM is different.* A floating-point sum of $N$ terms $b_k$, combined in any order or tree, differs from the exact
    sum by at most $(N-1)\,\tfrac12\epsilon_{\mathrm m}\sum_k\lvert b_k\rvert$: each of its $N-1$ additions rounds a
    partial sum bounded by $\sum_k\lvert b_k\rvert$ with relative error at most $\tfrac12\epsilon_{\mathrm m}=2^{-53}$,
-   as in the round-off bound of @sec-ch09-framework. Two orders can differ by twice that. The gravity-work fixer SUM
+   as in the round-off bound of @sec-ch07-framework. Two orders can differ by twice that. The gravity-work fixer SUM
    is the one SUM that feeds the state (@sec-ch14-repro).
 
 `[C14]` of `derivation_check.py` confirms steps 1 and 2 over all 720 orders of six doubles, and `[C15]` the bound of
@@ -84,7 +84,7 @@ entry is set, and returns the six flags (`read_redo_flags`,
 `reduce_redo_flags` all-reduces the six values with MAX and packs the result into a cause bit mask
 ({{< code src/mesh/meshblock.cpp MeshBlockImpl::reduce_redo_flags >}}).
 Every block on every process then applies the same decision: a hit anywhere rolls back every block
-(`MeshImpl::check_redo`, {{< code src/mesh/mesh.cpp MeshImpl::check_redo >}}). The redo itself is the subject of @sec-ch07-redo.
+(`MeshImpl::check_redo`, {{< code src/mesh/mesh.cpp MeshImpl::check_redo >}}). The redo itself is the subject of @sec-ch09-redo.
 
 **Signals.** SIGTERM, SIGINT and SIGALRM set flags. `CheckSignalFlags` sums the local flags with the signals blocked,
 all-reduces the count with MAX, and returns it; a non-zero value makes `check_redo` return $-1$ and the driver stop.

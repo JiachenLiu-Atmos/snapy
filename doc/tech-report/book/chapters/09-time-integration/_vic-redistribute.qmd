@@ -1,0 +1,199 @@
+## VIC constituent redistribution: the solved mass change as face transfers, moved donor-upwind (`vic_constituent_column`) {#sec-ch09-vic-redistribute}
+
+<!-- PROVENANCE
+pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
+sources: OUTLINE.md 7.12; src/implicit/vic_redistribute_impl.h; src/implicit/implicit_dispatch.cpp;
+         src/implicit/implicit_hydro.cpp; src/mesh/meshblock.cpp; tests/test_backward_substitution.cpp;
+         chengcli/snapy#329
+status: draft
+-->
+
+### Summary
+
+The implicit system knows only the total density $\rho$ (@sec-ch09-vic-sweep). Applying its correction to each species
+in proportion to the cell's own mass fraction would not conserve a species over the column when the mass
+fractions vary with height. It also could not carry a composition contrast. So the correction is converted into
+the unique set of face transfers that produces it, and the constituents ride on those transfers. With the partial
+system, which does not solve for the tangential momenta, the tangential momentum rides on the same transfers.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Turns the solved total-mass change into face transfers and moves each constituent, and for $N=3$ the tangential momentum, donor-upwind; @eq-ch09-vic-faces.
+
+**Data.** Reads $\boldsymbol\delta_i$, the explicit increment, cell masses and densities; writes the tendencies and the dry-clamp mark.
+
+**Placement.** Every stage with a VIC, after the sweep.
+
+**Activation.** None; always on with the VIC.
+
+**Guarantee / limits.** Conservative for every constituent and, for $N=3$, each tangential momentum; donor-upwind, first order in the composition.
+
+**Evidence.** @tbl-ch09-vic-redistribute-tests; `test_backward_substitution.release`, `vic_redist_check.py` `[C1]`–`[C7]`.
+:::
+
+Local symbols: $\delta\rho_i$[^rg-d21057762a45] [kg m$^{-3}$] is the total-mass component of $\boldsymbol\delta_i$; $\Delta^{\mathrm{stg}}\rho_i$
+[kg m$^{-3}$] the total-density part of the explicit increment (@sec-ch09-vic-stage); $\rho_iV_i$ [kg] the cell mass;
+$\Delta M_{\mathrm{col}}$ [kg] the part of the solved mass change with no closed-face representation; $\mathcal T_{i+1/2}$ [kg]
+the mass transfer through the $x_1$ face above cell $i$, positive upward; $\zeta_n=n(\epsilon_{\mathrm m}/2)/(1-n\epsilon_{\mathrm m}/2)$
+bounds the relative error of $n$ roundings. The dry and species densities are on the total-mass basis and the scalar
+densities $\rho_{\mathrm d}r_n$ on the dry-mass basis. Here $n_{\mathrm{lay}}$ is the number of layers in the column.
+For $N=3$: $\mathcal T^{\mathrm c}_{i+1/2}$ [kg] is the total mass the face above cell $i$ moved after the clamps, and
+$v_{a,\mathrm{don}}$ [m s$^{-1}$] the tangential velocity ($a=2,3$) of that face's donor cell.
+
+### Derivation
+
+The mass the solve adds to cell $i$ beyond the explicit increment is $(\delta\rho_i - \Delta^{\mathrm{stg}}\rho_i)V_i$, with
+$\Delta^{\mathrm{stg}}\rho_i = \Delta\mathbf U^{(0)}[\rho_{\mathrm d}]_i + \sum_n\Delta\mathbf U^{(0)}[\rho_n]_i$; both are on the total-mass
+basis, as `explicit_total = DU(IDN) + sum DU(ICY+n)` in `vic_constituent_column`
+({{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}}). Let
+$\Delta M_{\mathrm{col}} = \sum_i(\delta\rho_i - \Delta^{\mathrm{stg}}\rho_i)V_i$. The face transfers are
+
+$$
+\mathcal T_{-1/2} = 0 , \quad \mathcal T_{i+1/2} = \mathcal T_{i-1/2} - \Big((\delta\rho_i - \Delta^{\mathrm{stg}}\rho_i)V_i - \Delta M_{\mathrm{col}}\,\frac{\rho_iV_i}{\sum_{\mathrm{col}}\rho V}\Big) ,
+$$ {#eq-ch09-vic-faces}
+
+and the steps that make them a closed, conservative set are:
+
+1. *They telescope.* Summing @eq-ch09-vic-faces over the $n_{\mathrm{lay}}$ cells of the column,
+   $\mathcal T_{n_{\mathrm{lay}}-1/2}=-\sum_i(\delta\rho_i-\Delta^{\mathrm{stg}}\rho_i)V_i+\Delta M_{\mathrm{col}}\sum_i\rho_iV_i/\sum_{\mathrm{col}}\rho V
+   =-\Delta M_{\mathrm{col}}+\Delta M_{\mathrm{col}}=0$, so $\mathcal T$ at the top face is zero (`[C6]`); in floating point,
+   $10^{-15}$ of the largest transfer in the check (`[C1]`).
+2. *Each constituent rides on the transfers.* Each constituent moves $\mathcal T_{i+1/2}$ times the mass fraction of the
+   donor cell. The donor is cell $i$ for $\mathcal T>0$ and cell $i+1$ for $\mathcal T<0$.
+3. *Conservation.* A transfer is clamped to what the donor holds after its explicit update and the transfers already
+   made. Every transfer is taken from one cell and given to the other, so dry gas and each species keep their
+   column total to $1.6\times10^{-16}$ (`[C2]`).
+4. *Cell totals.* Without a clamp, each cell's total change is $\mathcal T_{i-1/2}-\mathcal T_{i+1/2}$, which is the bracket
+   of @eq-ch09-vic-faces (`[C3]`). The host measures how far the clamps moved the result from that identity, as the
+   "clamp residual". A face that asks for more than the donor holds empties the dry donor to round-off. The species
+   keep a margin of 4096 ulp, the dry clamp mark is set, and the residual shows the clamp (`[C4]`, `[C5]`).
+5. *Round-off.* The top transfer is $\Delta M_{\mathrm{col}}$ minus its own redistribution. On any path there are at most
+   $2n_{\mathrm{lay}}+4$ roundings (the sums $\Delta M_{\mathrm{col}}$ and $\sum\rho V$, the share, the subtraction and the prefix sum), so
+   $|\mathcal T_{n_{\mathrm{lay}}-1/2}|\le\zeta_{2n_{\mathrm{lay}}+4}\big(\sum_i|(\delta\rho_i-\Delta^{\mathrm{stg}}\rho_i)V_i|+|\Delta M_{\mathrm{col}}|\big)$, about
+   $3.1\times10^{-15}$ of that sum for the 12 layers of the check.
+6. *Tangential momentum ($N=3$).* The partial system has no $m_2$, $m_3$ rows (@sec-ch09-vic-assembly). Each face
+   therefore also moves $\mathcal T^{\mathrm c}_{i+1/2}v_{a,\mathrm{don}}$ of each tangential momentum $m_a$, where
+   $\mathcal T^{\mathrm c}_{i+1/2}$ is the total mass the face moved after the clamps of step 3 and $v_{a,\mathrm{don}}$ is the
+   donor's velocity. It is taken from one cell and given to the other, so each column sum of $m_aV$ is unchanged.
+   Under a uniform wind $v_a$, cell $i$ gains $v_a(\mathcal T^{\mathrm c}_{i-1/2}-\mathcal T^{\mathrm c}_{i+1/2})$, which is $v_a$
+   times its mass change from the transfers. With explicit increments that carry the wind, $\Delta M_{\mathrm{col}}=0$
+   and no clamp, the cell's tangential velocity after the step is $v_a$ again: $1.4\times10^{-16}$ relative in the
+   check, against $1.3\times10^{-3}$ without the carry, with column sums kept to $6.9\times10^{-17}$ of the moved
+   momentum (`[C7]`). A zero transfer or a zero donor velocity moves nothing, so a wind-free column keeps its
+   increments bit for bit, signed zeros included (`[C7]`).
+
+In the code, @eq-ch09-vic-faces is the prefix sum into `MASS` ({{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}}).
+
+### Numerical method
+
+See @fig-ch09-vic-redistribute for one column of the check.
+
+```{python}
+#| label: fig-ch09-vic-redistribute
+#| fig-cap: "One column of the check. Left: the cell mass changes $(\\delta\\rho_i - \\Delta^{\\mathrm{stg}}\\rho_i)V_i$ (sky blue) and the face transfers $\\mathcal T_{i-1/2}$ (orange) built from them by @eq-ch09-vic-faces, zero at the bottom and the top. Right: the resulting dry-gas (green) and species (purple, magnified 20 times) changes of each layer, moved donor-upwind."
+#| fig-alt: "Two horizontal bar charts against layer number: on the left cell bars with a zig-zag line of face transfers starting and ending at zero; on the right paired green and purple bars."
+#| echo: false
+from snapy_report.ch09.figures.fig_vic_redist import make_fig
+make_fig()
+```
+
+Pass 1 forms the cell mass changes, $\Delta M_{\mathrm{col}}$ and $\sum_{\mathrm{col}}\rho V$, through `explicit_total` ({{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}}).
+Pass 2 is the prefix sum of @eq-ch09-vic-faces into `MASS` ({{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}}).
+Pass 3a moves the dry gas with the dry fraction of the donor, carrying `dryfrac` upward
+({{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}}). Where it clamps, it sets the mark that becomes the VIC clamp
+cause of @sec-ch09-redo. Pass 3b moves each species, keeping `keep` $= 1 - 4096\epsilon_{\mathrm m}$ of the donor's
+species density ({{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}}). `vic_redistribute_cell` then writes the
+final tendencies: density plus the dry increment, the momenta and energy from $\boldsymbol\delta$, and the species
+increments ({{< code src/implicit/vic_redistribute_impl.h vic_redistribute_cell >}}). For $N=3$, between the two,
+`vic_tangential_momentum_column` reads the total clamped transfer of each face, which pass 3 leaves in
+`MASS(IVX + (dir + 2) % 3, i + 1)`, and moves `q * W(m, donor)` of each tangential momentum from one cell to the
+other (step 6; {{< code src/implicit/vic_redistribute_impl.h vic_tangential_momentum_column >}}).
+
+The CPU dispatch splits each column at solid cells and redistributes each fluid segment on its own, through
+`vic_constituent_column` and, for $N=3$, `vic_tangential_momentum_column` ({{< code src/implicit/implicit_dispatch.cpp vic_redistribute_cpu >}}). On CUDA the column passes are one
+thread per column and the cell update one thread per cell. The host checks the clamp residual cell by cell into
+`_clamp_residual` ({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}}), committed with the dry
+clamp mark only when the stage does not fail (@sec-ch09-vic-reject). The passive scalars, which are per dry mass,
+move with the clamped dry-gas transfer from their donor cell, through `mass_corr`
+({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}).
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| column passes | {{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}} | `vic_constituent_column` | |
+| face prefix sum | {{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}} | `MASS` | |
+| dry-gas transfer | {{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}} | `dryfrac` | |
+| species transfer | {{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}} | `keep` | |
+| tangential momentum ($N=3$) | {{< code src/implicit/vic_redistribute_impl.h vic_tangential_momentum_column >}} | `vic_tangential_momentum_column` | `implicit-scheme` 1 |
+| per-cell update | {{< code src/implicit/vic_redistribute_impl.h vic_redistribute_cell >}} | `vic_redistribute_cell` | |
+| CPU dispatch, solid segments | {{< code src/implicit/implicit_dispatch.cpp vic_redistribute_cpu >}} | `vic_redistribute_cpu` | |
+| clamp residual | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}} | `_clamp_residual` | |
+| dry clamp mark | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}} | `_dry_clamp_step` | |
+| passive scalars | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `mass_corr` | |
+
+: Code map of the constituent redistribution. {#tbl-ch09-vic-redistribute-code}
+
+**How to use it.** There is no key: the redistribution runs with every VIC (@sec-ch09-vic-options), and its one
+outcome a user sees is the clamp cause `clamp` of @sec-ch09-redo. Passes 1 and 2 are these lines
+({{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}}):
+
+```cpp
+    T phi = (delta[i](0) - explicit_total) * VOL(i);
+    ...
+    R += phi;
+    S += W(IDN, i) * VOL(i);
+  ...
+    MASS(IVX + dir, i) = M;
+    M -= MASS(IPR, i) - R * (W(IDN, i) * VOL(i) / S);
+```
+
+`phi` is $(\delta\rho_i-\Delta^{\mathrm{stg}}\rho_i)V_i$, `R` is $\Delta M_{\mathrm{col}}$, `S` is $\sum_{\mathrm{col}}\rho V$, and the
+update of `M` is @eq-ch09-vic-faces, with `MASS(IVX + dir, i)` $=\mathcal T_{i-1/2}$; after the loop `M` is the
+$\mathcal T_{n_{\mathrm{lay}}-1/2}$ of step 1. Refused: nothing; a clamp is reported, not refused.
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `tests/test_backward_substitution.cpp` (`test_backward_substitution.release`), `conserves_constituent_column_tendencies` | column totals of each constituent, the face transfers, non-negative final masses, and cell totals equal to $\delta\rho_i$ | $10^{-12}$ absolute | round-off on values of order 1, above the bound of step 5 |
+| same file, `dry_only_transport_is_conservative_and_clamped` | a dry-only transfer of 2 is clamped to 0.25, empties the donor and sets the mark | $10^{-12}$; exact for the mark | round-off; contract |
+| same file, `a_drained_species_donor_stays_non_negative`, `a_drained_float_species_donor_stays_non_negative` | a drained species donor keeps at least $4000\epsilon_{\mathrm{m}}\rho y$ | as stated | the 4096-ulp margin |
+| same file, `tangential_momentum_follows_the_face_mass` | on a 4-layer column, partial matrix, wind $(400,-30)$ m/s: each tangential column integral is unchanged, every cell keeps the wind velocity and gets a nonzero density change; with no wind, the tangential increments, signed zero included, are untouched | $10^{-12}$; exact without wind | round-off on values of order 1; contract |
+| this section's check, `vic_redist_check.py` | `[C1]`–`[C7]` | $10^{-13}$, $10^{-14}$, $10^{-12}$; exact for `[C6]` | stated in the check |
+
+: Tests of the constituent redistribution (@tbl-ch09-ctest-run for the run at the pin). {#tbl-ch09-vic-redistribute-tests}
+
+`test_backward_substitution.release` passes at the pin (@tbl-ch09-ctest-run), with
+{{< code tests/test_backward_substitution.cpp vic_redistribution.conserves_constituent_column_tendencies >}} as its first
+redistribution case. `vic_redist_check.py` ports the redistribution on a 12-layer column with dry gas and two
+species.[^ch09-vic-redistribute-run] `[C1]` gives $1.0\times10^{-15}$ for the top transfer; `[C2]` keeps every column
+total to $1.6\times10^{-16}$; `[C3]` gives a clamp residual of $2.1\times10^{-16}$ without a clamp; `[C4]` sets the mark,
+leaves the dry donor at $-2.22\times10^{-16}$ and the species at $3.27\times10^{-15}$, with a clamp residual of 0.8;
+`[C5]` gives the margins $9.09\times10^{-13}$ in double and $4.88\times10^{-4}$ in float32; `[C6]` is step 1 in closed form;
+`[C7]` is step 6, with $v=(400,-30)$ m/s, and fails when the carry is removed (velocity change $1.3\times10^{-3}$).
+CPU and CUDA share the header; only the CPU path ran.
+
+[^ch09-vic-redistribute-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: a 12-layer column with dry gas
+    and two species; run:
+    `PYTHONPATH=src python3 src/snapy_report/ch09/checks/vic_redist_check.py`, CPU, double, 1 process; Python 3.12.10,
+    numpy 2.5.4, sympy 1.14.0; output identical to the committed `vic_redist_check.out`; `[C1]`–`[C6]` print the same
+    numbers as at the previous code pin]. The carry is credited to chengcli/snapy#329.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+The constituents move donor-upwind, so a composition contrast is carried at first order and smeared. A clamp
+breaks the link between the solved total and the cell totals; the clamp residual reports it and the dry clamp
+mark asks for a redo.
+:::
+
+1. **Dry gas has no margin.** A drained dry donor can end at $-1$ ulp; the species keep 4096 ulp (`[C4]`).
+2. **Residual share.** $\Delta M_{\mathrm{col}}$ is spread by cell mass, which puts most of it in the dense lower layers.
+3. **Tangential momentum at first order ($N=3$).** The partial system carries $m_2$, $m_3$ donor-upwind on the
+   clamped transfers (step 6), which smears a wind shear along the column; the full system solves those rows instead.
+4. **Whole column on one rank.** The prefix sum assumes the column starts at a closed bottom on this rank
+   (@sec-ch09-vic-options).
+
+<!-- reader glossary notes -->
+[^rg-d21057762a45]: $\delta\rho_i$, $\delta E_i$ — the total-mass and energy components of $\boldsymbol\delta_i$
+<!-- end reader glossary notes -->

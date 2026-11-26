@@ -24,16 +24,16 @@ local={
 'density':{'chapters/08-positivity/_wbface.qmd':'C++ local in `HydroImpl::forward`: the $x_1$ density tensor shifted by edge replication in the well-balanced face fallback'},
 'cells':{'chapters/08-positivity/_scalar.qmd':'C++ local: the interior part of the block'},
 '$C$':{'chapters/05-well-balanced/_balcol.qmd':"the free gauge constant of the balanced column: the constant pressure perturbation read at the top cell [Pa]"},
-'$z$':{f'chapters/{f}':"the $z$ axis of the Cartesian frame (the polar axis), not the grid's $x_1$" for f in ['03-grids-geometry/_csinterp.qmd','09-diffusion-forcing/_coriolis.qmd']},
+'$z$':{f'chapters/{f}':"the $z$ axis of the Cartesian frame (the polar axis), not the grid's $x_1$" for f in ['03-grids-geometry/_csinterp.qmd','07-diffusion-forcing/_coriolis.qmd']},
 '$k = 1..N_r$':{f'chapters/{f}':m for f,m in [
 ('03-grids-geometry/_x1seams.qmd','scalar row index in the seam tag list'),
 ('05-well-balanced/_wallclamp.qmd','the $x_3$ cell index'),
-('07-time-integration/_vic-pivot.qmd','the $x_3$ cell index'),
-('09-diffusion-forcing/_framework.qmd','summation index of the bound'),
+('09-time-integration/_vic-pivot.qmd','the $x_3$ cell index'),
+('07-diffusion-forcing/_framework.qmd','summation index of the bound'),
 ('10-moist-coupling/_redo.qmd','the $x_3$ cell index')]},
 '$l$':{'chapters/05-well-balanced/_wallclamp.qmd':'cell index counted from the wall ($l=0$ the wall cell)'},
 r'$\rho_n$':{f'chapters/{f}/_scalar.qmd':r'density of passive scalar $n$, $\rho_{\mathrm d} r_n$ (`scalar_s`)' for f in ['01-overview','08-positivity']},
-r'$M$, $M_{\mathrm{wall}}$':{'chapters/09-diffusion-forcing/_framework.qmd':'the number of installed forcing modules'},
+r'$M$, $M_{\mathrm{wall}}$':{'chapters/07-diffusion-forcing/_framework.qmd':'the number of installed forcing modules'},
 }
 
 @pytest.mark.parametrize('term, expected', meanings.items())

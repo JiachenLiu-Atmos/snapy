@@ -37,11 +37,11 @@ meets a difference, each with the section that states it.
 | Is the vertical velocity prognostic? | Yes: the vertical momentum is a conserved row, updated by its flux divergence and sources like the other momenta. | @sec-ch02-laws |
 | Where does pressure come from? | From the equation of state of each cell's conserved state, not from integrating a hydrostatic column. | @sec-ch02-interface |
 | Is pressure the vertical coordinate? | No: $x_1$ is a fixed height or radius; there is no pressure, sigma or hybrid coordinate. | @sec-appa-conventions |
-| Are sound waves in the solution? | Yes: the explicit step is bounded by $\lvert v\rvert+c_s$ in every direction. | @sec-ch07-cfl |
-| Can the vertical sound-wave bound be removed? | Yes, by the vertically implicit correction, which acts in $x_1$ only and needs the whole column on one rank. | @sec-ch07-vic-options |
+| Are sound waves in the solution? | Yes: the explicit step is bounded by $\lvert v\rvert+c_s$ in every direction. | @sec-ch09-cfl |
+| Can the vertical sound-wave bound be removed? | Yes, by the vertically implicit correction, which acts in $x_1$ only and needs the whole column on one rank. | @sec-ch09-vic-options |
 | Is there a hydrostatic switch? | `non-hydrostatic`[^rg-0dd1d9434f28] below 1 replaces part of gravity by the cell's own pressure difference; even at 0 the vertical velocity stays prognostic. | @sec-ch05-hsmode |
 | Is the geometry shallow? | No: on the spherical grids every metric quantity uses the radius of its own cell; gravity is one constant, `grav1`. | @sec-ch03-sphpolar, @sec-ch06-cell |
-| Is the Coriolis force traditional? | Not by default: the full rotation vector is used; `traditional: true` keeps its radial part, on the cubed sphere only. | @sec-ch09-coriolis |
+| Is the Coriolis force traditional? | Not by default: the full rotation vector is used; `traditional: true` keeps its radial part, on the cubed sphere only. | @sec-ch07-coriolis |
 
 : Where snapy at the pin differs from a hydrostatic primitive-equation core. {#tbl-ch02-pecore}
 
@@ -53,7 +53,7 @@ N/A: the section compares, it derives nothing. The equations are those of @sec-c
 
 N/A: no scheme of its own. The consequence that matters most in practice is the time step: an explicit
 compressible step is limited by the sound speed in $x_1$ as well as in $x_2$ and $x_3$, which is why the vertically
-implicit correction exists (@sec-ch07).
+implicit correction exists (@sec-ch09).
 
 ### Code
 
@@ -72,7 +72,7 @@ implicit correction exists (@sec-ch07).
 
 **How to use it.** A deck ported from a hydrostatic core needs a geometric $x_1$ grid (@sec-ch03-globalgrid), an
 initial state in hydrostatic balance on that grid (@sec-ch05-balcol), and either a time step under the vertical
-acoustic bound or `integration/implicit-scheme` (@sec-ch07-vic-options). Refused: none here; the keys are
+acoustic bound or `integration/implicit-scheme` (@sec-ch09-vic-options). Refused: none here; the keys are
 refused where their own sections say.
 
 ### Tests
@@ -87,7 +87,7 @@ N/A: the comparison asserts nothing of its own. The tests are those of the cited
 :::
 
 The table lists differences of the equations and the numerics only. Differences of physics packages (radiation,
-convection schemes) are not listed; the forcing modules snapy has are the subject of @sec-ch09.
+convection schemes) are not listed; the forcing modules snapy has are the subject of @sec-ch07.
 
 <!-- reader glossary notes -->
 [^rg-0dd1d9434f28]: non-hydrostatic — fraction of the vertical body force retained by the non-hydrostatic treatment

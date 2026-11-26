@@ -10,7 +10,7 @@ This chapter is the semi-discrete operator of one Runge–Kutta stage: everythin
 state into a tendency, and nothing that advances it in time. A stage reconstructs the primitive variables to
 the faces, solves a Riemann problem on each face to get one flux there, makes that flux single-valued across a
 process seam, takes its divergence, and adds the part of the curvature that is not a flux difference. Time
-integration belongs to @sec-ch07, the well-balanced treatment of the vertical to @sec-ch05, and the positivity
+integration belongs to @sec-ch09, the well-balanced treatment of the vertical to @sec-ch05, and the positivity
 limiter that runs between the Riemann solve and the divergence to @sec-ch08.
 
 Acronyms used throughout: PLM[^rg-06abdc5ecbfb], piecewise-linear method; PPM[^rg-fee67a3928b8], piecewise-parabolic method; WENO[^rg-e22f686fce5d], weighted
@@ -134,7 +134,7 @@ the Riemann solvers are characterised by their wave structure instead. {#tbl-ch0
 
 {{< include 04-spatial-discretization/_conv4.qmd >}}
 
-The limits this chapter states are collected with those of the other chapters in @sec-ch16-wrong, @sec-ch16-restricted, @sec-ch16-usability and @sec-ch16-pending.
+The limits this chapter states are collected with those of the other chapters in @sec-ch17-wrong, @sec-ch17-restricted, @sec-ch17-usability and @sec-ch17-pending.
 
 <!-- reader glossary notes -->
 [^rg-06abdc5ecbfb]: PLM — piecewise-linear method

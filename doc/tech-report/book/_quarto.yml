@@ -34,16 +34,16 @@ book:
     - chapters/04-spatial-discretization.qmd
     - chapters/05-well-balanced.qmd
     - chapters/06-gravity-energy.qmd
-    - chapters/07-time-integration.qmd
+    - chapters/07-diffusion-forcing.qmd
     - chapters/08-positivity.qmd
-    - chapters/09-diffusion-forcing.qmd
+    - chapters/09-time-integration.qmd
     - chapters/10-moist-coupling.qmd
     - chapters/11-boundaries.qmd
     - chapters/12-configuration.qmd
     - chapters/13-diagnostics.qmd
     - chapters/14-parallelism-io.qmd
-    - chapters/15-verification.qmd
-    - chapters/16-known-limits.qmd
+    - chapters/16-verification.qmd
+    - chapters/17-known-limits.qmd
   appendices:
     - chapters/appa-notation.qmd
     - chapters/appb-derivations.qmd

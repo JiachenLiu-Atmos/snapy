@@ -40,14 +40,14 @@
       "kind": "acronym",
       "term": "VIC",
       "meaning": "vertically implicit correction",
-      "section": "sec-ch07-vic-options",
+      "section": "sec-ch09-vic-options",
       "not_defined_here": false
     },
     {
       "kind": "acronym",
       "term": "RK",
       "meaning": "Runge–Kutta",
-      "section": "sec-ch09-framework",
+      "section": "sec-ch07-framework",
       "not_defined_here": false
     },
     {
@@ -61,14 +61,14 @@
       "kind": "acronym",
       "term": "SSP",
       "meaning": "strong stability preserving",
-      "section": "sec-ch07-rk",
+      "section": "sec-ch09-rk",
       "not_defined_here": false
     },
     {
       "kind": "acronym",
       "term": "CFL",
       "meaning": "Courant–Friedrichs–Lewy",
-      "section": "sec-ch07-cfl",
+      "section": "sec-ch09-cfl",
       "not_defined_here": false
     },
     {
@@ -241,7 +241,7 @@
       "kind": "acronym",
       "term": "LU",
       "meaning": "lower–upper matrix factorisation",
-      "section": "sec-ch07-vic-sweep",
+      "section": "sec-ch09-vic-sweep",
       "not_defined_here": true
     },
     {
@@ -573,7 +573,7 @@
       "term": "scale",
       "meaning": "scaling in the enclosing component: a reconstruction switch or values of a thermal-transport profile",
       "meaning_by_file": {
-        "chapters/07-time-integration/_cfl.qmd": "ratio of the shallow-water CFL bound to the selected CFL number"
+        "chapters/09-time-integration/_cfl.qmd": "ratio of the shallow-water CFL bound to the selected CFL number"
       },
       "section": "sec-ch04-dc",
       "not_defined_here": false
@@ -606,7 +606,7 @@
       "meaning_by_file": {
         "chapters/14-parallelism-io.qmd": "output interval"
       },
-      "section": "sec-ch07-vic-assembly",
+      "section": "sec-ch09-vic-assembly",
       "not_defined_here": true
     },
     {
@@ -816,7 +816,7 @@
       "notation_group": "1",
       "meaning_by_file": {
         "chapters/03-grids-geometry/_csinterp.qmd": "the $z$ axis of the Cartesian frame (the polar axis), not the grid's $x_1$",
-        "chapters/09-diffusion-forcing/_coriolis.qmd": "the $z$ axis of the Cartesian frame (the polar axis), not the grid's $x_1$"
+        "chapters/07-diffusion-forcing/_coriolis.qmd": "the $z$ axis of the Cartesian frame (the polar axis), not the grid's $x_1$"
       },
       "section": "sec-appa-1"
     },
@@ -1224,8 +1224,8 @@
       "meaning_by_file": {
         "chapters/03-grids-geometry/_x1seams.qmd": "scalar row index in the seam tag list",
         "chapters/05-well-balanced/_wallclamp.qmd": "the $x_3$ cell index",
-        "chapters/07-time-integration/_vic-pivot.qmd": "the $x_3$ cell index",
-        "chapters/09-diffusion-forcing/_framework.qmd": "summation index of the bound",
+        "chapters/09-time-integration/_vic-pivot.qmd": "the $x_3$ cell index",
+        "chapters/07-diffusion-forcing/_framework.qmd": "summation index of the bound",
         "chapters/10-moist-coupling/_redo.qmd": "the $x_3$ cell index"
       },
       "section": "sec-appa-2a"
@@ -1506,7 +1506,7 @@
       "term": "$M$, $M_{\\mathrm{wall}}$",
       "notation_group": "5",
       "meaning_by_file": {
-        "chapters/09-diffusion-forcing/_framework.qmd": "the number of installed forcing modules"
+        "chapters/07-diffusion-forcing/_framework.qmd": "the number of installed forcing modules"
       },
       "section": "sec-appa-5"
     },
@@ -2009,63 +2009,63 @@
       "kind": "key",
       "term": "coriolis",
       "meaning": "Coriolis-force options",
-      "section": "sec-ch09-framework",
+      "section": "sec-ch07-framework",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "omega1",
       "meaning": "first rotation-rate component: $\\Omega_z$ of the Cartesian frame under the default `type: xyz`, the $x_1$ component under `type: 123`",
-      "section": "sec-ch09-coriolis",
+      "section": "sec-ch07-coriolis",
       "not_defined_here": false
     },
     {
       "kind": "key",
       "term": "traditional",
       "meaning": "whether to use the traditional Coriolis approximation",
-      "section": "sec-ch09-coriolis",
+      "section": "sec-ch07-coriolis",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "body-heat",
       "meaning": "volumetric heating options",
-      "section": "sec-ch09-heating",
+      "section": "sec-ch07-heating",
       "not_defined_here": false
     },
     {
       "kind": "key",
       "term": "dTdt",
       "meaning": "prescribed temperature tendency",
-      "section": "sec-ch09-framework",
+      "section": "sec-ch07-framework",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "pmin",
       "meaning": "lower pressure bound of the heating region",
-      "section": "sec-ch09-framework",
+      "section": "sec-ch07-framework",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "pmax",
       "meaning": "upper pressure bound of the heating region",
-      "section": "sec-ch09-framework",
+      "section": "sec-ch07-framework",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "bot-heat",
       "meaning": "bottom heating options",
-      "section": "sec-ch09-heating",
+      "section": "sec-ch07-heating",
       "not_defined_here": false
     },
     {
       "kind": "key",
       "term": "flux",
       "meaning": "prescribed heat flux",
-      "section": "sec-ch09-heating",
+      "section": "sec-ch07-heating",
       "not_defined_here": true
     },
     {
@@ -2082,147 +2082,147 @@
       "kind": "key",
       "term": "thickness",
       "meaning": "the layer next to an x1 domain end that boundary heating or cooling is spread over, in x1 length units; given instead of depth",
-      "section": "sec-ch09-heating",
+      "section": "sec-ch07-heating",
       "not_defined_here": false
     },
     {
       "kind": "key",
       "term": "top-cool",
       "meaning": "top cooling options",
-      "section": "sec-ch09-heating",
+      "section": "sec-ch07-heating",
       "not_defined_here": false
     },
     {
       "kind": "key",
       "term": "relax-bot-temp",
       "meaning": "bottom temperature-relaxation options",
-      "section": "sec-ch09-framework",
+      "section": "sec-ch07-framework",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "tau",
       "meaning": "relaxation time scale",
-      "section": "sec-ch09-relax",
+      "section": "sec-ch07-relax",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "btemp",
       "meaning": "bottom target temperature",
-      "section": "sec-ch09-relax",
+      "section": "sec-ch07-relax",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "at-face",
       "meaning": "whether bottom temperature relaxation targets the boundary face",
-      "section": "sec-ch09-relax",
+      "section": "sec-ch07-relax",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "relax-bot-velo",
       "meaning": "bottom velocity-relaxation options",
-      "section": "sec-ch09-framework",
+      "section": "sec-ch07-framework",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "relax-bot-comp",
       "meaning": "bottom composition-relaxation options",
-      "section": "sec-ch09-framework",
+      "section": "sec-ch07-framework",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "xfrac",
       "meaning": "target species mole fractions",
-      "section": "sec-ch09-relax",
+      "section": "sec-ch07-relax",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "top-sponge-lyr",
       "meaning": "top sponge-layer options",
-      "section": "sec-ch09-framework",
+      "section": "sec-ch07-framework",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "width",
       "meaning": "physical width of the sponge layer",
-      "section": "sec-ch09-sponge",
+      "section": "sec-ch07-sponge",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "bot-sponge-lyr",
       "meaning": "bottom sponge-layer options",
-      "section": "sec-ch09-framework",
+      "section": "sec-ch07-framework",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "diffusion",
       "meaning": "viscosity and heat-diffusion options",
-      "section": "sec-ch09-framework",
+      "section": "sec-ch07-framework",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "nu_iso",
       "meaning": "isotropic viscosity coefficient, interpreted according to dynamic",
-      "section": "sec-ch09-viscosity",
+      "section": "sec-ch07-viscosity",
       "not_defined_here": false
     },
     {
       "kind": "key",
       "term": "kappa_iso",
       "meaning": "isotropic thermal transport coefficient, interpreted according to dynamic",
-      "section": "sec-ch09-viscosity",
+      "section": "sec-ch07-viscosity",
       "not_defined_here": false
     },
     {
       "kind": "key",
       "term": "dynamic",
       "meaning": "whether viscosity and heat transport use dynamic coefficients",
-      "section": "sec-ch09-viscosity",
+      "section": "sec-ch07-viscosity",
       "not_defined_here": true
     },
     {
       "kind": "key",
       "term": "temperature_inner",
       "meaning": "prescribed temperature of the inner x1 wall for heat conduction, in K; 0 (default) leaves the wall insulating",
-      "section": "sec-ch09-csdiffusion",
+      "section": "sec-ch07-csdiffusion",
       "not_defined_here": false
     },
     {
       "kind": "key",
       "term": "temperature_outer",
       "meaning": "prescribed temperature of the outer x1 wall for heat conduction, in K; 0 (default) leaves the wall insulating",
-      "section": "sec-ch09-csdiffusion",
+      "section": "sec-ch07-csdiffusion",
       "not_defined_here": false
     },
     {
       "kind": "key",
       "term": "wall_velocity",
       "meaning": "viscous condition at the radial walls on the cubed sphere: stress-free (default) or no-slip",
-      "section": "sec-ch09-csdiffusion",
+      "section": "sec-ch07-csdiffusion",
       "not_defined_here": false
     },
     {
       "kind": "key",
       "term": "implicit_radial",
       "meaning": "whether radial heat conduction on the cubed sphere is solved implicitly, split around the explicit step (default false)",
-      "section": "sec-ch09-csdiffusion",
+      "section": "sec-ch07-csdiffusion",
       "not_defined_here": false
     },
     {
       "kind": "key",
       "term": "kappa_scale_x1",
       "meaning": "piecewise-linear vertical multiplier for thermal transport",
-      "section": "sec-ch09-x1profile",
+      "section": "sec-ch07-x1profile",
       "not_defined_here": true
     },
     {
@@ -2232,7 +2232,7 @@
       "meaning_by_file": {
         "chapters/14-parallelism-io/_netcdf.qmd": "first grid coordinate (the vertical coordinate in this output layout)"
       },
-      "section": "sec-ch09-x1profile",
+      "section": "sec-ch07-x1profile",
       "not_defined_here": true
     },
     {
@@ -2321,7 +2321,7 @@
     {
       "kind": "concept",
       "term": "Coriolis force",
-      "section": "sec-ch09-framework",
+      "section": "sec-ch07-framework",
       "not_defined_here": true
     },
     {
@@ -2333,7 +2333,7 @@
     {
       "kind": "concept",
       "term": "Euler flux",
-      "section": "sec-ch07-vic-assembly",
+      "section": "sec-ch09-vic-assembly",
       "not_defined_here": true
     },
     {
@@ -2351,7 +2351,7 @@
     {
       "kind": "concept",
       "term": "Rayleigh drag",
-      "section": "sec-ch09-sponge",
+      "section": "sec-ch07-sponge",
       "not_defined_here": true
     },
     {
@@ -2399,7 +2399,7 @@
     {
       "kind": "concept",
       "term": "Runge–Kutta average",
-      "section": "sec-ch09-user",
+      "section": "sec-ch07-user",
       "not_defined_here": true
     },
     {
@@ -2411,7 +2411,7 @@
     {
       "kind": "concept",
       "term": "Shu–Osher form",
-      "section": "sec-ch07-rk",
+      "section": "sec-ch09-rk",
       "not_defined_here": true
     },
     {
@@ -2531,7 +2531,7 @@
     {
       "kind": "concept",
       "term": "steady state",
-      "section": "sec-ch07-vic-steady",
+      "section": "sec-ch09-vic-steady",
       "not_defined_here": false
     }
   ]

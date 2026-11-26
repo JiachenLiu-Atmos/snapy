@@ -238,7 +238,7 @@ settling speed can over-drain a cell, and only the positivity limiter catches it
   ({{< code src/sedimentation/sed_hydro.cpp sedimentation_flux_tensor >}}). A float32 block on the tensor path is
   not tested.
 - There is no frictional heating key: `forcing` refuses `fric-heat`, because the $x_1$ face gravity work already
-  carries the sedimentation part of the mass flux (@sec-ch09-framework, @sec-ch06).
+  carries the sedimentation part of the mass flux (@sec-ch07-framework, @sec-ch06).
 - The default gas constants describe $\mathrm{H_2}$; other backgrounds must set them.
 - Not in the switch coverage matrix (@sec-ch12-matrix).
 

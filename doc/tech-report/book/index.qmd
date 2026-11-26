@@ -38,7 +38,7 @@ pip install .
 `-DUCX=OFF` builds the Gloo backend only, which is all a single machine needs; @sec-ch14-backends describes UCX.
 The build also compiles the tests (`BUILD_TESTS` is on by default). A test named in a Tests layer runs with
 `ctest --test-dir build -R <name>`; to reproduce a documented test case and check it against the book, follow
-@sec-ch15-metrics. The last line installs the Python package from the same build, which the Python
+@sec-ch16-metrics. The last line installs the Python package from the same build, which the Python
 listings of the chapters import (`import snapy`), and puts the tools `pd-run`, `pd-combine` and `pd-inspect` on
 the path.
 

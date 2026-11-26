@@ -17,7 +17,7 @@
 
 **Q-019.** What is a finite-volume method, and why are the cell values averages rather than point values? See The finite-volume update and the flux divergence, @sec-ch04-divergence.
 
-**Q-021.** What is the time order of the combined implicit/explicit step? Where is the stage coupling derived, and is the order measured by a convergence test? See Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4, @sec-ch07-vic-stage.
+**Q-021.** What is the time order of the combined implicit/explicit step? Where is the stage coupling derived, and is the order measured by a convergence test? See Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4, @sec-ch09-vic-stage.
 
 **Q-023.** Which reconstructions and limiters exist (PLM, PPM, WENO5, WENO-Z…)? What stencil width and ghost-zone count does each need, and what are the defaults? See The reconstruction framework, @sec-ch04-framework.
 
@@ -27,7 +27,7 @@
 
 **Q-029.** Does the reconstruction use uniform-grid coefficients, or does it account for stretched or curvilinear spacing? Where is that derived, and what order is reached on a stretched grid? See The reconstruction framework, @sec-ch04-framework.
 
-**Q-037.** Which time integrators exist (SSP-RK2, SSP-RK3…)? What are their key names, stage counts and SSP coefficients? See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch07-rk.
+**Q-037.** Which time integrators exist (SSP-RK2, SSP-RK3…)? What are their key names, stage counts and SSP coefficients? See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk.
 
 **Q-039.** Is positivity of density and pressure guaranteed (a positivity-preserving limiter), and under what CFL? What happens when it fails: a floor, a redo or a refusal? See Positivity, floors and limiters, @sec-ch08.
 
@@ -71,7 +71,7 @@
 
 **Q-013.** Which grids and geometries are available (cubed sphere, lat-lon, polar caps, channel or beta-plane), and how do I choose a resolution comparable to my old T85 or C96 runs? See Grids and geometry, @sec-ch03. Not covered: resolution guidance; that spherical-polar is the lat-lon grid; no channel or beta-plane.
 
-**Q-014.** What lower-boundary options exist for a planet with no surface (deep bottom, imposed heat flux, free-slip, sponge)? What replaces my old Rayleigh bottom drag? See Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch09-sponge. Not covered: one list of lower-boundary options for a planet without a surface.
+**Q-014.** What lower-boundary options exist for a planet with no surface (deep bottom, imposed heat flux, free-slip, sponge)? What replaces my old Rayleigh bottom drag? See Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch07-sponge. Not covered: one list of lower-boundary options for a planet without a surface.
 
 **Q-015.** How do I set up condensable species (NH3, H2O, NH4SH; CH4 and H2S for ice giants), and what happens to the condensate: immediate rainout, retained, or advected? See Saturation adjustment in the step, @sec-ch10-satadj. Not covered: CH4/ice-giant setup and the species declaration.
 
@@ -81,7 +81,7 @@
 
 **Q-018.** What is the overall discretization? Finite volume on cell averages? Which variables are reconstructed (primitive, conserved, characteristic), and why? See The finite-volume update and the flux divergence, @sec-ch04-divergence. Not covered: the reason primitives are reconstructed.
 
-**Q-020.** How does the implicit scheme work? Which terms are implicit (vertical acoustics, gravity), what system is solved (tridiagonal or block), how is it linearized, and is it one solve per stage or iterated? See Time integration, @sec-ch07. Not covered: comparison with a hydrostatic GCM.
+**Q-020.** How does the implicit scheme work? Which terms are implicit (vertical acoustics, gravity), what system is solved (tridiagonal or block), how is it linearized, and is it one solve per stage or iterated? See Time integration, @sec-ch09. Not covered: comparison with a hydrostatic GCM.
 
 **Q-022.** Which Riemann solvers exist (exact, HLLC, Roe, LMARS, Rusanov…)? What are the key names and the default, and which ones support a moist or multi-component EOS? See The Riemann solver framework and the face-local frame, @sec-ch04-riemann. Not covered: moist/multi-component support per solver in one place.
 
@@ -91,19 +91,19 @@
 
 **Q-028.** Is well-balancing exact to round-off? Which test shows it, with what residual velocity after how many steps, at what resolution and precision? See Well-balanced $x_1$ reconstruction: perturbations about a hydrostatic reference (gravity on), @sec-ch05-wbx1. Not covered: the test resolution; loading an old model's T(p); float32 behaviour.
 
-**Q-030.** What are the known limits of validity: Mach-number range and low-Mach accuracy, grid aspect ratio, deep vs shallow atmosphere, curvature terms on spherical grids? See Known limits, @sec-ch16. Not covered: grid aspect ratio; deep vs shallow atmosphere.
+**Q-030.** What are the known limits of validity: Mach-number range and low-Mach accuracy, grid aspect ratio, deep vs shallow atmosphere, curvature terms on spherical grids? See Known limits, @sec-ch17. Not covered: grid aspect ratio; deep vs shallow atmosphere.
 
-**Q-031.** What is the formal order of accuracy in space and time? Where is a convergence test that shows the measured order against resolution? See 15.1 Reading verification evidence (chapters/15-verification/_metrics.qmd) has no {#sec-} label, in Verification catalogue, @sec-ch15. Not covered: a full-solver convergence test with an error table.
+**Q-031.** What is the formal order of accuracy in space and time? Where is a convergence test that shows the measured order against resolution? See 15.1 Reading verification evidence (chapters/16-verification/_metrics.qmd) has no {#sec-} label, in Verification catalogue, @sec-ch16. Not covered: a full-solver convergence test with an error table.
 
-**Q-032.** When I double the resolution, how much should the answer change, and how do I measure convergence myself? See 15.1 Reading verification evidence (chapters/15-verification/_metrics.qmd) has no {#sec-} label (subsection 15.1.2.4), in Verification catalogue, @sec-ch15. Not covered: an L1/L2-against-exact-solution recipe; expected change on refinement.
+**Q-032.** When I double the resolution, how much should the answer change, and how do I measure convergence myself? See 15.1 Reading verification evidence (chapters/16-verification/_metrics.qmd) has no {#sec-} label (subsection 15.1.2.4), in Verification catalogue, @sec-ch16. Not covered: an L1/L2-against-exact-solution recipe; expected change on refinement.
 
 **Q-033.** How are source terms (gravity, Coriolis, geometric terms) discretized? How do they interact with the well-balanced reconstruction, and is total energy conserved with gravity on? See Gravity and energy, @sec-ch06. Not covered: how Coriolis and geometric sources interact with well-balancing.
 
-**Q-034.** How does the implicit solve treat the top and bottom boundaries? Is the boundary treatment consistent with well-balancing, so that a reflecting wall carries no spurious flux? See VIC column closure: a mirror ghost folded into the end blocks, @sec-ch07-vic-closure. Not covered: consistency with the well-balanced reference at the wall.
+**Q-034.** How does the implicit solve treat the top and bottom boundaries? Is the boundary treatment consistent with well-balancing, so that a reflecting wall carries no spurious flux? See VIC column closure: a mirror ghost folded into the end blocks, @sec-ch09-vic-closure. Not covered: consistency with the well-balanced reference at the wall.
 
-**Q-035.** Which wave speed sets the time step when the vertical is implicit? What is the CFL key and its default, and what is the largest stable CFL for each integrator? See Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch07-cfl. Not covered: the largest stable CFL per integrator.
+**Q-035.** Which wave speed sets the time step when the vertical is implicit? What is the CFL key and its default, and what is the largest stable CFL for each integrator? See Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch09-cfl. Not covered: the largest stable CFL per integrator.
 
-**Q-036.** Why is the time step what it is, and why does my run get so much slower when I refine the grid? See Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch07-cfl. Not covered: cost growth on grid refinement.
+**Q-036.** Why is the time step what it is, and why does my run get so much slower when I refine the grid? See Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch09-cfl. Not covered: cost growth on grid refinement.
 
 **Q-038.** How do I switch the Riemann solver or reconstruction for one run, and compare two runs to isolate the scheme's effect? See The Riemann solver framework and the face-local frame, @sec-ch04-riemann. Not covered: a procedure to compare two runs.
 
@@ -111,19 +111,19 @@
 
 **Q-041.** How do I test one component in isolation, for example call the Riemann solver from Python on a given left/right state and compare it to a reference solution? See Expose the C++ API to Python, @sec-ch01-python. Not covered: calling a Riemann solver from Python on given states.
 
-**Q-042.** What dissipation is in the model: numerical diffusion from the Riemann solver, sponge layers, hyperviscosity, limiters? Is any of it tunable, so a paper should report it? See Diffusion, viscosity and forcing, @sec-ch09. Not covered: a list of numerical dissipation; the physical vs numerical split.
+**Q-042.** What dissipation is in the model: numerical diffusion from the Riemann solver, sponge layers, hyperviscosity, limiters? Is any of it tunable, so a paper should report it? See Diffusion, viscosity and forcing, @sec-ch07. Not covered: a list of numerical dissipation; the physical vs numerical split.
 
 **Q-043.** How is moist thermodynamics closed? Is latent heat temperature-dependent, are condensate heat capacities included, and is the EOS consistent with the energy equation? Is that exact or approximate? See Temperature-dependent moist thermodynamics, @sec-ch02-moist-mixture. Not covered: explicit statement on latent-heat T-dependence and condensate heat capacities.
 
-**Q-046.** Which standard benchmarks (density current, rising bubble, global tests) has snapy been validated on? Which reference numbers and tolerances were used? See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch07-rk. Not covered: bubble/global benchmarks; scaling results; fair benchmarking.
+**Q-046.** Which standard benchmarks (density current, rising bubble, global tests) has snapy been validated on? Which reference numbers and tolerances were used? See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk. Not covered: bubble/global benchmarks; scaling results; fair benchmarking.
 
-**Q-047.** How do I compare my run against a published result or an analytic solution, and what counts as agreement? See 15.1 Reading verification evidence (chapters/15-verification/_metrics.qmd) has no {#sec-} label, in Verification catalogue, @sec-ch15. Not covered: a procedure to compare with a published or analytic result.
+**Q-047.** How do I compare my run against a published result or an analytic solution, and what counts as agreement? See 15.1 Reading verification evidence (chapters/16-verification/_metrics.qmd) has no {#sec-} label, in Verification catalogue, @sec-ch16. Not covered: a procedure to compare with a published or analytic result.
 
 **Q-048.** My run stopped with negative density or NaN. What do I check first, and which settings usually fix it? See Redo causes and termination status: what the log says about a rejected step and the end of a run, @sec-ch13-redo-view. Not covered: first-check order and usual fixes.
 
 **Q-050.** Is total mass conserved to round-off in a closed domain? Where is a test that shows the drift per step, and for which version? See Conservation budgets and diagnostics, @sec-ch13. Not covered: water budget with boundary fluxes; comparison with a potential-temperature GCM.
 
-**Q-051.** On curvilinear grids (spherical-polar, cubed sphere), is free-stream preservation (the geometric conservation law) satisfied, and do fluxes match exactly across panel seams? Where is this tested? See Grids and geometry evidence, @sec-ch15-ch03-tests. Not covered: free-stream preservation; grid imprinting; output-coverage check.
+**Q-051.** On curvilinear grids (spherical-polar, cubed sphere), is free-stream preservation (the geometric conservation law) satisfied, and do fluxes match exactly across panel seams? Where is this tested? See Grids and geometry evidence, @sec-ch16-ch03-tests. Not covered: free-stream preservation; grid imprinting; output-coverage check.
 
 **Q-052.** When positivity limiters or vapor fixers act on tracers and condensates, is their mass still conserved? How big can the correction get, and is it logged anywhere? See Positivity, floors and limiters, @sec-ch08. Not covered: a logged amount of floor-invented mass.
 
@@ -145,13 +145,13 @@
 
 **Q-063.** What output formats and file layouts are available, how are variables, units, coordinates and times recorded, and which settings control output frequency and volume? See NetCDF output: per-block files and the combine, @sec-ch14-netcdf. Not covered: pressure-level/lat-lon output; standard dynamics diagnostics.
 
-**Q-066.** What is the minimal skeleton of a new forcing module? Which class or interface do I implement, which method returns the tendency, and how is it registered so that a key in the input file turns it on? See The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework. Not covered: a native C++ forcing skeleton (N6 pilot).
+**Q-066.** What is the minimal skeleton of a new forcing module? Which class or interface do I implement, which method returns the tendency, and how is it registered so that a key in the input file turns it on? See The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework. Not covered: a native C++ forcing skeleton (N6 pilot).
 
-**Q-067.** What is the exact signature of a forcing's tendency call? What are the inputs (primitive or conserved variables, time, dt, coordinates) and their shapes, ghosts included? Does it return a tendency or update the state in place? See User stage forcings: TorchScript modules called every stage, @sec-ch09-user. Not covered: native signature with shapes and ghosts.
+**Q-067.** What is the exact signature of a forcing's tendency call? What are the inputs (primitive or conserved variables, time, dt, coordinates) and their shapes, ghosts included? Does it return a tendency or update the state in place? See User stage forcings: TorchScript modules called every stage, @sec-ch07-user. Not covered: native signature with shapes and ghosts.
 
-**Q-068.** Can I prototype a forcing in Python on top of the installed package without recompiling? What does that cost per step compared with C++? See User stage forcings: TorchScript modules called every stage, @sec-ch09-user. Not covered: cost per step vs C++.
+**Q-068.** Can I prototype a forcing in Python on top of the installed package without recompiling? What does that cost per step compared with C++? See User stage forcings: TorchScript modules called every stage, @sec-ch07-user. Not covered: cost per step vs C++.
 
-**Q-069.** Does a forcing only enter the explicit part? Can a stiff forcing (fast relaxation, drag, Newtonian cooling with a short timescale) be treated implicitly, and how do I give the implicit solver its Jacobian? See The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework. Not covered: an explicit statement that forcings are explicit only, with no user Jacobian hook; stability for dt > tau.
+**Q-069.** Does a forcing only enter the explicit part? Can a stiff forcing (fast relaxation, drag, Newtonian cooling with a short timescale) be treated implicitly, and how do I give the implicit solver its Jacobian? See The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework. Not covered: an explicit statement that forcings are explicit only, with no user Jacobian hook; stability for dt > tau.
 
 **Q-070.** Is there a harness I can reuse to show my forcing changes mass, momentum and energy only as intended, budgeted per step? See Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle. Not covered: a reusable per-forcing harness; momentum budget.
 
@@ -169,7 +169,7 @@
 
 **Q-088.** Which vertical coordinate does snapy use (height, pressure or hybrid), and how do I translate my old level structure, model top and model bottom into it? See Conventions at a glance, @sec-appa-conventions. Not covered: a translation of another model’s levels and boundaries; the no-pressure-coordinate statement is delivered at the linked section.
 
-**Q-089.** How do I reproduce my old forcing: Newtonian relaxation to an equilibrium profile with a pressure-dependent timescale, an internal heat flux, or a radiative scheme? See Bottom relaxation of temperature, velocity and composition, @sec-ch09-relax. Not covered: interior relaxation with a pressure-dependent timescale; radiation scheme not implemented.
+**Q-089.** How do I reproduce my old forcing: Newtonian relaxation to an equilibrium profile with a pressure-dependent timescale, an internal heat flux, or a radiative scheme? See Bottom relaxation of temperature, velocity and composition, @sec-ch07-relax. Not covered: interior relaxation with a pressure-dependent timescale; radiation scheme not implemented.
 
 **Q-093.** Can I start from my old model's equilibrated state, regridded, instead of spinning up from rest? What must be consistent for that start to be balanced? See `balance_column`: projection of ghost-free columns onto the scheme's discrete balance (C++ and Python API), @sec-ch05-balcol. Not covered: regridding (outside scope); EOS/gravity/constant consistency with the model being ported from.
 

@@ -123,19 +123,17 @@ Regenerate every figure: `python3 tools/render_figures.py` (to `build/figures/<c
 
 | figure | section file | code | data (written by) |
 |---|---|---|---|
-| `fig-ch07-cfl-bounds` | `07-time-integration/_cfl.qmd` | `snapy_report/ch07/figures/fig_cfl_bounds.py` | - |
-| `fig-ch07-exchange-order` | `07-time-integration/_exchange.qmd` | `snapy_report/ch07/figures/fig_exchange_order.py` | - |
-| `fig-ch07-redo-flow` | `07-time-integration/_redo.qmd` | `snapy_report/ch07/figures/fig_redo_flow.py` | - |
-| `fig-ch07-rk-stages` | `07-time-integration/_rk.qmd` | `snapy_report/ch07/figures/fig_rk_stages.py` | - |
-| `fig-ch07-split-step` | `07-time-integration/_split.qmd` | `snapy_report/ch07/figures/fig_split_step.py` | - |
-| `fig-ch07-vic-closure` | `07-time-integration/_vic-closure.qmd` | `snapy_report/ch07/figures/fig_vic_closure.py` | - |
-| `fig-ch07-vic-options` | `07-time-integration/_vic-options.qmd` | `snapy_report/ch07/figures/fig_vic_options.py` | - |
-| `fig-ch07-vic-pivot` | `07-time-integration/_vic-pivot.qmd` | `snapy_report/ch07/figures/fig_vic_pivot.py`<br>`snapy_report/ch07/checks/vic_pivot_check.py`<br>`snapy_report/ch07/vic_port.py` | - |
-| `fig-ch07-vic-redistribute` | `07-time-integration/_vic-redistribute.qmd` | `snapy_report/ch07/figures/fig_vic_redist.py`<br>`snapy_report/ch07/checks/vic_redist_check.py`<br>`snapy_report/ch07/vic_port.py` | - |
-| `fig-ch07-vic-reject` | `07-time-integration/_vic-reject.qmd` | `snapy_report/ch07/figures/fig_vic_reject.py` | - |
-| `fig-ch07-vic-stage` | `07-time-integration/_vic-stage.qmd` | `snapy_report/ch07/figures/fig_vic_stage.py`<br>`snapy_report/ch07/checks/vic_stage_check.py` | - |
-| `fig-ch07-vic-stencil` | `07-time-integration/_vic-assembly.qmd` | `snapy_report/ch07/figures/fig_vic_stencil.py` | - |
-| `fig-ch07-vic-sweep` | `07-time-integration/_vic-sweep.qmd` | `snapy_report/ch07/figures/fig_vic_sweep.py` | - |
+| `fig-ch07-coriolis-projection` | `07-diffusion-forcing/_coriolis.qmd` | `snapy_report/ch07/figures/fig_coriolis_projection.py` | - |
+| `fig-ch07-csdiffusion-stencil` | `07-diffusion-forcing/_csdiffusion.qmd` | `snapy_report/ch07/figures/fig_csdiffusion_stencil.py` | - |
+| `fig-ch07-deps` | `07-diffusion-forcing.qmd` | `snapy_report/ch07/figures/fig_deps.py` | - |
+| `fig-ch07-framework-order` | `07-diffusion-forcing/_framework.qmd` | `snapy_report/ch07/figures/fig_framework_order.py` | - |
+| `fig-ch07-heating-column` | `07-diffusion-forcing/_heating.qmd` | `snapy_report/ch07/figures/fig_heating_column.py` | - |
+| `fig-ch07-relax-face` | `07-diffusion-forcing/_relax.qmd` | `snapy_report/ch07/figures/fig_relax_face.py` | - |
+| `fig-ch07-sponge-profile` | `07-diffusion-forcing/_sponge.qmd` | `snapy_report/ch07/figures/fig_sponge_profile.py` | `src/snapy_report/ch07/data/sponge_profile.csv` (`snapy_report/ch07/checks/sponge_check.py`) |
+| `fig-ch07-user-forcing` | `07-diffusion-forcing/_user.qmd` | `snapy_report/ch07/figures/fig_user_forcing.py` | - |
+| `fig-ch07-viscosity-stencil` | `07-diffusion-forcing/_viscosity.qmd` | `snapy_report/ch07/figures/fig_viscosity_stencil.py` | - |
+| `fig-ch07-wallcoef-wall` | `07-diffusion-forcing/_wallcoef.qmd` | `snapy_report/ch07/figures/fig_wallcoef_wall.py` | - |
+| `fig-ch07-x1profile-tendency` | `07-diffusion-forcing/_x1profile.qmd` | `snapy_report/ch07/figures/fig_x1profile_tendency.py` | `src/snapy_report/ch07/data/x1profile_tendency.csv` (`snapy_report/ch07/checks/x1profile_check.py`) |
 
 ## ch08
 
@@ -149,17 +147,19 @@ Regenerate every figure: `python3 tools/render_figures.py` (to `build/figures/<c
 
 | figure | section file | code | data (written by) |
 |---|---|---|---|
-| `fig-ch09-coriolis-projection` | `09-diffusion-forcing/_coriolis.qmd` | `snapy_report/ch09/figures/fig_coriolis_projection.py` | - |
-| `fig-ch09-csdiffusion-stencil` | `09-diffusion-forcing/_csdiffusion.qmd` | `snapy_report/ch09/figures/fig_csdiffusion_stencil.py` | - |
-| `fig-ch09-deps` | `09-diffusion-forcing.qmd` | `snapy_report/ch09/figures/fig_deps.py` | - |
-| `fig-ch09-framework-order` | `09-diffusion-forcing/_framework.qmd` | `snapy_report/ch09/figures/fig_framework_order.py` | - |
-| `fig-ch09-heating-column` | `09-diffusion-forcing/_heating.qmd` | `snapy_report/ch09/figures/fig_heating_column.py` | - |
-| `fig-ch09-relax-face` | `09-diffusion-forcing/_relax.qmd` | `snapy_report/ch09/figures/fig_relax_face.py` | - |
-| `fig-ch09-sponge-profile` | `09-diffusion-forcing/_sponge.qmd` | `snapy_report/ch09/figures/fig_sponge_profile.py` | `src/snapy_report/ch09/data/sponge_profile.csv` (`snapy_report/ch09/checks/sponge_check.py`) |
-| `fig-ch09-user-forcing` | `09-diffusion-forcing/_user.qmd` | `snapy_report/ch09/figures/fig_user_forcing.py` | - |
-| `fig-ch09-viscosity-stencil` | `09-diffusion-forcing/_viscosity.qmd` | `snapy_report/ch09/figures/fig_viscosity_stencil.py` | - |
-| `fig-ch09-wallcoef-wall` | `09-diffusion-forcing/_wallcoef.qmd` | `snapy_report/ch09/figures/fig_wallcoef_wall.py` | - |
-| `fig-ch09-x1profile-tendency` | `09-diffusion-forcing/_x1profile.qmd` | `snapy_report/ch09/figures/fig_x1profile_tendency.py` | `src/snapy_report/ch09/data/x1profile_tendency.csv` (`snapy_report/ch09/checks/x1profile_check.py`) |
+| `fig-ch09-cfl-bounds` | `09-time-integration/_cfl.qmd` | `snapy_report/ch09/figures/fig_cfl_bounds.py` | - |
+| `fig-ch09-exchange-order` | `09-time-integration/_exchange.qmd` | `snapy_report/ch09/figures/fig_exchange_order.py` | - |
+| `fig-ch09-redo-flow` | `09-time-integration/_redo.qmd` | `snapy_report/ch09/figures/fig_redo_flow.py` | - |
+| `fig-ch09-rk-stages` | `09-time-integration/_rk.qmd` | `snapy_report/ch09/figures/fig_rk_stages.py` | - |
+| `fig-ch09-split-step` | `09-time-integration/_split.qmd` | `snapy_report/ch09/figures/fig_split_step.py` | - |
+| `fig-ch09-vic-closure` | `09-time-integration/_vic-closure.qmd` | `snapy_report/ch09/figures/fig_vic_closure.py` | - |
+| `fig-ch09-vic-options` | `09-time-integration/_vic-options.qmd` | `snapy_report/ch09/figures/fig_vic_options.py` | - |
+| `fig-ch09-vic-pivot` | `09-time-integration/_vic-pivot.qmd` | `snapy_report/ch09/figures/fig_vic_pivot.py`<br>`snapy_report/ch09/checks/vic_pivot_check.py`<br>`snapy_report/ch09/vic_port.py` | - |
+| `fig-ch09-vic-redistribute` | `09-time-integration/_vic-redistribute.qmd` | `snapy_report/ch09/figures/fig_vic_redist.py`<br>`snapy_report/ch09/checks/vic_redist_check.py`<br>`snapy_report/ch09/vic_port.py` | - |
+| `fig-ch09-vic-reject` | `09-time-integration/_vic-reject.qmd` | `snapy_report/ch09/figures/fig_vic_reject.py` | - |
+| `fig-ch09-vic-stage` | `09-time-integration/_vic-stage.qmd` | `snapy_report/ch09/figures/fig_vic_stage.py`<br>`snapy_report/ch09/checks/vic_stage_check.py` | - |
+| `fig-ch09-vic-stencil` | `09-time-integration/_vic-assembly.qmd` | `snapy_report/ch09/figures/fig_vic_stencil.py` | - |
+| `fig-ch09-vic-sweep` | `09-time-integration/_vic-sweep.qmd` | `snapy_report/ch09/figures/fig_vic_sweep.py` | - |
 
 ## ch10
 
@@ -220,11 +220,11 @@ Regenerate every figure: `python3 tools/render_figures.py` (to `build/figures/<c
 | `fig-ch13-regression` | `13-diagnostics/_regression.qmd` | `snapy_report/ch13/figures/fig_regression_matrix.py` | - |
 | `fig-ch13-vicclamp` | `13-diagnostics/_vicclamp.qmd` | `snapy_report/ch13/figures/fig_vicclamp.py` | - |
 
-## ch15
+## ch16
 
 | figure | section file | code | data (written by) |
 |---|---|---|---|
-| `fig-ch15-evidence` | `15-verification/_metrics.qmd` | `snapy_report/ch15/figures/fig_evidence.py` | - |
+| `fig-ch16-evidence` | `16-verification/_metrics.qmd` | `snapy_report/ch16/figures/fig_evidence.py` | - |
 
 ## appe
 

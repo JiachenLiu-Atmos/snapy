@@ -21,7 +21,7 @@ positivity failure path.
 
 **Activation.** Always; a hit is a primitive at or below $1.001$ times a floor, a NaN, a mark, or the clamp flag.
 
-**Guarantee / limits.** Detection only: a redo repeats the step and the redo budget of @sec-ch07 ends the loop.
+**Guarantee / limits.** Detection only: a redo repeats the step and the redo budget of @sec-ch09 ends the loop.
 
 **Evidence.** `[C7]` of `floors_check`; the redo cases of `test_forcing.<b>`.
 :::

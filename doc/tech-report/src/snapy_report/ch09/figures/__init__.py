@@ -1,1 +1,1 @@
-"""Chapter 09 figure code: one module per figure, each with make_fig() (README, "Where things live")."""
+"""Chapter 07 figure code: one module per figure, each with make_fig() (README, "Where things live")."""

@@ -128,7 +128,7 @@ probe from a pass. That distinction is the predicate checked by `[C9]`.
 The assertions are the top-level `assert` statements of {{< code tests/test_python_import_path.py >}}.
 
 No snapy runtime test is executed for this chapter. CUDA and multi-rank entries describe registration only.
-The independent checks and their outputs are catalogued in @sec-ch15-ch12-tests.
+The independent checks and their outputs are catalogued in @sec-ch16-ch12-tests.
 
 The independent report check verifies the selected-test and skip predicates in `[C9]`.[^ch12-test-environment-run]
 It models the stated contract; it does not execute the compiled solver.

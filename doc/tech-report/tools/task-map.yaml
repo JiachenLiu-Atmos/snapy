@@ -88,7 +88,7 @@ tasks:
 - id: Q-014
   question: What lower-boundary options exist for a planet with no surface (deep bottom, imposed heat flux, free-slip, sponge)? What replaces my old Rayleigh bottom drag?
   status: partly documented
-  dest: sec-ch09-sponge
+  dest: sec-ch07-sponge
   missing: one list of lower-boundary options for a planet without a surface
   lookup_grade: PARTIAL
 - id: Q-015
@@ -123,13 +123,13 @@ tasks:
 - id: Q-020
   question: How does the implicit scheme work? Which terms are implicit (vertical acoustics, gravity), what system is solved (tridiagonal or block), how is it linearized, and is it one solve per stage or iterated?
   status: partly documented
-  dest: sec-ch07
+  dest: sec-ch09
   missing: comparison with a hydrostatic GCM
   lookup_grade: PARTIAL
 - id: Q-021
   question: What is the time order of the combined implicit/explicit step? Where is the stage coupling derived, and is the order measured by a convergence test?
   status: answered
-  dest: sec-ch07-vic-stage
+  dest: sec-ch09-vic-stage
   lookup_grade: FULL
 - id: Q-022
   question: Which Riemann solvers exist (exact, HLLC, Roe, LMARS, Rusanov…)? What are the key names and the default, and which ones support a moist or multi-component EOS?
@@ -178,22 +178,22 @@ tasks:
 - id: Q-030
   question: 'What are the known limits of validity: Mach-number range and low-Mach accuracy, grid aspect ratio, deep vs shallow atmosphere, curvature terms on spherical grids?'
   status: partly documented
-  dest: sec-ch16
+  dest: sec-ch17
   missing: grid aspect ratio; deep vs shallow atmosphere
   lookup_grade: PARTIAL
 - id: Q-031
   question: What is the formal order of accuracy in space and time? Where is a convergence test that shows the measured order against resolution?
   status: partly documented
-  dest: sec-ch15
+  dest: sec-ch16
   missing: a full-solver convergence test with an error table
-  best_section_unlabeled: 15.1 Reading verification evidence (chapters/15-verification/_metrics.qmd) has no {#sec-} label
+  best_section_unlabeled: 15.1 Reading verification evidence (chapters/16-verification/_metrics.qmd) has no {#sec-} label
   lookup_grade: PARTIAL
 - id: Q-032
   question: When I double the resolution, how much should the answer change, and how do I measure convergence myself?
   status: partly documented
-  dest: sec-ch15
+  dest: sec-ch16
   missing: an L1/L2-against-exact-solution recipe; expected change on refinement
-  best_section_unlabeled: 15.1 Reading verification evidence (chapters/15-verification/_metrics.qmd) has no {#sec-} label (subsection 15.1.2.4)
+  best_section_unlabeled: 15.1 Reading verification evidence (chapters/16-verification/_metrics.qmd) has no {#sec-} label (subsection 15.1.2.4)
   lookup_grade: PARTIAL
 - id: Q-033
   question: How are source terms (gravity, Coriolis, geometric terms) discretized? How do they interact with the well-balanced reconstruction, and is total energy conserved with gravity on?
@@ -204,25 +204,25 @@ tasks:
 - id: Q-034
   question: How does the implicit solve treat the top and bottom boundaries? Is the boundary treatment consistent with well-balancing, so that a reflecting wall carries no spurious flux?
   status: partly documented
-  dest: sec-ch07-vic-closure
+  dest: sec-ch09-vic-closure
   missing: consistency with the well-balanced reference at the wall
   lookup_grade: PARTIAL
 - id: Q-035
   question: Which wave speed sets the time step when the vertical is implicit? What is the CFL key and its default, and what is the largest stable CFL for each integrator?
   status: partly documented
-  dest: sec-ch07-cfl
+  dest: sec-ch09-cfl
   missing: the largest stable CFL per integrator
   lookup_grade: PARTIAL
 - id: Q-036
   question: Why is the time step what it is, and why does my run get so much slower when I refine the grid?
   status: partly documented
-  dest: sec-ch07-cfl
+  dest: sec-ch09-cfl
   missing: cost growth on grid refinement
   lookup_grade: PARTIAL
 - id: Q-037
   question: Which time integrators exist (SSP-RK2, SSP-RK3…)? What are their key names, stage counts and SSP coefficients?
   status: answered
-  dest: sec-ch07-rk
+  dest: sec-ch09-rk
   lookup_grade: FULL
 - id: Q-038
   question: How do I switch the Riemann solver or reconstruction for one run, and compare two runs to isolate the scheme's effect?
@@ -250,7 +250,7 @@ tasks:
 - id: Q-042
   question: 'What dissipation is in the model: numerical diffusion from the Riemann solver, sponge layers, hyperviscosity, limiters? Is any of it tunable, so a paper should report it?'
   status: partly documented
-  dest: sec-ch09
+  dest: sec-ch07
   missing: a list of numerical dissipation; the physical vs numerical split
   lookup_grade: PARTIAL
 - id: Q-043
@@ -272,15 +272,15 @@ tasks:
 - id: Q-046
   question: Which standard benchmarks (density current, rising bubble, global tests) has snapy been validated on? Which reference numbers and tolerances were used?
   status: partly documented
-  dest: sec-ch07-rk
+  dest: sec-ch09-rk
   missing: bubble/global benchmarks; scaling results; fair benchmarking
   lookup_grade: PARTIAL
 - id: Q-047
   question: How do I compare my run against a published result or an analytic solution, and what counts as agreement?
   status: partly documented
-  dest: sec-ch15
+  dest: sec-ch16
   missing: a procedure to compare with a published or analytic result
-  best_section_unlabeled: 15.1 Reading verification evidence (chapters/15-verification/_metrics.qmd) has no {#sec-} label
+  best_section_unlabeled: 15.1 Reading verification evidence (chapters/16-verification/_metrics.qmd) has no {#sec-} label
   lookup_grade: PARTIAL
 - id: Q-048
   question: My run stopped with negative density or NaN. What do I check first, and which settings usually fix it?
@@ -302,7 +302,7 @@ tasks:
 - id: Q-051
   question: On curvilinear grids (spherical-polar, cubed sphere), is free-stream preservation (the geometric conservation law) satisfied, and do fluxes match exactly across panel seams? Where is this tested?
   status: partly documented
-  dest: sec-ch15-ch03-tests
+  dest: sec-ch16-ch03-tests
   missing: free-stream preservation; grid imprinting; output-coverage check
   lookup_grade: PARTIAL
 - id: Q-052
@@ -388,25 +388,25 @@ tasks:
 - id: Q-066
   question: What is the minimal skeleton of a new forcing module? Which class or interface do I implement, which method returns the tendency, and how is it registered so that a key in the input file turns it on?
   status: partly documented
-  dest: sec-ch09-framework
+  dest: sec-ch07-framework
   missing: a native C++ forcing skeleton (N6 pilot)
   lookup_grade: PARTIAL
 - id: Q-067
   question: What is the exact signature of a forcing's tendency call? What are the inputs (primitive or conserved variables, time, dt, coordinates) and their shapes, ghosts included? Does it return a tendency or update the state in place?
   status: partly documented
-  dest: sec-ch09-user
+  dest: sec-ch07-user
   missing: native signature with shapes and ghosts
   lookup_grade: PARTIAL
 - id: Q-068
   question: Can I prototype a forcing in Python on top of the installed package without recompiling? What does that cost per step compared with C++?
   status: partly documented
-  dest: sec-ch09-user
+  dest: sec-ch07-user
   missing: cost per step vs C++
   lookup_grade: PARTIAL
 - id: Q-069
   question: Does a forcing only enter the explicit part? Can a stiff forcing (fast relaxation, drag, Newtonian cooling with a short timescale) be treated implicitly, and how do I give the implicit solver its Jacobian?
   status: partly documented
-  dest: sec-ch09-framework
+  dest: sec-ch07-framework
   missing: an explicit statement that forcings are explicit only, with no user Jacobian hook; stability for dt > tau
   lookup_grade: PARTIAL
 - id: Q-070
@@ -515,7 +515,7 @@ tasks:
 - id: Q-089
   question: 'How do I reproduce my old forcing: Newtonian relaxation to an equilibrium profile with a pressure-dependent timescale, an internal heat flux, or a radiative scheme?'
   status: partly documented
-  dest: sec-ch09-relax
+  dest: sec-ch07-relax
   missing: interior relaxation with a pressure-dependent timescale; radiation scheme not implemented
   lookup_grade: PARTIAL
 - id: Q-090

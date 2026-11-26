@@ -118,7 +118,7 @@ tolerances are in each scheme's Tests layer. {#tbl-ch06-schemes}
 
 {{< include 06-gravity-energy/_conserves.qmd >}}
 
-The limits this chapter states are collected with those of the other chapters in @sec-ch16-wrong, @sec-ch16-restricted, @sec-ch16-usability and @sec-ch16-pending.
+The limits this chapter states are collected with those of the other chapters in @sec-ch17-wrong, @sec-ch17-restricted, @sec-ch17-usability and @sec-ch17-pending.
 
 <!-- reader glossary notes -->
 [^rg-2dff075d305e]: $x_1, x_2, x_3$ — the three coordinate directions; $x_1$ is always the vertical (radial) direction
