@@ -390,6 +390,8 @@ class MeshBlockImpl : public torch::nn::Cloneable<MeshBlockImpl> {
   //! as stage.du / stage.ds: written by stage_advance, read by stage_forcing
   //! and stage_combine, possibly across a segment boundary
   torch::Tensor _stage_du, _stage_ds;
+  //! the EfStatus meters at the attempt's start (efs0.<slot>), for a redo
+  std::array<torch::Tensor, EfStatus::kNumSlots> _meters0;
   void keep_stage_tendency(char const* name, torch::Tensor& slot,
                            torch::Tensor const& value);
   void carry_dry_source(Variables& vars, int stage, torch::Tensor const& dry,

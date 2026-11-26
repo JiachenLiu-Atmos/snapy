@@ -54,6 +54,9 @@ int MeshBlockImpl::apply_redo(Variables &vars, int causes) {
 
     // reset variables
     phydro->flux_register().rollback();  // the census keeps accepted steps
+    for (int s = EfStatus::kPosHits; s < EfStatus::kNumSlots; ++s)
+      if (_meters0[s].defined() && pefs->slot(EfStatus::Slot(s)).defined())
+        pefs->slot(EfStatus::Slot(s)).copy_(_meters0[s]);  // and its meters
     _state.adopt(vars);
     _state.restore();
     for (auto &s : phydro->sources.splits()) s->restore_split(vars["hydro_u"]);

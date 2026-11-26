@@ -172,6 +172,11 @@ void MeshBlockImpl::stage_advance(Variables &vars, StepDt dt, int stage) {
       exchange_ghost_zones(vars);
     }
     _state.backup();
+    // the EfStatus meters too: a rejected attempt's census is dropped
+    for (int s = EfStatus::kPosHits; s < EfStatus::kNumSlots; ++s)
+      if (pefs->slot(EfStatus::Slot(s)).defined())
+        keep_stage_tendency(("efs0." + std::to_string(s)).c_str(), _meters0[s],
+                            pefs->slot(EfStatus::Slot(s)));
     // K4 (K.rst 3.4, 3.5): after the u0 backup, the active set of this
     // attempt's start
     prepare_thermo(hydro_u);
