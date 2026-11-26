@@ -1,12 +1,12 @@
 {
- "configure": "-DBUILD_EXAMPLES=OFF -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release -DCUDA=OFF -DFULL_TESTS=OFF -DNETCDF=ON -DUCX=OFF",
- "ctest_version": "3.31.8",
+ "configure": "-DBUILD_EXAMPLES=OFF -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release -DCUDA=OFF -DFULL_TESTS=OFF -DNETCDF=ON -DUCX=ON",
+ "ctest_version": "3.22.1",
  "external": {
-  "eigen": 927
+  "eigen": 938
  },
  "format": "snapy-report ctest index 1",
  "pin": "73c45a7c8c991209924e1137992352c335575062",
- "registered": 1162,
+ "registered": 1176,
  "repository": "chengcli/snapy",
  "tests": [
   {
@@ -486,6 +486,17 @@
     "PROCESSORS": 6,
     "RUN_SERIAL": true,
     "TIMEOUT": 1200.0
+   },
+   "via": "add_test"
+  },
+  {
+   "defined_at": "tests/CMakeLists.txt:309",
+   "name": "test_exchange_ucx",
+   "properties": {
+    "LABELS": [
+     "exchange",
+     "ucx"
+    ]
    },
    "via": "add_test"
   },
@@ -1477,6 +1488,12 @@
    "via": "setup_parallel_test"
   },
   {
+   "defined_at": "tests/CMakeLists.txt:300",
+   "name": "test_parentless_cloud_nb1_mp_gloo",
+   "properties": {},
+   "via": "add_test"
+  },
+  {
    "defined_at": "tests/CMakeLists.txt:381",
    "name": "test_periodic_corners_python",
    "properties": {
@@ -1829,6 +1846,17 @@
    "name": "test_sedimentation_cubed_seam.release",
    "properties": {},
    "via": "setup_parallel_test"
+  },
+  {
+   "defined_at": "tests/CMakeLists.txt:287",
+   "name": "test_sedimentation_cubed_seam_gloo",
+   "properties": {
+    "LABELS": [
+     "exchange"
+    ],
+    "SKIP_RETURN_CODE": 125
+   },
+   "via": "add_test"
   },
   {
    "defined_at": "tests/CMakeLists.txt:108",
