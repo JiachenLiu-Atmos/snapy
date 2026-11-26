@@ -31,7 +31,7 @@
 - Look up the state-vector layout and the units of condensates. See [2. State, thermodynamics and species](#sec-appa-2).
 - Write a new boundary condition, fill its ghosts and select it from the input. See Reserve a face or fill a solid mask, @sec-ch11-custom.
 - Check bitwise reproducibility across CPU/GPU, threads and ranks. See Reproducibility: what is shown bit for bit and what is not, @sec-ch14-repro.
-- Add a new gas species (a new state row) from the YAML species card and check it is carried. See Constant-heat-capacity moist mixture, @sec-ch02-ideal-moist.
+- Add a new gas species (a new state row) from the YAML species card and check it is carried. See Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist.
 - Prototype a new reconstruction in Python and check it against the built-in one. See The reconstruction framework, @sec-ch04-framework.
 - Add a reconstruction or Riemann solver in C++ and select it from YAML. See The reconstruction framework, @sec-ch04-framework.
 - Register a process group and call a snapy collective across two processes. See Communication backends: Gloo, UCX through commux, an external group, @sec-ch14-backends.
@@ -50,7 +50,7 @@
 - Add Newtonian relaxation of the whole column toward an equilibrium temperature profile. See User stage forcings: TorchScript modules called every stage, @sec-ch07-user.
 - Add a new passive tracer: name it in the scalar block and find its state-vector row. See Transport passive scalars with dry mass, @sec-ch01-scalar.
 - List what changes when porting from a hydrostatic primitive-equation core. See How snapy differs from a hydrostatic primitive-equation core, @sec-ch02-pecore.
-- Run a deck that exercises the conservation laws and stage ordering. See Conservation laws and stage ordering, @sec-ch02-laws.
+- Run a deck that exercises the conservation laws and stage ordering. See Conservation laws and variables, @sec-ch02-laws.
 - Select the EOS class with one key and set optional floors. See EOS interface and dispatch, @sec-ch02-interface.
 - Run a dry ideal-gas EOS without a species card. See Ideal gas conversion, @sec-ch02-ideal-gas.
 - Use the temperature-dependent moist-mixture EOS with a reference state and species card. See Temperature-dependent moist thermodynamics, @sec-ch02-moist-mixture.
@@ -129,14 +129,14 @@
 - Set the planet radius. See Spherical-polar metric and sources, @sec-ch03-sphpolar.
 - Set the planet rotation rate. See Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch07-coriolis.
 - Set gravity (constant or height-dependent). See Constant gravity and the cell form of the gravity work, @sec-ch06-cell.
-- Set the gas properties of an H2-He atmosphere, including ortho/para. See Constant-heat-capacity moist mixture, @sec-ch02-ideal-moist.
+- Set the gas properties of an H2-He atmosphere, including ortho/para. See Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist.
 - Choose a grid type (Cartesian, spherical-polar, cubed sphere) and its resolution. See Choosing a grid: Cartesian, spherical-polar or cubed sphere, @sec-ch03-choosing.
 - Pick the lower boundary condition for a planet with no surface. See Register and classify block faces, @sec-ch11-registry.
 - Replace a Rayleigh bottom drag. See Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch07-sponge.
 - Impose a bottom heat flux. See Body heating, top cooling and bottom heating, @sec-ch07-heating.
 - Set up condensable species and choose what happens to the condensate (rain out, retained, advected). See Saturation adjustment in the step, @sec-ch10-satadj.
 - Decide between float32 and float64. See Expose the C++ API to Python, @sec-ch01-python.
-- Read the exact equation set snapy solves, with every source term. See Conservation laws and stage ordering, @sec-ch02-laws.
+- Read the exact equation set snapy solves, with every source term. See Conservation laws and variables, @sec-ch02-laws.
 - Understand the overall discretization: finite volume and which variables are reconstructed. See The finite-volume update and the flux divergence, @sec-ch04-divergence.
 - Understand the vertical implicit scheme: implicit terms, the block system, linearization, solves per stage. See VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column, @sec-ch09-vic-assembly.
 - List the Riemann solvers, their key names and default, and which support a moist EOS. See The Riemann solver framework and the face-local frame, @sec-ch04-riemann.

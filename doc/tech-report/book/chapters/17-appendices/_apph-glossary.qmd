@@ -64,7 +64,7 @@
 - `const-vsed`: prescribed sedimentation velocities indexed by species. Not defined here; used in [Sedimentation of condensates (`sedimentation`)](#sec-ch10-sed).
 - `conversion-order`: order of the $x_1$ cell-average to point conversion of the primitives: 2 (default) or 4. Defined in [The fourth-order $x_1$ conversion between cell averages and point values (`dynamics/conversion-order`)](#sec-ch04-conv4).
 - `coriolis`: Coriolis-force options. Not defined here; used in [The forcing loop: parsing, registration and the stage increment (`forcing:`)](#sec-ch07-framework).
-- `cv_R`: reference heat capacity divided by the species gas constant. Not defined here; used in [Constant-heat-capacity moist mixture (`ideal-moist`)](#sec-ch02-ideal-moist).
+- `cv_R`: reference heat capacity divided by the species gas constant. Not defined here; used in [Ideal-moist closure and the kintera thermodynamics (`ideal-moist`)](#sec-ch02-ideal-moist).
 - `density`: particle material densities indexed by species. Defined in [The well-balanced face positivity fallback](#sec-ch08-wbface).
 - `density-floor`: minimum admissible density. Not defined here; used in [EOS interface and dispatch (`type`)](#sec-ch02-interface).
 - `depth`: number of cells over which boundary heating or cooling is distributed. Not defined here; used in [Locate tensor rows, faces and ghost slabs (`NMASS` / `PartOptions`)](#sec-ch01-layout).
@@ -91,7 +91,7 @@
 - `forcing`: forcing options block: a map with one sub-block per forcing component. Not defined here; used in [Well-balanced $x_1$ reconstruction: perturbations about a hydrostatic reference (gravity on)](#sec-ch05-wbx1).
 - `formula`: registered reaction-rate formula. Not defined here; used in [Fixed-volume fixed-energy phase equilibrium (`uv-solver`)](#sec-ch02-saturation).
 - `ftol`: relative convergence tolerance. Not defined here; used in [Temperature-dependent moist thermodynamics (`moist-mixture`)](#sec-ch02-moist-mixture).
-- `gammad`: dry-gas ratio of specific heats. Defined in [Constant-heat-capacity moist mixture (`ideal-moist`)](#sec-ch02-ideal-moist).
+- `gammad`: dry-gas ratio of specific heats. Defined in [Ideal-moist closure and the kintera thermodynamics (`ideal-moist`)](#sec-ch02-ideal-moist).
 - `geometry`: coordinate-system and grid options. Not defined here; used in [Construct a MeshBlock and its modules (`MeshBlockOptions`)](#sec-ch01-construction).
 - `grav1`: gravity component along the first coordinate. Defined in [YAML scheme selection and setup guards (`YAML keys`)](#sec-ch12-yaml).
 - `gravity-work`: form of the $x_1$ gravity work: `face` (default), `face-wallc` or `cell`. Defined in [Constant gravity and the cell form of the gravity work (`gravity-work: cell`)](#sec-ch06-cell).
@@ -129,7 +129,7 @@
 - `outputs`: output-stream configuration. Defined in [Output writers (`outputs: - type: netcdf` or `pnetcdf`)](#sec-ch15-output).
 - `pmax`: upper pressure bound of the heating region. Not defined here; used in [The forcing loop: parsing, registration and the stage increment (`forcing:`)](#sec-ch07-framework).
 - `pmin`: lower pressure bound of the heating region. Not defined here; used in [The forcing loop: parsing, registration and the stage increment (`forcing:`)](#sec-ch07-framework).
-- `Pref`: thermodynamic reference pressure. Not defined here; used in [Constant-heat-capacity moist mixture (`ideal-moist`)](#sec-ch02-ideal-moist).
+- `Pref`: thermodynamic reference pressure. Not defined here; used in [Ideal-moist closure and the kintera thermodynamics (`ideal-moist`)](#sec-ch02-ideal-moist).
 - `pressure-floor`: minimum admissible pressure. Not defined here; used in [EOS interface and dispatch (`type`)](#sec-ch02-interface).
 - `problem`: problem-specific driver options. Not defined here; used in [`balance_column`: projection of ghost-free columns onto the scheme's discrete balance (C++ and Python API)](#sec-ch05-balcol).
 - `radius`: particle radii indexed by species. Not defined here; used in [Gnomonic equiangular cubed sphere (`gnomonic-equiangle`)](#sec-ch03-gnomonic).
@@ -158,9 +158,9 @@
 - `top-cool`: top cooling options. Defined in [Body heating, top cooling and bottom heating (`body-heat`, `top-cool`, `bot-heat`)](#sec-ch07-heating).
 - `top-sponge-lyr`: top sponge-layer options. Not defined here; used in [The forcing loop: parsing, registration and the stage increment (`forcing:`)](#sec-ch07-framework).
 - `traditional`: whether to use the traditional Coriolis approximation. Not defined here; used in [Coriolis force in the coordinate frame or from a Cartesian rotation vector (`forcing/coriolis`)](#sec-ch07-coriolis).
-- `Tref`: thermodynamic reference temperature. Not defined here; used in [Constant-heat-capacity moist mixture (`ideal-moist`)](#sec-ch02-ideal-moist).
+- `Tref`: thermodynamic reference temperature. Not defined here; used in [Ideal-moist closure and the kintera thermodynamics (`ideal-moist`)](#sec-ch02-ideal-moist).
 - `type`: implementation selector for the enclosing options block. Defined in [YAML scheme selection and setup guards (`YAML keys`)](#sec-ch12-yaml).
-- `u0_R`: reference internal energy in the species gas-constant normalisation. Not defined here; used in [Constant-heat-capacity moist mixture (`ideal-moist`)](#sec-ch02-ideal-moist).
+- `u0_R`: reference internal energy in the species gas-constant normalisation. Not defined here; used in [Ideal-moist closure and the kintera thermodynamics (`ideal-moist`)](#sec-ch02-ideal-moist).
 - `upper-bound`: upper bound for the scalar ratio; a negative value disables the bound. Not defined here; used in [Transport passive scalars with dry mass (`scalar:`)](#sec-ch01-scalar).
 - `uv-solver`: solver used for fixed-energy saturation adjustment. Defined in [Saturation adjustment in the step (top-level `reactions`)](#sec-ch10-satadj).
 - `variables`: variables requested by an output stream. Defined in [Output writers (`outputs: - type: netcdf` or `pnetcdf`)](#sec-ch15-output).
