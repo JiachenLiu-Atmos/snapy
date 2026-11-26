@@ -4,6 +4,35 @@ This report describes snapy as the code implements it: for each scheme, what it 
 it is discretized, where it lives in the code, how it is tested and where it stops working. Every statement is
 derived on the page, cited to the code at a pinned commit, or cited to a test with its tolerance.
 
+## How the book is organized {#sec-preface-map .unnumbered}
+
+The chapters follow one stage of the model from the equations outward, at the code pin below. Each chapter
+section has the same layers: a summary, the derivation, the numerical method, the code, the tests and the limits.
+
+| chapter | what it covers |
+|---|---|
+| @sec-ch01 | The step at a glance: how a deck becomes a block and its modules, the driver loop, the stage, and a map of the source tree |
+| @sec-ch02 | The conservation laws and the state vectors, and the equations of state that convert between conserved and primitive variables: ideal gas, ideal moist mixture, the temperature-dependent moist mixture, the tabulated and shallow-water closures, and the phase equilibrium |
+| @sec-ch03 | The grids: Cartesian, spherical-polar and the gnomonic cubed sphere, their metric quantities, the split into blocks, and what a ghost cell holds at each kind of face |
+| @sec-ch04 | The semi-discrete operator of a stage: reconstruction to faces, the Riemann solvers, the flux divergence and the geometric sources |
+| @sec-ch05 | How the $x_1$ sweep keeps a stratified column at rest: the hydrostatic reference and the well-balanced face states |
+| @sec-ch06 | Where the work of gravity is booked, what each form conserves, and the gravity work inside the vertical implicit correction |
+| @sec-ch07 | Every source term besides the flux divergence and gravity: the forcing loop, Coriolis, viscosity and heat conduction, heating, relaxation, sponges and user stage forcings |
+| @sec-ch08 | The moist side of a stage and what keeps the state admissible: saturation adjustment, sedimentation, the flux positivity limiter, the equation-of-state floors and their records |
+| @sec-ch09 | Advancing in time: the Runge–Kutta stages, the time-step bound, step acceptance and redo, and the implicit column solve |
+| @sec-ch10 | How phase change, condensates and passive tracers enter the step |
+| @sec-ch11 | The boundary conditions, the ghost fill and exchange order, and immersed solids |
+| @sec-ch12 | Build options, environment switches, YAML scheme selection and which switch combinations are tested |
+| @sec-ch13 | The conservation budgets and diagnostics the model prints, and the tests that read them |
+| @sec-ch14 | Several processes and devices, output and restart files, and reproducibility |
+| @sec-ch15 | How deck keys become options, how output is written and combined, and how a run is restarted |
+| @sec-ch16 | The verification catalogue: which test supports which claim, and how to rerun it |
+| @sec-ch17 | The limits of every chapter in one place: where snapy can be wrong, restricted or awkward |
+
+The appendices are reference tables: notation (@sec-appa), the derivation index (@sec-appb), the test index
+(@sec-appc), the environment switches (@sec-appd), the external components (@sec-appe), a topic index, the task
+map (@sec-appg), the glossary (@sec-apph), the deck keys (@sec-appi) and the source tree (@sec-appj).
+
 ## Pins {.unnumbered}
 
 Code is cited by file and symbol, resolved at one pinned commit of
@@ -19,7 +48,7 @@ switch the code does not know is ignored without a message. Older releases also 
 chapter 6. So build the pin, as below, before you try any example.
 
 <!-- generated reader-reference: install -->
-**What you need.** Python `>=3.10` ([`pyproject.toml:25`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/pyproject.toml#L25)), CMake 3.22 or later ([`CMakeLists.txt:1`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/CMakeLists.txt#L1)), a C++17 compiler ([`CMakeLists.txt:3`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/CMakeLists.txt#L3)), and the NetCDF C library. Install the latter with `brew install netcdf` on macOS or `sudo apt install libnetcdf-dev` on Debian/Ubuntu.
+**What you need.** Python `>=3.10` ([`pyproject.toml:25`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/pyproject.toml#L25)), CMake 3.22 or later (`cmake_minimum_required`, [`CMakeLists.txt:1`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/CMakeLists.txt#L1)), a C++17 compiler (`CMAKE_CXX_STANDARD`, [`CMakeLists.txt:3`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/CMakeLists.txt#L3)), and the NetCDF C library. Install the latter with `brew install netcdf` on macOS or `sudo apt install libnetcdf-dev` on Debian/Ubuntu.
 
 **Build the source pin.** The Python dependencies below follow [`pyproject.toml`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/pyproject.toml); the CMake options explicitly enable the example drivers and disable the optional UCX and parallel-NetCDF backends for this single-machine build.
 
@@ -71,7 +100,7 @@ The 2-D warm-bubble test is `bryan.yaml`, a moist warm bubble on one block ($x_1
 `./bryan.release bryan.yaml`, stops at 1000 s of model time and writes one output frame every 100 s.
 
 **The same example on one GPU.** Rebuild with the `CUDA` option on
-([`CMakeLists.txt:10`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/CMakeLists.txt#L10)),
+([`CMakeLists.txt:10`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/CMakeLists.txt#L10)),
 that is, with `-DCUDA=ON` added to the build command above, then select the device with two environment variables:
 
 ```bash
@@ -80,7 +109,7 @@ DEVICE=cuda DEVICE_ID=0 ./straka.release straka_single.yaml
 ```
 
 `DEVICE` defaults to `cpu`
-([`src/layout/layout.cpp:238`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/layout/layout.cpp#L238));
+([`src/layout/layout.cpp:288`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/layout/layout.cpp#L288));
 with `cuda`, the block runs on `cuda:<DEVICE_ID>`, or on the local rank's GPU when `DEVICE_ID` is unset
 ({{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::device_str >}}).
 The driver prints "Running on CUDA" before the first step when it got a GPU

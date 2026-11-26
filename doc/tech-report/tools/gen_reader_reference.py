@@ -72,8 +72,8 @@ def defaults_blocks(report):
     v = source_values(report, riemann=not riemann_legacy)
     install = (
         f'**What you need.** Python `{v["python"]}` ({v["python_cite"]}), '
-        f'CMake {v["cmake"]} or later ({v["cmake_cite"]}), a C++{v["cxx"]} compiler '
-        f'({v["cxx_cite"]}), and the NetCDF C library. Install the latter with '
+        f'CMake {v["cmake"]} or later (`cmake_minimum_required`, {v["cmake_cite"]}), a C++{v["cxx"]} compiler '
+        f'(`CMAKE_CXX_STANDARD`, {v["cxx_cite"]}), and the NetCDF C library. Install the latter with '
         '`brew install netcdf` on macOS or `sudo apt install libnetcdf-dev` on Debian/Ubuntu.\n\n'
         f'**Build the source pin.** The Python dependencies below follow '
         f'[`pyproject.toml`](https://github.com/{v["repo"]}/blob/{v["sha"]}/pyproject.toml); '
