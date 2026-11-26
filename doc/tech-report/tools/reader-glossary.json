@@ -656,14 +656,14 @@
     {
       "kind": "key",
       "term": "gravity-work",
-      "meaning": "form of the $x_1$ gravity work: `face` (default), `face-wallc` or `cell`",
+      "meaning": "form of the $x_1$ gravity work; only `face` (the default) is accepted",
       "section": "sec-ch06-cell",
       "not_defined_here": false
     },
     {
       "kind": "key",
       "term": "gravity-work-fixer",
-      "meaning": "whether the gravity-work fixer runs (a boolean; default true with `gravity-work: cell`, and it needs `cell`)",
+      "meaning": "removed in V3: only `false` (the default) is accepted",
       "section": "sec-ch06-cell",
       "not_defined_here": false
     },
@@ -905,6 +905,9 @@
       "term": "$\\Delta_\\pm$",
       "notation_group": "1",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/gravity_work_radial.hpp#L66-L71",
+      "meaning_by_file": {
+        "chapters/06-gravity-energy/_dwork.qmd": "centroid spacings $x_{1,i+1}-x_{1,i}$ ($+$) and $x_{1,i}-x_{1,i-1}$ ($-$), used in non-uniform stencils; never $h_\\pm$, which would read as cell widths; `hm` and `hp` in the code"
+      },
       "section": "sec-appa-1"
     },
     {
@@ -929,7 +932,8 @@
       "notation_group": "1",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/gravity_work_radial.hpp#L95-L105",
       "meaning_by_file": {
-        "chapters/03-grids-geometry/_facemoments.qmd": "centroid offset $x_{1,i}-x^{\\mathrm{m}}_{1,i}$ (zero on Cartesian); `x1_centroid_offset` in the code"
+        "chapters/03-grids-geometry/_facemoments.qmd": "centroid offset $x_{1,i}-x^{\\mathrm{m}}_{1,i}$ (zero on Cartesian); `x1_centroid_offset` in the code",
+        "chapters/06-gravity-energy/_dwork.qmd": "centroid offset $x_{1,i}-x^{\\mathrm{m}}_{1,i}$ (zero on Cartesian); `x1_centroid_offset` in the code"
       },
       "section": "sec-appa-1"
     },
@@ -1389,6 +1393,9 @@
       "term": "$\\mathcal N_i$",
       "notation_group": "4",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/gravity_work_radial.hpp#L60-L87",
+      "meaning_by_file": {
+        "chapters/06-gravity-energy/_dwork.qmd": "the stencil set of the centroid slope of cell $i$ (stencil cells indexed by $l$); built by `centroid_slope_stencil` in the code"
+      },
       "section": "sec-appa-4"
     },
     {
@@ -1410,6 +1417,9 @@
       "term": "$\\mathsf S$",
       "notation_group": "4",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/implicit/implicit_hydro.cpp#L349-L374",
+      "meaning_by_file": {
+        "chapters/06-gravity-energy/_dwork.qmd": "the matrix of $s$: $(\\mathsf S q)_i = s_i[q] = \\sum_l\\mathsf S_{il}q_l$ (row $i$: the weights of the cells $l$ in the slope of $i$); its bands are the implicit rows, `rx_lo` in the code"
+      },
       "section": "sec-appa-4"
     },
     {

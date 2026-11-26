@@ -1,6 +1,7 @@
-"""What the face form reads for cell i, and the curvature flux zeroed at a wall.
+"""What the face form reads for cell i.
 
-Cartoon of src/hydro/hydro_forward.cpp:794-811 and 828-848 at snapy@e894700ff7aee30b52882e5202b16461413780b0;
+Cartoon of src/hydro/hydro_forward.cpp:1060-1083 and src/hydro/gravity_work.hpp:16-29 at
+snapy@73c45a7c8c991209924e1137992352c335575062;
 no measured data.
 """
 
@@ -8,12 +9,10 @@ from snapy_report import figstyle as fs
 
 
 def make_fig():
-    fig, axes = fs.new_figure(fs.DOUBLE, 2.2, 1, 2)
-    a, b = axes
-    for ax in axes:
-        ax.set_axis_off()
-        ax.set(xlim=(-.3, 4.3), ylim=(-.9, 1.6))
-    a.set_title("(a) face form, cell i", fontsize=fs.LABEL_PT, loc="left")
+    fig, a = fs.new_figure(fs.SINGLE, 2.2)
+    a.set_axis_off()
+    a.set(xlim=(-.3, 4.3), ylim=(-.9, 1.6))
+    a.set_title("face form, cell i", fontsize=fs.LABEL_PT, loc="left")
     for k, lab in enumerate(["i-1", "i", "i+1"]):
         fs.cell_box(a, .5 + k, 0., 1., 1.)
         a.text(1. + k, -.3, lab, ha="center", fontsize=fs.SMALL_PT)
@@ -23,15 +22,4 @@ def make_fig():
         fs.face_value(a, x, .5)
         a.text(x, 1.2, t, ha=ha, fontsize=fs.SMALL_PT, color=fs.ORANGE)
     a.text(2., -.75, r"weights $x_{1,i}-x_{1,i-1/2}$ and $x_{1,i+1/2}-x_{1,i}$", ha="center", fontsize=fs.SMALL_PT)
-    b.set_title("(b) curvature flux K at the bottom wall", fontsize=fs.LABEL_PT, loc="left")
-    fs.cell_box(b, 0., 0., .8, 1., ghost=True)
-    for k in range(3):
-        fs.cell_box(b, .8 + k, 0., 1., 1.)
-        b.text(1.3 + k, -.3, str(k), ha="center", fontsize=fs.SMALL_PT)
-    fs.wall(b, .8, -.1, 1.1)
-    b.text(.8, 1.25, "K = 0", ha="center", fontsize=fs.SMALL_PT, color=fs.VERMILLION)
-    for x in (1.8, 2.8):
-        b.plot(x, .5, "^", color=fs.GREEN, ms=6)
-        b.text(x, 1.25, "K", ha="center", fontsize=fs.SMALL_PT, color=fs.GREEN)
-    b.text(2.3, -.75, "wall cell 0 sees K on one face only: first order", ha="center", fontsize=fs.SMALL_PT)
     return fig

@@ -308,7 +308,7 @@ is claimed.
 
 [^rg-07ad360aab23]: const-gravity — constant-gravity forcing component
 
-[^rg-33815445b671]: gravity-work-fixer — whether the gravity-work fixer runs (a boolean; default true with `gravity-work: cell`, and it needs `cell`)
+[^rg-33815445b671]: gravity-work-fixer — removed in V3: only `false` (the default) is accepted
 
 [^rg-94bb6a1dab2d]: PLM — piecewise-linear method
 

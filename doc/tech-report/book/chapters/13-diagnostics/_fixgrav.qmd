@@ -258,7 +258,7 @@ invariant is $E_{\mathrm{tot}}+P$ with the corrected potential energy, not $E_{\
 
 [^rg-edc55a26f5ad]: const-gravity — constant-gravity forcing component
 
-[^rg-59f1e52c5e88]: gravity-work — form of the $x_1$ gravity work: `face` (default), `face-wallc` or `cell`
+[^rg-59f1e52c5e88]: gravity-work — form of the $x_1$ gravity work; only `face` (the default) is accepted
 
 [^rg-804f92139063]: CUDA — NVIDIA's parallel computing platform
 <!-- end reader glossary notes -->

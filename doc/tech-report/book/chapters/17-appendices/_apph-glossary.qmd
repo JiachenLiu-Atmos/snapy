@@ -7,7 +7,7 @@
 - **API**: application programming interface. Not defined here; used in [Driver loop and accepted steps (`integration:`)](#sec-ch01-driver).
 - **BLAS**: Basic Linear Algebra Subprograms; notation only; see @sec-appa. Defined in [The notation index](#sec-appa-index).
 - **CFL**: Courant–Friedrichs–Lewy. Defined in [Time-step bound: acoustic, implicit-advective, shear and diffusive (`integration/cfl`)](#sec-ch09-cfl).
-- **CI**: continuous integration. Not defined here; used in [The corrected-PE face gravity work (`SNAP_GRAVITY_WORK_RADIAL_EXACT`)](#sec-ch06-dwork).
+- **CI**: continuous integration. Not defined here; used in [The corrected-PE face gravity work (with `gravity-work: face`)](#sec-ch06-dwork).
 - **CPU**: central processing unit. Not defined here; used in [Driver loop and accepted steps (`integration:`)](#sec-ch01-driver).
 - **CUDA**: NVIDIA's parallel computing platform. Not defined here; used in [Accumulate and combine one stage (`user_stage_forcings`)](#sec-ch01-stage).
 - **EOS**: equation of state. Defined in [EOS interface and dispatch (`type`)](#sec-ch02-interface).
@@ -94,8 +94,8 @@
 - `gammad`: dry-gas ratio of specific heats. Defined in [Ideal-moist closure and the kintera thermodynamics (`ideal-moist`)](#sec-ch02-ideal-moist).
 - `geometry`: coordinate-system and grid options. Not defined here; used in [Construct a MeshBlock and its modules (`MeshBlockOptions`)](#sec-ch01-construction).
 - `grav1`: gravity component along the first coordinate. Defined in [YAML scheme selection and setup guards (`YAML keys`)](#sec-ch12-yaml).
-- `gravity-work`: form of the $x_1$ gravity work: `face` (default), `face-wallc` or `cell`. Defined in [Constant gravity and the cell form of the gravity work (`gravity-work: cell`)](#sec-ch06-cell).
-- `gravity-work-fixer`: whether the gravity-work fixer runs (a boolean; default true with `gravity-work: cell`, and it needs `cell`). Defined in [Constant gravity and the cell form of the gravity work (`gravity-work: cell`)](#sec-ch06-cell).
+- `gravity-work`: form of the $x_1$ gravity work; only `face` (the default) is accepted. Defined in [Constant gravity and the cell form of the gravity work (`gravity-work: cell`)](#sec-ch06-cell).
+- `gravity-work-fixer`: removed in V3: only `false` (the default) is accepted. Defined in [Constant gravity and the cell form of the gravity work (`gravity-work: cell`)](#sec-ch06-cell).
 - `H`: hydrogen count in the composition mapping. Not defined here; used in [Fixed-volume fixed-energy phase equilibrium (`uv-solver`)](#sec-ch02-saturation).
 - `horizontal`: options for the horizontal reconstruction. Defined in [YAML scheme selection and setup guards (`YAML keys`)](#sec-ch12-yaml).
 - `implicit-advection-cfl`: Courant limit for the implicitly treated advection. Defined in [YAML scheme selection and setup guards (`YAML keys`)](#sec-ch12-yaml).

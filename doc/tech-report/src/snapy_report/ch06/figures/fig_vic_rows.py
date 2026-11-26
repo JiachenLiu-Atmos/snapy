@@ -1,22 +1,21 @@
-"""Energy-row entries the gravity work adds to the VIC block row of cell i, per gravity-work mode.
+"""Energy-row entries the face gravity work adds to the VIC block row of cell i.
 
-Cartoon of src/implicit/vic_assemble_full_impl.h:38-40 and 101-120 at snapy@e894700ff7aee30b52882e5202b16461413780b0
-(claims C1-C3 of vicwork_check.py); no measured data.
+Cartoon of src/implicit/vic_assemble_impl.h:61-66 and 150-159 and src/implicit/vic_gravity_work_impl.h:22-35 at
+snapy@73c45a7c8c991209924e1137992352c335575062 (claims C1-C2 of vicwork_check.py); no measured data.
 """
 from matplotlib.patches import Rectangle
 
 from snapy_report import figstyle as fs
 
 ROWS = [  # (mode, entries of b[i], a[i], c[i] in the energy row)
-    ("cell", ["-g lo A-", "-g m\n-g(hi A+ - lo A-)", "+g hi A+"]),
     ("face", ["-g lo m\n-g lo A-", "-g(lo+hi) m\n-g(hi A+ - lo A-)", "-g hi m\n+g hi A+"]),
 ]
 
 
 def make_fig():
-    fig, ax = fs.new_figure(fs.DOUBLE, 2.3)
+    fig, ax = fs.new_figure(fs.DOUBLE, 1.5)
     ax.set_axis_off()
-    ax.set(xlim=(0, 12.4), ylim=(-.5, 2.9))
+    ax.set(xlim=(0, 12.4), ylim=(1.0, 2.9))
     for k, lab in enumerate(("b[i]: cell i-1", "a[i]: cell i", "c[i]: cell i+1")):
         ax.text(3.0 + 3.2 * k, 2.6, lab, ha="center", fontsize=fs.SMALL_PT)
     for r, (mode, cells) in enumerate(ROWS):

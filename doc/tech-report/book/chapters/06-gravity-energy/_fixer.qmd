@@ -1,123 +1,72 @@
 ## Gravity-work fixer (`gravity-work-fixer`) {#sec-ch06-fixer}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (code_pin.yml)
-sources: OUTLINE.md 6.3; sources/gw__GRAVITY_WORK_TECH_REPORT_draft.md sections 3.6-3.7, 5.3, 5.5; code links below
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/forcing/const_gravity.cpp, src/hydro/hydro.cpp, tests/test_gravity_work_fixer_removed.py at the pin;
+         @sec-ch06-cell
 status: draft
-author: Linfeng Li
-reviewer:
+author: chengcli
+reviewer: zoeyzyhu
 -->
 
 ### Summary
 
-The cell form (@sec-ch06-cell) leaves a defect of $E_{\mathrm{tot}}+\mathrm{PE}_d$ every stage, @eq-ch06-cell-defect. The fixer
-adds the defects of the stages with the weights they carry in the step, sums the result over every block and
-rank, and subtracts it from the total energy in proportion to each cell's mass. Momentum and mass are untouched,
-so the correction is a heating or cooling of the whole domain, of size $\mathcal D/M$ per kilogram. The run then
-conserves $E_{\mathrm{tot}}+\mathrm{PE}_d$ to round-off per step, explicit and implicit, while the local work stays that of the
-cell form.
+The gravity-work fixer repaired the energy budget of the cell form: once per step it removed the defect
+@eq-ch06-cell-defect from the domain's total energy, spreading it over the cells in proportion to their mass. V3
+has neither the cell form nor the fixer. The key `gravity-work-fixer` stays readable so that decks which switch the
+fixer off keep loading; `true` is refused at setup. With the face form, the only form at the pin, there is no
+defect to remove (@sec-ch06-face).
 
 ::: {.callout-note title="At a glance"}
-**Purpose.** Removes each step's $E_{\mathrm{tot}}+\mathrm{PE}_d$ defect $\mathcal D$ of the cell form as heat, @eq-ch06-fixer-fix.
+**Purpose.** None at the pin: the fixer is not in the code; this section records the key and its refusal.
 
-**Data.** Five float64 sums per block (defect, fluid mass, wall-face mass, wall-cell mass, redo flag); writes $E$.
+**Data.** The boolean key `gravity-work-fixer` of the `const-gravity` block.
 
-**Placement.** Defects in each stage of `HydroImpl::forward`; one reduction and one deposit after the last stage.
+**Placement.** Setup only.
 
-**Activation.** `gravity-work-fixer`, default true with `gravity-work: cell`; refused with a face form.
+**Activation.** `false` or absent loads; `true` is refused.
 
-**Guarantee / limits.** $E_{\mathrm{tot}}+\mathrm{PE}_d$ per step to the bound below; global, so the cell form's local error stays.
+**Guarantee / limits.** The face form's $E_{\mathrm{tot}}+P$ needs no fixer (@sec-ch06-conserves).
 
-**Evidence.** The Tests layer below, @tbl-ch06-fixer-tests.
+**Evidence.** @tbl-ch06-fixer-tests: `test_gravity_work_fixer_removed_python`.
 :::
 
-Local symbols: $w^{(s)}_{\mathrm{step}}$ [-] the weight of stage $s$'s increment in
-the step (code `cw`); $\mathcal D^{(s)}$ [J] the defect of stage $s$; $\mathcal D$ [J] the step's defect; $M$[^rg-cc4b3281454d] [kg] the fluid
-mass and $M_{\mathrm{wall}}$ [kg] the wall cells' mass (appendix A); $N_{\mathrm f}$ the number of fluid cells of the
-domain; $s'$ a later stage of the same step; $\eta$ a relative rounding error, $\lvert\eta\rvert\le\tfrac12\epsilon_{\mathrm m}$ per
-operation.
-
-It runs only with `gravity-work: cell` and $g_1\neq0$. Its terms leave out the boundary fluxes, so it refuses any
-step that moved more than a round-off amount of mass through an $x_1$ boundary face, and it refuses a periodic
-$x_1$ (the potential $-g_1x_1$ jumps across the periodic face) and $g_2$ or $g_3\neq0$. The fix is logged per step
-as `fixgrav=`.[^ch06-fixer-src]
-
-[^ch06-fixer-src]: The fixer, its implicit part and its wall bound came in with chengcli/snapy#283, #284 and #285.
+Local symbols: $\mathcal D$[^rg-b660c0a73eb0] the step's defect of the cell form [J]; $w^{(s)}_{\mathrm{step}}$ the weight of stage $s$
+in the step [-]; $M=\sum_jV_j\rho_j$ the total mass of the block [kg].
 
 ### Derivation
 
-Per stage $s$ the defect $\mathcal D^{(s)}$ is @eq-ch06-cell-defect plus, with an implicit scheme, the change of
-$\sum_iV_i(E_i+\phi_i\rho_i)$ across the implicit solve. Its weight in the step follows in three steps.
-
-1. Stage $s$ forms $\mathbf U\leftarrow w_0^{(s)}\mathbf U^n+w_1^{(s)}\mathbf U+w_2^{(s)}\Delta\mathbf U^{(s)}$ (@sec-ch09-rk), so its
-   increment enters the stage result with the factor $w_2^{(s)}$.
-2. Each later stage $s'>s$ multiplies the current $\mathbf U$[^rg-d88d62d31f0d] by $w_1^{(s')}$ and adds terms that do not contain
-   $\Delta\mathbf U^{(s)}$, so the factor becomes $w^{(s)}_{\mathrm{step}}=w_2^{(s)}\prod_{s'>s}w_1^{(s')}$.
-3. A quantity linear in the state, such as $E_{\mathrm{tot}}+\mathrm{PE}_d$, therefore changes over the step by
-   $\sum_sw^{(s)}_{\mathrm{step}}\,\mathcal D^{(s)}$. For rk3 the weights are $1/6$, $1/6$, $2/3$ (`[C1]`, `[C2]`).
-
-After the
-last stage the fixer applies
+What the fixer did, stated for the reader of @eq-ch06-fixer-fix where another chapter cites it. With the per-stage
+defects $\mathcal D^{(s)}$ of @eq-ch06-cell-defect weighted by each stage's share of the step,
+$w^{(s)}_{\mathrm{step}}=w_2^{(s)}\prod_{s'>s}w_1^{(s')}$ ($1/6$, $1/6$, $2/3$ for rk3), it applied after the last stage
 
 $$
 \begin{aligned}
 \mathcal D &= \sum_sw^{(s)}_{\mathrm{step}}\,\mathcal D^{(s)} ,\\
-E_i &\leftarrow E_i - \mathcal D\,\frac{\rho_i}{\sum_jV_j\rho_j},
+E_i &\leftarrow E_i - \mathcal D\,\frac{\rho_i}{M},
 \end{aligned}
 $$ {#eq-ch06-fixer-fix}
 
-with $\rho_i$ the total density, dry plus species, and immersed-solid cells left out. @eq-ch06-fixer-fix is
-applied in `apply_gravity_work_fixer` as `efix`
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::apply_gravity_work_fixer >}}).
-Multiplying by $V_i$ and summing gives exactly $-\mathcal D$ (`[C3]`, $3.8\times10^{-16}$ relative).
-
-In floating point the deposit is exact to a derived bound. The code forms $\hat M=M(1+\eta_M)$ by a sum of $N_{\mathrm f}$
-positive terms, $\lvert\eta_M\rvert\le N_{\mathrm f}\,\tfrac12\epsilon_{\mathrm m}$; then `efix` $=-\mathcal D/\hat M$ in double, with
-one more rounding $\eta_1$, and its conversion to the state's dtype in the product, a rounding $\eta_{\mathrm c}$ (exact
-in float64); then each cell's deposit with a rounding $\eta_{2,i}$; then the addition to $E_i$ with a rounding
-$\eta_{3,i}$. Here $\epsilon_{\mathrm m}$ is that of the state's dtype. To first order,
-
-$$
-\sum_iV_i\,\Delta\hat E_i+\mathcal D = \mathcal D(\eta_M-\eta_1-\eta_{\mathrm c}) - \sum_i\mathcal D\,\frac{V_i\rho_i}{M}\,\eta_{2,i}
-+ \sum_iV_iE^{\mathrm{new}}_i\,\eta_{3,i},
-$$
-
-so $\big\lvert\sum_iV_i\Delta\hat E_i+\mathcal D\big\rvert\le\tfrac12\epsilon_{\mathrm m}\big[(N_{\mathrm f}+3)\lvert\mathcal D\rvert+\sum_iV_i\lvert E^{\mathrm{new}}_i\rvert\big]$.
-The last term is the rounding of adding a small deposit to a large $E_i$. It is what limits a check of
-$E_{\mathrm{tot}}+\mathrm{PE}_d$, not the fixer's own arithmetic, which `[C3]` measures at $3.8\times10^{-16}$ of
-$\lvert\mathcal D\rvert$; `[C28]` of `derivation_check.py` checks the first-order expansion and `[C29]` the coefficient $N_{\mathrm f}+3$. With several ranks the
-allreduce adds partial sums in a decomposition-dependent order, and the bound holds per partial sum.
-
-The wall faces are left out of $\mathcal D$; a step is refused when the mass through them exceeds
-$10^3\epsilon_{\mathrm m}M_{\mathrm{wall}}$, $2.2\times10^{-13}M_{\mathrm{wall}}$ in float64 and
-$1.2\times10^{-4}M_{\mathrm{wall}}$ in float32 (`[C4]`). The bound is a round-off allowance, not derived; the code
-comment says reviewed rest decks were first refused near acoustic Courant 2500 (CUDA) and 2750 (CPU), and that
-those are not universal thresholds.[^ch06-fixer-chk]
-
-[^ch06-fixer-chk]: [sha: snapy@ccf40f9565642c32be69f4b9ef0cfa6daff3f201, ported line for line: the stage weight `cw` of
-    `HydroImpl::forward` and the
-    fix and wall bound of `apply_gravity_work_fixer`, and the stage weights of
-    pyharp@4721715855e937c1e8b218e964c0655f46e56e29; deck: the check itself; run:
-    `python3 src/snapy_report/ch06/checks/fixer_check.py`, CPU, numpy and exact fractions, 1 process; Python 3.14.7, numpy 2.5.1; output identical to the committed file]. Output `fixer_check.out`, lines `[C1]`–`[C4]`. The same for
-    `derivation_check.py`, lines `[C3]`–`[C5]`, `[C28]` and `[C29]`, with sympy 1.14.0.
+so that $\sum_iV_i\Delta E_i=-\mathcal D$. That restores the domain total of $E_{\mathrm{tot}}+\mathrm{PE}_d$ but moves
+energy between columns and levels that the flow never exchanged: a global repair of a local booking error. The face
+form books the work where the mass crosses and closes the budget column by column, so V3 keeps the face form and
+drops both the cell form and its fixer.
 
 ### Numerical method
 
-@fig-ch06-fixer-flow shows one step. Each stage of `HydroImpl::forward` adds its weighted defect to a buffer and
-the mass that crossed the $x_1$ wall faces to another. After the last stage the block sums its defect, its fluid
-mass, the wall-face mass, the wall cells' mass and a redo flag into five numbers; a `Mesh` with several blocks
-adds the blocks first, and one allreduce sums them over ranks. A step the redo check will discard (a limiter
-repair, a NaN, a failed implicit solve) is left alone. Then every cell gets its share and the physical
-ghosts are refilled. A `Mesh` adds its local blocks one after another in
-`gravity_work_fixer_sums` ({{< code src/mesh/mesh.cpp MeshImpl::forward >}}) and one `allreduce` adds the ranks
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}), so the order of the floating-point additions follows
-the decomposition and the sum can differ between decompositions at round-off. That difference has not been
-measured.
+None at the pin. Setup reads the key and refuses `true` in two places: the `const-gravity` reader, for a deck, and
+`HydroImpl::reset`, for options built in Python
+({{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}},
+{{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
+
+@fig-ch06-fixer-flow shows, for readers of the diagnostics that refer to it, the order of the operations the fixer
+ran in one step: the per-stage defects, their stage weights, and the deposit after the last stage. None of it runs
+at the pin.
 
 ```{python}
 #| label: fig-ch06-fixer-flow
-#| fig-cap: "The gravity-work fixer through one step, read top to bottom: each stage's defect is weighted by its weight in the step, the sums are reduced over blocks and ranks once, a step that moved mass through an x1 wall is refused, and the remaining defect is removed uniformly per unit mass. Green outlines mark operations, black arrows the order."
-#| fig-alt: "Five boxes in a column connected by arrows: stage defect, stage weight, one allreduce, wall-mass refusal, uniform energy fix."
+#| fig-cap: "The step of the gravity-work fixer that V3 does not have: each stage's defect is collected with its stage weight, and after the last stage the weighted sum is removed from the energy in proportion to the cell mass. Shown for the diagnostics that refer to it; nothing in this figure runs at the pin."
+#| fig-alt: "A flow diagram of the stages of one step with the defect collected at each stage and a deposit box after the last stage."
 #| echo: false
 from snapy_report.ch06.figures.fig_fixer_flow import make_fig
 make_fig()
@@ -125,106 +74,54 @@ make_fig()
 
 ### Code
 
-**A minimal input.**
+**A minimal input.** A deck written for the fixer still loads when it switches the fixer off:
 
 ```yaml
 forcing:
   const-gravity:
     grav1: -9.8
-    gravity-work: cell        # the fixer exists only for the cell form
-    gravity-work-fixer: true  # also the default with cell
+    gravity-work-fixer: false   # the only accepted value; or drop the key
 ```
 
-As with @sec-ch06-cell, these keys need a build at the pin ([Install and run](#sec-preface-install)).
-
-**What the code refuses, and why.**
-
-1. *The fixer with a form other than `cell`* (when $g_1\ne0$), in `from_yaml`
-   ({{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}}): only the cell form has a defect to
-   repair. From Python, `HydroImpl::reset` switches the flag off instead
-   ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
-2. *$g_2\ne0$ or $g_3\ne0$* (reset): the potential the defect uses is $-g_1x_1$ only.
-3. *A periodic $x_1$* (reset): $-g_1x_1$ jumps across the periodic face.
-4. *A step that moved more than $10^3\epsilon_{\mathrm m}M_{\mathrm{wall}}$ through an $x_1$ wall face* (at run time): the
-   defect leaves the boundary fluxes out
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::apply_gravity_work_fixer >}}).
-
-**The code, mapped to @eq-ch06-fixer-fix**
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::apply_gravity_work_fixer >}}):
-
-```cpp
-double D = ga[0], mass = ga[1], wall = ga[2], mwall = ga[3];
-double bound = 1.e3 * eps * mwall;               // the refusal of item 4
-double efix = -D / mass;                         // J/kg
-hydro_u[IPR].index(in3) += m.index(in3) * efix;  // E_i <- E_i - D rho_i / sum_j V_j rho_j
-phydro->add_gravity_work_fix(-D);                // counted once the step is accepted
-```
-
-The `TORCH_CHECK` that compares `wall` with `bound` is left out of the excerpt.
+**What is refused, and why.** `gravity-work-fixer: true`, from YAML and from Python options, with a message
+that names the V3 removal and says to set the key false or drop it. There is no defect for it to repair.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| stage defect, wall mass | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `gwfix_stage` | `gravity-work-fixer` |
-| implicit part | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `epe` | `implicit-scheme` |
-| stage weight | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `cw` | |
-| sums of one block | {{< code src/mesh/meshblock.cpp MeshBlockImpl::gravity_work_fixer_sums >}} | `gravity_work_fixer_sums` | |
-| bound and fix | {{< code src/mesh/meshblock.cpp MeshBlockImpl::apply_gravity_work_fixer >}} | `apply_gravity_work_fixer` | |
-| several local blocks | {{< code src/mesh/mesh.cpp MeshImpl::forward >}} | `gravity_work_fixer_sums` | |
-| setup refusals | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `gravity_work_fixer` | `gravity-work-fixer` |
+| deck refusal | {{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}} | `gravity_work_fixer` | `gravity-work-fixer` |
+| options refusal | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `gravity_work_fixer` | `gravity-work-fixer` |
 
-: Code map of the gravity-work fixer. {#tbl-ch06-fixer-code}
-
-1. Per stage, form the defect of the cell work, the face work of $F-F^{\mathrm{ref}}$ and the potential-energy
-   change of the moved mass as `gwfix_stage` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-2. Add the mass that crossed the wall faces to `_gwfix_wall` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-3. Add the implicit solve's change of $E_{\mathrm{tot}}+\mathrm{PE}_d$ with `epe` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-4. Weight the stage by `cw` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-5. After the last stage, sum and reduce once in `gravity_work_fixer_sums` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}).
-6. Refuse on the wall bound, else add `efix` per unit mass ({{< code src/mesh/meshblock.cpp MeshBlockImpl::apply_gravity_work_fixer >}}).
-
-Messages a user can hit: "const-gravity gravity-work-fixer needs grav2 = grav3 = 0", "... needs non-periodic x1
-boundaries", and at run time "const-gravity gravity-work-fixer: ... kg crossed an x1 boundary face this step".
+: Code map of the refused gravity-work fixer. {#tbl-ch06-fixer-code}
 
 ### Tests
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| `test_gravity_work_fixer_python` | $E_{\mathrm{tot}}+\mathrm{PE}_d$ kept, explicit and VIC | $10^{-12}$ rel. | `TOL` |
-| `test_gravity_work_fixer_python` | fixer off drifts | $>10^{-10}$ | planted control |
-| `test_gravity_work_fixer_python` | refusals: outflow, periodic, $g_2$ | message | refusal text |
-| `test_implicit_gravity_tall_column_python` | `cell`+fixer rest column (the deck states `cell`; the default is `face`) | $10^{-7}$ m s$^{-1}$ | `W_TOL` |
+| {{< code tests/test_gravity_work_fixer_removed.py refused >}} (`test_gravity_work_fixer_removed_python`) | `gravity-work-fixer: true` is refused from YAML and from Python with a message naming the removal; `false` and no key still load | exact (throws or not) | `assert "removed in V3" in str(e)` |
+| {{< code tests/test_flux_register.cpp GravityWork.the_cell_form_is_refused_and_names_face >}} (`test_flux_register.release`) | `gravity-work-fixer: true` from YAML is refused with a message containing "removed in V3", and `false` loads | exact (throws or not) | `EXPECT_NE(msg.find("removed in V3"), std::string::npos)` |
 
-: Tests of the gravity-work fixer; assertions read from the test sources at the pin, not run. {#tbl-ch06-fixer-tests}
+: Tests of the refused fixer. {#tbl-ch06-fixer-tests}
 
-`[C1]` and `[C2]` of `fixer_check.py` confirm the stage weights and that their weighted sum is the step's defect of
-a linear quantity ($2.2\times10^{-16}$); `[C3]` the exact removal ($3.8\times10^{-16}$ of $\lvert\mathcal D\rvert$); `[C4]`
-the wall bound in float64 and float32.
+The tests pass at the pin.[^ch06-fixer-run]
 
-`test_gravity_work_fixer` runs a moving isentropic column between reflecting walls for 200 rk3 steps and requires
-$\lvert\Delta(E_{\mathrm{tot}}+\mathrm{PE}_d)\rvert/\lvert E_{\mathrm{tot}}+\mathrm{PE}_d\rvert\le$ `TOL` ({{< code tests/test_gravity_work_fixer.py TOL >}}).
-It also checks the refusals in float64 and float32, a Python-installed wall and a NaN wall cell sent to the
-redo check. It runs on CPU with `SNAP_GRAVITY_WORK_RADIAL_EXACT=0`. Measured values at the pin are **missing
-evidence**.
+[^ch06-fixer-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 19 gravity-work and implicit ctests this
+    chapter cites, in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro
+    RTX 4000) for the CUDA arms; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 19 of
+    19 ctests passed. `test_flux_register.release` was run separately, the same way at the same pin and build: 28 of 28 cases passed, among them
+    `the_cell_form_is_refused_and_names_face`.
 
 ### Limits
 
 ::: {.callout-warning title="Limits"}
-The fixer refuses open and periodic $x_1$ boundaries and any step that moves mass through an $x_1$ wall face
-beyond round-off; for open boundaries set `gravity-work-fixer: false`.
+- A deck that sets `gravity-work-fixer: true` does not load; set it `false` or drop the key.
+- The cycle line has no fixer field at the pin (`print_cycle_line`,
+  {{< code src/diagnostics/budget.cpp print_cycle_line >}}); diagnostics written for the fixer's amount have nothing
+  to read (@sec-ch06-conserves).
 :::
 
-- It corrects the integral, not the local $O(h^2)$ error of the cell work.
-- The order of the sums over blocks and ranks follows the decomposition, so the defect can differ between
-  decompositions at round-off; not measured.
-- At very large implicit steps sealed-wall round-off can exceed the bound (refusals of rest decks near acoustic
-  Courant 2500 on CUDA and 2750 on CPU[^ch06-fixer-285]); not universal.
-- Combinations with the study switches: @sec-ch12-matrix.
-
-[^ch06-fixer-285]: The refusal thresholds are those recorded in chengcli/snapy#285 and in the code comment of
-    `apply_gravity_work_fixer`.
+Combinations with the study switches: @sec-ch12-matrix.
 
 <!-- reader glossary notes -->
-[^rg-cc4b3281454d]: $M$, $M_{\mathrm{wall}}$ — total mass of the domain, and total mass of the $x_1$ wall cells
-
-[^rg-d88d62d31f0d]: $\mathbf U$ — conserved state vector $(\rho_d, m_1, m_2, m_3, E, \rho_1..\rho_{N_y})$
+[^rg-b660c0a73eb0]: $\mathcal D$ — the $E+\mathrm{PE}_d$ defect of a step, the quantity the gravity-work fixer removes [J]
 <!-- end reader glossary notes -->

@@ -1,79 +1,63 @@
 ## Gravity work inside the vertical implicit operator (`implicit-scheme`) {#sec-ch06-vic}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (code_pin.yml)
-sources: OUTLINE.md 6.5; sources/gw__GRAVITY_WORK_TECH_REPORT_draft.md sections 3.7, 5.2, 5.5; code links below
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/implicit/vic_assemble_impl.h, src/implicit/vic_gravity_work_impl.h, src/implicit/vic_kernels.h,
+         src/implicit/implicit_hydro.cpp, src/hydro/gravity_work.hpp, src/hydro/hydro_forward.cpp,
+         tests/test_gravity_work_rows.cpp, tests/test_implicit_face_work_jacobian.cpp,
+         tests/test_implicit_face_work_operator.py, tests/test_implicit_gravity_tall_column.py at the pin
 status: draft
-author: Linfeng Li
-reviewer:
+author: chengcli
+reviewer: zoeyzyhu
 -->
 
 ### Summary
 
-The VIC solves each $x_1$ column implicitly for the stage's changes of mass, normal momentum and energy (the
-time-integration chapter covers the solve). Gravity enters it twice. The momentum row's mass column and the
-energy row's momentum column hold the gravity source Jacobian $\Phi$[^rg-1f2c44c9087e], the linearisation of the body force
-$\rho g_1$ and of the cell work $\rho v_1g_1$. With `gravity-work: face` the energy row is changed so that it
-books the face form of the mass the solve itself moves; booked after the solve instead, that work makes a tall
-column blow up at large implicit steps. Where it sets in depends on the acoustic Courant number and on $N\Delta t$,
-with $N$ the buoyancy (Brunt–Väisälä) frequency [s$^{-1}$], so that $N\Delta t$ is the time step in units of the buoyancy period over $2\pi$ (@tbl-ch06-vic-onset); the 45-cell column where it was found blew up at acoustic Courant 65.6.[^ch06-vic-283] With `gravity-work: cell` the energy row adds
-only the dissipative part of the face form. After the solve two corrections book the work of the mass that the
-solve's projection and its availability clamp moved differently from what the matrix assumed, so the booked
-energy matches the mass actually moved.
+The VIC solves each $x_1$ column implicitly for the stage's changes of mass, normal momentum and energy. Its
+assembly, column closure, sweep, rejection, constituent redistribution and stage weighting are in the
+time-integration chapter (@sec-ch09-vic-assembly, @sec-ch09-vic-closure, @sec-ch09-vic-sweep, @sec-ch09-vic-reject,
+@sec-ch09-vic-redistribute, @sec-ch09-vic-stage, @sec-ch09-vic-options). This section states only where gravity
+enters it. The momentum row's mass column and the energy row's momentum column hold the gravity source Jacobian
+$\Phi$[^rg-1f2c44c9087e], the linearisation of the body force $\rho g_1$ and of the cell work $\rho v_1g_1$. The energy row is then
+changed so that it books the face form of the mass the solve itself moves, @eq-ch06-vic-rows; at the pin this is
+always done, with no switch. With the corrected-PE work on, the energy row also carries that work's operator
+(@sec-ch06-dwork). After the solve two corrections book the work of the mass that the projection and the
+availability clamp moved differently from what the matrix assumed, so the booked energy matches the mass moved.
 
 ::: {.callout-note title="At a glance"}
-**Purpose.** Puts the gravity work into the vertical implicit correction (VIC), @eq-ch06-vic-rows, so the solve books it.
+**Purpose.** Puts the face gravity work into the vertical implicit correction (VIC), @eq-ch06-vic-rows, so the solve books it.
 
 **Data.** The gravity entries of the energy row (and, through $\Phi$, the momentum row) of each block row.
 
 **Placement.** Once per stage per column, when the VIC rows are assembled; the work corrections after the solve.
 
-**Activation.** `implicit-scheme` 1 or 9 with `const-gravity`; the rows follow `gravity-work`.
+**Activation.** `implicit-scheme` 1 or 9 with `const-gravity`; the rows add zeros when $g_1=0$.
 
 **Guarantee / limits.** A linearisation about the stage state; the post-solve corrections match the mass actually moved.
 
-**Evidence.** The Tests layer below, @tbl-ch06-vic-tests.
+**Evidence.** @tbl-ch06-vic-tests.
 :::
 
-Local symbols: $\mathbf e_{m_1}$ the unit row vector of the normal-momentum unknown;
-$[\mathsf X]_\rho$ and $[\mathsf X]_E$ the mass and energy rows of a block $\mathsf X$; $m_{1,i}=\mathbf e_{m_1}\mathbf q_i$ the
-normal momentum of cell $i$ (appendix A $m_1$). $\mathsf A_i$[^rg-47f774f5b4d6], $\mathsf B_i$, $\mathsf C_i$, $\mathsf A^\pm$,
-$\omega^{\mathrm{lo}}_i$[^rg-26618cb146eb], $\omega^{\mathrm{hi}}_i$ and $\boldsymbol\delta_i$ are defined in @sec-appa. $N$ is the buoyancy (Brunt–Väisälä) frequency of the column [s$^{-1}$], and $N\Delta t$
-the dimensionless time step in which @tbl-ch06-vic-onset gives the blow-up onset; the same letter is squared in the
-spurious stratification $N^2_{\mathrm{eff}}$ of @sec-ch05-wbref4.
-
-Under `face-wallc` the face work stays outside the operator and is swapped in after the solve, with the wall cells
-keeping the cell work; setup warns about it. With the corrected-PE switch on, the energy row also carries part of
-that scheme's work (@sec-ch06-dwork).[^ch06-vic-src]
-
-[^ch06-vic-283]: The tall-column blow-up is recorded in chengcli/snapy#283. [source: `sources/gw__GRAVITY_WORK_TECH_REPORT_draft.md`
-    §5.2: a balanced isothermal column at rest, 45 cells of 29.9 km, rk3, WENO5[^rg-21ac94b75174], LMARS[^rg-d3152948490d], implicit scheme 9; at
-    $\Delta t$ = 997 s (vertical acoustic Courant 65.6) $\max\lvert w\rvert$ grows 2.7 times per step, at
-    $\Delta t$ = 100 s (Courant 6.6) it stays at rest. That is one column, not a general threshold.]
-
-[^ch06-vic-src]: The face work in the operator came in with chengcli/snapy#283, the projection and clamp work with
-    chengcli/snapy#285.
+Local symbols: $\mathbf e_{m_1}$ the unit row vector of the normal-momentum unknown; $[\mathsf X]_\rho$ and
+$[\mathsf X]_E$ the mass and energy rows of a block $\mathsf X$; $m_{1,i}=\mathbf e_{m_1}\mathbf q_i$. $\mathsf A_i$[^rg-47f774f5b4d6],
+$\mathsf B_i$, $\mathsf C_i$, $\mathsf A^\pm$, $\omega^{\mathrm{lo}}_i$[^rg-26618cb146eb], $\omega^{\mathrm{hi}}_i$ and $\boldsymbol\delta_i$ are
+defined in @sec-appa. $N$ is the buoyancy (Brunt–Väisälä) frequency of the column [s$^{-1}$].
 
 ### Derivation
 
-**The operator this section adds to.** The VIC works on a reduced state per cell, not on $\mathbf U$: the unknown
-of block row $i$ is $\mathbf q_i = (\rho, \rho v_1, E)_i$ with `implicit-scheme` 1 and
-$(\rho, \rho v_1, \rho v_2, \rho v_3, E)_i$ with 9 (@eq-ch09-vic-size), $v_1$ the $x_1$ velocity and $\rho$ the *total*
-density, dry air plus every species; the species ride on it and are redistributed after the solve
-(@sec-ch09-vic-redistribute). Each column is one block-tridiagonal system
-$\mathsf B_i\boldsymbol\delta_{i-1} + \mathsf A_i\boldsymbol\delta_i + \mathsf C_i\boldsymbol\delta_{i+1} = \mathbf r_i$
-for the stage increment $\boldsymbol\delta$ of $\mathbf q$. Its flux part is the Roe linearisation of @sec-ch09-vic-assembly, with the same blocks
-$\mathsf A_i$, $\mathsf B_i$, $\mathsf C_i$ and the frozen dissipation matrices $\mathsf A^\pm$ of appendix A, notation group 7;
-$[\mathsf A^-]_\rho$ and $[\mathsf A^+]_\rho$ are the mass rows of those two matrices. This section adds only gravity entries: the source Jacobian $\Phi$ and the energy-row work
-below. $[\mathsf X]_\rho$ and $[\mathsf X]_E$ are the mass and energy rows of a block $\mathsf X$.
+**The operator this section adds to.** The unknown of block row $i$ is $\mathbf q_i = (\rho, \rho v_1, E)_i$ with
+`implicit-scheme` 1 and $(\rho, \rho v_1, \rho v_2, \rho v_3, E)_i$ with 9, $\rho$ the total density; each column is
+one block-tridiagonal system
+$\mathsf B_i\boldsymbol\delta_{i-1} + \mathsf A_i\boldsymbol\delta_i + \mathsf C_i\boldsymbol\delta_{i+1} = \mathbf r_i$,
+whose flux part is the Roe linearisation of @sec-ch09-vic-assembly with the frozen dissipation matrices
+$\mathsf A^\pm$. This section adds only gravity entries.
 
 The face form @eq-ch06-dwork-face can be written with the weights
 $\omega^{\mathrm{lo}}_i = \tfrac12A_{i-1/2}(x_{1,i}-x_{1,i-1/2})/V_i$ and
 $\omega^{\mathrm{hi}}_i = \tfrac12A_{i+1/2}(x_{1,i+1/2}-x_{1,i})/V_i$ as
-$W^{\mathrm{face}}_i = 2g_1(\omega^{\mathrm{hi}}_iF_{i+1/2}+\omega^{\mathrm{lo}}_iF_{i-1/2})$. The solve's own
-mass flux, linearised, is $F_{i+1/2} = \tfrac12(m_{1,i}+m_{1,i+1}) - \tfrac12[\mathsf A^+]_\rho(\mathbf q_{i+1}-\mathbf q_i)$
-with $\mathbf q$ the unknowns and $m_1=\mathbf e_{m_1}\mathbf q$. Substituting, and moving the work to the left-hand
-side, the gravity entries of the energy row of block row $i$ are
+$W^{\mathrm{face}}_i = 2g_1(\omega^{\mathrm{hi}}_iF_{i+1/2}+\omega^{\mathrm{lo}}_iF_{i-1/2})$. The solve's own mass
+flux, linearised, is $F_{i+1/2} = \tfrac12(m_{1,i}+m_{1,i+1}) - \tfrac12[\mathsf A^+]_\rho(\mathbf q_{i+1}-\mathbf q_i)$.
+Substituting, and moving the work to the left-hand side, the gravity entries of the energy row of block row $i$ are
 
 $$
 \begin{aligned}
@@ -84,42 +68,42 @@ $$
 \end{aligned}
 $$ {#eq-ch06-vic-rows}
 
-@eq-ch06-vic-rows is assembled in `vic_assemble_full_impl` from `Phi` and the rows under `face_work`
-({{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}}),
-with the weights `work_lo` and `work_hi`, built from the grid as `_g_work_lo` and `_g_work_hi`
-({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}}).
-`vicwork_check.py` `[C1]` ports the rows and finds them equal to minus the linearised face work to
-$7\times10^{-15}$ over 200 random rows. On a Cartesian column both weights are $\tfrac14$, and the code's Cartesian
-branch writes that value in exactly (`[C2]`). With `gravity-work: cell` the momentum entry stays $-g_1$ from
-$\Phi$, the cell work, and only the $[\mathsf A^\pm]_\rho$ terms are added (`[C3]`).
+In the code, `vic_assemble_impl` sets `Phi(IPR, IVX + dir) = grav` and subtracts `Phi` from `a[i]`
+({{< code src/implicit/vic_assemble_impl.h vic_assemble_impl >}}), and `vic_gravity_work_rows`
+({{< code src/implicit/vic_gravity_work_impl.h vic_gravity_work_rows >}}) adds the rest, so the momentum entry of
+$[\mathsf A_i]_E$ is $-g_1+g_1(1-\omega^{\mathrm{lo}}_i-\omega^{\mathrm{hi}}_i)=-g_1(\omega^{\mathrm{lo}}_i+\omega^{\mathrm{hi}}_i)$, as
+in @eq-ch06-vic-rows. One function writes these rows for both matrices, partial ($3\times3$) and full ($5\times5$). The
+weights are `GravityWork::face_lo` and `face_hi`, built once per grid, device, dtype and gravity by
+`GravityWork::update` ({{< code src/hydro/gravity_work.hpp GravityWork::update >}}); on a uniform Cartesian grid both
+are $\tfrac14$. `vicwork_check.py` `[C1]` ports the rows and finds them equal to minus the linearised face work to
+$7\times10^{-15}$ over 200 random rows, and `[C2]` finds the Cartesian weights $\tfrac14$.[^ch06-vic-chk]
 
-After the solve the code books $\phi_i$ times the difference between the raw solved mass change, the explicit
-change and the mass the projection moved, and the potential-energy flux of the mass the availability clamp moved
-minus what was requested. The first vanishes when the solve is applied as solved; the second keeps
-$E_{\mathrm{tot}}+\mathrm{PE}_d$ over a closed column (`[C4]`). `[C21]`–`[C23]` of `derivation_check.py` derive the three
-rows of @eq-ch06-vic-rows symbolically from the linearised flux.[^ch06-vic-chk]
+After the solve, `book_remainder_` ({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::book_remainder_ >}})
+books, always, $\phi_i$[^rg-6f8cf364cedd] times the difference between the raw solved mass change, the explicit change and the mass the
+projection moved (`projection_work`), and the potential-energy flux of the mass the availability clamp moved minus
+what was requested (`clamp_work`). The first vanishes when the solve is applied as solved; the second keeps
+$E_{\mathrm{tot}}+\mathrm{PE}_d$ over a closed column (`[C4]`). With the corrected-PE work on, the same function adds
+that work's remainder, @eq-ch06-dwork-remainder.
 
 [^ch06-vic-chk]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5, ported line for line: the energy rows of
-    `vic_assemble_full_impl`,
-    `work_lo`/`work_hi` and the projection and clamp work; deck: the check itself; run:
+    `vic_assemble_full_impl`, `work_lo`/`work_hi` and the projection and clamp work; deck: the check itself; run:
     `python3 src/snapy_report/ch06/checks/vicwork_check.py`, CPU, double, 1 process; Python 3.11.13, numpy 2.4.6; output
-    identical to the committed file]. Output `vicwork_check.out`, lines `[C1]`–`[C4]`. The same for
-    `derivation_check.py`, lines `[C21]`–`[C23]`, with sympy 1.14.0.
+    identical to the committed file]. Output `vicwork_check.out`, lines `[C1]`, `[C2]` and `[C4]`. The rows it ports
+    are those of `vic_gravity_work_rows` at 73c45a7c, written once for both matrices; the check was not re-run at
+    73c45a7c.
 
 ### Numerical method
 
-@fig-ch06-vic-rows shows the energy-row entries per mode. The rows are assembled once per stage per column, for the
-full VIC (`vic_assemble_full`) and the partial VIC (`vic_assemble_partial`) alike, at the stage state, so they
-are a linearisation; the step taken is $\Delta t_c$. With `face` the explicit face correction is added to the
-right-hand side before the solve, so the energy the solve inverts is the face-form energy, under `face_work_in_operator`
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-The column closure at the ends is the VIC's own, reflecting whatever the $x_1$ boundary; immersed solids get no
-projection or clamp work. Wall cells use the same rows with the closure applied.
+@fig-ch06-vic-rows shows the energy-row entries. The rows are assembled once per stage per column at the stage state,
+so they are a linearisation; the step taken is $\Delta t_c$. Before the solve the explicit face correction is added
+to the right-hand side, so the energy the solve inverts is the face-form energy
+({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). The column closure at the ends is the VIC's own
+(@sec-ch09-vic-closure); immersed solids get no projection, clamp or corrected-PE work.
 
 ```{python}
 #| label: fig-ch06-vic-rows
-#| fig-cap: "Gravity entries of the energy row of block row i of the VIC, per gravity-work mode: in the blocks of cell i-1 (B), cell i (A) and cell i+1 (C), m is the normal-momentum column and A-, A+ the mass rows of the Roe dissipation matrices at faces i-1/2 and i+1/2; lo and hi are the face-work weights. With cell the momentum entry is the cell work -g; with face it is the face-weighted average of the three cells."
-#| fig-alt: "A two-by-three grid of boxes with formulas: rows gravity-work cell and gravity-work face, columns b[i], a[i], c[i]."
+#| fig-cap: "Gravity entries of the energy row of block row i of the VIC: in the blocks of cell i-1 (B), cell i (A) and cell i+1 (C), m is the normal-momentum column and A-, A+ the mass rows of the Roe dissipation matrices at faces i-1/2 and i+1/2; lo and hi are the face-work weights. The momentum entries are the face-weighted average of the three cells."
+#| fig-alt: "One row of three boxes with formulas, under the headers b[i], a[i] and c[i]."
 #| echo: false
 from snapy_report.ch06.figures.fig_vic_rows import make_fig
 make_fig()
@@ -135,97 +119,55 @@ integration:
   implicit-scheme: 9       # 1 = vic-partial, 9 = vic-full
 forcing:
   const-gravity:
-    grav1: -9.8            # gravity-work: face, so the face work is in the operator
+    grav1: -9.8            # the face work is in the operator
 ```
 
-**What the code refuses or warns, and why.**
-
-1. *An `implicit-scheme` other than 0, 1 or 9* is refused ("Unsupported implicit scheme"): there are only two solvers
-   ({{< code src/implicit/implicit_hydro.cpp ImplicitOptionsImpl::type >}}).
-2. *A face form whose work is not in the operator* (`face-wallc`) is warned about at setup
-   ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}). The message says that "a tall column at acoustic Courant ~66
-   blows up" when the face work sits outside the linearised operator. That number is the 45-cell column where the
-   problem was found; in general the onset depends on the Courant number and on $N\Delta t$ (@tbl-ch06-vic-onset).
-
-**The code, mapped to @eq-ch06-vic-rows**
-({{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}}), the general branch:
-
-```cpp
-T lower = work_lo[i * stride2], upper = work_hi[i * stride2];           // omega_lo, omega_hi
-a[i].row(IPR) -= grav * (upper * Ap.row(IDN) - lower * Am.row(IDN));    // -g1 (w_hi [A+]_rho - w_lo [A-]_rho)
-b[i].row(IPR) -= grav * lower * Am.row(IDN);                            // -g1 w_lo [A-]_rho
-c[i].row(IPR) += grav * upper * Ap.row(IDN);                            // +g1 w_hi [A+]_rho
-if (face_work) {
-  a[i](IPR, IVX + dir) += grav * (1. - lower - upper);   // with Phi's cell-work entry: -g1 (w_lo + w_hi) e_m
-  b[i](IPR, IVX + dir) -= grav * lower;                  // -g1 w_lo e_m
-  c[i](IPR, IVX + dir) -= grav * upper;                  // -g1 w_hi e_m
-}
-```
-
-The Cartesian branch writes $\omega^{\mathrm{lo}}=\omega^{\mathrm{hi}}=\tfrac14$ in directly (`[C2]` of `vicwork_check.py`).
-The sign of the momentum entry is as written: `Phi(IPR, IVX + dir) = grav`, `Phi`
-([`vic_assemble_full_impl.h:40`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/implicit/vic_assemble_full_impl.h#L40)),
-`a[i]` subtracts `Phi`
-([`:94-96`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/implicit/vic_assemble_full_impl.h#L94-L96)),
-and the face branch adds $g_1(1-\omega^{\mathrm{lo}}_i-\omega^{\mathrm{hi}}_i)$ with the weights `lower`
-([`:116`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/implicit/vic_assemble_full_impl.h#L116)),
-so the entry is $-g_1+g_1(1-\omega^{\mathrm{lo}}_i-\omega^{\mathrm{hi}}_i)=-g_1(\omega^{\mathrm{lo}}_i+\omega^{\mathrm{hi}}_i)$, the
-$\mathbf e_{m_1}$ coefficient of $[\mathsf A_i]_E$ in @eq-ch06-vic-rows. The rows are also checked by `[C1]` and
-`[C21]`–`[C23]`.
+**What the code refuses, and why.** An `implicit-scheme` other than 0, 1 or 9 ("Unsupported implicit scheme"):
+there are only two solvers. An $x_1$ split under an implicit scheme ("[Hydro] implicit scheme requires nb1 = 1"):
+the column solve has no coupling between blocks (@sec-ch03-x1seams).
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| gravity source Jacobian | {{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}} | `Phi` | `const-gravity` |
-| energy-row gravity work | {{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}} | `face_work` | `gravity-work` |
-| same, partial VIC | {{< code src/implicit/vic_assemble_partial_impl.h vic_assemble_partial_impl >}} | `face_work` | `implicit-scheme` |
-| weights and mode flags | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}} | `kVicFaceWork` | `gravity-work` |
-| projection and clamp work | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}} | `projection_work` | |
-| face-wallc swap | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}} | `swap` | `face-wallc` |
-| face work in the operator | {{< code src/hydro/hydro.cpp HydroImpl::face_work_in_operator >}} | `face_work_in_operator` | `gravity-work` |
+| gravity source Jacobian | {{< code src/implicit/vic_assemble_impl.h vic_assemble_impl >}} | `Phi` | `const-gravity` |
+| energy-row face work | {{< code src/implicit/vic_gravity_work_impl.h vic_gravity_work_rows >}} | `vic_gravity_work_rows` | `implicit-scheme` |
+| face weights | {{< code src/hydro/gravity_work.hpp GravityWork::update >}} | `_face_lo` | none |
+| projection and clamp work | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::book_remainder_ >}} | `projection_work` | none |
+| explicit correction before the solve | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `gravity_energy_correction` | `implicit-scheme` |
 
 : Code map of the gravity work in the implicit operator. {#tbl-ch06-vic-code}
 
-1. Form the face weights as `_g_work_lo` and `_g_work_hi`, once per grid, and keep them ({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}}).
-2. Choose the mode flags from `face_work_in_operator` and `gravity_work` ({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}}).
-3. In `vic_assemble_full_impl`, add the Cartesian or general rows under `face_work` ({{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}}).
-4. Add the explicit face correction before the solve, as `gravity_energy_correction` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-5. After the solve, add `projection_work` and `clamp_work` ({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}}).
-6. For `face-wallc`, swap in the face work after the solve as `swap` ({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}}).
+1. `GravityWork::update` forms the face weights, areas, volumes and potentials once per grid.
+2. `vic_assemble_impl` adds $\Phi$ and calls `vic_gravity_work_rows` for each cell.
+3. `HydroImpl::forward` adds the explicit face correction to `du` before `_apply_implicit_correction`.
+4. After the solve and the redistribution, `book_remainder_` adds the projection and clamp work, and the corrected-PE
+   remainder when that work is on.
 
 ### Tests
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| `test_implicit_face_work_operator_python` | rest column at rest, Courant 66-657 | $10^{-7}$ m s$^{-1}$ | `W_TOL` |
-| `test_implicit_face_work_operator_python` | $E_{\mathrm{tot}}+\mathrm{PE}_d$ drift | $10^{-11}$ rel. | `EPE_TOL` |
-| `test_implicit_face_work_operator_python` | with `implicit-scheme` 9, rk3s4 converges no slower than rk3 | none: a comparison of the two fitted rates against a Courant-1/32 rk3 reference | the assertion itself (@sec-ch09-vic-stage) |
-| `test_implicit_stratified_solid_python` | clamp energy, solids | $10^{-11}$ rel. | `EPE_TOL` |
-| `test_forcing.release` | energy under rk3 stage weights | $10^{-9}$ abs. | test threshold |
+| `test_gravity_work_rows.release` | uniform Cartesian face weights are $\tfrac14$; spherical weights follow the geometry; the general rows equal the midpoint form | $10^{-13}$ ($10^{-11}$ off the origin); bitwise; $8\cdot2.3\times10^{-16}$ of the scale | `EXPECT_LT`, `torch::equal` |
+| `test_implicit_face_work_jacobian.release` | the energy rows of the full and partial matrix equal a finite difference of the frozen Roe flux, also on curved face metrics | $10^{-5}$ | `EXPECT_NEAR(fd, ..., 1.e-5)` |
+| `test_implicit_face_work_operator_python` (CUDA `..._cuda_python`) | the balanced tall column at acoustic Courant 65.6, 197 and 657, full and partial VIC: at rest $\max\lvert w\rvert$, and the $E+P$ drift | $10^{-7}$ m s$^{-1}$; $10^{-11}$ | `W_TOL`, `EPE_TOL` |
+| `test_implicit_gravity_tall_column_python`, `_cubed_python`, `_large_courant_python` (CUDA arm) | the balanced $11.3H$ column stays at rest | $10^{-7}$ m s$^{-1}$ | `W_TOL` |
+| `test_forcing.release`, `implicit_gravity_work_holds_under_rk3_stage_weighting` (and `_cuda`) | at each rk3 stage the column's $E+\rho\phi$ change, with the solve's stage weight, equals the end-face flux | $10^{-9}$ abs. | `EXPECT_NEAR(..., 1.e-9)` |
 
-: Tests of the gravity work in the implicit operator; assertions read from the test sources at the pin, not run.
-{#tbl-ch06-vic-tests}
+: Tests of the gravity work in the implicit operator. {#tbl-ch06-vic-tests}
 
-`[C1]` of `vicwork_check.py` finds the ported rows equal to minus the linearised face work to $7\times10^{-15}$ over
-200 random rows; `[C2]` the Cartesian weights $\tfrac14$; `[C3]` the cell-mode rows; `[C4]` the clamp work keeping
-$E_{\mathrm{tot}}+\mathrm{PE}_d$ over a closed column.
+At the pin every ctest of the table passes, the CUDA arms on a GPU.[^ch06-vic-run]
 
-`test_implicit_face_work_operator` puts the tall column of the blow-up above into discrete balance and runs it with
-`gravity-work: face`, full and partial VIC, at acoustic Courant 65.6, 197 and 657, requiring `W_TOL` and `EPE_TOL`
-(module constants of {{< code tests/test_implicit_face_work_operator.py >}}). At the pin the same `main` also runs
-a third assertion, with no tolerance constant: it fits the $w$ error of rk3 and of rk3s4 against an
-rk3 run at Courant $1/32$ and fails if rk3s4's rate is the lower of the two (@sec-ch09-vic-stage has the rk3s4
-weights and the measured orders). The plain arms run with
-`SNAP_GRAVITY_WORK_RADIAL_EXACT=0`; the `_radial_exact_python` entries run the same scripts with it on and measure
-$E_{\mathrm{tot}}+P$. `implicit_gravity_work_holds_under_rk3_stage_weighting` also has a CUDA case. Measured values at the pin are
-**missing evidence**.
+[^ch06-vic-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 19 gravity-work and implicit ctests this
+    chapter cites, in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro
+    RTX 4000) for the CUDA arms; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 19 of
+    19 ctests passed.
 
 ### Limits
 
 ::: {.callout-warning title="Limits"}
-`face-wallc` with an implicit scheme books the face work after the solve, and a tall column then blows up. The onset
-depends on the acoustic Courant number and on $N\Delta t$, the time step in units of the buoyancy period over $2\pi$
-(@tbl-ch06-vic-onset); acoustic Courant about 66 is the
-onset of the one 45-cell column it was found on, not a general threshold.
+The rows are a linearisation about the stage state. Face work booked after the solve, outside the operator, makes a
+tall column blow up at large implicit steps; at the pin no deck can select that booking, and the onset table below is
+kept because it says why the work must stay in the operator.
 :::
 
 | acoustic Courant number | $N\Delta t$ at onset |
@@ -234,19 +176,16 @@ onset of the one 45-cell column it was found on, not a general threshold.
 | 10 | about 7 |
 | 100 | about 20 |
 
-: Onset of the after-solve (`face-wallc`) blow-up of a tall column under an implicit scheme, from a linear model of
-the column.[^ch06-vic-onset] $N\Delta t$ is the time step in units of the buoyancy period over $2\pi$, with $N$ the buoyancy (Brunt–Väisälä)
-frequency of the column. The
-table is to be extended from the archived onset table, which covers acoustic Courant 1 to 200. {#tbl-ch06-vic-onset}
+: Onset of the blow-up of a tall column under an implicit scheme when the face work is booked after the solve, from a
+linear model of the column.[^ch06-vic-onset] $N\Delta t$ is the time step in units of the buoyancy period over $2\pi$.
+{#tbl-ch06-vic-onset}
 
 [^ch06-vic-onset]: [source: linear-model result in the project discussion thread 1794212148.557499, archived there as a
     bundle whose onsets for acoustic Courant 1 to 200 are a CSV, sha256 `3a959ec3…8d7e7a` (abbreviated as recorded in
-    the thread; the full digest is not given there). The bundle is not in the repository, and no deck, script, sha or
-    command for it is recorded here, so the three rows are **missing evidence** until that CSV and the model that
-    produced it are committed with their run record; the table is to be extended from it.]
+    the thread). The bundle is not in the repository, and no deck, script, sha or command for it is recorded here, so
+    the three rows are **missing evidence** until that CSV and its model are committed with their run record.]
 
-- The rows are a linearisation about the stage state.
-- The VIC closes each column as a reflecting wall whatever the $x_1$ boundary (time-integration chapter).
+- The VIC closes each column as a reflecting wall whatever the $x_1$ boundary (@sec-ch09-vic-closure).
 - Combinations with the study switches: @sec-ch12-matrix.
 
 <!-- reader glossary notes -->
@@ -256,9 +195,7 @@ table is to be extended from the archived onset table, which covers acoustic Cou
 
 [^rg-26618cb146eb]: $\omega^{\mathrm{lo}}_i, \omega^{\mathrm{hi}}_i$ — the implicit face-work weights $\tfrac12A_{i\mp1/2}\lvert x_{1,i}-x_{1,i\mp1/2}\rvert/V_i$
 
-[^rg-21ac94b75174]: WENO5 — fifth-order weighted essentially non-oscillatory reconstruction
-
-[^rg-d3152948490d]: LMARS — low-Mach approximate Riemann solver
+[^rg-6f8cf364cedd]: $\phi_i$, $\phi_{i\pm1/2}$ — $\phi$ at the centroid and at the faces
 
 [^rg-ccef979766bf]: integration — time-integration options
 <!-- end reader glossary notes -->

@@ -1,131 +1,99 @@
-## Face form of the gravity work (`gravity-work: face`, `face-wallc`) {#sec-ch06-face}
+## Face form of the gravity work (`gravity-work: face`) {#sec-ch06-face}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (code_pin.yml)
-sources: OUTLINE.md 6.2; docs/derivations/curved-gravity-work-weight.md@919936da07d80a310b98ab11da184972a3203274
-         sections 1-4, 8.3; sources/gw__GRAVITY_WORK_TECH_REPORT_draft.md sections 2.4, 3.4-3.5;
-         tests/test_stretched_x1_ref.cpp at the pin; code links below
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/hydro/hydro_forward.cpp, src/hydro/gravity_work.hpp, src/coord/coordinate.cpp, tests/test_forcing.cpp,
+         tests/test_gravity_work_cache_to.cpp at the pin; docs/derivations/curved-gravity-work-weight.md sections 1-4
 status: draft
-author: Linfeng Li
-reviewer:
+author: chengcli
+reviewer: zoeyzyhu
 -->
 
 ### Summary
 
-The face form books, in cell $i$, the work the scheme's own $x_1$ mass fluxes do against gravity: each face's
-flux carries mass from the face potential to the cell's centroid potential. Its derivation is the template of
+The face form books, in cell $i$, the work the scheme's own $x_1$ mass fluxes do against gravity: each face's flux
+carries mass from the face potential to the cell's centre potential. Its derivation is the template of
 @eq-ch06-dwork-booked with $P=\mathrm{PE}_d$, written out as @eq-ch06-dwork-face in @sec-ch06-dwork. This section
-covers what the code does around it: it replaces the cell work the forcing added, it adds the curvature flux for
-the high-order reconstructions, it keeps the cell work in the wall cells under `face-wallc`, and it needs the
-implicit operator to carry it when an implicit scheme is on.
+covers what the code does around it: it forms the work from the total $x_1$ mass flux after the positivity limiter
+and sedimentation, and it replaces the cell work the forcing added (@sec-ch06-cell). It is the only form at the pin;
+the corrected-PE work of @sec-ch06-dwork is added to it whenever the grid has a form for that work.
 
 ::: {.callout-note title="At a glance"}
 **Purpose.** Books the $x_1$ gravity work as a potential-energy flux difference across a cell, @eq-ch06-dwork-face.
 
-**Data.** Reads the total $x_1$ mass flux $F$ on the two faces, face and centroid potentials; writes the energy row.
+**Data.** Reads the total $x_1$ mass flux $F$ on the two faces, face and centre potentials; writes the energy row.
 
 **Placement.** Each stage, after the $x_1$ flux is final and after the forcings; replaces the cell work.
 
-**Activation.** `gravity-work: face` (the default) or `face-wallc`; turns the fixer off. $\mathcal K$ needs a
-uniform $x_1$: a deck that declares a stretched one is refused.
+**Activation.** `gravity-work: face`, the default and only value, with $g_1\ne0$ and the $x_1$ flux on.
 
-**Guarantee / limits.** Plain `face`: $E_{\mathrm{tot}}+\mathrm{PE}_d$ exact to round-off; second order, fourth interior with $\mathcal K$.
+**Guarantee / limits.** $E_{\mathrm{tot}}+\mathrm{PE}_d$ closes to round-off on its own; the booked work is second order.
 
-**Evidence.** The Tests layer below, @tbl-ch06-face-tests.
+**Evidence.** @tbl-ch06-face-tests.
 :::
 
-Local symbols: $m_{1,i}=\rho_iv_{1,i}$ the $x_1$ momentum density of cell $i$
-[kg m$^{-2}$ s$^{-1}$] (appendix A $m_1$[^rg-fafd93c288d7]; code `rhov`); $\mathcal K$ the curvature flux of appendix A, notation group 3; $b_i$ the
-per-cell term of the conservation sum [J], $N_{\mathrm{rd}}$ the number of roundings in one $b_i$ and $\eta_i$ its
-relative rounding error.
-
-With `gravity-work: face` the corrected-PE work of @sec-ch06-dwork is on by default
-(`SNAP_GRAVITY_WORK_RADIAL_EXACT`); this section describes the face form with that switch off, which is how the
-plain face-form tests run. The curvature flux is "$\mathcal K$" in the derivation note.[^ch06-face-src]
-
-[^ch06-face-src]: The face form and the fixer came in with chengcli/snapy#283.
+Local symbols: $b_i$ the per-cell term of the conservation sum [J], $N_{\mathrm{rd}}$ the number of roundings in one
+$b_i$ and $\eta_i$ its relative rounding error; $W^{\mathrm{face}}_i$ and $W^{\mathrm{cell}}_i$ as in @sec-ch06-cell.
 
 ### Derivation
 
-The stage adds the cell work $W^{\mathrm{cell}}$ through the forcing (@sec-ch06-cell). The face form replaces it:
-the energy row receives
+The stage adds the cell work $W^{\mathrm{cell}}$ through the forcing (@sec-ch06-cell). The face form replaces it: the
+energy row receives
 
 $$
-\begin{aligned}
-\Delta E_i &\leftarrow \Delta E_i + \Delta t\,\big(W^{\mathrm{face}}_i - W^{\mathrm{cell}}_i - \nabla_{\!1}\!\cdot g_1\mathcal K\big),\\
-\mathcal K_{i-1/2} &= \tfrac{1}{12}(x_{1,i}-x_{1,i-1})(m_{1,i}-m_{1,i-1}),
-\end{aligned}
+\Delta E_i \leftarrow \Delta E_i + \Delta t\,\big(W^{\mathrm{face}}_i - W^{\mathrm{cell}}_i\big),
 $$ {#eq-ch06-face-energy}
 
-with $\mathcal K=0$ on every physical $x_1$ face, and $\mathcal K$ present only for cp3, cp5 and weno5 reconstructions in
-$x_1$, only with the corrected-PE work of @sec-ch06-dwork off, and only on a uniform $x_1$ grid. The last
-condition is a refusal, not a degradation. @eq-ch06-face-energy writes $\mathcal K$ as a two-point difference
-whose divergence is the $\tfrac{h^2}{12}\partial_1^2$ correction when the two cells have the same width; the
-code states that no two-point form is exact on unequal cells and refuses the combination there rather than
-running a wrong $\mathcal K$ ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). A deck that declares
-a stretched $x_1$ is told to use the corrected-PE work instead (the Code layer below). The report has not
-re-derived that non-existence.
-@eq-ch06-face-energy is booked as `gravity_energy_correction`
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}),
-with the curvature term from `curv_flux1`
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
+as `gravity_energy_correction = face_gravity_work - original_gravity_work` in `HydroImpl::forward`
+({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). The code forms $W^{\mathrm{face}}$ in one of two
+equivalent ways. On a Cartesian grid `gravity_work_from_face_mass`
+({{< code src/hydro/gravity_work.hpp gravity_work_from_face_mass >}}) sums, per cell,
+$g_1\big[(x_{1,i+1/2}-x_{1,i})A_{i+1/2}F_{i+1/2}-(x_{1,i-1/2}-x_{1,i})A_{i-1/2}F_{i-1/2}\big]/V_i$, differencing the
+coordinates before any cast to the working precision, so a large origin does not erase a short cell. On the other
+grids it forms $\big(\phi_i\Delta_i[AF]-\Delta_i[A\phi F]\big)/V_i$ from one face product $A\phi F$ per face. Both are
+@eq-ch06-dwork-face, since $\phi_i-\phi_{i\pm1/2}=g_1(x_{1,i\pm1/2}-x_{1,i})$.
 
-The face form conserves $E_{\mathrm{tot}}+\mathrm{PE}_d$ exactly on a closed column. The argument has four steps.
+The face form conserves $E_{\mathrm{tot}}+\mathrm{PE}_d$ exactly on a closed column, in four steps:
 
-1. The code forms $W^{\mathrm{face}}_i=\big(\phi_i\Delta_i[AF]-\Delta_i[A\phi F]\big)/V_i$ from one face product $A\phi F$ per
-   face, stored once and read by both neighbours (`potential_flux1`, `potential_flux_div`).
+1. The work is formed from one face mass product per face, read by both neighbours.
 2. The density changes by $V_i\dot\rho_i=-\Delta_i[AF]$, so $V_i(W^{\mathrm{face}}_i+\phi_i\dot\rho_i)=-\Delta_i[A\phi F]$.
 3. Summed over the column, $-\sum_i\Delta_i[A\phi F]$ telescopes to the two walls, where $F=0$: zero.
-4. $\mathcal K$ is a face flux, set to zero on both physical faces, so $\sum_iV_i\nabla_{\!1}\!\cdot g_1\mathcal K=0$ by
-   the same telescoping.
+4. The other energy fluxes telescope the same way.
 
-Round-off is the one place this shows. Write the computed per-cell terms as $\hat b_i=b_i(1+\eta_i)$, with
-$\sum_ib_i=0$ exactly and $\lvert\eta_i\rvert\le N_{\mathrm{rd}}\,\tfrac12\epsilon_{\mathrm m}$ for the $N_{\mathrm{rd}}$ roundings of one
-cell term. Summing $n_1$[^rg-bf06c25d4aa7] such terms adds one rounding per addition, and to first order the error of a sum is the sum
-over its additions of the partial sum times that addition's rounding (as in @sec-ch07-framework). The stage
-combination $w_0^{(s)}\mathbf U^n+w_1^{(s)}\mathbf U+w_2^{(s)}\Delta\mathbf U$ then rounds each $E_i$ five times, three products and
-two additions (`wght0`, [`pyharp integrator.cpp:120`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L120)), as the deposit of @sec-ch06-fixer rounds its addition to $E_i$. Together,
+Round-off is the one place this shows. With the computed per-cell terms $\hat b_i=b_i(1+\eta_i)$, $\sum_ib_i=0$
+exactly and $\lvert\eta_i\rvert\le N_{\mathrm{rd}}\,\tfrac12\epsilon_{\mathrm m}$, a column of $n_1$[^rg-bf06c25d4aa7] cells and the five
+roundings of the stage combination of each $E_i$ give
 
 $$
 \Big\lvert\sum_i\hat b_i\Big\rvert \le (N_{\mathrm{rd}}+n_1)\,\tfrac12\epsilon_{\mathrm m}\sum_i\lvert b_i\rvert
-+ 5\cdot\tfrac12\epsilon_{\mathrm m}\sum_iV_i\lvert E_i\rvert \quad\text{per stage}.
++ 5\cdot\tfrac12\epsilon_{\mathrm m}\sum_iV_i\lvert E_i\rvert \quad\text{per stage},
 $$
 
-Counting the floating-point operations of the face-work lines and the product with $V$ gives $N_{\mathrm{rd}}\le12$, an
-upper count, not a measurement. For $n_1=256$ the first term is $3.0\times10^{-14}$ of $\sum_i\lvert b_i\rvert$.
-`cellface_check.py` `[C1]` measures the work identity alone, $\lvert\sum_iV_i(W^{\mathrm{face}}_i+\phi_i\dot\rho_i)\rvert$ over
-$\sum_iV_i\lvert W^{\mathrm{face}}_i\rvert$, at $3.9\times10^{-15}$ on Cartesian and spherical-polar columns, inside the first
-term; the energy-update term is not part of that check. `[C4]` measures the $\mathcal K$ divergence sum at
-$1.3\times10^{-17}$. Its purpose
-is accuracy. A
-high-order reconstruction's face flux exceeds the point value $m_1$ by $\tfrac{h^2}{12}(\partial_1^2m_1+\dots)$, and the
-face form books that excess as work; $\nabla_{\!1}\!\cdot g_1\mathcal K$ removes the $\partial_1^2m_1$ part. Against
-the exact cell average of $g_1m_1$ and with exact point fluxes, the face form is second order in interior and wall
-cells, and the face form with $\mathcal K$ is fourth order in the interior and first order in the two wall cells,
-where $\mathcal K$ is present on one face only (`[C3]`, `[C4]`; orders 2.00 and 2.00, then 3.99 and 1.00, at
-$n_1$ = 128 to 256). `face-wallc` books $W^{\mathrm{cell}}$ in the two wall cells, so its defect is
-exactly their cell-minus-face work (`[C5]`). `[C26]` and `[C27]` of `derivation_check.py` check the first-order sum
-error and the telescoping.[^ch06-face-chk]
+an upper count, not a measurement. `cellface_check.py` `[C1]` measures the work identity alone,
+$\lvert\sum_iV_i(W^{\mathrm{face}}_i+\phi_i\dot\rho_i)\rvert$ over $\sum_iV_i\lvert W^{\mathrm{face}}_i\rvert$, at
+$3.9\times10^{-15}$ on Cartesian and spherical-polar columns. Against the exact cell average of $g_1m_1$, with exact
+point fluxes, the face form is second order in interior and wall cells (`[C3]`, order 2.00 at $n_1$ = 128 to
+256).[^ch06-face-chk] The $O(h^2)$ error is the trapezoid term $\tfrac{h^2}{12}\partial_1^2F$, plus two $O(h^2/r)$
+curvature terms on radial grids; the corrected-PE work of @sec-ch06-dwork removes it in every cell.
 
 [^ch06-face-chk]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; deck: the check itself; run:
-    `python3 src/snapy_report/ch06/checks/cellface_check.py`, CPU, double, 1 process;
-    Python 3.11.13, numpy 2.4.6; output identical to the committed file]. Output `cellface_check.out`, lines `[C1]`, `[C3]`–`[C5]`. The same for
-    `derivation_check.py`, lines `[C26]`–`[C27]`, with sympy 1.14.0.
+    `python3 src/snapy_report/ch06/checks/cellface_check.py`, CPU, double, 1 process; Python 3.11.13, numpy 2.4.6;
+    output identical to the committed file]. Output `cellface_check.out`, lines `[C1]` and `[C3]`. The face work
+    it ports is the same sum at 73c45a7c; the check was not re-run at 73c45a7c.
 
 ### Numerical method
 
 @fig-ch06-face-stencil shows what the face form reads: the two $x_1$ face fluxes of cell $i$ after the positivity
-limiter and sedimentation, the face and centroid potentials, and, with $\mathcal K$, $m_1$ in cells $i-1$, $i$ and
-$i+1$. The fluxes are the total mass flux, the dry row plus every mass-carrying species row. Physical $x_1$ faces
-are the only ones where $\mathcal K$ is zeroed; seams between blocks keep it, reading the exchanged ghost. The
-work is explicit and added once per stage. With an implicit scheme and `gravity-work: face` the correction is
-added before the solve and the solve carries the face work in its energy row (@sec-ch06-vic); with `face-wallc`
-it is swapped in after the solve. @fig-ch06-face-order shows the measured orders.
+limiter and sedimentation, and the face and centre potentials. The flux is the total mass flux, the dry row plus
+every mass-carrying species row (`vertical_mass_flux1`). The block runs when $g_1\ne0$ and the $x_1$ flux is on,
+once per stage. With an implicit scheme the correction is added to the right-hand side before the solve, so the
+energy the solve inverts is the face-form energy, and the solve's energy row carries the face work of the mass it
+moves (@sec-ch06-vic); otherwise it is added after the forcings. @fig-ch06-face-order shows the measured order.
 
 ```{python}
 #| label: fig-ch06-face-stencil
-#| fig-cap: "What the face form reads. (a) Cell i: the potential flux phi F at its two x1 faces (orange triangles) and the centroid potential phi_i (sky-blue dot), weighted by the distances from the centroid to each face. (b) The curvature flux K (bluish-green triangles) at the bottom wall: it is zero on the wall face (vermillion label), so wall cell 0 sees K on one face only; the ghost cell (hatched) is not read."
-#| fig-alt: "Two panels: three cells with face markers and a centroid marker; and a wall with a hatched ghost cell, three interior cells and K markers on the two interior faces."
+#| fig-cap: "What the face form reads for cell i: the potential flux phi F at its two x1 faces (orange triangles) and the centre potential phi_i (sky-blue dot), weighted by the distances from the centre to each face."
+#| fig-alt: "Three cells with face markers and a centre marker, and the two face fluxes labelled."
 #| echo: false
 from snapy_report.ch06.figures.fig_face_stencil import make_fig
 make_fig()
@@ -133,8 +101,8 @@ make_fig()
 
 ```{python}
 #| label: fig-ch06-face-order
-#| fig-cap: "Max error of the booked work against the exact cell average of g_1 m, interior and wall cells, for the face form (vermillion) and the face form with the curvature flux K (bluish green), with exact point fluxes on 32 to 256 cells. Dotted blue lines are reference slopes h^1, h^2 and h^4. K makes the interior fourth order and leaves the wall cells first order."
-#| fig-alt: "Log-log plot of four error curves against the number of cells with three dotted reference slopes."
+#| fig-cap: "Max error of the face-form work against the exact cell average of g_1 m, interior and wall cells, with exact point fluxes on 32 to 256 cells. The dotted blue line is the reference slope h^2: the face form is second order in every cell."
+#| fig-alt: "Log-log plot of two error curves against the number of cells with a dotted reference slope."
 #| echo: false
 from snapy_report.ch06.figures.fig_face_order import make_fig
 make_fig()
@@ -147,123 +115,76 @@ make_fig()
 ```yaml
 forcing:
   const-gravity:
-    grav1: -9.8          # m s^-2; gravity-work: face is the default
+    grav1: -9.8          # m s^-2; gravity-work: face is the default and only value
 ```
 
-The corrected-PE work of @sec-ch06-dwork is then on by default as well; to run the plain face form of this
-section, start the run with `SNAP_GRAVITY_WORK_RADIAL_EXACT=0` in the environment. From `build/bin` of a build at
-the pin ([Install and run](#sec-preface-install)), on a deck with this block, such as `straka_single.yaml`:
+On a Cartesian, spherical-polar or cubed-sphere grid the corrected-PE work of @sec-ch06-dwork is then booked too;
+there is no switch that books the plain face form alone on those grids.
 
-```bash
-SNAP_GRAVITY_WORK_RADIAL_EXACT=0 ./straka.release straka_single.yaml
-```
+**What is refused, and why.** Any other `gravity-work` value, and the fixer (@sec-ch06-cell, @sec-ch06-fixer).
 
-**What the parser refuses, and why.** The same three checks as @sec-ch06-cell. Also,
-`gravity-work-fixer: true` is refused with `face` when $g_1\ne0$: the fixer repairs the cell form's defect, and the
-face form has none ({{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}}).
-
-One more refusal is raised by the stage itself rather than by the parser, the first time the $\mathcal K$ branch
-would run. With a `cp3`, `cp5` or `weno5` $x_1$ reconstruction, the corrected-PE work off, and a grid that
-declares a stretched $x_1$, the step throws "the dx^2/12 x1 curvature flux H of cp3/cp5/weno5 is a uniform-grid
-device: a stretched x1 uses option F, gravity-work: face with SNAP_GRAVITY_WORK_RADIAL_EXACT on (the default),
-fourth order there; or use gravity-work: cell"
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). The message names the two ways out: leave
-`SNAP_GRAVITY_WORK_RADIAL_EXACT` at its default, so that the corrected-PE work of @sec-ch06-dwork takes over, or
-set `gravity-work: cell`. `face-wallc` is not a third: it reaches the same branch and is refused with it, which
-is the combination the test below uses. The "fourth order there" of the message is the code's claim for
-the corrected-PE work on a stretched grid; what this report has measured on a stretched grid is the fourth-order
-convergence of the corrected potential energy $P$ itself, not of the booked work (@sec-ch06-dwork, Limits).
-A deck that is merely curved, with equal radial widths, does not trip the refusal: `stretched_x1` is a property
-of the grid key ({{< code src/coord/coordinate.hpp CoordinateOptionsImpl::stretched_x1 >}}), not of the cell
-volumes, so $\mathcal K$ still runs there with the two-point form.
-
-**The code, mapped to @eq-ch06-dwork-face** ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}):
+**The code, mapped to @eq-ch06-face-energy** ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}):
 
 ```cpp
-auto phi_face = -grav1 * pmb->pcoord->x1f;
-auto phi_cell = -grav1 * pmb->pcoord->x1v;
-auto potential_flux1 = vertical_mass_flux1 * phi_face.narrow(0, 0, vertical_mass_flux1.size(-1));
-...
-auto face_gravity_work = dt * (phi_cell.slice(0, is, ie) * vertical_mass_div - potential_flux_div);
+    if (pmb->pcoord->options->type() == "cartesian") {
+      auto face_mass = area1.narrow(-1, 0, vertical_mass_flux1.size(-1)) *
+                       vertical_mass_flux1;
+      face_gravity_work = dt * gravity_work_from_face_mass(
+                                   face_mass, pmb->pcoord->x1f,
+                                   pmb->pcoord->x1v, volume, is, ie, grav1);
+    } else {
+    ...
+      face_gravity_work = dt * (phi_cell.slice(0, is, ie) * vertical_mass_div -
+                                potential_flux_div);
+    }
+    ...
+    gravity_energy_correction = face_gravity_work - original_gravity_work;
 ```
-
-`vertical_mass_div` is $\Delta_i[AF]/V_i$ and `potential_flux_div` is $\Delta_i[A\phi F]/V_i$, formed in the lines elided.
-`face_gravity_work` is $\Delta t\,W^{\mathrm{face}}_i$ in the form of step 1; `gravity_energy_correction` then adds it
-and removes $W^{\mathrm{cell}}$, @eq-ch06-face-energy.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| mass and potential fluxes | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `potential_flux1` | `gravity-work` |
-| face work | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `face_gravity_work` | `gravity-work` |
-| curvature flux | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `curv_flux1` | `reconstruct`[^rg-22ada5ab295b] |
-| face minus cell, wall cells | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `gravity_energy_correction` | `face-wallc` |
-| x1 wall test | {{< code src/hydro/hydro.cpp HydroImpl::is_x1_wall >}} | `is_x1_wall` | |
-| implicit warning | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `face_work_in_operator` | `implicit-scheme` |
+| total mass flux, face work, replacement | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `face_gravity_work` | `gravity-work` |
+| Cartesian face work | {{< code src/hydro/gravity_work.hpp gravity_work_from_face_mass >}} | `gravity_work_from_face_mass` | none |
+| face-area difference | {{< code src/coord/coordinate.cpp CoordinateImpl::x1_face_difference >}} | `x1_face_difference` | none |
 
 : Code map of the face form. {#tbl-ch06-face-code}
 
-1. Sum the total $x_1$ mass flux over the dry and species rows as `vertical_mass_flux1`
-   ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-2. Form the face and cell potentials and the two divergences in `potential_flux_div`
-   ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-3. Book the face work as `face_gravity_work` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-4. Subtract the curvature flux for cp3, cp5 and weno5, zeroed at physical faces, as `curv_flux1`, after refusing
-   the combination on a declared stretched $x_1$
-   ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-5. Replace the cell work, keeping it in the wall cells under `face-wallc`, as `gravity_energy_correction`
-   ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-
-A user can hit the setup warning "gravity-work: face-wallc with an implicit scheme: the face work sits outside the
-implicit operator" (also for `face` with `implicit-scheme: 0`).
+1. Sum the total $x_1$ mass flux over the dry and species rows as `vertical_mass_flux1`.
+2. Form the face work, Cartesian by `gravity_work_from_face_mass`, otherwise by the two divergences.
+3. Add the corrected-PE work where the grid has a form for it (@sec-ch06-dwork).
+4. Subtract the cell work and add the result to the energy row, before the implicit solve when there is one.
 
 ### Tests
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| `test_forcing.release` | curvature excess removed | $10^{-9}$ abs. | test threshold |
-| `test_forcing.release` | no horizontal mass divergence | $10^{-10}$ rel. | test threshold |
-| `test_gravity_work_fixer_python` | face-wallc arm, reported | n/a | reported only |
-| `test_implicit_face_work_operator_python` | rest column, Courant 66-657 | $10^{-11}$ | `EPE_TOL` |
-| `test_stretched_x1_ref.release`, `refuses_curvature_correction` and `refuses_curvature_correction_cp5` | a stretched `weno5` or `cp5` column with `gravity-work: face-wallc` throws with the message above, and the uniform twin of the same deck runs | exact (throws or not) | a setup contract |
-| `test_stretched_x1_ref_radial_exact_off.release` (`SNAP_GRAVITY_WORK_RADIAL_EXACT=0`) | the same refusal with the plain face form and the default `gravity-work` | exact (throws) | a setup contract |
-| same file, `uniform_and_stretched_reflecting_decks_run` | with the switch at its default, the stretched `weno5` column runs | exact (does not throw) | the way out named in the message |
+| `test_forcing.release`, `vertical_gravity_work_uses_continuity_mass_flux` | one stage closes $E+\rho\phi$ against the end-face fluxes | $10^{-9}$ abs. | `EXPECT_NEAR` |
+| `test_forcing.release`, `vertical_gravity_work_includes_sedimentation_mass_flux` | with a settling flux in the mass flux, one stage still closes $E+\rho\phi$ against the end-face fluxes | $10^{-9}$ abs. | `EXPECT_NEAR` |
+| `test_forcing.release`, `vertical_gravity_work_excludes_horizontal_mass_divergence` | horizontal mass fluxes book no $x_1$ work | $10^{-10}$ rel., $10^{-8}$ abs. | `torch::allclose(..., 1.e-10, 1.e-8)` |
+| `test_gravity_work_cache_to.release`, `local_face_work_retains_small_offsets_and_dtype` and `local_face_work_matches_potential_energy_identity` | the Cartesian face work of float32 cells far from the origin equals that of the same cells at the origin, bitwise; the face work equals the potential-energy form and its column sum with $\phi\,\Delta m$ vanishes | bitwise; $10^{-14}$ rel. and $10^{-13}$ abs.; $10^{-12}$ abs. | `torch::equal`, `allclose`, `EXPECT_NEAR` |
 
-: Tests of the face form; assertions read from the test sources at the pin, not run. {#tbl-ch06-face-tests}
+: Tests of the face form. {#tbl-ch06-face-tests}
 
-`[C1]` of `cellface_check.py` measures the conservation of the four steps; `[C3]` and `[C4]` the orders, 2.00 in all
-cells without $\mathcal K$ and 3.99 interior, 1.00 wall with it; `[C5]` the `face-wallc` defect.
+The four cases are in {{< code tests/test_forcing.cpp >}} and
+{{< code tests/test_gravity_work_cache_to.cpp >}}. Both ctests pass at the pin.[^ch06-face-run]
 
-`vertical_gravity_work_removes_the_curvature_excess` sets a quadratic $m_1$ on six cells. It requires the off-wall
-excess to equal $\Delta t\,\tfrac{h^2}{12}\cdot2\cdot0.04\cdot0.03$ for cp3 and five-point reconstructions
-and zero otherwise, to $10^{-9}$ absolute, as `expected` ({{< code tests/test_forcing.cpp vertical_gravity_work_removes_the_curvature_excess >}}). The
-plain face form is tested with `SNAP_GRAVITY_WORK_RADIAL_EXACT=0` set in the registration
-(`set_tests_properties` in {{< code tests/CMakeLists.txt >}}). The curvature test also has a CUDA[^rg-dd629466f3e7] case.
-Measured values at the pin are **missing evidence**.
+[^ch06-face-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 19 gravity-work and implicit ctests this
+    chapter cites, in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro
+    RTX 4000) for the CUDA arms; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 19 of
+    19 ctests passed.
 
 ### Limits
 
 ::: {.callout-warning title="Limits"}
-With an implicit scheme, the face work must be inside the implicit operator; `face-wallc` books it after the solve,
-and a tall column then blows up. The onset depends on the acoustic Courant number and on $N\Delta t$,
-with $N$ the buoyancy (Brunt–Väisälä) frequency [s$^{-1}$], so that $N\Delta t$ is the time step in units of the buoyancy period over $2\pi$ (@tbl-ch06-vic-onset); acoustic Courant about 66 holds only for the 45-cell column it was found on.[^ch06-face-283]
+- The plain face work is $O(h^2)$ in every cell; on Cartesian, spherical-polar and cubed-sphere grids the
+  corrected-PE work raises it to $O(h^4)$ (@sec-ch06-dwork). On a grid with no $x_1$ measure (`cylindrical`), the
+  face form stays second order and setup warns.
+- The order above uses exact point fluxes; with the scheme's own fluxes the reconstruction and Riemann errors add.
 :::
 
-[^ch06-face-283]: The tall-column blow-up is recorded in chengcli/snapy#283.
-
-- The work is $O(h^2)$ in every cell without $\mathcal K$, and first order in the wall cells with it.
-- $\mathcal K$ is a uniform-grid device. On a declared stretched $x_1$ it is refused; on a curved grid with equal
-  radial widths, where the cell measure is $r^2\,\mathrm{d}r$ and the cell volumes are unequal
-  (@sec-ch04-x1volume), it is not refused and its two-point form is not exact. That case is not measured.
-- `face-wallc` does not conserve $E_{\mathrm{tot}}+\mathrm{PE}_d$ in its two wall cells (`[C5]`).
-- The orders above use exact point fluxes; with the scheme's own fluxes the reconstruction and Riemann errors add.
-- Combinations with the study switches: @sec-ch12-matrix.
+Combinations with the study switches: @sec-ch12-matrix.
 
 <!-- reader glossary notes -->
-[^rg-fafd93c288d7]: $m_1, m_2, m_3$ — momentum density $\rho v_a$
-
 [^rg-bf06c25d4aa7]: $n_1, n_2, n_3$ — interior cells per block in each direction
-
-[^rg-22ada5ab295b]: reconstruct — reconstruction options
-
-[^rg-dd629466f3e7]: CUDA — NVIDIA's parallel computing platform
 <!-- end reader glossary notes -->

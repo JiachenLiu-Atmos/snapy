@@ -1,146 +1,100 @@
 ## Constant gravity and the cell form of the gravity work (`gravity-work: cell`) {#sec-ch06-cell}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (code_pin.yml)
-sources: OUTLINE.md 6.1; sources/gw__GRAVITY_WORK_TECH_REPORT_draft.md sections 2.1-2.4, 3.4-3.5; code links below
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/forcing/const_gravity.cpp, src/hydro/hydro_forward.cpp, tests/test_forcing.cpp,
+         tests/test_gravity_work_fixer_removed.py at the pin; chapter 6 preamble
 status: draft
-author: Linfeng Li
-reviewer:
+author: chengcli
+reviewer: zoeyzyhu
 -->
 
 ### Summary
 
-`const-gravity`[^rg-cf144a647361] is the only gravity snapy has: a constant vector $(g_1, g_2, g_3)$ in m s$^{-2}$, read from the
-`forcing`[^rg-f239edda6399] block. It adds $\rho g_a$ to each momentum and $\rho v_ag_a$ to the total energy, in every cell and at
-every stage. The $x_1$ part is scaled by the non-hydrostatic factor $\alpha_{\mathrm{nh}}$[^rg-1186f06fe11f] (key `non-hydrostatic`[^rg-40de9bc874ef]); the rest of the
-$x_1$ gravity, $(1-\alpha_{\mathrm{nh}})$, is applied through the hydrostatic pressure correction of
-@sec-ch05. With `gravity-work: cell` the energy term stays as it is: the work is booked in the cell where the
-force acts. That is the simplest choice, and it is the one the key selects away from: `gravity-work`[^rg-72cdee3ac795] defaults to
-`face` ({{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}}). It is accurate cell by cell; its cost is that it
-does not conserve total energy plus potential energy, because the work of the mass crossing a face is booked in
-the two neighbouring cells at their own centroids, not where the mass crosses. The gravity-work fixer repairs the
-integral of that defect once per step.
-
-Where the planet constants are set: gravity is `forcing/const-gravity/grav1..3` (this section); the rotation rate is
-`forcing/coriolis/omega1..3` [s$^{-1}$] (@sec-ch07-coriolis); and there is no planet-radius key: on a
-spherical-polar or cubed-sphere grid the radius is $x_1$, so the deck sets it through the bounds
-`geometry/bounds/x1min` and `x1max`[^rg-896a4d0cea2b] [m] (@sec-ch03-sphpolar).
+The constant-gravity forcing, `const-gravity`[^rg-cf144a647361], adds the body force $\rho g_1$ to the $x_1$ momentum and, in the same
+cell, the work $\rho v_1g_1$ to the energy: the cell form of the gravity work. At the pin the cell form is not a
+choice. `gravity-work`[^rg-72cdee3ac795] accepts only `face`, and the face form of @sec-ch06-face replaces the cell work in every
+stage. The cell work is still computed, because the forcing that adds the body force adds its work with it; the
+hydro then subtracts it and adds the face work. This section states the forcing, the refusal, and why the cell form
+is not offered: its work is exact in each cell but its budget does not close, @eq-ch06-cell-defect.
 
 ::: {.callout-note title="At a glance"}
-**Purpose.** Applies constant gravity as a body force and books its work $\rho v_1g_1$ in the same cell, @eq-ch06-cell-work.
+**Purpose.** The body force of constant gravity and its cell work, @eq-ch06-cell-work; the cell form as a booking is refused.
 
-**Data.** Reads the stage-start primitives and $(g_1,g_2,g_3)$ [m s$^{-2}$]; adds $\rho g_a$ and $\rho v_ag_a$ in every cell.
+**Data.** Reads `grav1`[^rg-88e66223cc5e], `grav2`, `grav3`, `non-hydrostatic`[^rg-40de9bc874ef]; writes the momentum rows and, provisionally, the energy row.
 
-**Placement.** Each stage, in the forcing loop of `HydroImpl::forward`; the face part after the $x_1$ flux is final.
+**Placement.** Each stage, in the forcing loop; the energy part is replaced later in the same stage (@sec-ch06-face).
 
-**Activation.** `forcing/const-gravity/gravity-work: cell`, set explicitly (default `face`); implies the fixer.
+**Activation.** `forcing: const-gravity`; `gravity-work: cell` is refused at setup.
 
-**Guarantee / limits.** Exact cell work of the stage state; no exact $E_{\mathrm{tot}}+P$ invariant, @eq-ch06-cell-defect.
+**Guarantee / limits.** The momentum source is exact per cell; the energy is booked by the face form.
 
-**Evidence.** The Tests layer below, @tbl-ch06-cell-tests.
+**Evidence.** @tbl-ch06-cell-tests.
 :::
 
-Local symbols: $\alpha_{\mathrm{nh}}\in[0,1]$ the non-hydrostatic factor (key
-`non-hydrostatic`); $G_i=(p^{L}_{i+1/2}-p^{R}_{i-1/2})/\Delta x_{1,i}$ [N m$^{-3}$] the hydrostatic-split pressure force
-density of @eq-ch05-hsmode-force (code `rho_grav`); $W^{\mathrm{cell}}_i$[^rg-c40954ec43ff], $W^{\mathrm{face}}_i$[^rg-7c89ae1f45ba] [W m$^{-3}$] and
-$F^{\mathrm{ref}}$[^rg-82297cb4f780] as in appendix A; $\mathcal D$[^rg-b660c0a73eb0] [J] the step's $E_{\mathrm{tot}}+\mathrm{PE}_d$ defect.
+Local symbols: $\alpha_{\mathrm{nh}}$[^rg-1186f06fe11f] the `non-hydrostatic` factor (0 to 1) [-]; $G_i$ the hydrostatic-split force
+density of @sec-ch05 [N m$^{-3}$]; $W^{\mathrm{cell}}_i$[^rg-c40954ec43ff] and $W^{\mathrm{face}}_i$[^rg-7c89ae1f45ba] the cell and face work densities
+[W m$^{-3}$].
 
-`gravity-work` takes `cell`, `face` or `face-wallc`; any other value is refused when the forcing is read and
-again when the hydro module is built from Python. $g_2$ and $g_3$ always book cell work only.
+| key | meaning | default |
+|---|---|---|
+| `const-gravity` | the constant-gravity forcing block of `forcing`[^rg-f239edda6399]: $(g_1,g_2,g_3)$ in m s$^{-2}$ | absent: no gravity |
+| `non-hydrostatic` | the factor $\alpha_{\mathrm{nh}}\in[0,1]$ on the $x_1$ body force and its work | 1 |
+| `gravity-work` | where the $x_1$ gravity work is booked; only `face` is accepted | `face` |
+| `gravity-work-fixer` | the global gravity-work fixer; only `false` is accepted (@sec-ch06-fixer) | `false` |
+
+: Keys of the `const-gravity` block. {#tbl-ch06-cell-keys}
+
 
 ### Derivation
 
-The template of @eq-ch06-dwork-booked says that a scheme conserves $E_{\mathrm{tot}}+P$ exactly when its work satisfies
-$W_iV_i = -\dot P_i - \Delta_i[A\phi F]$ for some discrete potential energy $P$. The cell form does not start from
-a $P$. It books
+The forcing books, per cell,
 
 $$
 \begin{aligned}
-W^{\mathrm{cell}}_i &= \alpha_{\mathrm{nh}}\,\rho_iv_{1,i}g_1 + (1-\alpha_{\mathrm{nh}})\,v_{1,i}\,G_i ,\\
-W_i &= W^{\mathrm{cell}}_i + W^{\mathrm{face}}_i[F-F^{\mathrm{ref}}] ,
+\Delta m_{1,i} &= \Delta t\,\big[\alpha_{\mathrm{nh}}\rho_ig_1 + (1-\alpha_{\mathrm{nh}})G_i\big],\\
+W^{\mathrm{cell}}_i &= \alpha_{\mathrm{nh}}\,\rho_iv_{1,i}g_1 + (1-\alpha_{\mathrm{nh}})\,v_{1,i}\,G_i ,
 \end{aligned}
 $$ {#eq-ch06-cell-work}
 
-where $G_i$ is the hydrostatic-split force density `rho_grav` of @eq-ch05-hsmode-force,
-$W^{\mathrm{face}}[\cdot]$ is the face form @eq-ch06-dwork-face evaluated on the flux in brackets, $F$ is the total
-$x_1$ mass flux after the positivity limiter and sedimentation and $F^{\mathrm{ref}}$ is the flux the Riemann
-solver returned. The first term is added in `ConstGravityImpl::forward` from `grav1`[^rg-88e66223cc5e]
-({{< code src/forcing/const_gravity.cpp ConstGravityImpl::forward >}})
-and, for $\alpha_{\mathrm{nh}}<1$, the $G_i$ term by the hydrostatic correction, `du[IPR] += dt * w[IVX] * rho_grav *
-(1 - non_hydrostatic)`; the second is booked as `gravity_energy_correction`
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}),
-the face work of the flux minus `bflux1`
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-When neither the limiter nor sedimentation changed the flux, $F=F^{\mathrm{ref}}$ and the cell work is all there
-is (check line `[C2]`).
+the first terms in `ConstGravityImpl::forward_split`
+({{< code src/forcing/const_gravity.cpp ConstGravityImpl::forward_split >}}) and the $G_i$ terms by the hydrostatic
+correction in `HydroImpl::forward` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). Locally the cell
+work is exact: the exact gravity work of cell $i$ is $g_1V_i\langle\rho v_1\rangle_{V_i}=g_1V_im_{1,i}$
+(@eq-ch06-dwork-template), and $\rho_iv_{1,i}=m_{1,i}$ up to the roundings of the conversion to primitives.
 
-Summing $V_i$[^rg-a40f8bb06a7a] times @eq-ch06-cell-work over a closed column and adding the potential-energy change
-$\sum_iV_i\phi_i\dot\rho_i$ gives the step's defect of $E_{\mathrm{tot}}+\mathrm{PE}_d$. Since the face form alone makes that
-sum vanish (@eq-ch06-dwork-booked with $P=\mathrm{PE}_d$), the defect is
+What it gets wrong is the budget. Summed with the potential-energy change of the mass the faces move, it leaves the
+defect
 
 $$
-\mathcal D = \Delta t\sum_iV_i\big(W^{\mathrm{cell}}_i - W^{\mathrm{face}}_i[F^{\mathrm{ref}}]\big),
+\mathcal D = \Delta t\sum_iV_i\big(W^{\mathrm{cell}}_i - W^{\mathrm{face}}_i\big),
 $$ {#eq-ch06-cell-defect}
 
-The code forms this defect per stage, with the potential-energy change of the moved mass, as `gwfix_stage`
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-
-per stage, before the stage weights of @sec-ch06-fixer. It does not telescope. The argument has four steps.
-
-1. The face form books, per face $i+\tfrac12$, the mass $\Delta t\,A_{i+1/2}F_{i+1/2}$ leaving cell $i$ at $\phi_i$[^rg-6f8cf364cedd] and
-   entering cell $i+1$ at $\phi_{i+1}$ (@eq-ch06-dwork-face).
-2. Summed over a closed column, each face therefore appears twice with opposite signs, and the face terms cancel to
-   the two walls, where $F=0$ (@eq-ch06-dwork-booked with $P=\mathrm{PE}_d$).
-3. The cell form books $g_1m_{1,i}$ per cell. That is a cell quantity: no face value enters it, so no term of cell $i$
-   has a partner of the opposite sign in cell $i\pm1$.
-4. Hence $\sum_iV_i(W^{\mathrm{cell}}_i-W^{\mathrm{face}}_i[F^{\mathrm{ref}}])$ is a sum of unpaired terms, and it is
-   zero only if the momentum profile happens to equal the face-flux average; @eq-ch06-cell-defect is that sum.
-
- `cellface_check.py` `[C2]` measures a defect of $1.6\times10^{-2}$ of $\sum_iV_i\lvert W^{\mathrm{cell}}_i\rvert$ on a
-random closed column.
-
-Locally the cell form is exact, in three steps:
-
-1. The exact gravity work of cell $i$ is $g_1V_i\langle\rho v_1\rangle_{V_i}$ (@eq-ch06-dwork-template), and
-   $\langle\rho v_1\rangle_{V_i}=m_{1,i}$, the conserved momentum the cell stores.
-2. The primitive velocity is that momentum over the cell's total density: every equation of state at the pin divides
-   the stored momentum by $\rho_i$, the dry plus all species densities (`IdealMoistImpl::_cons2prim`,
-   {{< code src/eos/ideal_moist.cpp IdealMoistImpl::_cons2prim >}}; likewise `MoistMixtureImpl`, and for `ideal-gas` the
-   kernel sets the density from the conserved density and divides the momenta by it, `ideal_gas_cons2prim`
-   [`ideal_gas_impl.h:16-24`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_gas_impl.h#L16-L24)).
-   So $\rho_iv_{1,i}=m_{1,i}$ up to two roundings, the division and the product, at most $\epsilon_{\mathrm m}$[^rg-d0b9cfeec328] relative,
-   unless the equation-of-state limiter's density floor fires: `apply_primitive_limiter_` then raises the primitive
-   density to the floor after the division, `clamp_min_`
-   ([`equation_of_state.cpp:341`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/equation_of_state.cpp#L341)),
-   and $\rho_iv_{1,i}\ne m_{1,i}$ in that cell.
-3. Hence $W^{\mathrm{cell}}_i=g_1m_{1,i}$ at $\alpha_{\mathrm{nh}}=1$: the exact cell work of the stage state, to that
-   round-off. With $\alpha_{\mathrm{nh}}<1$ the $G_i$ term is the hydrostatic split, not the cell work, and is not
-   claimed exact.
-
-What it gets wrong is the budget, @eq-ch06-cell-defect: the mass the faces move is booked at the cell centroids,
-not where it crosses. `[C1]` and `[C2]` of `derivation_check.py` check the template identity and step 2.[^ch06-cell-chk]
+because the face form makes that sum vanish (@eq-ch06-dwork-booked with $P=\mathrm{PE}_d$) and the cell work is a
+cell quantity with no partner of opposite sign in the next cell: the mass the faces move is booked at the cell
+centres, not where it crosses. `cellface_check.py` `[C2]` measures a defect of $1.6\times10^{-2}$ of
+$\sum_iV_i\lvert W^{\mathrm{cell}}_i\rvert$ on a random closed column.[^ch06-cell-chk] Repairing that defect needed a
+global fixer (@sec-ch06-fixer); booking the face work instead needs none, which is the design V3 keeps.
 
 [^ch06-cell-chk]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; deck: the check itself; run:
     `python3 src/snapy_report/ch06/checks/cellface_check.py`, CPU[^rg-7034ba898e85], double, 1 process;
-    Python 3.11.13, numpy 2.4.6; output identical to the committed file]. Output `cellface_check.out`, lines `[C1]`–`[C5]`.
-    The port is line for line: the gravity-work block of `HydroImpl::forward` without the corrected-PE call, the cell
-    work of `ConstGravityImpl::forward` and `radial_centers`. `derivation_check.py`, output `derivation_check.out`,
-    lines `[C1]`–`[C2]`, with sympy 1.14.0.
+    Python 3.11.13, numpy 2.4.6; output identical to the committed file]. Output `cellface_check.out`, line `[C2]`. The
+    port is of the cell work of `ConstGravityImpl::forward` and the face work of `HydroImpl::forward`, whose formulas
+    are unchanged at 73c45a7c (`gravity_work_from_face_mass` on Cartesian grids is the same sum written about the
+    cell centre); it was not re-run at 73c45a7c.
 
 ### Numerical method
 
-The forcing runs inside the stage, with the other forcings, on the primitive state of the stage start, and its
-increment is scaled by $\Delta t$[^rg-88e66c6f06bb] like every other term, in the loop over `forcings`
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-Everything is a cell average; the body force and its work are pointwise in each cell, with no stencil, so walls,
-seams and ghosts play no part. The face part of @eq-ch06-cell-work reads the two $x_1$ faces of the cell and is
-computed after the $x_1$ flux is final, that is after the positivity limiter and sedimentation. With an implicit
-scheme the vertical implicit operator linearises the same cell work (@sec-ch06-vic). @fig-ch06-cell-defect shows
-the per-cell term whose sum is @eq-ch06-cell-defect.
+The forcing runs inside the stage, with the other forcings, on the stage's primitive state; its increment is scaled
+by $\Delta t$ like every other term. Everything is pointwise in the cell. Later in the same stage, once the $x_1$
+mass flux is final, the hydro forms the face work and adds `face_gravity_work - original_gravity_work` to the energy
+row, `original_gravity_work` being the $W^{\mathrm{cell}}$ of @eq-ch06-cell-work (@sec-ch06-face). The $x_2$ and $x_3$
+components of gravity book their cell work and are not replaced. @fig-ch06-cell-defect shows the per-cell terms
+whose sum is @eq-ch06-cell-defect.
 
 ```{python}
 #| label: fig-ch06-cell-defect
-#| fig-cap: "Per-cell contribution V(W^cell - W^face) to the E + PE_d defect of the cell form, on a random closed 24-cell column (nondimensional, g_1 = -10, one stage of length 0.01). The bars do not cancel: their sum is the defect the gravity-work fixer removes."
+#| fig-cap: "Per-cell contribution V(W^cell - W^face) to the E + PE_d defect the cell form would leave, on a random closed 24-cell column (nondimensional, g_1 = -10, one stage of length 0.01). The bars do not cancel; booking the face work, as the code does, leaves no such sum."
 #| fig-alt: "Bar chart of 24 vermillion bars of both signs along x1 from 0 to 1, with a horizontal zero line."
 #| echo: false
 from snapy_report.ch06.figures.fig_cell_defect import make_fig
@@ -149,125 +103,86 @@ make_fig()
 
 ### Code
 
-**A minimal input.**
+**A minimal input.** The gravity block; `gravity-work` may be left out, since `face` is its default and its only value:
 
 ```yaml
 forcing:
   const-gravity:
-    grav1: -9.8            # m s^-2, along x1
-    gravity-work: cell     # the default is face; cell must be set
-    # gravity-work-fixer defaults to true with cell
+    grav1: -9.8            # m s^-2
+    non-hydrostatic: 1.    # default; 0 to 1
 ```
 
-The `gravity-work` keys need a build at the pin ([Install and run](#sec-preface-install)); an older PyPI release
-refuses them with "unknown key 'forcing/const-gravity/gravity-work'".
+**What is refused, and why.** `ConstGravityOptionsImpl::from_yaml`
+({{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}}) checks the keys of the
+`const-gravity` block (`grav1`, `grav2`, `grav3`, `non-hydrostatic`, `gravity-work`, `gravity-work-fixer`) and refuses:
 
-**What the parser refuses, and why.** `ConstGravityOptionsImpl::from_yaml`
-({{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}}) applies, in this order:
+1. a `non-hydrostatic` factor outside $[0,1]$;
+2. any `gravity-work` other than `face`, with the message `forcing/const-gravity/gravity-work: 'cell' is not supported:
+   the cell form was removed (V3 I-7); use gravity-work: face`, because the cell form's budget does not close
+   (@eq-ch06-cell-defect);
+3. `gravity-work-fixer: true` (@sec-ch06-fixer).
 
-1. *An unknown key* in `const-gravity`: only `grav1`, `grav2`, `grav3`, `non-hydrostatic`, `gravity-work`,
-   `gravity-work-fixer` are accepted, so a misspelt key is an error.
-2. *`non-hydrostatic` outside $[0,1]$*: $\alpha_{\mathrm{nh}}$ is a split fraction.
-3. *`gravity-work` other than `cell`, `face-wallc`, `face`*: there are only three forms. `HydroImpl::reset` checks the
-   same again, so construction from Python agrees ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
-
-**The code, mapped to @eq-ch06-cell-work.** The first term is added by the forcing
-({{< code src/forcing/const_gravity.cpp ConstGravityImpl::forward >}}):
-
-```cpp
-du[IVX] += dt * w[IDN] * options->grav1() * options->non_hydrostatic();
-du[IPR] += dt * w[IDN] * w[IVX] * options->grav1() * options->non_hydrostatic();
-```
-
-The second line is $\Delta t\,\alpha_{\mathrm{nh}}\rho_iv_{1,i}g_1$. The $G_i$ term is added by the hydrostatic
-correction, `du[IPR] += dt * w[IVX] * rho_grav * (1 - non_hydrostatic)`, and the face work of $F-F^{\mathrm{ref}}$ as
-`gravity_energy_correction`, both in `HydroImpl::forward` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
+`HydroImpl::reset` ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}) repeats the second and third checks for
+options built in Python, with the same reasons.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| keys and defaults | {{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}} | `from_yaml` | `const-gravity` |
-| body force and cell work | {{< code src/forcing/const_gravity.cpp ConstGravityImpl::forward >}} | `forward` | `grav1` |
-| cell mode flag | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `gw_cell` | `gravity-work` |
-| Riemann flux kept | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `bflux1` | `gravity-work` |
-| face work of $F-F^{\mathrm{ref}}$ | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `vertical_mass_flux1` | `gravity-work` |
-| hydrostatic part | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `rho_grav` | `non-hydrostatic` |
-| setup checks | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `gravity_work` | `gravity-work` |
+| keys, defaults and refusals | {{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}} | `gravity_work` | `gravity-work` |
+| body force and cell work | {{< code src/forcing/const_gravity.cpp ConstGravityImpl::forward_split >}} | `non_hydrostatic` | `const-gravity` |
+| cell work replaced by the face work | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `original_gravity_work` | `gravity-work` |
 
-: Code map of the constant gravity and the cell form. {#tbl-ch06-cell-code}
-
-1. In `from_yaml`, read `grav1`..`grav3` (default 0), `non-hydrostatic` (default 1, refused outside $[0,1]$) and
-   the work mode `gravity_work`, which defaults to `face`
-   ({{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}}).
-2. Default `gravity-work-fixer` to true with `cell`, and refuse it with a face form when $g_1\neq0$, in
-   `gravity_work_fixer` ({{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}}).
-3. In `forward`, add the body force and the cell work, the $x_1$ part scaled by `non_hydrostatic`
-   ({{< code src/forcing/const_gravity.cpp ConstGravityImpl::forward >}}).
-4. Keep the Riemann mass flux as `bflux1` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-5. Book the face work of the rest as `gravity_energy_correction` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-
-The messages a user can hit are "forcing/const-gravity/gravity-work must be cell, face-wallc or face" and
-"forcing/const-gravity/gravity-work-fixer needs gravity-work: cell".
+: Code map of the constant gravity and the refused cell form. {#tbl-ch06-cell-code}
 
 ### Tests
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| `test_gravity_work_fixer_python` | cell without fixer drifts | $>10^{-10}$ | planted control |
-| `test_forcing.release` | total energy against boundary flux | $10^{-9}$ abs. | test threshold |
+| `test_forcing.release`, `vertical_gravity_work_uses_continuity_mass_flux` | one stage's change of $\sum_iV_i(E_i+\phi_i\rho_i)$, less the corrected-PE work, equals the energy and potential-energy flux through the two end faces: the booked work is the face work of the continuity mass flux, not the cell work | $10^{-9}$ abs. | `EXPECT_NEAR(..., 1.e-9)` |
+| `test_gravity_work_fixer_removed_python` | the gravity block loads with the fixer off or absent and refuses it on | exact (loads or throws) | a setup contract |
+| {{< code tests/test_flux_register.cpp GravityWork.the_cell_form_is_refused_and_names_face >}} (`test_flux_register.release`) | `gravity-work: cell`, from YAML[^rg-20d0ad55a777] and from code (`gravity_work("cell")`), is refused with a message that names `gravity-work: face`; `gravity-work-fixer: true` is refused with "removed in V3" and `false` loads | exact (throws or not) | `EXPECT_NE(msg.find("gravity-work: face"), std::string::npos)` |
 
-: Tests of the cell form; assertions read from the test sources at the pin, not run. {#tbl-ch06-cell-tests}
+: Tests of the constant gravity forcing at the pin. {#tbl-ch06-cell-tests}
 
-`[C2]` of `cellface_check.py` measures the defect of @eq-ch06-cell-defect and confirms that with $F=F^{\mathrm{ref}}$ the
-cell mode books no face work; `[C2]` of `derivation_check.py` is step 2 of the exactness argument.
+The three ctests pass at the pin.[^ch06-cell-run]
 
-The arm "cell, fixer false" of `test_gravity_work_fixer` requires the $E_{\mathrm{tot}}+\mathrm{PE}_d$ drift to exceed 100 times
-`TOL` $=10^{-12}$, so the defect @eq-ch06-cell-defect is shown to be real and the fixer load-bearing
-({{< code tests/test_gravity_work_fixer.py main >}}). `vertical_gravity_work_uses_continuity_mass_flux` checks the
-total-energy change against the boundary flux to $10^{-9}$ ({{< code tests/test_forcing.cpp forcing.vertical_gravity_work_uses_continuity_mass_flux >}}).
-Both are registered with the corrected-PE switch off and run on CPU. Measured values at the pin are **missing
-evidence**.
+[^ch06-cell-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 19 gravity-work and implicit ctests this
+    chapter cites, in the `tests` directory of a README CUDA[^rg-dd629466f3e7] Release build at the pin; CPU, and one CUDA GPU[^rg-af347973fc02] (Quadro
+    RTX 4000) for the CUDA arms; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 19 of
+    19 ctests passed. `test_flux_register.release` was run separately, the same way at the same pin and build: 28 of 28 cases passed, among them
+    `the_cell_form_is_refused_and_names_face`.
 
 ### Limits
 
 ::: {.callout-warning title="Limits"}
-The cell form alone does not conserve $E_{\mathrm{tot}}+\mathrm{PE}_d$; with `gravity-work-fixer: false` the defect
-@eq-ch06-cell-defect accumulates.
+- `gravity-work: cell` is refused; a deck that names it must change to `face` (or drop the key).
+- The $x_2$ and $x_3$ components of gravity book cell work only; only the $x_1$ work is replaced by the face form.
 :::
 
-- $g_2$ and $g_3$ book cell work only, whatever `gravity-work` says; the fixer refuses them.
-- `non-hydrostatic` scales only the $x_1$ terms.
-- Combinations with the study switches are listed in @sec-ch12-matrix; no moist cell-form budget test exists.
+Combinations with the study switches: @sec-ch12-matrix.
 
 <!-- reader glossary notes -->
 [^rg-cf144a647361]: const-gravity — constant-gravity forcing component
 
-[^rg-f239edda6399]: forcing — forcing options block: a map with one sub-block per forcing component
+[^rg-72cdee3ac795]: gravity-work — form of the $x_1$ gravity work; only `face` (the default) is accepted
 
-[^rg-1186f06fe11f]: $\alpha_{\mathrm{nh}}$ — non-hydrostatic factor in $[0,1]$: the fraction of gravity applied as a body force
+[^rg-88e66223cc5e]: grav1 — gravity component along the first coordinate
 
 [^rg-40de9bc874ef]: non-hydrostatic — fraction of the vertical body force retained by the non-hydrostatic treatment
 
-[^rg-72cdee3ac795]: gravity-work — form of the $x_1$ gravity work: `face` (default), `face-wallc` or `cell`
-
-[^rg-896a4d0cea2b]: x1max — upper bound of the first coordinate
+[^rg-1186f06fe11f]: $\alpha_{\mathrm{nh}}$ — non-hydrostatic factor in $[0,1]$: the fraction of gravity applied as a body force
 
 [^rg-c40954ec43ff]: $W^{\mathrm{cell}}_i$ — cell form $\rho_iv_{1,i}g_1$
 
 [^rg-7c89ae1f45ba]: $W^{\mathrm{face}}_i$ — face form $\tfrac{1}{V_i}[\phi_i\Delta_i[AF]-\Delta_i[A\phi F]]$
 
-[^rg-82297cb4f780]: $F^{\mathrm{ref}}$ — the total $x_1$ mass flux as the Riemann solver returns it (dry plus every species row), before sedimentation and the positivity limiter change the flux; under `gravity-work: cell` only $F-F^{\mathrm{ref}}$ is booked as face work. Not a reference-state flux: the superscript is not the hydrostatic $\mathrm{ref}$ of §6 (the code comment writes $F^R$) [kg m$^{-2}$ s$^{-1}$]
-
-[^rg-b660c0a73eb0]: $\mathcal D$ — the $E+\mathrm{PE}_d$ defect of a step, the quantity the gravity-work fixer removes [J]
-
-[^rg-88e66223cc5e]: grav1 — gravity component along the first coordinate
-
-[^rg-a40f8bb06a7a]: $V_i$ — cell volume
-
-[^rg-6f8cf364cedd]: $\phi_i$, $\phi_{i\pm1/2}$ — $\phi$ at the centroid and at the faces
-
-[^rg-d0b9cfeec328]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14)
+[^rg-f239edda6399]: forcing — forcing options block: a map with one sub-block per forcing component
 
 [^rg-7034ba898e85]: CPU — central processing unit
 
-[^rg-88e66c6f06bb]: $\Delta t$ — the step
+[^rg-20d0ad55a777]: YAML — YAML Ain't Markup Language, the structured input format used for decks
+
+[^rg-dd629466f3e7]: CUDA — NVIDIA's parallel computing platform
+
+[^rg-af347973fc02]: GPU — graphics processing unit
 <!-- end reader glossary notes -->
