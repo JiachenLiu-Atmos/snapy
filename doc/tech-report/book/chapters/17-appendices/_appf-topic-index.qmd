@@ -24,6 +24,12 @@
 
 **angular momentum, global axial**: Invariant checks: zero in, zero out, and the global budgets, @sec-ch16-invariants.
 
+*anomaly rows*, see **anomaly storage**.
+
+**anomaly storage**: Conservation laws and variables, @sec-ch02-laws.
+
+**anomaly storage, which EOS supports it**: Other equations of state and the capture allow-list, @sec-ch02-other-eos.
+
 **API**: Driver loop and accepted steps, @sec-ch01-driver.
 
 **`_apply_implicit_correction` and its inputs**: Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4, @sec-ch09-vic-stage.
@@ -151,6 +157,8 @@
 **$c_{v,n}, c_{p,n}$**: [2. State, thermodynamics and species](#sec-appa-2).
 
 **calling snapy from Python**: Expose the C++ API to Python, @sec-ch01-python.
+
+*capture allow-list*, see **equation of state, which can be captured**.
 
 **Cartesian grid**: Cartesian and stretched $x_1$ grids, @sec-ch03-cartesian.
 
@@ -318,6 +326,8 @@
 
 *cuda-graph*, see **execution key**.
 
+*CUDA graph and EOS*, see **equation of state, which can be captured**.
+
 *CUDA kernels*, see **GPU kernels, CPU and CUDA dispatch**.
 
 **curvature terms**: Geometric sources on the spherical-polar grid: placement in the stage, @sec-ch04-sphsrc.
@@ -328,7 +338,7 @@
 
 *custom EOS*, see **equation of state, adding**.
 
-**`cv_R`**: Constant-heat-capacity moist mixture, @sec-ch02-ideal-moist.
+**`cv_R`**: Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist.
 
 *cycle line*, see **mass and energy budgets, log line**.
 
@@ -474,6 +484,8 @@
 
 **`dynamics`**: Construct a MeshBlock and its modules, @sec-ch01-construction.
 
+*dynamics anomaly*, see **anomaly storage**.
+
 **dynamics block**: Follow the hydro increment through seven sections, @sec-ch01-hydro.
 
 ## E {.unnumbered .unlisted}
@@ -556,7 +568,7 @@
 
 **equation of state, ideal gas**: Ideal gas conversion, @sec-ch02-ideal-gas.
 
-**equation of state, moist air**: Constant-heat-capacity moist mixture, @sec-ch02-ideal-moist.
+**equation of state, moist air**: Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist.
 
 **equation of state, shallow water**: Shallow-water conversion, @sec-ch02-shallow-water.
 
@@ -564,9 +576,11 @@
 
 **equation of state, temperature-dependent moist**: Temperature-dependent moist thermodynamics, @sec-ch02-moist-mixture.
 
+**equation of state, which can be captured**: Other equations of state and the capture allow-list, @sec-ch02-other-eos.
+
 *equation set*, see **equations solved**.
 
-**equations solved**: Conservation laws and stage ordering, @sec-ch02-laws.
+**equations solved**: Conservation laws and variables, @sec-ch02-laws.
 
 *equilibrium state*, see **steady state**.
 
@@ -676,7 +690,7 @@
 
 **$\gamma$**: [2. State, thermodynamics and species](#sec-appa-2).
 
-**`gammad`**: Constant-heat-capacity moist mixture, @sec-ch02-ideal-moist.
+**`gammad`**: Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist.
 
 *gen_options*, see **deck file, how keys are read**.
 
@@ -1060,7 +1074,7 @@
 
 **mass conservation, tests**: Mass-conservation regression checks: which test holds which total, to what tolerance, @sec-ch13-regression.
 
-**mass conservation, why the update conserves**: Conservation laws and stage ordering, @sec-ch02-laws; The finite-volume update and the flux divergence, @sec-ch04-divergence.
+**mass conservation, why the update conserves**: Conservation laws and variables, @sec-ch02-laws; The finite-volume update and the flux divergence, @sec-ch04-divergence.
 
 **mass fraction bounds**: The tracer flux positivity limiter, @sec-ch08-theta; The passive-scalar limiter and the complement bound, @sec-ch08-scalar; Passive tracers per dry air, with an optional upper bound, @sec-ch10-tracer.
 
@@ -1156,7 +1170,7 @@
 
 *moist mixture constant heat capacity*, see **equation of state, moist air**.
 
-**moist thermodynamics**: Constant-heat-capacity moist mixture, @sec-ch02-ideal-moist.
+**moist thermodynamics**: Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist.
 
 **MPI**: Environment parsing and process lifetime, @sec-ch12-environment. See also **communication backends**.
 
@@ -1456,7 +1470,7 @@
 
 **precision, round-off thresholds**: Round-off thresholds for positivity events, @sec-ch08-roundoff.
 
-**`Pref`**: Constant-heat-capacity moist mixture, @sec-ch02-ideal-moist.
+**`Pref`**: Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist.
 
 **`pressure-floor`**: EOS interface and dispatch, @sec-ch02-interface.
 
@@ -2030,7 +2044,7 @@
 
 **`traditional`**: Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch07-coriolis.
 
-**`Tref`**: Constant-heat-capacity moist mixture, @sec-ch02-ideal-moist.
+**`Tref`**: Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist.
 
 *tridiagonal solve*, see **implicit scheme, solve**.
 
@@ -2050,7 +2064,7 @@
 
 **$u^{\star}_n$**: [2. State, thermodynamics and species](#sec-appa-2).
 
-**`u0_R`**: Constant-heat-capacity moist mixture, @sec-ch02-ideal-moist.
+**`u0_R`**: Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist.
 
 **UCX**: Dispatch tensor kernels by device, @sec-ch01-dispatch. See also **build options**; **communication backends**.
 
