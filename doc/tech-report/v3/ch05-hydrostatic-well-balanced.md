@@ -39,7 +39,7 @@ rows of the split path.
 ### Summary
 
 The reference is a set of pressures and densities computed per column from the current cell densities. It has
-face pressures $p^{\mathrm{ref}}_{i\pm1/2}$ obtained by integrating $\partial_1 p = -\rho g$ exactly over each cell.
+face pressures $p_{\mathrm{sf},i\pm1/2}$ obtained by integrating $\partial_1 p = -\rho g$ exactly over each cell.
 It has a cell pressure $p_{\mathrm{ref},i}$, the cell average of a smooth profile through those faces. It has a
 cell density $\rho_{\mathrm{ref},i}$ and a face density $\rho_{\mathrm{sf},i-1/2}$ at the same temperature as the
 column. The reference is rebuilt every stage, so it follows the state. The well-balanced sweep (5.2) subtracts it
@@ -56,7 +56,7 @@ $i$), `pref`, `dref` (cell), `dsf_lr` (face density per side) [Pa, kg m$^{-3}$].
 **Activation.** On whenever $g_1\ne0$, the state has a pressure row and the EOS is not shallow water.
 `dynamics/wb-wall-clamp` (default `true`) keeps the stencils off the wall ghosts.
 
-**Guarantee / limits.** $p^{\mathrm{ref}}_{i-1/2}-p^{\mathrm{ref}}_{i+1/2} = g\rho_ih_i$ up to the rounding of one
+**Guarantee / limits.** $p_{\mathrm{sf},i-1/2}-p_{\mathrm{sf},i+1/2} = g\rho_ih_i$ up to the rounding of one
 addition. Uniform cell pressure: a six-face rule, exact for quintics.
 
 **Evidence.** `test_hydro_ref_x1.release`, `test_hydro_ref_x1_rf_wall.release`, `test_stretched_x1_ref.release`,
@@ -65,9 +65,8 @@ addition. Uniform cell pressure: a six-face rule, exact for quintics.
 
 **Local symbols** (NOTATION.md §6 has $\rho_{\mathrm{ref}}, p_{\mathrm{ref}}$ for the cell values and
 $\rho_{\mathrm{sf}}, p_{\mathrm{sf}}$ for face values, and $\chi = \rho/p$; these are used as defined there):
-$p^{\mathrm{ref}}_{i\pm1/2}$ the reference face pressures, written with the face index in the subscript and
-`ref` as a superscript only to keep the face index readable (to be settled with the editor: NOTATION's
-$p_{\mathrm{sf}}$ is the same quantity); $p_{\mathrm{a}}$ the top anchor; $\chi^{\mathrm s}_i$ the $\chi$ the density
+$p_{\mathrm{sf},i\pm1/2}$ the reference face pressures (NOTATION's $p_{\mathrm{sf}}$ with its face index); $p_{\mathrm{a}}$
+the top anchor; $\chi^{\mathrm s}_i$ the $\chi$ the density
 reference uses (NOTATION §6 lists $\chi^s_i$); $w^{(6)}_m$ the six-face weights.
 
 The reference is engaged for every gravity run with a pressure row, except shallow water
@@ -95,11 +94,11 @@ No approximation enters: the cell average is exactly what the integral needs. Gi
 recurrence fixes every other one:
 
 $$
-p^{\mathrm{ref}}_{i-1/2} = p^{\mathrm{ref}}_{i+1/2} + g\,\bar\rho_i\,h_i . \tag{5.1}
+p_{\mathrm{sf},i-1/2} = p_{\mathrm{sf},i+1/2} + g\,\bar\rho_i\,h_i . \tag{5.1}
 $$
 
 The code scans (5.1) downward from the top owned cell `iu` to cell 0, and upward from `iu`+1 into the upper
-ghosts, $p^{\mathrm{ref}}_{i+1/2} = p^{\mathrm{ref}}_{i-1/2} - g\bar\rho_ih_i$
+ghosts, $p_{\mathrm{sf},i+1/2} = p_{\mathrm{sf},i-1/2} - g\bar\rho_ih_i$
 (`hydro_ref_x1_pressure_scan_impl`, `src/hydro/hydro_ref_x1_impl.h:32-57@73c45a7c`). Each value is clamped below at
 the smallest positive normal number of the type (`:43-44`, `:53-54`).
 
@@ -123,7 +122,7 @@ face value from a cell average, and the difference would not vanish at rest. On 
 $P(x)$ through the six face values $x_{1,i-5/2}..x_{1,i+5/2}$ and average it over cell $i$:
 
 $$
-p_{\mathrm{ref},i} = \sum_{m=0}^{5} w^{(6)}_m\, p^{\mathrm{ref}}_{i-5/2+m},\qquad
+p_{\mathrm{ref},i} = \sum_{m=0}^{5} w^{(6)}_m\, p_{\mathrm{sf},i-5/2+m},\qquad
 w^{(6)} = \Big(\tfrac{11}{1440}, -\tfrac{31}{480}, \tfrac{401}{720}, \tfrac{401}{720}, -\tfrac{31}{480}, \tfrac{11}{1440}\Big). \tag{5.3}
 $$
 
@@ -143,15 +142,15 @@ $$
 
 mirrored at the top wall (`:196-210`); both rows were checked symbolically. In every case the rule's value is
 accepted only if it lies between the cell's two face pressures. Otherwise the cell takes the face mean
-$\tfrac12(p^{\mathrm{ref}}_{i-1/2}+p^{\mathrm{ref}}_{i+1/2})$ (`:176`, `:190`). On a declared stretched grid the same
+$\tfrac12(p_{\mathrm{sf},i-1/2}+p_{\mathrm{sf},i+1/2})$ (`:176`, `:190`). On a declared stretched grid the same
 average is taken with per-cell weights. These come from three-point Gauss-Legendre quadrature of the quintic
 Lagrange interpolant on the actual faces (`six_face_rows`, `src/recon/x1_rows.cpp:340-374@73c45a7c`). That
 quadrature is exact for degree 5, so it is exact for the quintic. On an unequal grid that is not declared
 stretched, the legacy branch uses the isothermal cell mean
 
 $$
-p_{\mathrm{ref},i} = \frac{p^{\mathrm{ref}}_{i-1/2}-p^{\mathrm{ref}}_{i+1/2}}{\ln\big(p^{\mathrm{ref}}_{i-1/2}/p^{\mathrm{ref}}_{i+1/2}\big)}
- = \frac{g\bar\rho_ih_i}{\ln\big(p^{\mathrm{ref}}_{i-1/2}/p^{\mathrm{ref}}_{i+1/2}\big)}, \tag{5.5}
+p_{\mathrm{ref},i} = \frac{p_{\mathrm{sf},i-1/2}-p_{\mathrm{sf},i+1/2}}{\ln\big(p_{\mathrm{sf},i-1/2}/p_{\mathrm{sf},i+1/2}\big)}
+ = \frac{g\bar\rho_ih_i}{\ln\big(p_{\mathrm{sf},i-1/2}/p_{\mathrm{sf},i+1/2}\big)}, \tag{5.5}
 $$
 
 which is the exact cell mean of an exponential through the two faces (checked symbolically). It falls back to the
@@ -163,7 +162,7 @@ operator picks the uniform branch when $\max h - \min h < 10^{-10}\,\overline{h}
 
 $$
 \rho_{\mathrm{ref},i} = p_{\mathrm{ref},i}\,\chi^{\mathrm s}_i,\qquad
-\rho_{\mathrm{sf},i-1/2} = p^{\mathrm{ref}}_{i-1/2}\,\frac{h_i\chi^{\mathrm s}_{i-1} + h_{i-1}\chi^{\mathrm s}_i}{h_{i-1}+h_i} \tag{5.6}
+\rho_{\mathrm{sf},i-1/2} = p_{\mathrm{sf},i-1/2}\,\frac{h_i\chi^{\mathrm s}_{i-1} + h_{i-1}\chi^{\mathrm s}_i}{h_{i-1}+h_i} \tag{5.6}
 $$
 
 (`src/hydro/hydro_ref_x1_impl.h:238-255@73c45a7c`; on a non-stretched grid the face weight is $\tfrac12$,
@@ -205,8 +204,11 @@ segment copies nothing from the host (`:61-68`).
 
 **Wall clamp.** With `wb-wall-clamp: true` and a physical $x_1$ wall, the six-face window of the two cells next to
 the wall is moved inside the owned cells (5.4). $\chi$ is continued past the wall rather than read from the ghosts
-(`src/hydro/hydro_ref_x1_impl.h:165-173,239-245@73c45a7c`). A block with fewer than 5 owned cells, or with
-`iu` $<4$, cannot fit the one-sided row and keeps the face mean (`:167-173`).
+(`src/hydro/hydro_ref_x1_impl.h:165-173,239-245@73c45a7c`). The one-sided row is used only where it fits the array,
+`iu` $\ge4$ (`fits`, `:168-169`). A thin block, one with fewer than 5 owned cells (`thin`, `:165-167`), still takes it
+at its physical wall, and its window may then read one seam face at the far end. The exception is a thin block whose
+other $x_1$ end is a physical wall too: there neither wall cell is clamped (`clamp_in`, `clamp_out`, `:172-173`), the
+interior six-face branch is skipped for the wall cells (`:192`), and they keep the face mean (`:176`).
 
 **Split path (`perturbation-flux`).** The kernel is evaluated once on the packed pair (FP64 background, finite
 increment). Its nonlinear decisions (anchor, floors, guards) read the total, while the arithmetic keeps the
@@ -269,7 +271,7 @@ asserted bounds above are what the chapter relies on. **Run evidence at the pin:
    without it (5.3).
 4. The figure scripts named here were drawn against earlier pins. Their agreement with 73c45a7c is not checked.
 5. The sympy script for (5.3)-(5.5) lives outside the report tree and is not a committed check. Local-symbol
-   decisions ($p^{\mathrm{ref}}_{i\pm1/2}$ against NOTATION's $p_{\mathrm{sf}}$; $p_{\mathrm a}$; $w^{(6)}$) are open with the editor.
+   decisions ($p_{\mathrm a}$; $w^{(6)}$; $\Psi_i$) are open with the editor.
 6. Curved $x_1$ (spherical-polar, cubed sphere): the scan (5.1) is the plain-measure integral. Its rest balance on
    curved grids depends on the geometric source and on `SNAP_X1_CENTROID_EXACT` (chapter 4, section 4.4; chapter 3).
    It is not derived here.
@@ -286,7 +288,7 @@ departure is zero, both sides of every face see the same reference face pressure
 a momentum flux whose divergence cancels the gravity source exactly.
 
 ::: {.callout-note title="At a glance"}
-**Purpose.** Face states $p^{\mathrm{L,R}} = \mathcal W[p-p_{\mathrm{ref}}] + p^{\mathrm{ref}}$ and
+**Purpose.** Face states $p^{\mathrm{L,R}} = \mathcal W[p-p_{\mathrm{ref}}] + p_{\mathrm{sf}}$ and
 $\rho^{\mathrm{L,R}} = \mathcal W[\rho-\rho_{\mathrm{ref}}] + \rho_{\mathrm{sf}}$, eqs. (5.7)-(5.9).
 
 **Data.** In: `hydro_w` (changed and restored in place) and the reference of 5.1. Out: $x_1$ face states
@@ -312,8 +314,8 @@ $p'$, $\rho'$ and the other rows with the chapter 4 operator $\mathcal W$, with 
 may legitimately be negative. It then sets
 
 $$
-p^{\mathrm L}_{i-1/2} = \mathcal W^{\mathrm L}[p']_{i-1/2} + p^{\mathrm{ref}}_{i-1/2},\qquad
-p^{\mathrm R}_{i-1/2} = \mathcal W^{\mathrm R}[p']_{i-1/2} + p^{\mathrm{ref}}_{i-1/2}, \tag{5.7}
+p^{\mathrm L}_{i-1/2} = \mathcal W^{\mathrm L}[p']_{i-1/2} + p_{\mathrm{sf},i-1/2},\qquad
+p^{\mathrm R}_{i-1/2} = \mathcal W^{\mathrm R}[p']_{i-1/2} + p_{\mathrm{sf},i-1/2}, \tag{5.7}
 $$
 $$
 \rho^{K}_{i-1/2} = \mathcal W^{K}[\rho']_{i-1/2} + \rho^{K}_{\mathrm{sf},i-1/2},\quad K\in\{\mathrm L,\mathrm R\} \tag{5.8}
@@ -329,7 +331,7 @@ the cell above (`:114-143`).
 Every scheme of chapter 4 reproduces a constant (eq. (4.1)), so $\mathcal W^{\mathrm{L,R}}[p'] = c$ and
 
 $$
-p^{\mathrm L}_{i-1/2} = p^{\mathrm R}_{i-1/2} = p^{\mathrm{ref}}_{i-1/2} + c .
+p^{\mathrm L}_{i-1/2} = p^{\mathrm R}_{i-1/2} = p_{\mathrm{sf},i-1/2} + c .
 $$
 
 With equal pressures and zero velocity on both sides, HLLC returns momentum flux $p^{\mathrm c} = p$ and mass flux 0
@@ -340,8 +342,8 @@ plus the gravity source, $\rho_ig_1 = -g\rho_i$ (`ConstGravityImpl::forward_spli
 
 $$
 \begin{aligned}
-\dot m_{1,i} &= -\frac{p^{\mathrm{ref}}_{i+1/2}+c - \big(p^{\mathrm{ref}}_{i-1/2}+c\big)}{h_i} - g\rho_i
- = \frac{p^{\mathrm{ref}}_{i-1/2}-p^{\mathrm{ref}}_{i+1/2}}{h_i} - g\rho_i\\
+\dot m_{1,i} &= -\frac{p_{\mathrm{sf},i+1/2}+c - \big(p_{\mathrm{sf},i-1/2}+c\big)}{h_i} - g\rho_i
+ = \frac{p_{\mathrm{sf},i-1/2}-p_{\mathrm{sf},i+1/2}}{h_i} - g\rho_i\\
  &\overset{(5.1)}{=} \frac{g\rho_ih_i}{h_i} - g\rho_i = 0 .
 \end{aligned} \tag{5.9}
 $$
@@ -443,25 +445,25 @@ conversion order 4, the four-cell face rows applied after the seam exchange.
 **Evidence.** `test_balance_column.release`, `test_balance_column_order4_python`, `test_wb_ref4_order_python` (Tests layer).
 :::
 
-**Local symbols:** $\theta_i = p_i/\rho_i$, the fixed cell temperature times the gas constant (the code's `rt`; a
-local name, because NOTATION's $\theta$ is colatitude, to be renamed at conversion); $c$ the column's gauge;
+**Local symbols:** $\Psi_i = p_i/\rho_i = 1/\chi_i$, the fixed cell temperature times the gas constant
+[m$^2$ s$^{-2}$] (the code's `rt`; NOTATION.md defines no $\Psi$, and chapter 5 uses $\Pi$ for a primitive in its wb_ref4 section); $c$ the column's gauge;
 $\varepsilon_{\mathrm{bc}}$ the residual.
 
 ### Derivation
 
 **The fixed point.** 5.2 showed that a resting column with a constant departure is balanced. Hold the temperature
-fixed per cell, $\theta_i = p_i/\rho_i$. Then $p_{\mathrm{ref}}$ is a function of the densities through (5.1)-(5.5), and
+fixed per cell, $\Psi_i = p_i/\rho_i$. Then $p_{\mathrm{ref}}$ is a function of the densities through (5.1)-(5.5), and
 the balance condition is
 
 $$
-p_i - p_{\mathrm{ref},i}\big(\boldsymbol\rho\big) = c\quad\text{for all } i,\qquad \rho_i = p_i/\theta_i . \tag{5.10}
+p_i - p_{\mathrm{ref},i}\big(\boldsymbol\rho\big) = c\quad\text{for all } i,\qquad \rho_i = p_i/\Psi_i . \tag{5.10}
 $$
 
 The gauge $c$ is free, one constant per column. The code takes it at the top cell, $c = p_{n-1} - p_{\mathrm{ref},n-1}$,
 so the top pressure does not change. It iterates
 
 $$
-p_i^{(k+1)} = p_{\mathrm{ref},i}\big(\boldsymbol\rho^{(k)}\big) + c^{(k)},\qquad \rho_i^{(k+1)} = p_i^{(k+1)}/\theta_i , \tag{5.11}
+p_i^{(k+1)} = p_{\mathrm{ref},i}\big(\boldsymbol\rho^{(k)}\big) + c^{(k)},\qquad \rho_i^{(k+1)} = p_i^{(k+1)}/\Psi_i , \tag{5.11}
 $$
 
 stopping when the residual
@@ -480,12 +482,13 @@ $$
 $$
 
 (`face_density_rows`, `src/recon/x1_rows.cpp:291-338@73c45a7c`, comment at `:310-311`). Substituting $\bar q = 1, x, x^2, x^3$
-into (5.12) reproduces the face values (sympy: weights $(-1,7,7,-1)/12$), so it is exact for cubics: one degree higher than the face rule of chapter 4
-with 4 cells. With conversion order 4 these rows replace $\rho_{\mathrm{sf}}$ on faces `is..iu+1`, after the seam exchange.
+into (5.12) reproduces the face values (sympy: weights $(-1,7,7,-1)/12$), so it is exact for cubics; it is chapter 4's face rule (4.1) with four cells. With conversion order 4 these rows replace $\rho_{\mathrm{sf}}$ on faces `is..iu+1`, after the seam exchange.
 The window is kept inside the owned cells at a clamped wall (`:303-327`). A face value is kept only if it lies between
-the two adjacent cell values, and only where neither neighbouring cell is flagged
+the two adjacent cell values, each bound widened by a relative margin of $10^{-10}$ (`kMargin`, `in_range`, `src/recon/x1_reference.cpp:17-27@73c45a7c`; on a
+flat profile the two bounds coincide, and an exact test would flip on round-off between a split and a one-block
+column), and only where neither neighbouring cell is flagged
 (`wb_ref4_faces`, `src/recon/x1_reference.cpp:42-54@73c45a7c`). A cell is flagged, and the flag dilated by two cells,
-where $\lvert\ln(p^{\mathrm{ref}}_{i-1/2}/p^{\mathrm{ref}}_{i+1/2})\rvert > 0.5$, that is, fewer than two cells per pressure scale
+where $\lvert\ln(p_{\mathrm{sf},i-1/2}/p_{\mathrm{sf},i+1/2})\rvert > 0.5$, that is, fewer than two cells per pressure scale
 height (`kMaxLogDrop`, `:21-22`; `wb_ref4_flag`, `:31-40`). At key 2 with WENO5/cp5 the face density is the cp5 row of 5.1.
 `test_wb_ref4_order_python` measures that configuration.
 
@@ -500,7 +503,7 @@ fourth order at a face on a uniform grid.
 
 `balance_column` builds the reference operator with both walls physical and `iu` $= n_1-1$, no ghosts. It uses the
 stretched-row branch for unequal widths (`src/hydro/balance_column.cpp:111-115@73c45a7c`), and evaluates it once per
-sweep (`:125`). $\theta_i$ is taken once from the input (`:109`). Velocities and every other row are left as given.
+sweep (`:125`). $\Psi_i$ is taken once from the input (`:109`). Velocities and every other row are left as given.
 The Python binding exposes the same defaults (`python/csrc/pyhydro.cpp:46-50@73c45a7c`).
 
 Refusals (each a `TORCH_CHECK`, `src/hydro/balance_column.cpp:22-57@73c45a7c`): conversion order not 2 or 4; $g\le0$;
