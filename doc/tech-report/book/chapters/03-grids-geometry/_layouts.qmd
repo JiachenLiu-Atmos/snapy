@@ -1,9 +1,11 @@
 ## Layouts and rank maps (`distribute.layout`) {#sec-ch03-layouts}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: src/layout/layout.hpp, src/layout/layout.cpp, src/layout/slab_layout.cpp, src/layout/cubed_layout.cpp, src/layout/connectivity.cpp, src/layout/connectivity.hpp, src/layout/cubed_sphere_layout.hpp, src/layout/cubed_sphere_layout.cpp, src/mesh/meshblock_options.cpp, src/mesh/mesh.cpp, tests/run_exchange_decomp.py
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/options/layout.yaml, src/layout/layout.hpp, src/layout/layout.cpp, src/mesh/mesh.hpp, src/layout/slab_layout.cpp, src/layout/cubed_layout.cpp, src/layout/connectivity.cpp, src/layout/connectivity.hpp, src/layout/cubed_sphere_layout.hpp, src/layout/cubed_sphere_layout.cpp, src/mesh/meshblock_options.cpp, src/mesh/mesh.cpp, tests/run_exchange_decomp.py at the pin
 status: draft
+author: chengcli
+reviewer: jihenghu
 -->
 
 A layout answers three questions for every block: where it sits in the block grid, which block is its neighbour in
@@ -14,7 +16,7 @@ layout key: it comes from the boundary names. How a decomposition is configured 
 configuration keys in @sec-ch12-layout, and how the layout object is built with the block in @sec-ch01-layout.
 
 Local symbols: $n_{\mathrm b,1}, n_{\mathrm b,2}, n_{\mathrm b,3}$ the number of blocks along
-$x_1$, $x_2$, $x_3$ (YAML `nb1`, `nb2`, `nb3`; code `pz`, `px`, `py`; count); $(b_2, b_3, b_1)$ a block's index
+$x_1$, $x_2$, $x_3$ (YAML `nb1`, `nb2`, `nb3`[^rg-8393bb768f37]; code `pz`, `px`, `py`; count); $(b_2, b_3, b_1)$ a block's index
 along each axis in the block grid, as in @sec-ch03-globalgrid (code `(rx, ry, rz)`; count); $n_{\mathrm{bpp}}$ the
 blocks per process (`blocks_per_process`; count).
 
@@ -34,8 +36,7 @@ ranks, neighbours and periodic flags [-].
 
 **Guarantee / limits.** N/A for accuracy; every block gets one global rank (face-major Morton order on the cubed sphere).
 
-**Evidence.** `test_exchange_decomp` (up to six processes), `test_mesh_exchange_python`; check `[C10]`; the ctest
-entries were not run for this chapter at the pin (missing evidence).
+**Evidence.** `test_exchange_decomp` (up to six processes), `test_mesh_exchange_python` (pass at the pin); check `[C10]`.
 :::
 
 ### Derivation
@@ -97,7 +98,8 @@ make_fig()
 | what | code link | symbol | switch |
 |------|-----------|----------|------|
 | options and block-to-process maps | {{< code src/layout/layout.hpp LayoutOptionsImpl >}} | `blocks_per_process` | `distribute` |
-| YAML card | {{< code src/layout/layout.cpp LayoutOptionsImpl::from_yaml >}} | `from_yaml` | `layout`, `nb1`-`nb3` |
+| YAML card | {{< code src/layout/layout.cpp LayoutOptionsImpl::from_yaml >}} | `read_layout_rows` | `layout`, `nb1`-`nb3` |
+| deck keys and defaults | {{< code src/options/layout.yaml >}} | `blocks_per_process` | `distribute` |
 | layout type | {{< code src/layout/layout.cpp LayoutImpl::create >}} | `create` | `layout` |
 | slab | {{< code src/layout/slab_layout.cpp SlabLayoutImpl::neighbor_rank >}} | `neighbor_rank` | `layout: slab` |
 | cubed | {{< code src/layout/cubed_layout.cpp CubedLayoutImpl::neighbor_rank >}} | `neighbor_rank` | `layout: cubed` |
@@ -105,17 +107,19 @@ make_fig()
 | cubed-sphere setup | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::_initialize >}} | `_initialize` | `layout: cubed-sphere` |
 | edge stepping | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::_step_one >}} | `_step_one` | none |
 | periodic flags | {{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}} | `periodic_x` | `boundary-condition` |
-| blocks per process | {{< code src/mesh/mesh.cpp MeshOptionsImpl::from_yaml >}} | `blocks_per_process` | `distribute` |
+| blocks per process | {{< code src/mesh/mesh.cpp MeshImpl::reset >}} | `blocks_per_process` | `distribute` |
 
 : Code map of the layouts. {#tbl-ch03-layouts-code}
 
 In step order (@tbl-ch03-layouts-code):
 
-1. `from_yaml` reads `layout` (default `slab`), `nb3` into `py`, `nb2` into `px`, `nb1` into `pz`; `backend` is an
-   accepted but dead key, read from the `BACKEND` environment variable instead ({{< code src/layout/layout.cpp LayoutOptionsImpl::from_yaml >}}).
-2. The mesh options read the number of blocks per process, default 1, in `from_yaml`
-   ({{< code src/mesh/mesh.cpp MeshOptionsImpl::from_yaml >}}). The mesh then sets the world size to
-   processes times blocks in `reset` ({{< code src/mesh/mesh.cpp MeshImpl::reset >}}).
+1. `from_yaml` reads the card through `read_layout_rows`, which the build generates from the rows of
+   {{< code src/options/layout.yaml >}}: `layout` (default `slab`), `nb3` into `py`, `nb2` into `px`, `nb1` into `pz`,
+   and `blocks_per_process` (default 1); `backend` is an accepted but dead key, read from the `BACKEND` environment
+   variable instead ({{< code src/layout/layout.cpp LayoutOptionsImpl::from_yaml >}}).
+2. The mesh options hold no copy of the block count: `MeshOptionsImpl::blocks_per_process` reads and writes the
+   layout's ({{< code src/mesh/mesh.hpp MeshOptionsImpl >}}). The mesh refuses a count below 1 and sets the world
+   size to processes times blocks in `reset` ({{< code src/mesh/mesh.cpp MeshImpl::reset >}}).
 3. `slab` refuses a `pz` other than 1 with "pz must be 1 for slab layout" ({{< code src/layout/slab_layout.cpp SlabLayoutImpl::_initialize >}});
    `cubed-sphere` refuses a `pz` other than 1 and `px` unequal to `py` ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::_initialize >}});
    for any other layout name `create` stops with "Unsupported layout type" ({{< code src/layout/layout.cpp LayoutImpl::create >}}).
@@ -136,28 +140,24 @@ distribute:
 
 Refused, each with its message:
 
-- a key outside `layout`, `nb1`–`nb3`, `verbose`, `blocks_per_process` and `backend`: "unknown key 'distribute/nb4'.
+- a key outside `layout`, `nb1`–`nb3`, `verbose`, `backend` and `blocks_per_process`: "unknown key 'distribute/nb4'.
   Valid keys: …";
+- `blocks_per_process` below 1: "blocks_per_process must be positive";
 - an unknown layout: "Unsupported layout type: slabs";
 - `nb1` > 1 on `slab`: "SlabLayoutImpl: pz must be 1 for slab layout", and on `cubed-sphere` its own two messages
   (@sec-ch03-gnomonic);
 - a block count that the processes do not hold: "MeshBlockImpl: world_size (1) does not match layout partitioning
   (2)."
 
-`backend` is accepted and ignored. The reading of the keys and the type dispatch are
+`backend` is accepted and ignored. The keys are rows of the options table
+({{< code src/options/layout.yaml >}}), which the reader applies, and the type dispatch is `create`
 ({{< code src/layout/layout.cpp LayoutOptionsImpl::from_yaml >}}, {{< code src/layout/layout.cpp LayoutImpl::create >}}):
 
-```cpp
-  check_keys(node, "distribute",
-             {"layout", "nb1", "nb2", "nb3", "verbose", "blocks_per_process",
-              "backend"});  // dead since #181; BACKEND env
+The rows give `layout` the default `slab`, `nb1`, `nb2` and `nb3` the default 1 (read into `pz`, `px` and `py`),
+and `blocks_per_process` the default 1.
 
-  op->type() = node["layout"].as<std::string>("slab");
-  op->py(node["nb3"].as<int>(1));
-  op->px(node["nb2"].as<int>(1));
-  op->pz(node["nb1"].as<int>(1));
-  op->backend() = get_env("BACKEND", op->backend());
-    ...
+
+```cpp
   if (options->type() == "slab") {
     pl = std::make_shared<SlabLayoutImpl>(options, p);
   } else if (options->type() == "cubed") {
@@ -182,8 +182,13 @@ Refused, each with its message:
 ({{< code tests/test_exchange.cpp ghosts_match_expected >}}) on the cubed-sphere deck `test_exchange.yaml`. The slab case,
 `test_mesh_exchange.py`, sets four blocks with `set_local_horizontal_cells` in a top-level script
 ({{< code tests/test_mesh_exchange.py >}}). Both run on CPU;
-`test_exchange_decomp` uses up to six processes and runs alone. They were not run for this chapter at the pin
-(missing evidence).
+`test_exchange_decomp` uses up to six processes and runs alone. At the pin both pass.[^lay-run]
+
+[^lay-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 49 ctests the sections of this chapter cite,
+    in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro RTX 4000) for the
+    CUDA cases, no gtest case skipped; one process, two for the `_mp` entries, up to six for `test_exchange_decomp`;
+    Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 49 of 49 ctests passed.
 
 ### Limits
 
@@ -194,3 +199,7 @@ Refused, each with its message:
 
 The Morton order of `cubed` in 3-D and the corner steps of the cubed sphere with $n_{\mathrm b,2} > 1$ have no dedicated test
 (read from the tests; not measured). The switch combinations that are tested are listed in the switch coverage matrix, @sec-ch12-matrix.
+
+<!-- reader glossary notes -->
+[^rg-8393bb768f37]: nb3 — number of blocks along the third coordinate direction
+<!-- end reader glossary notes -->

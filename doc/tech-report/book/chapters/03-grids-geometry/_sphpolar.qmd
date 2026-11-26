@@ -1,9 +1,12 @@
 ## Spherical-polar metric and sources (`spherical-polar`) {#sec-ch03-sphpolar}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: src/coord/spherical_polar.cpp, src/coord/spherical_polar.hpp, src/coord/coordinate.hpp, tests/test_coordinate.cpp
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/coord/spherical_polar.cpp, src/coord/spherical_polar.hpp, src/coord/coordinate.hpp, src/coord/x1_centroid.cpp,
+         src/hydro/hydro.cpp, tests/test_coordinate.cpp, tests/test_x1_centroid_rest.py, tests/test_stretched_x1_ref.cpp at the pin
 status: draft
+author: chengcli
+reviewer: jihenghu
 -->
 
 On a spherical-polar grid $(x_1, x_2, x_3) = (r, \theta, \varphi)$ every face area and volume is the exact integral of
@@ -36,12 +39,13 @@ centroids for the cell centres, and the curvature sources of the momentum equati
 **Guarantee / limits.** Metric exact; source terms second order. Centres are volume centroids in $r$ and $\theta$,
 except that with a single $x_2$ cell `x2v` is the midpoint; $x_{3,k}$ is always the midpoint.
 
-**Evidence.** `test_coordinate`, `test_x1_centroid_rest_python`; checks `[C4]`, `[C5]`; the ctest entries were
-not run for this chapter at the pin (missing evidence).
+**Evidence.** `test_coordinate`, `test_x1_centroid_rest_python`, `test_stretched_x1_ref` (pass at the pin);
+checks `[C4]`, `[C5]`.
 :::
 
 The scheme is on when `geometry.type` is `spherical-polar`. Its $x_1$ pressure source has a second form under
-`SNAP_X1_CENTROID_EXACT` (@sec-ch05 owns that form); the curved-face corrections of @sec-ch04 read the radial face
+the environment switch `SNAP_X1_CENTROID_EXACT`, read once by `x1_centroid_exact_enabled`
+({{< code src/coord/x1_centroid.cpp x1_centroid_exact_enabled >}}); @sec-ch05 owns that form; the curved-face corrections of @sec-ch04 read the radial face
 moments of @sec-ch03-facemoments. The coefficient names `coord_src1_i` to `coord_src3_j` follow the code.
 
 ### Derivation
@@ -224,8 +228,7 @@ deck's, with ghost widths mirrored at each end, and every formula above takes th
 accepts a stretched $x_1$ only when the declared $x_2$ bounds exclude both poles, $0<x_2^{\min}$ and
 $x_2^{\max}<\pi$ ({{< code src/coord/coordinate.cpp CoordinateImpl::CoordinateImpl >}}). The
 transverse lengths used by diffusion and the curl, `center_width2` $= r\,\Delta\theta$ and `center_width3`
-$= r\sin\theta\,\Delta\varphi$, are taken at the centroids. All are built once in `reset`; a mesh generator triggers a
-rebuild from the moved faces. The sources run in every stage, in `forward`, after the flux divergence and before the
+$= r\sin\theta\,\Delta\varphi$, are taken at the centroids. All are built once in `reset`. The sources run in every stage, in `forward`, after the flux divergence and before the
 stage update, and only on interior cells for the face-flux terms; the point-value terms use the primitives of the
 whole block. @fig-ch03-sphpolar-centroids shows where the three radial positions of a cell lie.
 
@@ -253,9 +256,9 @@ pressure term only on blocks with a single $x_1$ cell.
 | setup check, widths, coefficients | {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::reset >}} | `reset` | `type: spherical-polar` |
 | transverse lengths | {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::center_width2 >}} | `center_width2` | none |
 | face areas and volume | {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::cell_volume >}} | `cell_volume` | none |
-| radial face moments | {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::face_moment2_x1 >}} | `face_moment2_x1` | `SNAP_FLUX_COVARIANCE` |
+| radial face moments | {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::face_moment2_x1 >}} | `face_moment2_x1` | `hydro.flux-covariance` |
 | geometric sources | {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::forward >}} | `forward` | `SNAP_X1_CENTROID_EXACT` |
-| mesh-generator rebuild | {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::reset_coordinates >}} | `reset_coordinates` | none |
+| face pressures exist | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `_face_pressure1` | more than one $x_1$ cell |
 
 : Code map of the spherical-polar metric. {#tbl-ch03-sphpolar-code}
 
@@ -275,7 +278,7 @@ In step order (@tbl-ch03-sphpolar-code):
 
 **How to use it — construction card.** A spherical-polar shell between two radii, with the colatitude given
 in units of $\pi$. Replace `geometry` in a copy of `straka_single.yaml` saved as `deck.yaml` with the following. This card is
-not runnable with the `straka` driver: its initial state treats $x_1$ as height, not radius.
+not runnable with the `straka` driver: the Straka state of that driver treats $x_1$ as height, not radius.
 
 <!-- reader glossary keys -->Keys in this fragment: `x2max_pi`[^rg-f2733a81186c].
 ```yaml
@@ -305,10 +308,10 @@ angular-momentum coefficient $c_i$ of @eq-ch03-sphpolar-angmom are
               "Spherical-polar coordinates require x2 in [0, pi], got [",
               op->x2min(), ", ", op->x2max(), "]");
     ...
-  auto radial_volume = (rp.pow(3) - rm.pow(3)) / 3.0;
-  auto radial_area23 = 0.5 * (rp.pow(2) - rm.pow(2));
+  auto radial_volume = shell_volume_(rm, rp);
+  auto radial_area23 = shell_area_(rm, rp);
     ...
-  auto polar_volume = torch::abs(theta_m.cos() - theta_p.cos());
+  auto polar_volume = polar_measure_(theta_m, theta_p);
 
   coord_src1_i = register_buffer(
       "coord_src1_i",
@@ -320,6 +323,9 @@ angular-momentum coefficient $c_i$ of @eq-ch03-sphpolar-angmom are
       "coord_src1_j",
       ((sin_p - sin_m) / polar_volume).unsqueeze(0).unsqueeze(-1));
 ```
+
+The three helpers are $\tfrac13(r_+^3-r_-^3)$, $\tfrac12(r_+^2-r_-^2)$ and $\lvert\cos\theta_--\cos\theta_+\rvert$
+of the base class (`shell_volume_`, {{< code src/coord/coordinate.hpp CoordinateImpl::shell_volume_ >}}).
 
 ### Tests
 
@@ -341,7 +347,14 @@ sets the face pressure to the face radius and checks that the $m_1$ row equals
 $(p_{i+1/2}-p_{i-1/2})/\Delta x_{1,i}$, the second checks that two cell pressures give the same $m_1$ row once face pressures
 are given. The face-pressure cases run on CPU and, through the `DeviceTest` parameter, on CUDA when it is built; the
 reference-formula case runs on CPU only. All are one block, one rank. No case checks the $m_2$ and $m_3$ source
-terms. They were not run for this chapter at the pin (missing evidence).
+terms. At the pin `test_coordinate.release`, `test_x1_centroid_rest_python` and `test_stretched_x1_ref.release` pass,
+the face-pressure cases also on a GPU.[^sph-run]
+
+[^sph-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 49 ctests the sections of this chapter cite,
+    in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro RTX 4000) for the
+    CUDA cases, no gtest case skipped; one process, two for the `_mp` entries, up to six for `test_exchange_decomp`;
+    Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 49 of 49 ctests passed.
 
 ### Limits
 
@@ -349,7 +362,7 @@ terms. They were not run for this chapter at the pin (missing evidence).
 - The $m_2$ and $m_3$ angular-momentum terms are untested: no test at the pin checks them (read from the tests).
 - `nx2` = 1 uses a midpoint for `x2v`, not the polar centroid.
 - A stretched $x_1$ is refused on a grid whose $x_2$ bounds reach a pole; `test_stretched_x1_ref.release`
-  (`refuses_spherical_polar`, `refuses_the_off_pole_block_of_a_pole_deck`) passes at the pin on CPU (@sec-ch03-globalgrid).
+  (`refuses_spherical_polar`, `refuses_the_off_pole_block_of_a_pole_deck`) passes at the pin (@sec-ch03-globalgrid).
 :::
 
 A hypothesis from reading the code, not measured: the angular-momentum terms of `forward` multiply `coord_src2_i`,

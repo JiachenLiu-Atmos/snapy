@@ -97,7 +97,7 @@ The test runs six panels in one process with `execution: eager`, because it coun
 launches with the CUDA activity of the profiler; without a CUDA device it skips. At the pin it passes. The
 measured counts are 0 `tan` kernels in a steady step (arm A), 816 after the move to CUDA (arm B), 48 after the
 storage swap (arm C) and 816 after the move to FP32 (arm D).[^seamcache-run] In arm C on this run the caching
-allocator handed back the old address for 0 of the 12 swapped tensors, so the run did not exercise the case of
+allocator handed a freed address to 0 of the 12 swapped tensors, so the run did not exercise the case of
 new storage at an old address; the rebuild it shows is the plain new-storage case.
 
 [^seamcache-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs

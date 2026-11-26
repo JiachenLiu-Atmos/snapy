@@ -1,57 +1,63 @@
 ## Generic ghost exchange (`SyncOptions`) {#sec-ch03-exchange}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: src/layout/layout.hpp, src/layout/layout.cpp, src/mesh/meshblock.cpp, tests/test_mesh_exchange.py, tests/test_cubed_sphere_vertical_velocity_exchange.py
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/layout/layout.hpp, src/layout/layout.cpp, src/mesh/meshblock_exchange.cpp, src/layout/exchange.cpp,
+         tests/test_mesh_exchange.py, tests/test_periodic_corners.py, tests/test_cubed_sphere_vertical_velocity_exchange.py,
+         tests/test_exchange.cpp at the pin
 status: draft
+author: chengcli
+reviewer: jihenghu
 -->
 
 A ghost exchange is the fill of a block's ghost cells from the interior cells of its neighbours; a halo exchange is
 the same operation under another name. Every ghost that is not at a physical face (@sec-ch03-physfaces) is filled
-by an exchange. A sync packs, for each
-direction with a neighbour, the interior slab next to that face into a send buffer, moves the buffers (between
-ranks through the communication backend, @sec-ch14-backends, with the message matching and in-process copies of
-@sec-ch14-msgmatch), and unpacks each received buffer into the ghost slab of the same direction. By default only face neighbours are
-exchanged; afterwards the four $x_2$-$x_3$ ghost corners are filled from the edge strips. The per-stage sync exchanges
-the conserved variables of the hydro and, when there are scalars, of the scalar; @sec-ch03-synctype lists the other
-syncs. On the cubed sphere the same steps run with interpolation across panel edges (@sec-ch03-csinterp).
+by an exchange. A sync packs, for each direction with a neighbour, the interior slab next to that face into a send
+buffer, moves the buffers (between processes through the communication backend, @sec-ch14-backends, with the
+message matching and in-process copies of @sec-ch14-msgmatch), and unpacks each received buffer into the ghost slab
+of the same direction. On the `slab` and `cubed` layouts the four $x_2$-$x_3$ ghost corners come from the diagonal
+neighbour when there is one; where there is none, and everywhere on the cubed sphere, they are synthesised from the
+two edge strips. The per-stage sync exchanges the conserved variables of the hydro and, when there are scalars, of
+the scalar; @sec-ch03-synctype lists the other syncs. On the cubed sphere the same steps run with interpolation
+across panel edges (@sec-ch03-csinterp). This section states what a ghost holds; how the transfer is carried, and
+how an in-stage exchange becomes a cut of a captured segment, is the subject of @sec-ch14.
 
 `MeshBlockImpl::exchange` orchestrates the block sync through its layout; `LayoutImpl` owns the
-packing, remote exchange and finalisation operations, including `LayoutImpl::exchange_remote`
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange >}},
-{{< code src/layout/layout.cpp LayoutImpl::exchange_remote >}}). See @sec-ch14-msgmatch for the
-message matching and in-process copies used by those operations.
+packing, the remote exchange and the finalisation, including `LayoutImpl::exchange_remote`
+({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange >}},
+{{< code src/layout/layout.cpp LayoutImpl::exchange_remote >}}).
 
 Local symbols: $q^{\mathrm{c}}_{k,j}$ a synthesised corner ghost value; $q^{\mathrm{L}}$ and
 $q^{\mathrm{B}}$ the ghost strips left ($x_2$ side) and below ($x_3$ side) of a corner, with $j_0$, $k_0$ their
-first interior column and row next to the corner; $\iota_a\in\{-1,0,1\}$ the direction of a neighbour along $x_a$, in cells (the code's `offset`).
+first ghost column and row next to the corner; $\iota_a\in\{-1,0,1\}$ the direction of a neighbour along $x_a$, in cells (the code's `offset`).
 
 ### Summary
 
 ::: {.callout-note title="At a glance"}
-**Purpose.** For each neighbour across a face, copy its interior slab of width $n_g$ into this block's ghost slab,
-then synthesise each $x_2$-$x_3$ ghost corner as the mean of the two adjacent ghost strips (@eq-ch03-exchange-corner).
+**Purpose.** For each neighbour across a face, copy its interior slab of width $n_g$ into this block's ghost slab;
+fill each $x_2$-$x_3$ ghost corner from the diagonal neighbour, or, where there is none and on the cubed sphere, as
+the mean of the two adjacent ghost strips (@eq-ch03-exchange-corner).
 
-**Data.** In: the neighbour's interior cells. Out: ghost slabs and corners, in the units of the synced variables
+**Data.** In: the neighbours' interior cells. Out: ghost slabs and corners, in the units of the synced variables
 (conserved by default).
 
 **Placement.** Every block sync: the per-stage conserved sync, the primitive and scalar syncs.
 
-**Activation.** `SyncOptions` (`type`, `skip_corner`, `interpolate`, `dim`, phase flags); default conserved
-variables, corners skipped and synthesised, no interpolation.
+**Activation.** `SyncOptions` (`type`, `skip_corner`, `interpolate`, `dim`, `phyid`, phase flags); default conserved
+variables, corners by the layout's corner rule, no interpolation.
 
-**Guarantee / limits.** Face copies are exact; the synthesised corner is a convention, exact on a constant and first
-order on a gradient.
+**Guarantee / limits.** Face and diagonal copies are exact; the synthesised corner is a convention, exact on a
+constant and first order on a gradient.
 
-**Evidence.** `test_exchange`, `test_mesh_exchange_python`, `test_cubed_sphere_vertical_velocity_exchange_python`;
-check `[C15]`; the ctest entries were not run for this chapter at the pin (missing evidence).
+**Evidence.** `test_exchange`, `test_mesh_exchange_python`, `test_periodic_corners_python`,
+`test_cubed_sphere_vertical_velocity_exchange_python` (pass at the pin); check `[C15]`.
 :::
 
 ### Derivation
 
-The face exchange is a copy and needs no derivation. The corner is a convention, stated here. With $\iota_a$ the direction of a neighbour along $x_a$, and with the left ghost
-strip $q^{\mathrm{L}}$ (offset $\iota_2 = -1$) and the bottom strip $q^{\mathrm{B}}$ (offset $\iota_3 = -1$), the
-lower-left corner ghost at $(k, j)$ is
+The face and diagonal exchanges are copies and need no derivation. The synthesised corner is a convention, stated
+here. With $\iota_a$ the direction of a neighbour along $x_a$, and with the left ghost strip $q^{\mathrm{L}}$ (offset
+$\iota_2 = -1$) and the bottom strip $q^{\mathrm{B}}$ (offset $\iota_3 = -1$), the lower-left corner ghost at $(k, j)$ is
 
 $$
 q^{\mathrm{c}}_{k,j} = \tfrac12\left(q^{\mathrm{L}}_{k_0,\,j} + q^{\mathrm{B}}_{k,\,j_0}\right),
@@ -59,32 +65,40 @@ $$ {#eq-ch03-exchange-corner}
 
 that is, the mean of the left strip's value in the same $x_2$ column at the row next to the corner and the bottom
 strip's value in the same $x_3$ row at the column next to the corner. @eq-ch03-exchange-corner and its three mirror
-images are `fill_corners` ({{< code src/layout/layout.cpp LayoutImpl::fill_corners >}}). It reproduces a constant field; for a field with a
-gradient it is a first-order fill, because both terms are read up to $n_g$ cells away from the corner cell. The
-check evaluates @eq-ch03-exchange-corner on every corner ghost of an $n_g = 3$ block: a constant field is
-reproduced to exactly zero, and on $q = \alpha + \beta x_2 + \gamma x_3$ the error halves at each refinement
-(measured order 1.00, 1.00) and stays under the closed-form bound
-$n_g(\Delta x_2|\beta| + \Delta x_3|\gamma|)/2$, with $\Delta x_2 = \Delta x_3$ on the check's grid (`[C15]`).[^exc-c15] The tests below cover the face copies.
+images are `synthesize` inside `fill_corners` ({{< code src/layout/layout.cpp LayoutImpl::fill_corners >}}). It
+reproduces a constant field; for a field with a gradient it is a first-order fill, because both terms are read up to
+$n_g$ cells away from the corner cell. The check evaluates @eq-ch03-exchange-corner on every corner ghost of an
+$n_g = 3$ block: a constant field is reproduced to exactly zero, and on $q = \alpha + \beta x_2 + \gamma x_3$ the
+error halves at each refinement (measured order 1.00, 1.00) and stays under the closed-form bound
+$n_g(\Delta x_2|\beta| + \Delta x_3|\gamma|)/2$, with $\Delta x_2 = \Delta x_3$ on the check's grid (`[C15]`).[^exc-c15]
+
+Which corners are synthesised is the layout's corner rule, `CornerRule` ({{< code src/layout/layout.hpp CornerRule >}}):
+`diagonal` on `slab` and `cubed`, where a corner with a diagonal neighbour (a periodic image included) is exchanged
+like a face and only the others are synthesised; `synthesized` on the cubed sphere
+({{< code src/layout/cubed_sphere_layout.hpp CubedSphereLayoutImpl >}}), where a panel corner has no single diagonal
+neighbour and every corner is synthesised.
 
 [^exc-c15]: `python3 src/snapy_report/ch03/checks/geometry_check.py`, output `src/snapy_report/ch03/checks/geometry_check.out`,
-    line `[C15]`; a numpy port of `LayoutImpl::fill_corners` at the pin, CPU, double; Python 3.11.13, numpy 2.4.6, sympy 1.14.0.
+    line `[C15]`; a numpy port of the corner synthesis of `LayoutImpl::fill_corners` at the pin, CPU, double;
+    Python 3.11.13, numpy 2.4.6, sympy 1.14.0.
 
 ### Numerical method
 
 Slabs are addressed by the offset $(\iota_3, \iota_2, \iota_1)$, the direction of the neighbour in cells along
-each axis (count); `get_buffer_id` maps an
-offset to one of 9 buffers (27 on `cubed`). The sent slab is the $n_g$-wide interior next to the face; the received
-slab is the ghost zone across it. With `skip_corner` only offsets with one non-zero component are exchanged. The
-`dim` option restricts a sync to one direction (used for face states, @sec-ch03-cslrsync). Physical faces are skipped.
-`fill_corners` runs at the end of `finalize` when corners are skipped and the sync is not one phase of a split;
-for a split cubed-sphere sync it runs once after both phases. Only $x_2$-$x_3$ corners are synthesised; corners that
-involve $x_1$ are not. The per-stage sync runs at the start of `MeshBlock::forward`, before reconstruction reads the
-ghosts. @fig-ch03-exchange-stencil shows the slabs and buffer ids.
+each axis (count); `get_buffer_id` maps an offset to one of 9 buffers (27 on `cubed`, the only layout that
+exchanges in $x_1$). The sent slab is the $n_g$-wide interior next to the face; the received slab is the ghost zone
+across it. `for_each_direction` ({{< code src/layout/layout.cpp LayoutImpl::for_each_direction >}}) lists the
+offsets of a sync: with `skip_corner` (the default) it keeps the face offsets and, under the `diagonal` rule, the four
+$x_2$-$x_3$ corners; offsets that involve $x_1$ and another axis are never exchanged. The `dim` option restricts a
+sync to one direction (used for face states, @sec-ch03-cslrsync). Physical faces are skipped (`_skips_direction`).
+`fill_corners` runs at the end of `finalize` when corners are skipped and the sync is not one phase of a split; for
+a split cubed-sphere sync `exchange` runs it once after both phases. The per-stage sync runs at the start of each
+stage, before reconstruction reads the ghosts. @fig-ch03-exchange-stencil shows the slabs and buffer ids.
 
 ```{python}
 #| label: fig-ch03-exchange-stencil
-#| fig-cap: "The $3\\times3$ neighbour stencil of one block in $x_2$-$x_3$, with the buffer id of each offset. Face neighbours (orange arrows) send their interior slabs into this block's hatched ghost slabs; the four corner ghost blocks (purple) are not exchanged but synthesised from the two adjacent strips."
-#| fig-alt: "A block in the centre of a three by three arrangement, numbered 0 to 8, with arrows from the four face neighbours and the corners marked as synthesised."
+#| fig-cap: "The $3\\times3$ neighbour stencil of one block in $x_2$-$x_3$, with the buffer id of each offset. Face neighbours (orange arrows) send their interior slabs into this block's hatched ghost slabs; the four corner ghost blocks (purple) are taken from the diagonal neighbour on `slab` and `cubed`, and synthesised from the two adjacent strips where there is none and on the cubed sphere."
+#| fig-alt: "A block in the centre of a three by three arrangement, numbered 0 to 8, with arrows from the four face neighbours and the corners marked as diagonal or synthesised."
 #| echo: false
 from snapy_report.ch03.figures.fig_exchange_stencil import make_fig
 make_fig()
@@ -96,61 +110,69 @@ make_fig()
 |---|---|---|---|
 | buffer id of an offset | {{< code src/layout/layout.hpp get_buffer_id >}} | `get_buffer_id` | none |
 | sync options and defaults | {{< code src/layout/layout.hpp SyncOptions >}} | `SyncOptions` | none |
-| pack | {{< code src/layout/layout.cpp LayoutImpl::serialize >}} | `serialize` | `skip_corner` |
+| corner rule | {{< code src/layout/layout.hpp CornerRule >}} | `CornerRule` | layout |
+| offsets of a sync | {{< code src/layout/layout.cpp LayoutImpl::for_each_direction >}} | `for_each_direction` | `skip_corner` |
+| pack | {{< code src/layout/layout.cpp LayoutImpl::serialize >}} | `serialize` | none |
 | unpack | {{< code src/layout/layout.cpp LayoutImpl::deserialize >}} | `deserialize` | none |
 | corners | {{< code src/layout/layout.cpp LayoutImpl::fill_corners >}} | `fill_corners` | `skip_corner` |
 | wait, unpack, corners | {{< code src/layout/layout.cpp LayoutImpl::finalize >}} | `finalize` | none |
-| one sync, or two phases | {{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange >}} | `exchange` | `interpolate` |
-| per-stage sync | {{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}} | `exchange_ghost_zones` | none |
+| one sync, or two phases | {{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange >}} | `exchange` | `interpolate` |
+| per-stage sync | {{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_state >}} | `exchange_state` | none |
 
 : Code map of the generic exchange. {#tbl-ch03-exchange-code}
 
 In step order (@tbl-ch03-exchange-code):
 
-1. `exchange_ghost_zones` syncs `hydro_u` as conserved with interpolation on, then `scalar_s` as scalar
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}}).
+1. `exchange_ghost_zones` ({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_ghost_zones >}}) calls
+   `exchange_state`, which syncs `hydro_u` as conserved with interpolation on, then `scalar_s` as scalar
+   ({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_state >}}).
 2. `exchange` takes the two-phase branch on a subdivided cubed sphere
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange >}}), otherwise it calls `_exchange_once`
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::_exchange_once >}}). That runs the three phases in turn:
-   `begin_exchange` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::begin_exchange >}}), `launch_exchange`
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::launch_exchange >}}) and `finalize_exchange`
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::finalize_exchange >}}).
+   ({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange >}}), otherwise it calls `_exchange_once`
+   ({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::_exchange_once >}}). That runs the three phases in turn:
+   `begin_exchange` ({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::begin_exchange >}}), `launch_exchange`
+   ({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::launch_exchange >}}), whose host step is an exchange cut
+   of a captured segment (@sec-ch14), and `finalize_exchange`
+   ({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::finalize_exchange >}}).
 3. `serialize` copies each interior slab into the cached send buffer of its `get_buffer_id`
    ({{< code src/layout/layout.cpp LayoutImpl::serialize >}}).
 4. `finalize` waits on the messages, calls `deserialize` and then `fill_corners` ({{< code src/layout/layout.cpp LayoutImpl::finalize >}}).
 
 **How to use it.** There is no YAML key. The exchange follows from the layout and the boundary names
 (@sec-ch03-layouts, @sec-ch03-physfaces), and each caller sets `SyncOptions` in C++. The per-stage sync is
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}}):
+({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_state >}}):
 
 ```cpp
-  SyncOptions sync_opts;
-  sync_opts.interpolate(true).type(kConserved);
-
+  SyncOptions opts;
+  opts.interpolate(true).type(type);
   Variables sync_vars;
-  sync_vars["hydro_u"] = hydro_u;
-  exchange(sync_vars, sync_opts);
-
+  sync_vars[hydro] = vars.at(hydro);
+  exchange(sync_vars, opts);
   if (pscalar->nvar() > 0) {
-    sync_opts.type(kScalar);
+    opts.type(kScalar);
     sync_vars.clear();
-    sync_vars["scalar_s"] = scalar_s;
-    exchange(sync_vars, sync_opts);
+    sync_vars[scalar] = vars.count(scalar) ? vars.at(scalar) : torch::Tensor();
+    exchange(sync_vars, opts);
   }
 ```
 
-Corners are skipped by default (`skip_corner`) and synthesised by @eq-ch03-exchange-corner in `fill_corners`
+Corners without a diagonal neighbour are synthesised by @eq-ch03-exchange-corner in `fill_corners`
 ({{< code src/layout/layout.cpp LayoutImpl::fill_corners >}}):
 
 ```cpp
-  // Fill-in left-bot inter-panel corners
-  std::tuple<int, int, int> corner(/*dy=*/-1, /*dx=*/-1, 0);
-  auto sub = pmb->part(corner, PartOptions().exterior(true));
-  for (auto& [name, var] : vars) {
-    auto var_left = var.index(sub_left).select(-3, 0).unsqueeze(-3);
-    auto var_bot = var.index(sub_bot).select(-2, 0).unsqueeze(-2);
-    var.index_put_(sub, 0.5 * (var_left + var_bot));
-  }
+  auto synthesize = [&](int dy, int dx) {
+    std::tuple<int, int, int> corner(dy, dx, 0);
+    if (corner_rule() == CornerRule::diagonal &&
+        !_skips_direction(pmb, corner) && neighbor_rank(iloc, corner) >= 0)
+      return;
+    auto sub = pmb->part(corner, PartOptions().exterior(true));
+    auto sub_x2 = pmb->part({0, dx, 0}, PartOptions().exterior(true));
+    auto sub_x3 = pmb->part({dy, 0, 0}, PartOptions().exterior(true));
+    for (auto& [name, var] : vars) {
+      auto var_x2 = var.index(sub_x2).select(-3, dy < 0 ? 0 : -1).unsqueeze(-3);
+      auto var_x3 = var.index(sub_x3).select(-2, dx < 0 ? 0 : -1).unsqueeze(-2);
+      var.index_put_(sub, 0.5 * (var_x2 + var_x3));
+    }
+  };
 ```
 
 Nothing is refused: a face without a neighbour keeps its boundary function.
@@ -160,31 +182,41 @@ Nothing is refused: a face without a neighbour keeps its boundary function.
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
 | `test_mesh_exchange_python` | each ghost of a $2\times2$ slab in one process equals its neighbour's payload | exact | integer payloads |
+| `test_periodic_corners_python` | on a domain periodic in $x_2$ and $x_3$ every corner ghost equals the periodic image of its interior cell, after initialisation and after one stage; slab 1 block, slab $2\times2$, `cubed` $2\times2\times2$ | exact (count of wrong cells is 0) | the diagonal copy |
 | `test_cubed_sphere_vertical_velocity_exchange_python` | a uniform radial velocity crosses every panel edge unchanged | $10^{-12}$ abs. $+ 10^{-12}$ rel. | round-off of the frame rotations |
-| `test_exchange` | ghosts hold the neighbour's payload, two ranks | value bounds | payloads identify the sender |
+| `test_exchange` | ghosts hold the neighbour's payload, two processes | value bounds | payloads identify the sender |
 
 : Tests of the generic exchange. C++ entries carry the build suffix (`.release`). {#tbl-ch03-exchange-tests}
 
 The slab check, in the top-level script `test_mesh_exchange.py`, is the final `torch.all` comparison of each ghost
-with the rank `neighbor_rank` names ({{< code tests/test_mesh_exchange.py >}}).
-The radial-velocity check sets `ABS_TOL` and `REL_TOL` ({{< code tests/test_cubed_sphere_vertical_velocity_exchange.py REL_TOL >}}, {{< code tests/test_cubed_sphere_vertical_velocity_exchange.py ABS_TOL >}})
+with the rank `neighbor_rank` names ({{< code tests/test_mesh_exchange.py >}}). The corner check counts the corner
+cells that differ from their periodic image by global cell index ({{< code tests/test_periodic_corners.py >}}); its
+header records that before the diagonal rule all 36 corner cells of one slab block and all 144 of a $2\times2$ slab
+were wrong. The radial-velocity check sets `ABS_TOL` and `REL_TOL` ({{< code tests/test_cubed_sphere_vertical_velocity_exchange.py REL_TOL >}}, {{< code tests/test_cubed_sphere_vertical_velocity_exchange.py ABS_TOL >}})
 and compares the worst ghost error against them with `ideal_match`
-({{< code tests/test_cubed_sphere_vertical_velocity_exchange.py main >}}). The two-rank case uses `ghosts_match_expected`
-({{< code tests/test_exchange.cpp ghosts_match_expected >}}). The Python tests run on CPU in one process; `test_exchange.release` runs on two
-ranks with gloo. They were not run for this chapter at the pin (missing evidence). No test checks the
-synthesised corners.
+({{< code tests/test_cubed_sphere_vertical_velocity_exchange.py main >}}). The two-process case uses `ghosts_match_expected`
+({{< code tests/test_exchange.cpp ghosts_match_expected >}}). The Python tests run in one process;
+`test_exchange.release` runs on two processes with gloo. At the pin all four pass.[^exc-run] No test checks the
+synthesised corners of the cubed sphere.
+
+[^exc-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 49 ctests the sections of this chapter cite,
+    in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro RTX 4000) for the
+    CUDA cases, no gtest case skipped; one process, two for the `_mp` entries, up to six for `test_exchange_decomp`;
+    Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 49 of 49 ctests passed.
 
 ### Limits
 
 ::: {.callout-warning title="Limits"}
 - Corners that involve $x_1$ (blocks split in $x_1$ on `cubed`) are never exchanged or synthesised.
+- Cubed-sphere corners are always synthesised, first order on a gradient.
 :::
 
 At a physical $x_1$ wall such corners are rewritten by the corner refresh (@sec-ch03-cornerrefresh); at an internal
 $x_1$ seam they keep stale values (read from the code; not measured). No dimension-split stencil reads them; a
-cross-derivative operator could.
-For covariance fluxes feeding interior cells, no stale $x_1$-seam corner is read:
-`x1_seam_rows` replaces the one neighboring face-state row across the full transverse extent before the $x_1$ differences,
-although vectorized calculations on unused outer ghost rows can still read unrefreshed corners when $n_g > 1$
-(`src/hydro/hydro_forward.cpp:164–173,705–711,734–746,776–780` and `src/hydro/hydro.cpp:285–317` at `c0c38593d3d3f37bebe204a590610fd7daa05a5f`; {{< code src/hydro/hydro_forward.cpp HydroImpl::_flux_covariance >}}, {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}, {{< code src/hydro/hydro.cpp HydroImpl::_x1_ghost_rows >}}).
-The switch combinations that are tested are listed in the switch coverage matrix, @sec-ch12-matrix.
+cross-derivative operator could. The face-flux covariance does not read a stale $x_1$-seam corner for an interior
+cell: before its $x_1$ differences it relays the one neighbouring face-state row across an $x_1$ seam over the full
+transverse extent with `Exchange::x1_rows` ({{< code src/layout/exchange.cpp Exchange::x1_rows >}},
+{{< code src/hydro/hydro_forward.cpp HydroImpl::_flux_covariance >}}); unused outer ghost rows can still hold
+unrefreshed corners when $n_g > 1$ (read from the code; not measured). The switch combinations that are tested are
+listed in the switch coverage matrix, @sec-ch12-matrix.

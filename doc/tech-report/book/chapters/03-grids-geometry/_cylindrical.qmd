@@ -1,15 +1,18 @@
 ## Registered stub coordinate type (`cylindrical`) {#sec-ch03-cylindrical}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: src/coord/coordinate.hpp, src/coord/coordinate.cpp, src/coord/cylindrical.cpp_
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/coord/coordinate.hpp, src/coord/coordinate.cpp, src/forcing/coriolis.cpp,
+         tests/test_coordinate.cpp, tests/test_gravity_work_radial_exact.py at the pin
 status: draft
+author: chengcli
+reviewer: jihenghu
 -->
 
 ### Summary
 
-`CoordinateImpl::create` maps `cylindrical` to `CylindricalImpl`, but its `reset` does nothing and the source file that
-would define it is disabled by its suffix (`cylindrical.cpp_`). Its one other override, `face_centroid_shift_zero`,
+`CoordinateImpl::create` maps `cylindrical` to `CylindricalImpl`, but its `reset` does nothing. At the pin there is
+no source file for it beyond the class in the header. Its one other override, `face_centroid_shift_zero`,
 returns `false` (@sec-ch03-facemoments). No widths, centres, areas or volumes are built. The
 type is recorded here so that a reader who meets the name knows it does not work.
 
@@ -33,9 +36,11 @@ Local symbols: none.
 
 ### Derivation
 
-Not applicable: there is no implemented metric. The disabled file holds an unfinished vector transform, starting with
-`vec_from_cartesian` ({{< code src/coord/cylindrical.cpp_ >}}),
-which is not compiled.
+Not applicable: there is no implemented metric. The base constructor slices the block's face positions `x1f`,
+`x2f` and `x3f` from the global grid (@sec-ch03-globalgrid) for every type, but the cell centres, widths, areas and
+volumes are built by each type's `reset`, and this one is empty. One place outside the class still names the type:
+the Coriolis forcing has a `cylindrical` branch that rotates $\boldsymbol\Omega$ with the cell-centre `x2v`
+({{< code src/forcing/coriolis.cpp CoriolisImpl::reset >}}), which this type does not build.
 
 ### Numerical method
 
@@ -80,25 +85,25 @@ buffers: no widths, centres, areas or volumes. Do not select it. Nothing refuses
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| `test_coordinate` | `face_centroid_shift_zero_matches_the_shift` builds a cylindrical block and requires its zero-shift flag to be `false` | exact (boolean) | the test's `EXPECT_EQ` |
+| {{< code tests/test_coordinate.cpp Coordinate.face_centroid_shift_zero_matches_the_shift >}} (`test_coordinate.release`) | builds a cylindrical block and requires its zero-shift flag to be `false` | exact (boolean) | `EXPECT_EQ(pcoord->face_centroid_shift_zero(), c.zero)` |
+| {{< code tests/test_gravity_work_radial_exact.py setup_error >}} (`test_gravity_work_radial_exact_python`) | a cylindrical block with face gravity work builds and warns that the work has no form there | exact (a warning is or is not written) | `warned != (geometry == "cylindrical")` |
 
 : Tests of the cylindrical stub. C++ entries carry the build suffix (`.release`). {#tbl-ch03-cylindrical-tests}
 
-The case is the `Coordinate` test `face_centroid_shift_zero_matches_the_shift` of
-{{< code tests/test_coordinate.cpp >}}; it builds the block
-and reads the flag, and steps nothing. No test runs a solver step on this type (missing evidence).
+Both tests build a block and step nothing. No test runs a solver step on this type (missing evidence). Both
+ctests pass at the pin.[^cyl-run]
 
-
-Constructing a block with this type on a source build of the pin succeeds, and its coordinate module lists no
-buffers.[^cyl-build]
-
-[^cyl-build]: construction only, `MeshBlock(MeshBlockOptions.from_yaml(...))` with `geometry.type: cylindrical` on
-    a source build of snapy at the pin, CPU; no step was run.
+[^cyl-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 49 ctests the sections of this chapter cite,
+    in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro RTX 4000) for the
+    CUDA cases, no gtest case skipped; one process, two for the `_mp` entries, up to six for `test_exchange_decomp`;
+    Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 49 of 49 ctests passed.
 
 ### Limits
 
 ::: {.callout-warning title="Limits"}
-- Selecting `cylindrical` leaves the run with no metric buffers.
+- Selecting `cylindrical` leaves the run with no metric buffers; nothing refuses it.
+- The Coriolis branch for `cylindrical` reads cell centres the type does not build.
 :::
 
 What a run with this type does was not measured; the statement above is read from the code. The switch combinations

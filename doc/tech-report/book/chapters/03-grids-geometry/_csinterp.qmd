@@ -1,22 +1,26 @@
 ## Cross-panel ghost interpolation (`interpolate`) {#sec-ch03-csinterp}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: src/coord/cubed_sphere_utils.hpp, src/coord/cubed_sphere_utils.cpp, src/coord/gnomonic_equiangle.cpp, src/layout/cubed_sphere_layout.cpp, src/mesh/meshblock.cpp, sources/canoe__cubedsphere_decomposition_TECH_REPORT.md, tests/test_cubed_sphere_exchange.cpp
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/coord/cubed_sphere_utils.hpp, src/coord/cubed_sphere_utils.cpp, src/coord/gnomonic_equiangle.cpp,
+         src/layout/cubed_sphere_layout.cpp, src/layout/layout.cpp, src/mesh/meshblock_exchange.cpp,
+         sources/canoe__cubedsphere_decomposition_TECH_REPORT.md, tests/test_cubed_sphere_exchange.cpp at the pin
 status: draft
+author: chengcli
+reviewer: jihenghu
 -->
 
 Across a panel edge the two panels' coordinate lines meet at an angle, so a ghost cannot be a copy of a neighbour's
-cell. snapy fills each ghost by one-dimensional linear interpolation along the shared edge, from a strip of the
-neighbour's cells. The source of a ghost in layer $\ell$ does not sit opposite it: it slides along the edge toward the
+cell. snapy fills each ghost by one-dimensional interpolation along the shared edge, from a strip of the neighbour's
+cells: linear by default, or four-point Lagrange (cubic) with `interp_order: 4`. The source of a ghost in layer $\ell$ does not sit opposite it: it slides along the edge toward the
 edge midpoint by up to $n_g - \tfrac12$ cells, independently of resolution. So the strip is widened by $n_g$ cells on
 each side, and when a panel is split among blocks the widened strip reaches into the sender's own intra-panel halo,
 which must be current; the sync therefore runs in two phases, intra-panel first. Velocities are rotated from the
 sender's panel frame to the global spherical $(r, \theta, \varphi)$ frame before sending and back into the receiver's
 frame after interpolation.
 
-Edges and corners have different accuracy: the along-edge linear interpolation is second order in the
-source abscissa, but after both exchange phases `fill_corners` synthesises each $x_2$-$x_3$ corner as the mean
+Edges and corners have different accuracy: the along-edge interpolation is second order (linear) or fourth order
+(cubic) in the source abscissa, but after both exchange phases `fill_corners` synthesises each $x_2$-$x_3$ corner as the mean
 of the two adjacent ghost strips. That corner fill is exact on constants and only first order for a field
 with a gradient, because the sampled strip cells are displaced from the corner cell. See @sec-ch03-exchange
 for the construction, @eq-ch03-exchange-corner and its error check
@@ -41,13 +45,14 @@ edge ghost cells, in the units of the synced variables.
 **Placement.** Abscissae at setup (`reset`); interpolation in each sync that asks for it.
 
 **Activation.** `SyncOptions.interpolate(true)`, set by the per-stage conserved sync, the initial primitive sync and
-the scalar syncs; off for face states and the donor factor. Requires `interp_order: 2`; a subdivided panel
-($n_{\mathrm b,2} > 1$) runs the sync in two phases.
+the scalar syncs; off for face states and the donor factor. `geometry.cells.interp_order` 2 (default, linear) or 4
+(cubic), with $n_g \ge$ `interp_order`$/2$; a subdivided panel ($n_{\mathrm b,2} > 1$) runs the sync in two phases.
 
-**Guarantee / limits.** Second order (linear interpolation) in the along-edge abscissa.
+**Guarantee / limits.** Second order (linear) or fourth order (cubic, a code-comment claim) in the along-edge
+abscissa; the cubic window falls back to linear when fewer than four source cells are available.
 
-**Evidence.** `test_cubed_sphere_exchange`, `test_cubed_sphere_vertical_velocity_exchange_python`, `test_exchange`;
-check `[C11]`; the ctest entries were not run for this chapter at the pin (missing evidence).
+**Evidence.** `test_cubed_sphere_exchange`, `test_cubed_sphere_vertical_velocity_exchange_python`, `test_exchange`
+(pass at the pin); check `[C11]`; the cubic branch only through decks that use it.
 :::
 
 ### Derivation
@@ -89,10 +94,16 @@ $$
 q_{\mathrm{ghost}} = (1 - w)\,q_{\lfloor u\rfloor} + w\,q_{\lfloor u\rfloor + 1}, \qquad w = u - \lfloor u\rfloor,
 $$ {#eq-ch03-csinterp-weights}
 
-with the cell index shifted by an integer per block. @eq-ch03-csinterp-weights is the `interp_order == 2` branch of
-`_interp_ghost_LR` ({{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::_interp_ghost_LR >}}) and of `_interp_ghost_BT`
-({{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::_interp_ghost_BT >}}). Linear interpolation is exact for linear data and has an $O(\Delta\xi^2)$
-error otherwise. The margin is the largest slide rounded up, $\lceil n_g - \tfrac12\rceil = n_g$, which is
+with the cell index shifted by an integer per block. @eq-ch03-csinterp-weights is the linear branch of the shared
+`_interp_ghost` ({{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::_interp_ghost >}}), which
+`_interp_ghost_LR` ({{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::_interp_ghost_LR >}}) and
+`_interp_ghost_BT` ({{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::_interp_ghost_BT >}}) call; the
+code writes it about $q_{\lfloor u\rfloor}$, as $q_{\lfloor u\rfloor} + w\,(q_{\lfloor u\rfloor+1}-q_{\lfloor u\rfloor})$,
+so equal neighbours return it exactly. Linear interpolation is exact for linear data and has an $O(\Delta\xi^2)$
+error otherwise. With `interp_order: 4` the same function uses the four-point Lagrange polynomial through
+$q_s,\dots,q_{s+3}$ with $s=\lfloor u\rfloor-1$, clamped so that the window stays inside the received strip and the
+source panel's interior; the target is always between $q_{\lfloor u\rfloor}$ and $q_{\lfloor u\rfloor+1}$, so a
+shifted window still interpolates. With fewer than four source cells it falls back to the linear rule. The margin is the largest slide rounded up, $\lceil n_g - \tfrac12\rceil = n_g$, which is
 `cs_interp_margin` ({{< code src/coord/cubed_sphere_utils.hpp cs_interp_margin >}}). For $N_{\mathrm{p}} = 64$ and $n_g = 3$ the exact slide
 from @eq-ch03-csinterp-slide is at most 2.4955 cells and departs from the expansion by at most 0.072 cells
 (`[C11]`).[^csi-c11]
@@ -133,12 +144,13 @@ make_fig()
 | margin | {{< code src/coord/cubed_sphere_utils.hpp cs_interp_margin >}} | `cs_interp_margin` | none |
 | source abscissae | {{< code src/coord/cubed_sphere_utils.cpp cs_build_ghost_usrc >}} | `cs_build_ghost_usrc` | none |
 | global abscissae, integer shift | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::reset >}} | `usrc_shift_BT` | `interp_order` |
-| interpolation | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::interp_ghost >}} | `interp_ghost` | `interpolate` |
-| two phases | {{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange >}} | `intra_panel_only` | `interpolate` |
+| interpolation, linear and cubic | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::_interp_ghost >}} | `cubic` | `interp_order` |
+| order checks | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::reset >}} | `interp_order` | `interp_order` |
+| two phases | {{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange >}} | `intra_panel_only` | `interpolate` |
 | pack: phase stop, margin, flags, rotation | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::serialize >}} | `trans_flag` | `type` |
 | unpack: wide landing, interpolate, rotate | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::deserialize >}} | `interp_ghost` | `type` |
 | cached rotation matrix | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::_velocity_transform >}} | `_velocity_transform` | none |
-| phase filter on messages | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::exchange_remote >}} | `same_panel` | none |
+| phase filter on messages | {{< code src/layout/layout.cpp LayoutImpl::_in_phase >}} | `same_panel` | none |
 
 : Code map of the cross-panel interpolation. {#tbl-ch03-csinterp-code}
 
@@ -147,28 +159,39 @@ In step order (@tbl-ch03-csinterp-code):
 1. At setup `reset` calls `cs_build_ghost_usrc` for the whole edge and stores the block's slice with the integer
    shift `usrc_shift_LR` ({{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::reset >}}).
 2. `exchange` splits an interpolating sync on a subdivided panel into `intra_panel_only` and `cross_panel_only`
-   rounds and calls `fill_corners` after both ({{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange >}}).
+   rounds and calls `fill_corners` after both ({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange >}}).
+   A message belongs to a phase by whether its peer is on the same panel (`_in_phase`).
 3. `serialize` returns after the intra-panel neighbours in phase 1; in phase 2 it widens the strip with `extend_x2`
    or `extend_x3` ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::serialize >}}), sets `rev_flag`, `trans_flag` and `flip_flag`
-   ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::serialize >}}), rotates the velocities with `cs_apply_velocity_transform_`
+   ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::serialize >}}), rotates the velocities with `_transform_velocity_`, which applies `cs_apply_velocity_transform_`
    ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::serialize >}}) and relabels the strip with `flip_out`
    ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::serialize >}}).
 4. `deserialize` lands the wide strip with `sub_w`, calls `interp_ghost`, then rotates the narrow ghost zone back
-   with `cs_apply_velocity_transform_` ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::deserialize >}}).
+   with `_transform_velocity_` ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::deserialize >}}).
 
 **How to use it.** The interpolation is on for a cubed-sphere card (@sec-ch03-gnomonic); the only key is
-`geometry.cells.interp_order`, which must be 2 (its default). The margin $\lceil n_g - \tfrac12\rceil = n_g$ needs
-no key. Refused: `interp_order` other than 2, with "Only 2nd order ghost interpolation is supported". The linear
-branch of @eq-ch03-csinterp-weights and the margin are
-({{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::_interp_ghost_LR >}},
+`geometry.cells.interp_order`, 2 (its default) or 4:
+
+```yaml
+geometry:
+  type: gnomonic-equiangle
+  cells: {nx1: 8, nx2: 16, nx3: 16, nghost: 3, interp_order: 4}   # cubic panel-edge ghosts; needs nghost >= 2
+```
+
+The margin $\lceil n_g - \tfrac12\rceil = n_g$ needs no key; the cubic window never leaves the received strip, so it
+needs none either. Refused: an `interp_order` other than 2 or 4, with "GnomonicEquiangle: interp_order must be 2
+(linear panel-edge ghosts) or 4 (cubic)", and an order above $2n_g$, with "Ghost zone size must be at least half of
+the interpolation order". The linear branch of @eq-ch03-csinterp-weights and the margin are
+({{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::_interp_ghost >}},
 {{< code src/coord/cubed_sphere_utils.hpp cs_interp_margin >}}):
 
 ```cpp
-  auto buf0 = buf.gather(-3, u0.expand(vec));
-  auto buf1 = buf.gather(-3, u1.expand(vec));
+  auto buf0 = buf.gather(dim, u0.expand(vec));
+  auto buf1 = buf.gather(dim, u1.expand(vec));
 
-  if (options->interp_order() == 2) {
-    return x * buf1 + (1.0 - x) * buf0;
+  // linear, written about buf0 so that equal neighbours give buf0 exactly
+  // (interp_order 2, and cubic windows with fewer than 4 source cells)
+  return buf0 + x * (buf1 - buf0);
 ```
 
 ```cpp
@@ -181,6 +204,7 @@ inline int cs_interp_margin(int nghost) { return nghost; }
 |---|---|---|---|
 | `test_cubed_sphere_exchange` | faces, `dx2f` and the density after one RK[^rg-96cd21fc6070] stage are equal for nb2 = 1, 2, 4 in one process | bitwise | decomposition must not change a ghost |
 | `test_cubed_sphere_exchange` | a communication tag that would collide is refused | exact | tag arithmetic |
+| `test_cubed_sphere_exchange` | a Mesh exchange with a block missing a variable, and a block exchange with mismatched variables, are refused | exact (message) | contract |
 | `test_cubed_sphere_exchange` | `is_custom_noop` accepts the registered `custom_inner` and `custom_outer` and refuses `reflecting_inner`, an empty function and a caller's lambda | exact | Boolean result |
 | `test_cubed_sphere_exchange` | after the block exchange of six panels, the radial ghost rows inside the panel halos are the reflecting mirror with built-in `custom` faces, and keep their sentinel with a caller's function on those faces or on a `slab` block | bitwise | @sec-ch03-cornerrefresh |
 | `test_exchange` | ghosts across panel edges carry the neighbour's payload, two ranks | value bounds | payloads identify the sender |
@@ -199,22 +223,32 @@ caller rather than the interpolation: `custom_noop_callback_identity`
 ({{< code tests/test_cubed_sphere_exchange.cpp CubedSphere.custom_noop_callback_identity >}}) and the three
 `check_radial_halo_refresh` cases, for example `radial_walls_refresh_exchange_owned_horizontal_halos`
 ({{< code tests/test_cubed_sphere_exchange.cpp CubedSphere.radial_walls_refresh_exchange_owned_horizontal_halos >}});
-their deck and assertions are in @sec-ch03-cornerrefresh. They were not run for this chapter at the pin (missing
-evidence).
+their deck and assertions are in @sec-ch03-cornerrefresh. At the pin `test_cubed_sphere_exchange.release`, with its
+CUDA twin on a GPU, `test_exchange.release` and `test_cubed_sphere_vertical_velocity_exchange_python` pass.[^csi-run]
+The cubic branch has no test of its own: it runs inside the decks of `test_axial_momentum.release` and
+`test_global_phase.release`, which set `interp_order: 4` and pass at the pin, and which check their own quantities,
+not the ghosts.
+
+[^csi-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 49 ctests the sections of this chapter cite,
+    in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro RTX 4000) for the
+    CUDA cases, no gtest case skipped; one process, two for the `_mp` entries, up to six for `test_exchange_decomp`;
+    Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 49 of 49 ctests passed.
 
 ### Limits
 
 ::: {.callout-warning title="Limits"}
-- `interp_order` must be 2; the fourth-order branch of `_interp_ghost_LR` and `_interp_ghost_BT` is unreachable.
-- Bitwise decomposition independence is tested for `nb2` = 1, 2, 4 in one process, one stage.
+- Bitwise decomposition independence is tested for `nb2` = 1, 2, 4 in one process, one stage, with linear ghosts.
+- The cubic ghosts' order and their decomposition independence are claims of the code comment (bitwise equal at
+  `px` = 1, 4, 8 and 1, 2), with no committed test at the pin; the cubic window goes one-sided at a block end from
+  `px` = 6 on, in the outermost ghost layer.
 :::
 
 The source report records bit-for-bit agreement of `nb2` = 1, 2 and 4 over one cycle on CPU with gloo and one block
 per rank (`sources/canoe__cubedsphere_decomposition_TECH_REPORT.md` §7 and §10); that was measured on a development
 build, not at the pin, and re-running it at the pin needs the report's multi-rank gate, which is not committed. The
 margin cells of the wide landing zone keep the neighbour's spherical frame after the unpack; the same report shows
-with a gate that nothing reads them (§8), which was not re-checked at the pin. `_interpolate_to_local` is a stub with a
-TODO and no effect ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::_interpolate_to_local >}}). `DeviceTest.interpolate_LR` sets up linear data
+with a gate that nothing reads them (§8), which was not re-checked at the pin. `DeviceTest.interpolate_LR` sets up linear data
 and asserts nothing, as written in `interpolate_LR` ({{< code tests/test_coordinate.cpp DeviceTest.interpolate_LR >}}). The switch combinations
 that are tested are listed in the switch coverage matrix, @sec-ch12-matrix.
 

@@ -54,9 +54,9 @@ $$ {#eq-ch03-cartesian-metric}
 @eq-ch03-cartesian-metric is computed by `CoordinateImpl::face_area1`
 ({{< code src/coord/coordinate.cpp CoordinateImpl::face_area1 >}}), `face_area2`, `face_area3` and
 `CoordinateImpl::cell_volume` ({{< code src/coord/coordinate.cpp CoordinateImpl::cell_volume >}}) as outer
-products of the width vectors `dx1f`, `dx2f`, `dx3f` (`[G3]` of `v3_geometry_check.py`). The width of cell $i$
+products of the width vectors `dx1f`, `dx2f`, `dx3f` (`[G3]` of `v3_geometry_check.py`). The width of cell $i$[^rg-741b89eeff43]
 is `CoordinateImpl::center_width1` ({{< code src/coord/coordinate.cpp CoordinateImpl::center_width1 >}}),
-the vector `dx1f` broadcast over the block. The cell centre $x_{1,i}$ (`x1v`) is the midpoint of its faces, and
+the vector `dx1f` broadcast over the block. The cell centre $x_{1,i}$[^rg-265b4f46a2ce] (`x1v`) is the midpoint of its faces, and
 `dx1v` is the distance between neighbouring centres.
 
 #### Stretched $x_1$ faces
@@ -181,3 +181,9 @@ CUDA. At the pin both ctests pass: `test_coordinate.release` ran 82 gtest cases 
    stage-1 bound; this section does not derive it.
 2. **$x_1$ only.** Only $x_1$ may be stretched; $x_2$ and $x_3$ are uniform on every grid type.
 3. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
+
+<!-- reader glossary notes -->
+[^rg-741b89eeff43]: $i, j, k$ — cell indices in $x_1, x_2, x_3$
+
+[^rg-265b4f46a2ce]: $x_{1,i}$ — cell volume centroid ($r_{c,i}$ on spherical-polar)
+<!-- end reader glossary notes -->

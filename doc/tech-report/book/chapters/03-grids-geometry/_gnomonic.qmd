@@ -21,7 +21,7 @@ frame, and the momentum equation gains curvature sources that keep a uniform pre
 ::: {.callout-note title="At a glance"}
 **Purpose.** Exact solid angles, @eq-ch03-gnomonic-solidangle, and volumes, @eq-ch03-gnomonic-volume, of a gnomonic panel cell.
 
-**Data.** In: faces in $r$ [m], $\xi$ and $\eta$ [rad]. Out: areas [m$^2$], volumes [m$^3$], panel cosines and sines.
+**Data.** In: faces in $r$ [m], $\xi$[^rg-788c4c144f03] and $\eta$ [rad]. Out: areas [m$^2$], volumes [m$^3$], panel cosines and sines.
 
 **Placement.** Metric at setup (`reset`); curvature sources in every stage.
 
@@ -43,7 +43,7 @@ underline marks a covariant component.
 #### The panel metric
 
 The point $(\xi,\eta)$ of a panel is the unit vector $\hat{\mathbf u}=(1,X,Y)/Q$. `cs_metric_at`
-({{< code src/coord/cubed_sphere_utils.cpp cs_metric_at >}}) returns $X$, $Y$, $Q$, $C$ and $D$ at given angles.
+({{< code src/coord/cubed_sphere_utils.cpp cs_metric_at >}}) returns $X$, $Y$, $Q$, $C$[^rg-b71b7096829d] and $D$ at given angles.
 The tangent vectors along $X$ and $Y$ are
 
 $$
@@ -169,6 +169,13 @@ sliced as in @sec-ch03-globalgrid. The radial direction follows the rules of @se
 stretched $x_1$. The face moments of a radial face are @sec-ch03-facemoments's. The panel-edge ghosts are
 interpolated across the seams (@sec-ch03-csinterp) at the order `cells/interp_order`, 2 (linear) or 4 (cubic).
 
+Each $x_2$ and $x_3$ Riemann problem is solved in a local orthonormal frame of its face: the face states are
+transformed before the solve with the face metric, and the fluxes back after it (`prim2local2_` and
+`flux2global2_`, {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::prim2local2_ >}}). In the radial
+curvature sources of `forward` the C++ local `radius`[^rg-de142f472665] is the cell-centre `x1v`, which on this grid is the face
+midpoint, not the volume centroid. The corrected-PE[^rg-d5e077ac54b1] gravity work of @sec-ch06 runs on this grid with the
+`radial_mid` measure, which accounts for that midpoint (`x1_measure`, {{< code src/hydro/gravity_work.hpp x1_measure >}}).
+
 ```{python}
 #| label: fig-ch03-gnomonic-cosine
 #| fig-cap: "The cosine of the angle between the coordinate lines, $\\cos\\psi = -XY/(CD)$, over one gnomonic panel, with $\\xi$ and $\\eta$ in degrees. It is zero on the two centre lines and reaches $\\pm1/2$ at the corners, which is where non-orthogonality enters the face states and fluxes."
@@ -182,13 +189,20 @@ make_fig()
 
 **A minimal input.**
 
+<!-- reader glossary keys -->Keys in this fragment: `x3min_pi`[^rg-c95e8cfafdcf], `x3max_pi`[^rg-cb56f7532a92], `external`[^rg-f40f85f87106], `x1-inner`[^rg-daddfd12b96a], `x1-outer`[^rg-60952881820b], `x2-inner`[^rg-c7b5a7d38ab1], `x2-outer`[^rg-a0f53b9518db], `x3-inner`[^rg-235afd2e74d2], `x3-outer`[^rg-dbe77d8a94f1].
 ```yaml
 geometry:
   type: gnomonic-equiangle
   bounds: {x1min: 6.4e6, x1max: 6.5e6, x2min_pi: -0.25, x2max_pi: 0.25, x3min_pi: -0.25, x3max_pi: 0.25}
   cells: {nx1: 20, nx2: 24, nx3: 24, nghost: 3}
 distribute: {layout: cubed-sphere}
+boundary-condition:
+  external: {x1-inner: reflecting, x1-outer: reflecting,
+             x2-inner: custom, x2-outer: custom, x3-inner: custom, x3-outer: custom}
 ```
+
+The panel edges name `custom` on `x2-inner`, `x2-outer`, `x3-inner` and `x3-outer`, the built-in no-op, so the
+cubed-sphere exchange owns them (@sec-ch03-physfaces).
 
 **What is refused, and why.** `GnomonicEquiangleImpl::reset` stops when `nx2 != nx3`; when `interp_order` is
 neither 2 nor 4; and when `interp_order` exceeds twice the ghost count ("Ghost zone size must be at least half of
@@ -236,3 +250,31 @@ $10^{-6}$. These are round-off and are quoted against their bounds.[^gno-run]
    order.
 2. **No value test of the lateral face areas** beyond what parts (a) and (b) of the volume test imply.
 3. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
+
+<!-- reader glossary notes -->
+[^rg-788c4c144f03]: $\xi, \eta$ — the two gnomonic-equiangle panel coordinates of a cubed-sphere block ($x_2, x_3$) [rad]; their cell centres are `x2v` and `x3v` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/gnomonic_equiangle.cpp#L56-L69)
+
+[^rg-b71b7096829d]: $C$ — Courant number (named: acoustic, advective, vertical acoustic)
+
+[^rg-de142f472665]: radius — C++ local holding the cell-centre radius `x1v` in the gnomonic source terms
+
+[^rg-d5e077ac54b1]: PE — potential energy
+
+[^rg-c95e8cfafdcf]: x3min_pi — lower bound of the third coordinate in multiples of pi
+
+[^rg-cb56f7532a92]: x3max_pi — upper bound of the third coordinate in multiples of pi
+
+[^rg-f40f85f87106]: external — boundary-function names for external domain faces
+
+[^rg-daddfd12b96a]: x1-inner — boundary name on the inner first-coordinate face
+
+[^rg-60952881820b]: x1-outer — boundary name on the outer first-coordinate face
+
+[^rg-c7b5a7d38ab1]: x2-inner — boundary name on the inner second-coordinate face
+
+[^rg-a0f53b9518db]: x2-outer — boundary name on the outer second-coordinate face
+
+[^rg-235afd2e74d2]: x3-inner — boundary name on the inner third-coordinate face
+
+[^rg-dbe77d8a94f1]: x3-outer — boundary name on the outer third-coordinate face
+<!-- end reader glossary notes -->

@@ -1,9 +1,12 @@
 ## One global grid, sliced per block (YAML `geometry`) {#sec-ch03-globalgrid}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: src/coord/coordinate.cpp, src/coord/coordinate.hpp, tests/test_coordinate.cpp
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/coord/coordinate.cpp, src/coord/coordinate.hpp, src/options/coord.yaml, src/input/check_keys.cpp,
+         tests/test_coordinate.cpp, tests/test_stretched_x1.cpp, tests/test_cubed_sphere_exchange.cpp at the pin
 status: draft
+author: chengcli
+reviewer: jihenghu
 -->
 
 snapy builds the face coordinates of a block by slicing one global array per axis rather than by spacing the block's
@@ -18,7 +21,7 @@ $a$ [m or rad]; $o_a$ the global index of a block's first interior cell on axis 
 the global face array of axis $a$; $n_a$ the block's interior cell count on axis $a$ (count);
 $x^{\mathrm{blk}}_{a,\min}$ the block's lower bound on axis $a$ [m or rad]; $n_b$ the number of blocks on axis $a$
 (count); $b_a$ the block's index along axis $a$, from 0 (count); $n_g$[^rg-e176f04ce147] the ghost cells per side (`nghost`[^rg-6f20f9603219], count);
-$q$ the width ratio of a geometric stretched $x_1$ (`x1rat`[^rg-83f2464f46a0], -); $F_k$, $k=0,\dots,n^{\mathrm{glob}}_1$, the interior
+$q$ the width ratio of a geometric stretched $x_1$ (`x1rat`, -); $F_k$, $k=0,\dots,n^{\mathrm{glob}}_1$, the interior
 faces of a stretched $x_1$; $n_e$ the ghost faces the stretched global array carries per end (count).
 
 ### Summary
@@ -36,8 +39,8 @@ Out: the block's face positions [m or rad], ghosts included, and its integer off
 Requires each global count divisible by the blocks on its axis. `geometry/x1f` or `geometry/cells/x1rat` (not both)
 makes $x_1$ stretched; default uniform.
 
-**Guarantee / limits.** Exact (bitwise) for faces built from the global grid; a mesh generator passed to
-`reset_coordinates` rebuilds the faces from the block's own bounds and bypasses the invariant.
+**Guarantee / limits.** Exact (bitwise): every coordinate type builds its faces from the global grid; there is no
+other path that sets them at the pin.
 
 **Evidence.** `test_coordinate`, `test_stretched_x1`, `test_deck_x1_wiring`, `test_stretched_x1_ref` (pass at the
 pin); `test_cubed_sphere_exchange`, `test_local_horizontal_cells_python`; check `[C16]`.
@@ -52,7 +55,7 @@ radius [m] on a spherical-polar or cubed-sphere grid (@sec-appa-conventions). Up
 faces run from `x1min`[^rg-651c23886373] at the bottom to `x1max`[^rg-358e9c8d45a7] at the top, the first interior cell is the lowest, and gravity
 pointing down is a negative `grav1`[^rg-a20bd6efce5e] (@sec-ch06-cell). The vertical faces are a slice of one global face array,
 evenly spaced by $\Delta x_1$ (@eq-ch03-globalgrid-slice), or stretched when the deck gives `geometry/x1f` or
-`geometry/cells/x1rat` (@eq-ch03-globalgrid-x1rat), unless a mesh generator rebuilds them, as derived below.
+`geometry/cells/x1rat` (@eq-ch03-globalgrid-x1rat), as derived below.
 
 ### Derivation
 
@@ -172,15 +175,17 @@ bounds read off the face list, so there is no accumulation and the $x_1$ ends mu
 | stretched $x_1$ metric | {{< code src/coord/coordinate.cpp CoordinateImpl::x1_metrics_ >}} | `x1_metrics_` | stretched $x_1$ |
 | geometry refusal | {{< code src/coord/coordinate.cpp CoordinateImpl::CoordinateImpl >}} | `sph` | stretched $x_1$ |
 | boundary and device refusals | {{< code src/hydro/hydro.cpp HydroImpl::_check_stretched_x1 >}} | `_check_stretched_x1` | stretched $x_1$ |
-| mesh generator | {{< code src/coord/coordinate.cpp CoordinateImpl::reset_coordinates >}} | `reset_coordinates` | none |
+| deck keys and defaults | {{< code src/options/coord.yaml >}} | `GeometryRows` | `geometry` |
 
 : Code map of the global grid. {#tbl-ch03-globalgrid-code}
 
 In step order (@tbl-ch03-globalgrid-code):
 
-1. `from_yaml` reads `geometry.type` (default `cartesian`), the bounds (default $[0,1]$ on each axis, with `x2min_pi`[^rg-e074f181bf79]
-   style keys multiplied by $\pi$) and the cell counts into the global fields
-   ({{< code src/coord/coordinate.cpp CoordinateOptionsImpl::from_yaml >}}). Unknown keys are refused by `check_keys`.
+1. `from_yaml` reads the card through `GeometryRows`, which the build generates from the rows of
+   {{< code src/options/coord.yaml >}}: `geometry.type` (default `cartesian`), the bounds (default $[0,1]$ on each
+   axis, with `x2min_pi`[^rg-e074f181bf79] style keys multiplied by $\pi$; given both forms, the `_pi` key wins) and
+   the cell counts go into the global fields ({{< code src/coord/coordinate.cpp CoordinateOptionsImpl::from_yaml >}}).
+   Unknown keys are refused by the rows' key check, `check_keys`.
    With `x1f` or `cells/x1rat` it builds the interior face list (@eq-ch03-globalgrid-x1rat), checks that it
    increases strictly and that adjacent widths differ by at most `kX1MaxWidthRatio` $=1.5$, and stores it as
    `x1f_interior`, which makes `stretched_x1()` true.
@@ -189,7 +194,7 @@ In step order (@tbl-ch03-globalgrid-code):
 3. Each global count must be divisible by the blocks on its axis; otherwise setup stops with "Number of total x1
    grids must be divisible by the number of mesh blocks in x1 direction" (and the same for x2, x3), checked with
    `nb1` and its siblings ({{< code src/coord/coordinate.cpp CoordinateOptionsImpl::from_yaml >}}).
-4. `nghost` is read (default 1) and `interp_order`[^rg-5ae45a042270] (default 2); then `repartition` sets the block's bounds from its
+4. `nghost` is read (default 1) and `interp_order` (default 2); then `repartition` sets the block's bounds from its
    layout location, with $x_1$ forced to the first block on the cubed sphere, and its counts to
    $n^{\mathrm{glob}}_a/n_b$ ({{< code src/coord/coordinate.cpp CoordinateOptionsImpl::repartition >}}). On a stretched
    $x_1$ the $x_1$ bounds are faces $l_1 n$ and $(l_1+1)n$ of the list, $n=n^{\mathrm{glob}}_1/n_{b}$. After the
@@ -252,23 +257,22 @@ with its message:
   bounds itself): "… lies outside the declared global x2 grid" or "… is not exactly n cells of the declared global
   x2 grid".
 
-The keys, the divisibility test and the defaults are these lines of `from_yaml`
-({{< code src/coord/coordinate.cpp CoordinateOptionsImpl::from_yaml >}}); `repartition` then gives the block
-$n_a = n^{\mathrm{glob}}_a/n_b$ cells and its offset $o_a$ of @eq-ch03-globalgrid-offset:
+The keys and their defaults are rows of {{< code src/options/coord.yaml >}}; the divisibility test and the
+repartition are these lines of `from_yaml` ({{< code src/coord/coordinate.cpp CoordinateOptionsImpl::from_yaml >}});
+`repartition` then gives the block $n_a = n^{\mathrm{glob}}_a/n_b$ cells and its offset $o_a$ of
+@eq-ch03-globalgrid-offset:
 
 ```cpp
-  check_keys(node, "geometry", {"type", "bounds", "cells", "x1f"});
-  op->type(node["type"].as<std::string>("cartesian"));
+  auto g = GeometryRows::read(config);
+  if (!g.present()) return op;  // return default options
     ...
-  check_keys(node["cells"], "geometry/cells",
-             {"nx1", "nx2", "nx3", "nghost", "interp_order", "x1rat"});
-  op->global_nx1() = node["cells"]["nx1"].as<int>(1);
-  op->global_nx2() = node["cells"]["nx2"].as<int>(1);
-  op->global_nx3() = node["cells"]["nx3"].as<int>(1);
+  op->global_nx1() = g.nx1();
+  op->global_nx2() = g.nx2();
+  op->global_nx3() = g.nx3();
     ...
-  int nb1 = playout->options->pz();
-  int nb2 = playout->options->px();
-  int nb3 = playout->options->py();
+  int nb1 = playout->options->nb(1);
+  int nb2 = playout->options->nb(2);
+  int nb3 = playout->options->nb(3);
 
   if (op->global_nx1() % nb1 != 0) {
     TORCH_CHECK(
@@ -276,9 +280,8 @@ $n_a = n^{\mathrm{glob}}_a/n_b$ cells and its offset $o_a$ of @eq-ch03-globalgri
         "Number of total x1 grids must be divisible by the number of mesh "
         "blocks in x1 direction");
     ...
-  op->nghost() = node["cells"]["nghost"].as<int>(1);
-    ...
-  op->interp_order() = node["cells"]["interp_order"].as<int>(2);
+  op->nghost() = g.nghost();
+  op->interp_order() = g.interp_order();
   op->repartition(layout);
 ```
 
@@ -312,27 +315,24 @@ Python setter test checks the resolved counts and the faces of each axis in `AXE
 ({{< code tests/test_cubed_sphere_exchange.cpp CubedSphere.subdivided_panel_exchange_matches_one_block >}}).
 
 All entries run on CPU; the gnomonic comparison also has a CUDA[^rg-7dab1148c3f0] case in the same binary, which skips without a
-GPU[^rg-326ea2f442e6]. None runs on more than one rank. At the pin `test_coordinate`, `test_stretched_x1` (8 passed),
-`test_deck_x1_wiring` (3 passed) and `test_stretched_x1_ref` (18 passed, 4 skipped that need a switch) pass on
-CPU;[^gg-run68] `test_cubed_sphere_exchange` and `test_local_horizontal_cells_python` were not run for this chapter
-(missing evidence). How far per-block spacing would move the faces is not measured at the pin.
+GPU[^rg-326ea2f442e6]. None runs on more than one rank. At the pin all seven ctests of the table pass, with the
+CUDA case of `test_cubed_sphere_exchange` run on a GPU.[^gg-run] How far per-block spacing would move the faces is
+not measured at the pin.
 
-[^gg-run68]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the tests' own cards; run:
-    `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 ctest -V -R '^test_coordinate\.|^test_stretched_x1|^test_deck_x1_wiring'`
-    in a CPU Release source build at the pin (`cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON -DCUDA=OFF
-    -DNETCDF=ON -DPNETCDF=OFF -DUCX=ON`), CPU, double, 1 process; torch 2.10.0, kintera 2.6.6, GCC 11.5.0].
+[^gg-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 49 ctests the sections of this chapter cite,
+    in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro RTX 4000) for the
+    CUDA cases, no gtest case skipped; one process, two for the `_mp` entries, up to six for `test_exchange_decomp`;
+    Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 49 of 49 ctests passed.
 
 ### Limits
 
 ::: {.callout-warning title="Limits"}
-- A mesh generator passed to `reset_coordinates` rebuilds the faces from the block's own bounds, outside the
-  global-slice invariant ({{< code src/coord/coordinate.cpp CoordinateImpl::reset_coordinates >}}).
 - A stretched $x_1$ needs reflecting $x_1$ walls, no periodic $x_1$, no MPS device, a width ratio of adjacent cells
   within 1.5, equal cell counts per $x_1$ block, and one of the three geometries above; each is refused otherwise.
 :::
 
-The mesh-generator path is reached only by code that calls `reset_coordinates`; no test at the pin exercises it with
-a decomposed grid (not measured). The interpolants the $x_1$ reconstruction accepts on a stretched $x_1$, and their
+The interpolants the $x_1$ reconstruction accepts on a stretched $x_1$, and their
 order there, are those of @sec-ch04; this section covers only the grid. Bitwise decomposition invariance of
 the faces is tested for $x_2$ splits of 2 and 3 blocks on Cartesian and of 2 and 4 blocks per panel on the cubed
 sphere; $x_1$ and $x_3$ splits of the faces are not tested on their own. The switch combinations that are tested are
@@ -343,8 +343,6 @@ listed in the switch coverage matrix, @sec-ch12-matrix.
 
 [^rg-6f20f9603219]: nghost — number of ghost cells at each boundary
 
-[^rg-83f2464f46a0]: x1rat — ratio of adjacent $x_1$ cell widths of a geometric stretched $x_1$ (in `geometry/cells`)
-
 [^rg-651c23886373]: x1min — lower bound of the first coordinate
 
 [^rg-358e9c8d45a7]: x1max — upper bound of the first coordinate
@@ -353,15 +351,13 @@ listed in the switch coverage matrix, @sec-ch12-matrix.
 
 [^rg-254534abaa24]: CPU — central processing unit
 
-[^rg-fbe9686e1f06]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14)
+[^rg-fbe9686e1f06]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); `machine_epsilon` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14)
 
 [^rg-e074f181bf79]: x2min_pi — lower bound of the second coordinate in multiples of pi
 
 [^rg-7888cc7a7f34]: bounds — coordinate bounds
 
 [^rg-7e4292ba0a15]: cells — cell counts and ghost-width options
-
-[^rg-5ae45a042270]: interp_order — order used for grid interpolation
 
 [^rg-f9fe7a2e3627]: x2min — lower bound of the second coordinate
 

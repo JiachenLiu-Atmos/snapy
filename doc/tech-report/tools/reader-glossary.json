@@ -843,6 +843,9 @@
       "term": "$\\xi, \\eta$",
       "notation_group": "1",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/gnomonic_equiangle.cpp#L56-L69",
+      "meaning_by_file": {
+        "chapters/03-grids-geometry/_gnomonic.qmd": "the two gnomonic-equiangle panel coordinates of a cubed-sphere block ($x_2, x_3$) [rad]; their cell centres are `x2v` and `x3v` in the code"
+      },
       "section": "sec-appa-1"
     },
     {
@@ -923,6 +926,9 @@
       "term": "$\\delta_i$",
       "notation_group": "1",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/gravity_work_radial.hpp#L95-L105",
+      "meaning_by_file": {
+        "chapters/03-grids-geometry/_facemoments.qmd": "centroid offset $x_{1,i}-x^{\\mathrm{m}}_{1,i}$ (zero on Cartesian); `x1_centroid_offset` in the code"
+      },
       "section": "sec-appa-1"
     },
     {
@@ -1554,6 +1560,9 @@
       "term": "$B$",
       "notation_group": "6",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_ref_x1_impl.h#L126-L130",
+      "meaning_by_file": {
+        "chapters/03-grids-geometry/_seamreg.qmd": "the binomial weights $(1,4,6,4,1)/16$, written over `T(16)` in the code"
+      },
       "section": "sec-appa-6"
     },
     {
@@ -1676,6 +1685,9 @@
       "term": "$\\epsilon_{\\mathrm{m}}$",
       "notation_group": "7",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14",
+      "meaning_by_file": {
+        "chapters/03-grids-geometry/_globalgrid.qmd": "machine epsilon of the working precision (never bare $\\epsilon$, which is $\\epsilon_{\\mathrm{piv}}$); `machine_epsilon` in the code"
+      },
       "section": "sec-appa-7"
     },
     {

@@ -1,9 +1,13 @@
 ## Donor factor across seams: raw copy (`limiter`) {#sec-ch03-thetacopy}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: src/hydro/hydro_forward.cpp, src/scalar/scalar.cpp, sources/canoe__theta_seam_TECH_REPORT.md, tests/test_flux_positivity_cubedsphere.py, tests/test_sedimentation_cubed_seam.cpp
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/hydro/hydro_forward.cpp, src/hydro/flux_positivity.cpp, src/hydro/flux_positivity.hpp, src/scalar/scalar.cpp,
+         sources/canoe__theta_seam_TECH_REPORT.md, tests/test_flux_positivity_cubedsphere.py,
+         tests/test_sedimentation_cubed_seam.cpp at the pin
 status: draft
+author: chengcli
+reviewer: jihenghu
 -->
 
 The tracer flux positivity limiter of @sec-ch08-theta computes, per cell and species, a factor $\Theta\in[0,1]$ and scales
@@ -11,7 +15,7 @@ every face flux that drains the cell by it. The limited flux of a face must be o
 removed from the donor is not the mass added to the receiver. At a block seam one side's donor is a ghost, so that
 ghost must hold the donor's own $\Theta$[^rg-f9864f25fc41]. On a cubed sphere an interpolated ghost would be a blend of several cells'
 factors, not the donor's; the exchange therefore uses `interpolate(false)`. The species enthalpy that the withheld
-mass carries is recomputed from the ghost state instead of being exchanged.
+mass carries is exchanged the same way, so the carry of a shared face also uses the donor's own value.
 
 Local symbols: $\mathcal F_f$ the requested species flux through face $f$ before limiting
 [kg m$^{-2}$ s$^{-1}$]; $i_{\mathrm{dn}}(f)$ the index of the donor cell of face $f$, the upwind cell the flux drains.
@@ -23,10 +27,11 @@ Local symbols: $\mathcal F_f$ the requested species flux through face $f$ before
 never interpolated, so both blocks sharing a face scale its flux by the donor's own factor
 (@eq-ch03-thetacopy-face).
 
-**Data.** In/out: $\Theta\in[0,1]$ [-] per cell and species, ghosts included; the species enthalpy is recomputed
-from the ghost state, not exchanged.
+**Data.** In/out: $\Theta\in[0,1]$ [-] per cell and species, ghosts included, and, when species carry energy, the
+species enthalpy [J kg$^{-1}$], copied the same way.
 
-**Placement.** Each stage, after `flux_positivity_theta` and before the limited fluxes are applied.
+**Placement.** Each stage, inside `PositivityLimiter::apply`: after $\Theta$ and its census, before the carry and
+the scaling of the fluxes.
 
 **Activation.** Hydro: at least one species (`ny` > 0) and either `dynamics.equation-of-state.limiter` on or
 face-flux covariance rows on the $x_2$ or $x_3$ faces (`cov2`, `cov3`). Scalars: the limiter on or the scalar's own
@@ -35,7 +40,7 @@ covariance row (`cov`), with no species condition.
 **Guarantee / limits.** Exact copy; species mass conserved across seams.
 
 **Evidence.** `test_flux_positivity_cubedsphere_python`, `test_flux_positivity_cubedsphere_moist_python`,
-`test_sedimentation_cubed_seam`; check `[C12]`; the ctest entries were not run for this chapter at the pin (missing evidence).
+`test_sedimentation_cubed_seam` (pass at the pin); check `[C12]`.
 :::
 
 ### Derivation
@@ -50,80 +55,82 @@ $$ {#eq-ch03-thetacopy-face}
 and the two blocks sharing $f$ each evaluate $\Theta_{i_{\mathrm{dn}}(f)}$, one from its interior and one from its ghost, so the
 ghost must hold the donor's value bit for bit. A raw copy delivers exactly the neighbour's interior cell that occupies
 the ghost position, after the same reverse, flip and transpose relabelling as every cubed-sphere strip; within a panel
-and across $x_1$ seams the ghost is the same cell anyway. The scaling @eq-ch03-thetacopy-face is
-`flux_positivity_scale_`, called after the copy ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
+and across $x_1$ seams the ghost is the same cell anyway. The factor of each face, @eq-ch03-thetacopy-face, is
+`flux_positivity_factor` ({{< code src/hydro/flux_positivity.cpp flux_positivity_factor >}}), applied to the register
+rows in `post_` after the copy ({{< code src/hydro/flux_positivity.cpp PositivityLimiter::post_ >}}).
 Nothing is approximated. The check confirms the copy (`[C12]`): over $2\times10^5$ random faces a copied $\Theta$
 leaves a column residual of exactly zero at every one of them.[^tc-c12]
 
 [^tc-c12]: `python3 src/snapy_report/ch03/checks/geometry_check.py`, output `src/snapy_report/ch03/checks/geometry_check.out`,
-    line `[C12]`; a numpy and sympy port of the donor-factor exchange and `flux_positivity_scale_` in
-    `HydroImpl::forward` at the pin, CPU, double; Python 3.11.13, numpy 2.4.6, sympy 1.14.0.
+    line `[C12]`; a numpy and sympy port of the donor-factor exchange and the donor scaling of the limited
+    flux (at 73c45a7c `flux_positivity_factor` in `PositivityLimiter::post_`), CPU, double; Python 3.11.13, numpy 2.4.6, sympy 1.14.0.
 
 ### Numerical method
 
 $\Theta$ is a cell quantity per species, computed in each stage after the $x_1$ seam fluxes are made single-valued
 (@sec-ch03-x1seams) and before the fluxes are scaled. Its ghosts are filled like conserved-variable ghosts: the
-exchange at internal faces (with corners synthesised as usual), then every installed bfunc in scalar mode at physical
-faces. The scalar module does the same for its tracers.
+exchange at internal faces (corners as in @sec-ch03-exchange), then every installed bfunc in scalar mode at physical
+faces. The hydro and the scalar module share one driver, `PositivityLimiter`
+({{< code src/hydro/flux_positivity.hpp PositivityLimiter >}}): `apply` computes $\Theta$, books its census on the
+interior cells, fills the ghosts with `sync_`, then carries and scales in `post_`
+({{< code src/hydro/flux_positivity.cpp PositivityLimiter::apply >}}).
 
 ### Code
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| limiter on, factor and census | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `flux_positivity_theta` | `limiter`, or covariance rows (`cov2`, `cov3`) |
-| raw copy and bfunc fill (hydro) | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `interpolate` | none |
-| raw copy and bfunc fill (scalar) | {{< code src/scalar/scalar.cpp ScalarImpl::forward >}} | `sync_theta` | `limiter`, or the scalar's covariance row (`cov`) |
+| gate (hydro) | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `PositivityLimiter` | `limiter`, or covariance rows (`cov2`, `cov3`) |
+| the driver | {{< code src/hydro/flux_positivity.cpp PositivityLimiter::apply >}} | `apply` | none |
+| ghost fill of $\Theta$ and the enthalpy | {{< code src/hydro/flux_positivity.cpp PositivityLimiter::sync_ >}} | `sync_` | none |
+| raw copy and bfunc fill | {{< code src/hydro/flux_positivity.cpp flux_positivity_sync_theta_ >}} | `interpolate` | none |
+| gate (scalar) | {{< code src/scalar/scalar.cpp ScalarImpl::forward >}} | `flux_positivity_sync_theta_` | `limiter`, or the scalar's covariance row (`cov`) |
 
 : Code map of the donor-factor copy. {#tbl-ch03-thetacopy-code}
 
 In step order (@tbl-ch03-thetacopy-code):
 
 1. With `ny` > 0 and either the limiter on or face-flux covariance rows added on the $x_2$ or $x_3$ faces
-   (`cov2`, `cov3`: those rows can export tracer a cell does not hold), `flux_positivity_theta` computes $\Theta$
-   and its meters ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-2. `species_enthalpy` is recomputed from the primitives, ghosts included; $\Theta$ is exchanged with
-   `topts` set to `interpolate(false)` and
-   `type(kScalar)`, and each installed bfunc fills it at physical faces through `bfuncs`
+   (`cov2`, `cov3`: those rows can export tracer a cell does not hold), the hydro fills `PositivityInputs`, with
+   `species_enthalpy` and the donor velocities when species carry energy, and calls `PositivityLimiter::apply`
    ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-3. The withheld mass keeps its energy and momentum with `flux_positivity_carry_`, and the fluxes are scaled with
-   `flux_positivity_scale_` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-4. The scalar does the same in `sync_theta` ({{< code src/scalar/scalar.cpp ScalarImpl::forward >}}).
+2. `theta` computes $\Theta$ with `flux_positivity_theta` and `census_` books its meters
+   ({{< code src/hydro/flux_positivity.cpp PositivityLimiter::theta >}}).
+3. `sync_` exchanges $\Theta$ under `hydro_theta`, and the enthalpy under `hydro_hspec`, each through
+   `flux_positivity_sync_theta_` with `interpolate(false)` and `type(kScalar)`, then each installed bfunc fills it at
+   physical faces ({{< code src/hydro/flux_positivity.cpp flux_positivity_sync_theta_ >}}).
+4. `post_` keeps the withheld mass's energy and momentum with `flux_positivity_carry_` and scales the register rows
+   by `flux_positivity_factor` ({{< code src/hydro/flux_positivity.cpp PositivityLimiter::post_ >}}).
+5. The scalar fills its own factor the same way, under `scalar_theta`, and runs the shared limiter
+   ({{< code src/scalar/scalar.cpp ScalarImpl::forward >}}).
 
 **How to use it.** The copy runs whenever $\Theta$ is computed: with species (`ny` > 0) and either the limiter on or a
 face-flux covariance row added on $x_2$ or $x_3$. The covariance is on by default (@sec-ch03-facemoments), so a run
 with species can take this path without `limiter: true`. Use this fragment in a moist deck such as `bryan.yaml`,
 which already sets `limiter: true`:
 
-<!-- reader glossary keys -->Keys in this fragment: `dynamics`[^rg-e78ab69b86b0], `equation-of-state`[^rg-970cd699212d].
+<!-- reader glossary keys -->Keys in this fragment: `equation-of-state`[^rg-970cd699212d].
 ```yaml
 dynamics:
   equation-of-state: {type: ideal-moist, limiter: true}   # or keep the default false and the covariance rows
 ```
 
-Nothing is refused. The gate, the raw copy and the fill are
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}):
+Nothing is refused. The raw copy and the fill are
+({{< code src/hydro/flux_positivity.cpp flux_positivity_sync_theta_ >}}):
 
 ```cpp
-  if ((options->eos()->limiter() || cov2 || cov3) && ny > 0) {
-    ...
-    // Raw copy, never interpolated: the donor of a panel-seam face is the
-    // neighbour's edge cell, and an interpolated ghost is not its factor.
-    Variables tvars;
-    tvars["hydro_theta"] = theta;
-    // the energy each species carries, from w, ghosts included: exchanging it
-    // with theta changed no bit, so it is not exchanged (#238)
-    auto hspec = peos->species_enthalpy(w);
-    SyncOptions topts;
-    topts.interpolate(false).type(kScalar);
-    pmb->exchange(tvars, topts);
+  Variables tvars;
+  tvars[key] = theta;
+  SyncOptions topts;
+  topts.interpolate(false).type(kScalar);
+  pmb->exchange(tvars, topts);
 
-    BoundaryFuncOptions bops;
-    bops.nghost(pmb->pcoord->options->nghost());
-    bops.type(kScalar);
-    for (int i = 0; i < pmb->options->bfuncs().size(); ++i) {
-      if (pmb->options->bfuncs()[i] == nullptr) continue;
-      pmb->options->bfuncs()[i](theta, 3 - i / 2, bops);
-    }
+  BoundaryFuncOptions bops;
+  bops.nghost(pmb->pcoord->options->nghost());
+  bops.type(kScalar);
+  for (int i = 0; i < pmb->options->bfuncs().size(); ++i) {
+    if (pmb->options->bfuncs()[i] == nullptr) continue;
+    pmb->options->bfuncs()[i](theta, 3 - i / 2, bops);
+  }
 ```
 
 ### Tests
@@ -132,7 +139,7 @@ Nothing is refused. The gate, the raw copy and the fill are
 |---|---|---|---|
 | `test_flux_positivity_cubedsphere_python` | both arms conserve every tracer across the +X/+Y seam; the limiter fires; the hat stays in $[0,1]$ | $10^{-13}$ drift; $-10^{-15}$ to $1+10^{-5}$ | `DRIFT_TOL` and bounds in the script |
 | `test_flux_positivity_cubedsphere_moist_python` | the same with moist species | as above | in the script |
-| `test_sedimentation_cubed_seam` | a two-rank $x_1$ seam with sedimentation and the limiter keeps mass | in the test | @sec-ch03-x1seams |
+| `test_sedimentation_cubed_seam` | a two-process $x_1$ seam with sedimentation and the limiter keeps mass | in the test | @sec-ch03-x1seams |
 
 : Tests of the donor-factor copy. C++ entries carry the build suffix (`.release`). {#tbl-ch03-thetacopy-tests}
 
@@ -140,10 +147,16 @@ The seam test places the downwind edge of a tracer hat on the +X/+Y seam so that
 `DRIFT_TOL` ({{< code tests/test_flux_positivity_cubedsphere.py main >}},
 {{< code tests/test_flux_positivity_cubedsphere.py DRIFT_TOL >}}). How large the leak of an interpolated fill
 would be is not measured at the pin. The same script also runs as `test_flux_positivity_cubedsphere_cov_off_python`
-and `test_flux_positivity_cubedsphere_flux_covariance_python`, with `SNAP_FLUX_COVARIANCE` set to 0 and 1
-({{< code tests/CMakeLists.txt >}}). Both Python tests have CUDA twins (`_cuda_python`) registered when CUDA is
-built; the sedimentation test runs on two ranks. They were not run for this chapter at the pin (missing
-evidence).
+and `test_flux_positivity_cubedsphere_flux_covariance_python`, with the deck key `dynamics.flux-covariance` set to
+false and true by the script's `--flux-covariance` argument ({{< code tests/CMakeLists.txt >}}). Both Python tests
+have CUDA twins (`_cuda_python`) registered when CUDA is built; the sedimentation test runs on two processes. At the
+pin the three tests of the table pass, with the CUDA twins on a GPU.[^tc-run]
+
+[^tc-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 49 ctests the sections of this chapter cite,
+    in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro RTX 4000) for the
+    CUDA cases, no gtest case skipped; one process, two for the `_mp` entries, up to six for `test_exchange_decomp`;
+    Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 49 of 49 ctests passed.
 
 ### Limits
 
@@ -154,8 +167,6 @@ combinations that are tested are listed in the switch coverage matrix, @sec-ch12
 
 <!-- reader glossary notes -->
 [^rg-f9864f25fc41]: $\Theta$ — the positivity limiter's donor factor in $[0,1]$: the fraction of a requested face flux the limiter allows. Capital, because $\theta$ is the colatitude
-
-[^rg-e78ab69b86b0]: dynamics — hydrodynamic options block
 
 [^rg-970cd699212d]: equation-of-state — equation-of-state options
 <!-- end reader glossary notes -->

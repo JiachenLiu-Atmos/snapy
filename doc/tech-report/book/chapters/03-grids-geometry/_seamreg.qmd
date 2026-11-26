@@ -32,9 +32,9 @@ basis on the way, because each panel stores momentum in its own covariant face b
 **Evidence.** @tbl-ch03-seamreg-tests: `test_cubed_sphere_seams.release`, `test_panel_rotation.release`.
 :::
 
-Local symbols: $\mathsf L_P$ the lowering of panel $P$ at the face point, @eq-ch03-gnomonic-lower [-];
+Local symbols: $\mathsf L_P$ the lowering of panel $P$[^rg-8c1886e0d373] at the face point, @eq-ch03-gnomonic-lower [-];
 $\mathsf G_P$ the map from contravariant panel components to the global Cartesian frame at the face point [-];
-$\sigma=\pm1$ the seam sign [-]; $\mathsf F^{(A)}$, $\mathsf F^{(B)}$ a face row of the owner $A$ and the non-owner $B$.
+$\sigma=\pm1$ the seam sign [-]; $\mathsf F^{(A)}$, $\mathsf F^{(B)}$ a face row of the owner $A$ and the non-owner $B$[^rg-10785131fe49].
 
 ### Derivation
 
@@ -169,3 +169,9 @@ neighbour's (bitwise) and that a reflecting wall carries no mass or energy flux.
    a few units in the last place between the two sides.
 2. **One owner per seam.** The lower rank's flux is kept; the non-owner's is discarded, not averaged.
 3. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
+
+<!-- reader glossary notes -->
+[^rg-8c1886e0d373]: $P$ — corrected discrete potential energy $\sum_iV_i[\rho_i\phi_i - g_1\sigma_i^2s_i[\rho]]$, exact to $O(h^4)$
+
+[^rg-10785131fe49]: $B$ — the binomial weights $(1,4,6,4,1)/16$, written over `T(16)` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_ref_x1_impl.h#L126-L130)
+<!-- end reader glossary notes -->

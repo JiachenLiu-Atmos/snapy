@@ -5,7 +5,6 @@
 # empty. Chapter ids as in tools/chapter-owners.tsv. Listed: every chapter with a citation unresolved at the pin.
 ch01
 ch02
-ch03
 ch04
 ch06
 ch07

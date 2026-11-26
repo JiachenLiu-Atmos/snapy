@@ -148,6 +148,13 @@ sections:
   sec-ch03-physfaces:
     - boundary faces versus internal faces
     - boundary-condition external block
+  sec-ch03-seamcache:
+    - cubed sphere, seam rotation cache: [SeamRotationCache]
+    - panel seams, rotation operands
+  sec-ch03-seamreg:
+    - cubed sphere, seam fluxes single-valued: [seam register, reconcile_panel_seams]
+    - panel seams, momentum rotation
+    - fluxes across panel seams, owner copy
   sec-ch03-sphpolar:
     - vertical coordinate, radius
     - spherical-polar grid: [lat-lon grid, spherical coordinates]

@@ -1,9 +1,13 @@
 ## Cubed-sphere face-state seam sync {#sec-ch03-cslrsync}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: src/hydro/hydro_forward.cpp, src/scalar/scalar.cpp, src/layout/cubed_sphere_layout.cpp, sources/canoe__tracer_seam_TECH_REPORT.md, tests/test_flux_covariance_seams.py
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/hydro/hydro_forward.cpp, src/scalar/scalar.cpp, src/layout/cubed_sphere_layout.cpp,
+         sources/canoe__tracer_seam_TECH_REPORT.md, tests/test_flux_covariance_seams.py,
+         tests/test_flux_positivity_cubedsphere.py at the pin
 status: draft
+author: chengcli
+reviewer: jihenghu
 -->
 
 ### Summary
@@ -29,7 +33,7 @@ so both panels solve the same Riemann problem at a shared face; a rule, the suff
 **Guarantee / limits.** Exact copy; one face deep only.
 
 **Evidence.** `test_flux_covariance_seams_python` ($10^{-12}$ relative drift) and
-`test_flux_positivity_cubedsphere_python` ($10^{-13}$ drift); both were not run for this chapter at the pin (missing evidence).
+`test_flux_positivity_cubedsphere_python` ($10^{-13}$ drift), both passing at the pin; check `[C20]`.
 :::
 
 Local symbols: none beyond appendix A, notation group 3, where $q^{\mathrm L}_f, q^{\mathrm R}_f$ are the reconstructed left and right
@@ -46,8 +50,9 @@ are:
   no positive offset;
 - a key ending `:-` is the mirror image.
 
-The rules are the `suffix` tests in the cross-panel pack ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::serialize >}}) and the
-`suffix` tests in the unpack ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::deserialize >}}). With $q^{\mathrm L}$ sent as `hydro_wl:+` and $q^{\mathrm R}$ as
+The rules are one predicate, `skips_partial` ({{< code src/layout/cubed_sphere_layout.cpp skips_partial >}}), asked
+with `send` true by the cross-panel pack ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::serialize >}}) and
+with `send` false by the unpack ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::deserialize >}}). With $q^{\mathrm L}$ sent as `hydro_wl:+` and $q^{\mathrm R}$ as
 `hydro_wr:-`, a block sends from its last face only $q^{\mathrm L}$, its interior state there, and from its first face
 only $q^{\mathrm R}$, again its interior state. A neighbour that lies on the receiver's negative side delivers into the
 receiver's $q^{\mathrm L}$; one on its positive side into $q^{\mathrm R}$. Both rules are evaluated in the receiver's
@@ -61,11 +66,13 @@ ordered pair. Nothing is approximated.
 The sync runs inside each stage, after the $x_2$ and $x_3$ reconstruction and before the solves. Both directions are
 begun, launched and finalised together. The options are `cross_panel_only(true)`, `interpolate(false)` and
 `type(kPrimitive)`, with `dim` set to the direction, so only the one face layer at panel edges moves; along $x_1$
-the strip also carries the ghost rows of that layer (`extend_x1` by the ghost depth, whenever the block has more than
-one $x_1$ cell), because the $x_1$ differences of the face-flux covariance read the cross-panel face states in the
+the strip also carries the ghost rows of that layer (`face_state_x1_extent`, the ghost depth whenever the block has
+more than one $x_1$ cell, {{< code src/layout/cubed_sphere_layout.cpp face_state_x1_extent >}}), because the $x_1$ differences of the face-flux covariance read the cross-panel face states in the
 cells next to the radial walls. The velocity frame rotation of @sec-ch03-csinterp is applied to the states, the reverse flag reorders the strip along the
 edge, and the flip and transpose flags are no-ops on a strip one face deep. The scalar runs the same sync with
-`type(kScalar)` before its own solves. @fig-ch03-cslrsync-roles draws the roles at a same-orientation edge.
+`type(kScalar)` before its own solves. When species carry their own enthalpy, the hydro runs a second sync of the
+same kind for the donor velocities of the lateral faces, under `hydro_vlo:+` and `hydro_vhi:-`, so that both copies of
+a seam face withhold the same momentum (in `HydroImpl::forward`). @fig-ch03-cslrsync-roles draws the roles at a same-orientation edge.
 
 ```{python}
 #| label: fig-ch03-cslrsync-roles
@@ -81,16 +88,17 @@ make_fig()
 | what | code link | symbol | switch |
 |---|---|---|---|
 | hydro $x_2$, $x_3$ face-state sync | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `send_vars2` | `layout: cubed-sphere` |
-| scalar face-state sync | {{< code src/scalar/scalar.cpp ScalarImpl::forward >}} | `send_vars2` | `layout: cubed-sphere` |
-| one-face strip, with its $x_1$ ghost rows | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::serialize >}} | `part_opts` | `dim` |
-| suffix rule, pack | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::serialize >}} | `suffix` | none |
-| suffix rule, unpack | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::deserialize >}} | `suffix` | none |
+| scalar face-state sync | {{< code src/scalar/scalar.cpp ScalarImpl::forward >}} | `scalar_wl:+` | `layout: cubed-sphere` |
+| $x_1$ ghost rows of the strip | {{< code src/layout/cubed_sphere_layout.cpp face_state_x1_extent >}} | `face_state_x1_extent` | `dim` |
+| suffix rule | {{< code src/layout/cubed_sphere_layout.cpp skips_partial >}} | `skips_partial` | none |
+| pack | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::serialize >}} | `skips_partial` | none |
+| unpack | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::deserialize >}} | `skips_partial` | none |
 
 : Code map of the face-state seam sync. {#tbl-ch03-cslrsync-code}
 
 In step order (@tbl-ch03-cslrsync-code):
 
-1. After `precon23` reconstructs the $x_2$ states, the hydro puts them in `send_vars2` under `hydro_wl:+` and
+1. After `reconstruct_faces` gives the $x_2$ states, the hydro puts them in `send_vars2` under `hydro_wl:+` and
    `hydro_wr:-` and begins the exchange; the same for $x_3$ ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
 2. It launches both and finalises both with `finalize_exchange` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}); the solves
    follow.
@@ -105,10 +113,10 @@ one cell. It cannot be turned off and refuses nothing. The send and the roles ar
   sync_opts.cross_panel_only(true).interpolate(false).type(kPrimitive);
     ...
   if (u.size(DIM2) > 1) {
-    wtmp2 = precon23->forward(w, DIM2);
+    wtmp2 = reconstruct_faces(*this, dir2, w, split, pressure_base2);
 
     // sync left/right states across faces for cubed sphere layout
-    if (playout->options->type() == "cubed-sphere") {
+    if (playout->options->is_cubed_sphere()) {
       send_vars2["hydro_wl:+"] = wtmp2[ILT];
       send_vars2["hydro_wr:-"] = wtmp2[IRT];
       pmb->begin_exchange(send_vars2, sync_opts.dim(DIM2));
@@ -128,7 +136,13 @@ one cell. It cannot be turned off and refuses nothing. The send and the roles ar
 The conservation arm is `arm_conservation` ({{< code tests/test_flux_covariance_seams.py arm_conservation >}}) and
 its threshold `DRIFT_TOL` ({{< code tests/test_flux_covariance_seams.py DRIFT_TOL >}}); a shared face whose two panels
 solved different problems would leak and fail it. There is no dedicated C++ unit test of the suffix rule itself. The tests run
-on CPU in one process. They were not run for this chapter at the pin (missing evidence).
+on CPU in one process; at the pin both pass.[^cslr-run]
+
+[^cslr-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 49 ctests the sections of this chapter cite,
+    in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro RTX 4000) for the
+    CUDA cases, no gtest case skipped; one process, two for the `_mp` entries, up to six for `test_exchange_decomp`;
+    Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 49 of 49 ctests passed.
 
 
 The suffix rule itself is checked by enumeration: for the four pairings of the face's side in the sender and in the
@@ -137,7 +151,7 @@ interior-side one, into the receiver's ghost-side slot (`[C20]`).[^cslr-c20]
 
 [^cslr-c20]: `python3 src/snapy_report/ch03/checks/geometry_check.py`, line `[C20]`; a Python port of the suffix tests of
     `CubedSphereLayoutImpl::serialize` and `CubedSphereLayoutImpl::deserialize` with their positional payload at the
-    pin; CPU; Python and sympy as in the other footnotes of this chapter.
+    pin (at 73c45a7c both ask the one predicate `skips_partial`, whose two branches the port reproduces); CPU; Python and sympy as in the other footnotes of this chapter.
 
 ### Limits
 
