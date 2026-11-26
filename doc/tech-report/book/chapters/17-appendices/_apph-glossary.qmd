@@ -7,7 +7,7 @@
 - **API**: application programming interface. Not defined here; used in [Driver loop and accepted steps (`integration:`)](#sec-ch01-driver).
 - **BLAS**: Basic Linear Algebra Subprograms; notation only; see @sec-appa. Defined in [The notation index](#sec-appa-index).
 - **CFL**: Courant–Friedrichs–Lewy. Defined in [Time-step bound: acoustic, implicit-advective, shear and diffusive (`integration/cfl`)](#sec-ch09-cfl).
-- **CI**: continuous integration. Not defined here; used in [The corrected-PE face gravity work (`SNAP_GRAVITY_WORK_RADIAL_EXACT`)](#sec-ch06-dwork).
+- **CI**: continuous integration. Not defined here; used in [The corrected-PE face gravity work (with `gravity-work: face`)](#sec-ch06-dwork).
 - **CPU**: central processing unit. Not defined here; used in [Driver loop and accepted steps (`integration:`)](#sec-ch01-driver).
 - **CUDA**: NVIDIA's parallel computing platform. Not defined here; used in [Accumulate and combine one stage (`user_stage_forcings`)](#sec-ch01-stage).
 - **EOS**: equation of state. Defined in [EOS interface and dispatch (`type`)](#sec-ch02-interface).

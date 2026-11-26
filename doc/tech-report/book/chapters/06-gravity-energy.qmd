@@ -1,23 +1,29 @@
 # Gravity and energy {#sec-ch06}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (code_pin.yml)
-sources: OUTLINE.md 6; docs/derivations/curved-gravity-work-weight.md@919936da07d80a310b98ab11da184972a3203274 §§1-4;
-         sources/gw__GRAVITY_WORK_TECH_REPORT_draft.md; sources/gw__NEXTPR_indep_cartesian_gravity_work_weight.md
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md, chapter 6; docs/derivations/curved-gravity-work-weight.md at the pin, sections 1-4, 7, 10, 12;
+         src/forcing/const_gravity.cpp, src/hydro/gravity_work.hpp, src/hydro/hydro_forward.cpp, src/hydro/hydro.cpp,
+         src/implicit/implicit_hydro.cpp, src/implicit/vic_assemble_impl.h, src/implicit/vic_gravity_work_impl.h,
+         src/implicit/vic_kernels.h, src/diagnostics/budget.cpp at the pin
 status: draft
-author: Linfeng Li
-reviewer:
+author: chengcli
+reviewer: zoeyzyhu
 -->
 
-Gravity does work on the flow, and a finite-volume code has to decide where to book it. This chapter is about
-that decision and what each answer costs. It covers the cell form, which applies the body force and the work
-$\rho v_1g_1$ in the same cell; the face form, which books the work as a flux difference of potential energy
-across the cell's $x_1$[^rg-2dff075d305e] faces; the global fixer that repairs the cell form's budget once per step; the
-corrected-PE[^rg-8013ae26823c] face work, which makes the booked work fourth-order consistent with the scheme's own mass fluxes;
-the gravity work inside the vertical implicit operator; and a closing comparison of what each form conserves and
-which diagnostic measures it. The momentum equation is the same in every form; only the energy row changes. The
-hydrostatic reference state these forms are often used with is @sec-ch05, and the implicit solver they couple into
-is the vertical implicit solve of the time-integration chapter.
+Gravity does work on the flow, and a finite-volume code has to decide where to book it. At the pin snapy books it
+in one way: the face form, which writes the work as a flux difference of potential energy across each cell's $x_1$[^rg-2dff075d305e]
+faces (@sec-ch06-face), together with the corrected-PE[^rg-8013ae26823c] face work, which makes the booked work
+fourth-order consistent with the scheme's own mass fluxes and is on whenever the grid has a form for it
+(@sec-ch06-dwork). The vertical implicit correction carries the same work in its energy row (@sec-ch06-vic), and
+@sec-ch06-conserves says which invariant this keeps and which diagnostic measures it. The cell form, which applied
+the work $\rho v_1g_1$ in the cell, and the global gravity-work fixer that repaired its budget are not in V3: setup
+refuses both, and their sections (@sec-ch06-cell, @sec-ch06-fixer) say only that and why. The momentum equation is the
+same in every case; only the energy row is at stake. The hydrostatic reference state these forms are used with is
+@sec-ch05; the column solve itself, its assembly, sweep, rejection and stage weighting, is in the time-integration
+chapter (@sec-ch09-vic-assembly, @sec-ch09-vic-sweep, @sec-ch09-vic-reject, @sec-ch09-vic-stage), and the device $\Delta t$[^rg-88e66c6f06bb] the
+solve reads is derived once, in the execution chapter's section on graph-safe code and the device $\Delta t$
+(section 11.5 of the outline, not yet written in the book).
 
 **One identity behind every form.** Every form in this chapter is one identity with a different choice of
 discrete potential energy, so it is derived once, here, before the forms that use it.
@@ -52,7 +58,7 @@ continuity equation by $\phi$[^rg-e45e827c3f36] and integrate over the cell, usi
 $\phi\,\nabla\cdot(\rho\mathbf v) = \nabla\cdot(\phi\rho\mathbf v) - \rho\mathbf v\cdot\nabla\phi$ and the divergence
 theorem. Only the $x_1$ faces matter: on Cartesian, spherical-polar and gnomonic-equiangle grids the $x_2$, $x_3$
 faces join cells of the same $x_1$ level (on the cubed sphere, the same radius:
-`docs/derivations/curved-gravity-work-weight.md@919936da07d80a310b98ab11da184972a3203274` §12.6), so their terms
+{{< code docs/derivations/curved-gravity-work-weight.md >}} §12.6), so their terms
 are mass fluxes times one value of $\phi$, which @sec-ch06-dwork treats with the horizontal directions. Rearranged,
 the exact gravity work in a cell is
 
@@ -79,14 +85,14 @@ $W_iV_i - g_1V_i\langle F\rangle_{V_i} = \tfrac{\mathrm{d}}{\mathrm{d}t}(\mathca
 exactly as accurate as $P_i$ is as an approximation of the cell's potential energy.
 
 The forms differ only in $P$. The face form takes the piecewise-constant $P=\mathrm{PE}_d$ (@sec-ch06-face); the
-corrected-PE face work takes a fourth-order $P$ (@sec-ch06-dwork); the cell form starts from no $P$ and leaves a
-defect that the fixer removes (@sec-ch06-cell, @sec-ch06-fixer). The implicit solver carries the same work in its
-energy row (@sec-ch06-vic), and @sec-ch06-conserves collects which invariant each form keeps.
+corrected-PE face work takes a fourth-order $P$ (@sec-ch06-dwork); the removed cell form had no $P$ at all, which is
+why it left a defect (@sec-ch06-cell). The implicit solver carries the same work in its energy row (@sec-ch06-vic),
+and @sec-ch06-conserves collects which invariant is kept.
 
 ```{python}
 #| label: fig-ch06-deps
-#| fig-cap: "Dependency map of the gravity and energy schemes. Nodes are the schemes of this chapter; a solid arrow reads 'requires', a dashed arrow 'implies', and a vermillion arrow with a bar head 'turns off'. The corrected-PE face work requires the face form, implies the $E_{\\mathrm{tot}}+P$ invariant in place of $E_{\\mathrm{tot}}+\\mathrm{PE}_d$, and turns off the cp3/cp5/weno5 curvature flux; the fixer requires the cell form and is refused with either face form. Read it with the switch coverage matrix, which lists which combinations a test actually exercises."
-#| fig-alt: "Directed graph of six nodes labelled cell form, face form, face-wallc, gravity-work fixer, corrected-PE face work and VIC gravity work, with solid, dashed and barred arrows between them."
+#| fig-cap: "Dependency map of the gravity and energy schemes at the pin. A solid arrow reads 'requires', a dashed arrow 'implies' or 'carries', and a vermillion arrow with a bar head 'replaces'. The face form is the only form; the corrected-PE face work requires it, is on whenever the grid has an x1 measure, and implies the E + P invariant; the VIC gravity work carries the face rows and, when the corrected-PE work is on, its rows. The cell form and the fixer are refused at setup."
+#| fig-alt: "Directed graph of four boxes, face form, corrected-PE face work, VIC gravity work and the refused cell form and fixer, with an E + P label."
 #| echo: false
 from snapy_report.ch06.figures.fig_deps import make_fig
 make_fig()
@@ -94,17 +100,15 @@ make_fig()
 
 | scheme | switch | default | order | main test |
 |---|---|---|---|---|
-| Cell form (@sec-ch06-cell) | `gravity-work: cell` | off; set explicitly | exact locally; global defect | `test_forcing` |
-| Face form (@sec-ch06-face) | `gravity-work: face` | on, `gravity_work` {{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}} | 2 | `test_horizontal_flux_covariance` |
-| Wall-cell face form (@sec-ch06-face) | `gravity-work: face-wallc` | off | 1 at walls | `test_gravity_work_fixer` |
-| Gravity-work fixer (@sec-ch06-fixer) | `gravity-work-fixer`[^rg-7133da810a58] | on with `cell` | global | `test_gravity_work_fixer` |
-| Corrected-PE face work (@sec-ch06-dwork) | `SNAP_GRAVITY_WORK_RADIAL_EXACT` | on with `face` | 4 | `test_gravity_work_radial_exact` |
-| VIC[^rg-0a78bcb32f8c] gravity work (@sec-ch06-vic) | `implicit-scheme`[^rg-5f155960c1f4] $\neq0$ | off | linearised | `test_implicit_face_work_operator` |
+| Face form (@sec-ch06-face) | `gravity-work: face` | on; the only accepted value | 2 | `test_forcing` |
+| Corrected-PE face work (@sec-ch06-dwork) | none: on with `face`, $g_1\ne0$ and an $x_1$ measure | on | 4 | `test_gravity_work_radial_exact_python` |
+| VIC[^rg-0a78bcb32f8c] gravity work (@sec-ch06-vic) | `implicit-scheme`[^rg-5f155960c1f4] $\neq0$ | off | linearised | `test_implicit_face_work_operator_python` |
+| Cell form (@sec-ch06-cell) | `gravity-work: cell` | refused | none | `test_gravity_work_fixer_removed_python` (the fixer) |
+| Gravity-work fixer (@sec-ch06-fixer) | `gravity-work-fixer`[^rg-7133da810a58] | `false`; `true` refused | none | `test_gravity_work_fixer_removed_python` |
 
 : The schemes of this chapter, their switches and defaults, the order of the booked gravity work, and the test
 that carries each one. Orders are of the booked work against the exact work of the scheme's own $x_1$ mass
-fluxes; "global" means the fixer corrects the domain integral, not the local error. Full ctest names and their
-tolerances are in each scheme's Tests layer. {#tbl-ch06-schemes}
+fluxes. Full ctest names and their tolerances are in each scheme's Tests layer. {#tbl-ch06-schemes}
 
 {{< include 06-gravity-energy/_cell.qmd >}}
 
@@ -125,6 +129,8 @@ The limits this chapter states are collected with those of the other chapters in
 
 [^rg-8013ae26823c]: PE — potential energy
 
+[^rg-88e66c6f06bb]: $\Delta t$ — the step
+
 [^rg-4c6f002e02f8]: $g_1, g_2, g_3$ — constant gravity components [m s$^{-2}$]; $g_1<0$ points to decreasing $x_1$
 
 [^rg-da7a263902cd]: $E$ — total energy density, internal plus kinetic, $\rho e + \tfrac12\rho\lvert\mathbf v\rvert^2$ [J m$^{-3}$]; excludes potential energy
@@ -135,9 +141,9 @@ The limits this chapter states are collected with those of the other chapters in
 
 [^rg-e45e827c3f36]: $\phi$ — gravitational potential, $\phi(x_1) = -g_1x_1$ (increases upward); never an angle
 
-[^rg-7133da810a58]: gravity-work-fixer — whether the gravity-work fixer runs (a boolean; default true with `gravity-work: cell`, and it needs `cell`)
-
 [^rg-0a78bcb32f8c]: VIC — vertically implicit correction
 
 [^rg-5f155960c1f4]: implicit-scheme — implicit time-integration scheme selector
+
+[^rg-7133da810a58]: gravity-work-fixer — whether the gravity-work fixer runs (a boolean; default true with `gravity-work: cell`, and it needs `cell`)
 <!-- end reader glossary notes -->
