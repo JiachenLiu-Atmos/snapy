@@ -1,0 +1,104 @@
+## Layouts and ranks: block, rank and panel (`distribute`) {#sec-ch13-layouts}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final; code_pin.yml bump pending)
+sources: src/options/layout.yaml, src/layout/layout.hpp, src/layout/layout.cpp, src/layout/cubed_sphere_layout.cpp, tests/test_process_group.cpp, tests/test_local_horizontal_cells.py
+status: draft
+author: jihenghu
+reviewer: gitlinffff
+-->
+
+### Summary
+
+A layout says where each block of a run sits and which blocks are its neighbours. Every exchange, every seam and
+every same-process meeting of this chapter asks the layout one of three questions: the location of a block, the
+rank at a location, and the neighbour across a face or corner. The `distribute:` card is the layout's only input,
+and the layout is the one home of its options, including how many blocks one process runs.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Map a block rank to a location $(r_x, r_y, f)$, where $f$ is the cubed-sphere panel (0 elsewhere),
+map a location back to a rank, and give the neighbour rank at an offset $(\iota_3, \iota_2, \iota_1)$.
+
+**Data.** In: the `distribute:` card. Out: integer ranks and locations; no field data.
+
+**Placement.** At construction; read by every exchange (@sec-ch13-ghost) and seam (@sec-ch03).
+
+**Activation.** `distribute: layout` (`slab`, `cubed` or `cubed-sphere`; default `slab`), `nb1`, `nb2`, `nb3`
+(default 1 each) and `blocks_per_process` (default 1).
+
+**Guarantee / limits.** The map is a bijection on the ranks of the run; edge neighbours are symmetric. No
+physics depends on it beyond which block sits where.
+
+**Evidence.** @sec-ch13-layouts-tests.
+:::
+
+On the cubed sphere a run has $6\,n_b^2$ blocks, $n_b$ along each panel edge (`nb2` = `nb3` = $n_b$). A process
+owns `blocks_per_process` consecutive ranks; the owning process and the block's index within it are the quotient
+and remainder of the rank by `blocks_per_process`. The panel of a block is the third component of its location
+(`panel_of`), and `is_cubed_sphere` is a property of the layout options, not of the layout object.
+
+### Derivation
+
+There is no equation: the layout is a map. Its properties are stated here and checked by a run. For every
+$n_b \in \{1,2,3,4\}$ the cubed-sphere layout has $6\,n_b^2$ ranks (6, 24, 54, 96) on panels 0 to 5;
+`rank_of(loc_of(r))` is `r` for every rank and `loc_of` returns $(-1,-1,-1)$ one past the last; each of the four
+edge neighbours of a rank is another valid rank, and the edge relation is symmetric (a block is an edge
+neighbour of each of its edge neighbours); every corner neighbour is a valid rank.[^lay-run] The process map is
+$p = \lfloor r / B \rfloor$, $\ell = r \bmod B$ for rank $r$ and $B$ = `blocks_per_process`
+(`owner_process_rank`, `local_block_index`), whose inverse is $r = pB + \ell$ (`global_block_rank`).
+
+[^lay-run]: [sha: 1b12ea5dc7eb71c89f07256d10cf379c20defe20] `a2run/ch13/cs_neighbors.py` in the writer's workspace,
+    through the snapy Python bindings (`CubedSphereLayout`); this build's `src/layout/cubed_sphere_layout.cpp`,
+    `layout.hpp` and `src/options/layout.yaml` have no diff to the pin. Not an executable check of section 7: it
+    imports snapy.
+
+### Numerical method
+
+The slab and cubed layouts number blocks in Morton (Z) order over the block grid; the cubed-sphere layout numbers
+each panel the same way and the panels in turn. A neighbour across one edge is one step of `_step_one`, which
+crosses to the adjacent panel when the step leaves the panel. A corner neighbour is two such steps, $x_2$ first
+when that step stays on the panel, else $x_3$ first; where both steps would cross an edge (a cube corner) the
+layout returns the block one step away along $x_2$. @fig-ch13-layouts shows the order and the panel net.
+
+```{python}
+#| label: fig-ch13-layouts
+#| fig-cap: "(a) Rank order of a $4\\times4$ block grid: Morton (Z) order. (b) The cubed-sphere panel numbering $0$ to $5$ as an unfolded net."
+#| fig-alt: "Left, a four by four grid of numbered squares joined by a Z-shaped curve; right, the cross-shaped net of the cube with face numbers."
+#| echo: false
+from snapy_report.ch03.figures.fig_layouts_morton import make_fig
+make_fig()
+```
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| options (the `distribute:` card) | {{< code src/options/layout.yaml >}} | `blocks_per_process` | `distribute` |
+| option struct | {{< code src/layout/layout.hpp LayoutOptionsImpl >}} | `LayoutOptionsImpl` | `layout`, `nb1`-`nb3` |
+| sphere test | {{< code src/layout/layout.hpp LayoutOptionsImpl::is_cubed_sphere >}} | `is_cubed_sphere` | `layout: cubed-sphere` |
+| process of a rank | {{< code src/layout/layout.hpp LayoutOptionsImpl::owner_process_rank >}} | `owner_process_rank` | `blocks_per_process` |
+| index in its process | {{< code src/layout/layout.hpp LayoutOptionsImpl::local_block_index >}} | `local_block_index` | `blocks_per_process` |
+| layout type | {{< code src/layout/layout.cpp LayoutImpl::create >}} | `create` | `layout` |
+| rank to location | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::loc_of >}} | `loc_of` | none |
+| location to rank | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::rank_of >}} | `rank_of` | none |
+| neighbour at an offset | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::neighbor_rank >}} | `neighbor_rank` | none |
+| panel of a rank | {{< code src/layout/layout.hpp LayoutImpl::panel_of >}} | `panel_of` | none |
+
+`LayoutImpl::create` builds the layout named by `layout`; an unknown name is refused there. The process of a
+block and its index in the process are read wherever a same-process path is chosen (`is_local_block`).
+
+### Tests {#sec-ch13-layouts-tests}
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `tests/test_process_group.cpp` (`test_process_group.release`) | backend default and override, master port in 29500-29600 or from the environment, world size, refusal of an inconsistent environment | exact (pass/fail) | the options are integers and strings |
+| `tests/test_local_horizontal_cells.py` (`test_local_horizontal_cells_python`) | a block's local face coordinates match the global grid at its bounds | $\le 10^{-12}$ times the cell width or the extent | the test source; round-off of the face sums |
+
+The map properties of the Derivation are from a run, not a ctest (@sec-ch13-layouts). Neither test was run at the
+pin for this chapter (missing evidence); both are CPU tests.
+
+### Limits
+
+The schema's own description of `layout` names `slab` and `cubed-sphere` only, while `create` also accepts
+`cubed`. At a cube corner the corner neighbour is a convention (one step along $x_2$), not a geometric
+neighbour; @sec-ch03 covers how corner ghosts are filled. Switch combinations are in @sec-ch12-matrix.

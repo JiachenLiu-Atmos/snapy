@@ -1,0 +1,36 @@
+# Mesh, layout, exchange and multi-block runs {#sec-ch13}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final; code_pin.yml bump pending)
+sources: STRUCTURE.md section 6 chapter 13; src/layout/*, src/mesh/mesh.cpp, src/mesh/stage_executor.cpp, src/mesh/meshblock_exchange.cpp, src/layout/exchange.cpp
+status: draft
+author: jihenghu
+reviewer: gitlinffff
+-->
+
+A Mesh is the set of blocks that one process advances together. This chapter describes how blocks are placed and
+numbered (the layout), how their ghost cells are filled from each other (the exchange), how the blocks of one
+process meet while they do so, and what changes when the blocks' stages run as CUDA graphs. What a ghost cell
+holds, and the geometry of panel seams, are the subject of @sec-ch03. How a single block's stage is split into
+segments and captured is @sec-ch11. The schemes are listed in @tbl-ch13-schemes.
+
+| scheme | switch | default | order | main test |
+|---|---|---|---|---|
+| layouts and ranks (@sec-ch13-layouts) | `distribute: layout`, `nb1`-`nb3`, `blocks_per_process` | `slab`, one block | n/a (a map) | `test_local_horizontal_cells` |
+| the ghost exchange and the same-process waits (@sec-ch13-ghost) | `blocks_per_process` | one block per process | exact copy | `test_cubed_sphere_exchange` |
+| exchange cuts and multi-block capture (@sec-ch13-cuts) | `integration: execution` | `auto` | exact (graph equals eager) | `test_graph_mesh_many_blocks` |
+| Mesh-agree (@sec-ch13-agree) | none (a rule) | on with more than one block | exact (graph equals eager) | `test_mesh_disagree` |
+| the x1 seam split (@sec-ch13-x1split) | `distribute: nb1` | `nb1: 1` | exact copy at the seam | `test_x1_seam_split` |
+
+: The schemes of this chapter. Test names omit the `.release` and `_python` suffixes of their ctest entries.
+{#tbl-ch13-schemes}
+
+{{< include 13-mesh-exchange/_layouts.qmd >}}
+
+{{< include 13-mesh-exchange/_ghost.qmd >}}
+
+{{< include 13-mesh-exchange/_cuts.qmd >}}
+
+{{< include 13-mesh-exchange/_agree.qmd >}}
+
+{{< include 13-mesh-exchange/_x1split.qmd >}}
