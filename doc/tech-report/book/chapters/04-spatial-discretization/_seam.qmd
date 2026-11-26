@@ -120,7 +120,7 @@ the top face of block B.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| the exchange and average | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `kSeamFluxUpTag` | process seam on $x_1$ |
+| the exchange and average | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `kTagSeamFlux` | process seam on $x_1$ |
 | packing | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `pack` | |
 | unpacking | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `unpack` | |
 | same-process seams skipped | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `is_local_block` | |

@@ -106,7 +106,7 @@ $q^{\mathrm L}_{i+1} = \bar q_i$, placed by @eq-ch04-framework-map.
 | what | code link | symbol | switch |
 |---|---|---|---|
 | the interpolant | {{< code src/recon/reconstruct.cpp InterpImpl::left >}} | `InterpImpl::left` | `type: dc` |
-| registration | {{< code src/recon/reconstruct.cpp InterpImpl::create >}} | `DonorCellInterp` | |
+| registration | {{< code src/recon/reconstruct.cpp InterpImpl::create >}} | `InterpImpl::create` | |
 
 : Code map of donor cell. {#tbl-ch04-dc-code}
 

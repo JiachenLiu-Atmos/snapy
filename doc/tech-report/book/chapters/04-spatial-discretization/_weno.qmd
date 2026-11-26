@@ -124,7 +124,7 @@ make_weno()
 ```
 
 **Which path runs.** `InterpImpl::left` passes the `cm` buffer, and `right` the mirrored `cp`, to the
-dispatch `call_weno5` with `options->scale()`; the CPU kernel is `weno5_point` in `interp_impl.h`. WENO3
+dispatch `call_recon` with `options->scale()`; the per-face kernel is `weno5_point` in `recon_point.h`. WENO3
 is the same with `weno3_point`. The scalar templates `interp_weno3` and `interp_weno5` of
 `interp_simple.hpp` are used only by tests; `derivation_check.py` `[C6]` shows their rows are the production
 rows, so the orders `recon_check.py` measures on those ports are the orders of the scale-off kernels.
@@ -180,7 +180,7 @@ the test of the `shock: true` case.
 | WENO5 rows | {{< code src/recon/reconstruct.cpp InterpImpl::reset >}} | `cm` | |
 | WENO3 rows | {{< code src/recon/reconstruct.cpp InterpImpl::reset >}} | `cm` | |
 | `scale` passed to the kernel | {{< code src/recon/reconstruct.cpp InterpImpl::left >}} | `scale` | `scale: true` |
-| the `interp2` partner | {{< code src/recon/reconstruct.cpp InterpImpl::create >}} | `Center5Interp` | `weno5` |
+| the `interp2` partner | {{< code src/recon/reconstruct.cpp velocity_pressure_scheme >}} | `velocity_pressure_scheme` | `weno5` |
 
 : Code map of the WENO interpolants. {#tbl-ch04-weno-code}
 

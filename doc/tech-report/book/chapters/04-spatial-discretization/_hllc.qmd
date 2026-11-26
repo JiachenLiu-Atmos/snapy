@@ -33,7 +33,7 @@ Local symbols: $v_\perp$, $p_f$ as in @sec-ch04-riemann; $\lambda^{\mathrm L}, \
 outer signal speeds and $\lambda_{\mathrm c}$ the contact speed [m s$^{-1}$]; $p_{\mathrm c}$ the contact pressure [Pa];
 $\mathbf U^{\mathrm L}_{\mathrm c}$ the state between $\lambda^{\mathrm L}$ and the contact; $p_{\mathrm{pv}}$ the
 pressure estimate of step 1 [Pa]; $\psi^{\mathrm L}, \psi^{\mathrm R}$ the shock factors [-];
-$\lambda_{\mathrm{tiny}} = 10^{-10}$ the code's `TINY_NUMBER` [m s$^{-1}$]; $\alpha_{\mathrm c}$ the weight of the contact
+$\lambda_{\mathrm{tiny}} = 10^{-10}$ the code's `riemann_tiny<T>()` [m s$^{-1}$]; $\alpha_{\mathrm c}$ the weight of the contact
 term at the clip (`sm`, [-]); $\mathcal J^{\mathrm K}$ and $\Pi^{\mathrm K}$ the
 mass flux through the wave on side $\mathrm K\in\{\mathrm L, \mathrm R\}$ [kg m$^{-2}$ s$^{-1}$] and its momentum-flux partner [Pa] (`ml`, `tl`); $\mathbf D = (0, 1, 0, 0, \lambda_{\mathrm c})$ in
 the rows (mass, normal momentum, tangential, tangential, energy).
@@ -166,7 +166,7 @@ used.
 |---|---|---|---|
 | the solver body | {{< code src/riemann/riemann_kernels.h hllc_impl >}} | `hllc_impl` | `type: hllc` |
 | PVRS pressure and shock factors | {{< code src/riemann/riemann_kernels.h hllc_impl >}} | `pmid` | |
-| clipped outer speeds | {{< code src/riemann/riemann_kernels.h hllc_impl >}} | `TINY_NUMBER` | |
+| clipped outer speeds | {{< code src/riemann/riemann_kernels.h riemann_tiny >}} | `riemann_tiny` | |
 | contact speed and pressure | {{< code src/riemann/riemann_kernels.h hllc_impl >}} | `am` | |
 | face pressure written out | {{< code src/riemann/riemann_kernels.h hllc_impl >}} | `face_pressure` | caller asked |
 | $\rho e$, $\gamma$, $c_s$ and the frame | {{< code src/riemann/riemann.cpp RiemannSolverImpl::solve >}} | `prim2local3_` | |

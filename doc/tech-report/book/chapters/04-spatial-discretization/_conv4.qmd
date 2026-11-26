@@ -180,9 +180,9 @@ entered only when the key is 4 and the block has more than one $x_1$ cell
 second-order primitives with no error and no warning.
 
 **The weights are cached per grid.** `conv4_rows` builds $k^+$ and $k^-$ once, on the CPU in double, from
-`x1f`, and the result is kept in `conv4_x1_` with the `(data_ptr, version)` pair of the `x1f` tensor it was built
-from, `conv4_x1_at_` ({{< code src/hydro/hydro.hpp HydroImpl >}}). They are rebuilt when that pair changes or when
-the state moves to another device or dtype, so a block whose $x_1$ grid is rewritten in place gets new weights.
+`x1f`, inside the `Conversion` held in `conv4_` ({{< code src/hydro/hydro.hpp HydroImpl >}}), whose key is the
+`X1RowsKey` of the `x1f` tensor (data pointer and version) and the state's device and dtype. It is rebuilt when
+that key or a wall flag changes, so a block whose $x_1$ grid is rewritten in place gets new weights.
 
 **One extra equation-of-state call, and a screen on its result.** The block evaluates the equation of state a
 second time, on the point state. Two things can go wrong there that cannot go wrong on the average, because the
@@ -214,7 +214,7 @@ this order ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}):
    $x_2$ and $x_3$ halos and, in the `cubed` layout, the $x_1$ halos, from neighbours in this process and in
    others alike; the `slab` and `cubed-sphere` layouts have one block along $x_1$ ($p_z = 1$), so their $x_1$
    ghosts are physical boundaries, written in step 3;
-2. `_x1_ghost_rows` ({{< code src/layout/exchange.cpp Exchange::x1_rows >}}) with the ghost depth, which
+2. `Exchange(pmb).x1_rows` ({{< code src/layout/exchange.cpp Exchange::x1_rows >}}) with the ghost depth, which
    copies the $x_1$ neighbour's outermost owned rows again across the **whole** $x_2$/$x_3$ extent, so the
    corner columns past an $x_1$ seam are the neighbour's converted cells and not stale; it returns at once
    where the block has no $x_1$ neighbour, which is every block of those two layouts;
@@ -299,7 +299,7 @@ dynamics:
 `lap` is $\mathsf Q$ of @eq-ch04-conv4-op; `up` is the point state of step 1 of the order argument; `tmp` hands
 the plain average to the equation of state in the screened cells; `w.add_(lap(w0))` is the
 $\mathsf Q\,\mathbf W(\overline{\mathbf U})$ term of @eq-ch04-conv4-scheme, with `w0` the second-order
-primitives; the `copy_` restores them where `good` is false; `_conv4_trips` is the counter.
+primitives; the `copy_` restores them where `good` is false; the EfStatus slot `kConvTrips` (the Hydro buffer `conversion_trips`) is the counter.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
@@ -307,9 +307,9 @@ primitives; the `copy_` restores them where `good` is false; `_conv4_trips` is t
 | the parser and the accepted key set | {{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}} | `check_keys` | |
 | only 2 or 4, and the ghost-depth check | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `TORCH_CHECK` | key 4, $g_1\ne0$ |
 | the weights and the four-cell check | {{< code src/recon/x1_rows.cpp conv4_rows >}} | `conv4_rows` | key 4 |
-| the cached weights and the grid they were built from | {{< code src/hydro/hydro.hpp HydroImpl >}} | `conv4_x1_at_` | key 4 |
+| the cached weights and the grid they were built from | {{< code src/hydro/hydro.hpp HydroImpl >}} | `conv4_` | key 4 |
 | the conversion, the screen and the ghost refill | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `lap` | key 4 |
-| the $x_1$ row exchange of step 2 | {{< code src/layout/exchange.cpp Exchange::x1_rows >}} | `_x1_ghost_rows` | an $x_1$ neighbour |
+| the $x_1$ row exchange of step 2 | {{< code src/layout/exchange.cpp Exchange::x1_rows >}} | `Exchange::x1_rows` | an $x_1$ neighbour |
 | the fourth-order face density it turns on | {{< code src/recon/x1_reference.cpp wb_ref4_flag >}} | `wb_ref4_flag` | key 4, $g_1\ne0$ |
 | the Python option | {{< code python/csrc/pyhydro.cpp bind_hydro >}} | `conversion_order` | |
 

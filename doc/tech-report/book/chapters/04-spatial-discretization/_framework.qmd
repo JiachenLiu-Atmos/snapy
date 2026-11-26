@@ -249,10 +249,11 @@ caught only by an accuracy test.
    ({{< code src/recon/reconstruct.cpp InterpImpl::set_x1_coeffs >}}). What is **not** covered is a grid that is
    geometrically non-uniform without being declared: the refusal is reached only when `HydroImpl::reset` or
    `ScalarImpl::reset` is given $x_1$ faces ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
-3. **Dead option members.** `ReconstructOptionsImpl` carries `density_floor`, `pressure_floor`, `limiter`,
-   `is_boundary_lower` and `is_boundary_upper`; `forward` reads none of them, and `report` prints them.
-4. **A disabled branch.** A block inside a comment in `forward` would narrow the range next to a physical
-   boundary before reconstructing velocity and pressure. It is not compiled.
+3. **Two options only.** `ReconstructOptionsImpl` carries `shock` and `interp`
+   ({{< code src/recon/reconstruct.hpp ReconstructOptionsImpl >}}); the face floors in `forward` read the parent
+   Hydro's EOS[^rg-3abbaa77d9e6] options (`limiter`, `density_floor`, `pressure_floor`), not reconstruct keys.
+4. **No narrowing at a physical boundary.** `forward` reconstructs velocity and pressure on the same range
+   `il..iu` as density (`_apply_inplace`), next to a physical boundary too.
 5. **`scale`.** What the key does is derived in @sec-ch04-weno; for `dc`, `plm`, `cp3` and `cp5` it is read and
    has no effect.
 
@@ -274,4 +275,6 @@ caught only by an accuracy test.
 [^rg-e7755bb7941e]: type — implementation selector for the enclosing options block
 
 [^rg-ae7031b3a70c]: horizontal — options for the horizontal reconstruction
+
+[^rg-3abbaa77d9e6]: EOS — equation of state
 <!-- end reader glossary notes -->

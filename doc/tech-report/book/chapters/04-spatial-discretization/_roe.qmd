@@ -116,9 +116,10 @@ from snapy_report.ch04.figures.fig_ch04_schemes import make_wavefan
 make_wavefan("roe")
 ```
 
-**No frame projection.** `RiemannSolverImpl::solve` passes the states to the kernel as they are: unlike `lmars`,
-`hllc` and `shallow-roe` it does not call `prim2local{1,2,3}_`. On a Cartesian or spherical-polar grid the
-components are already orthonormal; on the gnomonic grid they are not (@sec-ch04-gnomonic).
+**Frame projection.** `RiemannSolverImpl::solve` rotates the states to the face-local orthonormal frame with
+`to_face_frame_` before it dispatches any face-function kind, `roe` included, and rotates the flux back after. On a
+Cartesian or spherical-polar grid the components are already orthonormal; on the gnomonic grid the projection
+matters (@sec-ch04-gnomonic).
 
 **Face pressure.** The kernel writes $p_f = \tfrac12(p^{\mathrm L} + p^{\mathrm R} + \rho^{\mathrm{Roe}}c^{\mathrm{Roe}}(v_\perp^{\mathrm L} - v_\perp^{\mathrm R}))$,
 the acoustic estimate of @eq-ch04-lmars-face at the Roe state, in every branch including the fallback.
@@ -172,7 +173,7 @@ the last block is the fallback with $a_{\mathrm{LF}}$ = `a`.
 | floored sound speed | {{< code src/riemann/riemann_kernels.h roe_impl >}} | `cs_sq` | |
 | strengths and species | {{< code src/riemann/riemann_kernels.h roe_impl >}} | `alpha_m` | |
 | positivity test and fallback | {{< code src/riemann/riemann_kernels.h roe_impl >}} | `llf_flag` | a negative intermediate density |
-| equation of state, no projection | {{< code src/riemann/riemann.cpp RiemannSolverImpl::solve >}} | `call_roe` | |
+| equation of state and the frame projection | {{< code src/riemann/riemann.cpp RiemannSolverImpl::solve >}} | `to_face_frame_` | |
 | YAML parser (defaults in @sec-ch04-riemann) | {{< code src/riemann/riemann.cpp RiemannSolverOptionsImpl::from_yaml overload=2 >}} | `from_yaml` | `riemann-solver` |
 
 : Code map of the Roe solver. {#tbl-ch04-roe-code}
@@ -200,8 +201,10 @@ CPU, one rank (@tbl-ch04-ctest-run). No test triggers the fallback or the moist 
 ### Limits
 
 1. **No entropy fix**, step 4 of the branches; no test runs a transonic rarefaction.
-2. **No frame projection**: on the gnomonic grid the solver works in panel components.
-3. **Untested fallback.** No test produces a negative intermediate density, so the LLF branch is exercised by
-   nothing in the repository.
+2. **One curved-grid test**: `roe` is projected like the other solvers, and `test_roe_cubed_sphere_rest_python` is
+   its only test on the gnomonic grid.
+3. **One fallback test.** `riemann_events_count_clamped_and_llf_faces` drives the LLF branch with $\lvert v_1\rvert = 2000$
+   and asserts only that it fires on at least one and at most every interior face (`tests/test_riemann.cpp`); the
+   fallback flux itself is not compared with a reference.
 4. **Not provided:** a proof of the exact Roe property with `ideal-moist` and composition-dependent
    $\gamma$; the checks above do not establish the jump identity for those moist averages.

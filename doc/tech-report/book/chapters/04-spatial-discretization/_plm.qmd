@@ -101,8 +101,8 @@ make_plm()
 
 **Stencil and ghosts.** Three cells: `stencils()` is 3, so the framework needs two ghost cells.
 
-**Where it is used.** `InterpImpl::forward` overrides the base class and returns both face states in one
-pass; `left` and `right` of the base class call it.
+**Where it is used.** There is one interpolation class. `InterpImpl::forward` has a `plm` branch that returns both
+face states in one pass, and `left` and `right` call `forward` for `plm` and `ppm`.
 
 ### Code
 
@@ -140,7 +140,7 @@ option: the harmonic mean is hard-coded, and a key such as `limiter` is refused 
 |---|---|---|---|
 | the slope and face values | {{< code src/recon/reconstruct.cpp InterpImpl::forward >}} | `dwm` | `type: plm` |
 | stencil width | {{< code src/recon/reconstruct.cpp InterpImpl::forward >}} | `stencils` | 3 |
-| registration | {{< code src/recon/reconstruct.cpp InterpImpl::create >}} | `PLMInterp` | |
+| registration | {{< code src/recon/reconstruct.cpp InterpImpl::create >}} | `InterpImpl::create` | |
 
 : Code map of PLM. {#tbl-ch04-plm-code}
 

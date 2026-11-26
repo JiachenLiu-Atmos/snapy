@@ -67,11 +67,12 @@ is on.
 
 **Local symbols** (not in NOTATION.md; to be added there; see Limits, item 6): $q^{[r]}$ the face value of WENO
 candidate stencil $r$; $\beta_r$ WENO smoothness
-indicator of candidate $r$; $d_r$ linear weight; $\alpha_r$ nonlinear weight; $\epsilon_{\mathrm w}$ the WENO
-weight epsilon; $\mathsf L$ the $x_1$ conversion operator of eq. (4.7), with its weights $k^\pm_i$ and $\kappa_i$;
+indicator of candidate $r$; $\mathsf d_r$ linear weight; $\mathsf a_r$ nonlinear weight; $\epsilon_{\mathrm w}$ the WENO
+weight epsilon; $\mathsf L$ the $x_1$ conversion operator of eq. (4.7), with its weights $k^\pm_i$ and $\mathsf c_i$;
 $\Delta q_{i\pm1/2}$ the one-sided differences of PLM; $\delta q_i$ the PLM slope.
 
-The default is first order (`dc`, each face takes its upwind cell value), and the default conversion is
+The default is first order (`dc`: each side of a face takes the value of its own cell, `InterpImpl::left`/`right`,
+`src/recon/reconstruct.cpp:151-167@73c45a7c`), and the default conversion is
 second order. The reconstructed group pairs are fixed. With
 `weno5`, density and the mass fractions take WENO5, and velocity and pressure take its linear cp5 partner.
 With `weno3`, the pair is cp3. Every other scheme is used for all rows. `shock: true` uses one scheme for
@@ -125,7 +126,7 @@ q^{[2]} = \tfrac{11}6\bar q_i - \tfrac76\bar q_{i+1} + \tfrac13\bar q_{i+2}. \ta
 $$
 
 These are rows 0-2 of the WENO5 table (`src/recon/reconstruct.cpp:74-76@73c45a7c`). The linear weights
-$d = (0.3, 0.6, 0.1)$ (`:84`) combine them into the cp5 value of (4.2): $0.3q^{[0]}+0.6q^{[1]}+0.1q^{[2]}$ has the
+$\mathsf d = (0.3, 0.6, 0.1)$ (`:84`) combine them into the cp5 value of (4.2): $0.3q^{[0]}+0.6q^{[1]}+0.1q^{[2]}$ has the
 coefficients $(-\tfrac1{20},\tfrac9{20},\tfrac{47}{60},-\tfrac{13}{60},\tfrac1{30})$. This was checked
 symbolically in the same run. The smoothness indicators are the Jiang-Shu forms, from rows 3-8 of the table
 (`:77-82`):
@@ -141,16 +142,16 @@ $$
 and the face value is
 
 $$
-q^{\mathrm R}_{i-1/2} = \frac{\sum_r \alpha_r q^{[r]}}{\sum_r\alpha_r},\qquad
-\alpha_r = \frac{d_r}{(\beta_r+\epsilon_{\mathrm w})^2},\qquad \epsilon_{\mathrm w} = 10^{-6}. \tag{4.5}
+q^{\mathrm R}_{i-1/2} = \frac{\sum_r \mathsf a_r q^{[r]}}{\sum_r\mathsf a_r},\qquad
+\mathsf a_r = \frac{\mathsf d_r}{(\beta_r+\epsilon_{\mathrm w})^2},\qquad \epsilon_{\mathrm w} = 10^{-6}. \tag{4.5}
 $$
 
 This is `weno5_point` (`src/recon/recon_point.h:114-147@73c45a7c`), with $\epsilon_{\mathrm w}$ from `weno_eps`
 (`:64-67`). With `scale: true`, `weno_scale` (`:71-83`) first divides the five values by their mean
 magnitude $\frac15\sum|\bar q|$, and multiplies the result back. The weights then do not depend on the units of
-$q$. A stencil whose values are all zero returns 0. Where the $\beta_r$ are equal (smooth data), $\alpha_r/\sum\alpha
-\to d_r$ and (4.5) reduces to cp5. WENO3 is the same construction on the two two-cell candidates
-$\tfrac12(\bar q_{i-1}+\bar q_i)$ and $\tfrac32\bar q_i-\tfrac12\bar q_{i+1}$ with $d=(\tfrac23,\tfrac13)$ and
+$q$. A stencil whose values are all zero returns 0. Where the $\beta_r$ are equal (smooth data), $\mathsf a_r/\sum\alpha
+\to \mathsf d_r$ and (4.5) reduces to cp5. WENO3 is the same construction on the two two-cell candidates
+$\tfrac12(\bar q_{i-1}+\bar q_i)$ and $\tfrac32\bar q_i-\tfrac12\bar q_{i+1}$ with $\mathsf d=(\tfrac23,\tfrac13)$ and
 $\beta_r$ the squared one-sided differences (`src/recon/reconstruct.cpp:56-63@73c45a7c`,
 `src/recon/recon_point.h:87-107@73c45a7c`).
 
@@ -176,14 +177,14 @@ $$
 \begin{aligned}
 (\mathsf L\bar a)_i &= \frac{h_i^2}{24}\,q''(x_{1,i})
  = k^+_i(\bar a_{i+1}-\bar a_i) - k^-_i(\bar a_i-\bar a_{i-1}),\\
-k^+_i &= \frac{\kappa_i}{x_{1,i+3/2}-x_{1,i-1/2}},\qquad
-k^-_i = \frac{\kappa_i}{x_{1,i+1/2}-x_{1,i-3/2}},\qquad
-\kappa_i = \frac{h_i^2}{4\,(x_{1,i+3/2}-x_{1,i-3/2})}
+k^+_i &= \frac{\mathsf c_i}{x_{1,i+3/2}-x_{1,i-1/2}},\qquad
+k^-_i = \frac{\mathsf c_i}{x_{1,i+1/2}-x_{1,i-3/2}},\qquad
+\mathsf c_i = \frac{h_i^2}{4\,(x_{1,i+3/2}-x_{1,i-3/2})}
 \end{aligned} \tag{4.7}
 $$
 
 (`conv4_rows`, `src/recon/x1_rows.cpp:250-260@73c45a7c`: the four faces `f(0..3)` of cell $i$ are
-$x_{1,i-3/2}..x_{1,i+3/2}$, `c` is $\kappa_i$, and `{kp, km}` are $k^+_i, k^-_i$). On a uniform grid $k^\pm = \tfrac1{24}$ and
+$x_{1,i-3/2}..x_{1,i+3/2}$, `c` is $\mathsf c_i$, and `{kp, km}` are $k^+_i, k^-_i$). On a uniform grid $k^\pm = \tfrac1{24}$ and
 $(\mathsf L\bar a)_i = \tfrac1{24}(\bar a_{i+1}-2\bar a_i+\bar a_{i-1})$. The non-uniform identity
 $k^+(\bar a_{i+1}-\bar a_i)-k^-(\bar a_i-\bar a_{i-1}) = \tfrac{h_i^2}{24}q''$ was checked symbolically on arbitrary
 faces. The point value at the centroid and the average are then related by
@@ -205,7 +206,11 @@ The first term is the primitive point value. The second adds back $\tfrac{h^2}{2
 second-order primitives $\mathbf W(\bar{\mathbf U})$, which is enough because it carries a factor $h^2$
 (`Conversion::forward`, `src/recon/conversion.cpp:63-102@73c45a7c`; the step is labelled in
 `src/hydro/hydro_forward.cpp:366-367@73c45a7c`). The conversion acts on the total averages, background included
-(`:376-380`).
+(`:376-380`). The derivation assumes plain (uniform-measure) cell averages. On spherical-polar and
+gnomonic-equiangle grids the stored $x_1$ averages are $r^2\,\mathrm dr$ means, while `Conversion` is built from the
+plain faces `x1f` (`src/hydro/hydro_forward.cpp:371-375@73c45a7c`, `src/recon/conversion.cpp:24@73c45a7c`). The
+derivation above does not cover that case; the order there rests on the `radial` arm of
+`test_conversion_order_python` (fitted order $\ge 3.8$ on both grids, `tests/test_conversion_order.py:189-207@73c45a7c`).
 
 **What is exact and what is truncated.** (4.1)-(4.3) reproduce polynomials of degree $\le|\mathcal N|-1$
 exactly. cp5 and WENO5 in the linear limit are fifth order at a face on a uniform grid. Conversion order 4 is
@@ -252,7 +257,9 @@ the whole state goes through `pinterp1`, then the same three floors run (`:303-3
 of (4.1) per face, built on the host in double from the actual faces (`weno5_x1_coeffs`, `cp5_x1_coeffs`,
 `src/recon/x1_rows.cpp:103-176@73c45a7c`). Any other $x_1$ scheme is refused with the message at
 `src/recon/reconstruct.cpp:109-116@73c45a7c`. On spherical-polar and gnomonic-equiangle grids with `weno5` or
-`cp5`, the rows are built on the volume coordinate $v = x_1^3/3$ instead of $x_1$. At a physical wall the ghost
+`cp5`, the rows are built on the volume coordinate $v = x_1^3/3$ instead of $x_1$, but only when `nx1` $> 1$ and, on
+spherical-polar, only when `SNAP_X1_CENTROID_EXACT` is off; with the switch on, the reconstruction reads plain
+means and keeps the plain $x_1$ rows (`src/coord/coordinate.cpp:465-471@73c45a7c`; section 4.4). At a physical wall the ghost
 widths are mirrored in $v$ (`CoordinateImpl::x1_row_faces`, `src/coord/coordinate.cpp:462-482@73c45a7c`). The
 rows are installed by `HydroImpl::reset` (`src/hydro/hydro.cpp:50-56@73c45a7c`).
 
@@ -261,22 +268,26 @@ ghost cell per side, which the exchange or the boundary condition filled (`Conve
 `src/recon/conversion.cpp:51-61@73c45a7c`). At a reflecting $x_1$ wall, the ghosts the operator reads are first
 refilled from the four owned cells next to the wall by a polynomial fit (`wall4_rows`,
 `src/recon/x1_rows.cpp:262-289@73c45a7c`; `fill_walls`, `src/recon/conversion.cpp:33-49@73c45a7c`). The wall
-momentum gets odd parity. A density or pressure ghost whose total is not positive keeps its mirror value and
-counts as a trip. Fewer than four $x_1$ cells keep the mirrored ghosts, with a one-time warning
+momentum gets odd parity. The guarded rows are `IDN` and `IPR` (for $\bar{\mathbf U}$ the latter is the total
+energy): a ghost of those rows whose value, reference included where there is one, is not positive keeps its
+mirror value and counts as a trip (`src/recon/conversion.cpp:29-30,44-46,77@73c45a7c`). Fewer than four $x_1$ cells keep the mirrored ghosts, with a one-time warning
 (`src/hydro/hydro_forward.cpp:341-353@73c45a7c`). Cell by cell, the fourth-order value is kept only if
-$\bar{\mathbf U}-\mathsf L\bar{\mathbf U}$ and the converted $\mathbf W$ are admissible: finite, density and
-pressure above the floors (zero with the limiter off), and mass fractions non-negative with the limiter on
-(`conv4_admissible`, `src/recon/conversion.cpp:10-18@73c45a7c`). With the limiter on, a cell whose point state
+both checks of `conv4_admissible` pass (`src/recon/conversion.cpp:10-18@73c45a7c`): on
+$\bar{\mathbf U}-\mathsf L\bar{\mathbf U}$, finite, density above the density floor and mass fractions
+non-negative with the limiter on, with no pressure test (`prim = false`, `:82`); and on the converted $\mathbf W$,
+the same plus pressure above the pressure floor (`prim = true`, `:98`). The floors are zero with the limiter off. With the limiter on, a cell whose point state
 the EOS limiter changed is also rejected. A rejected cell keeps $\mathbf W(\bar{\mathbf U})$, and its count is
-added to the EfStatus slot `kConvTrips` (`:98-101`). Limiter marks and vapor failures raised by the point-value
-EOS call are discarded (`:87-97`). After the conversion, every primitive ghost is refilled from the converted
+added to the EfStatus slot `kConvTrips` (`:98-101`). With the limiter on, the limiter marks and vapor failures
+raised by the point-value EOS call are restored to their values before the call (`:87-97`); with the limiter
+off they are left as the call set them. After the conversion, every primitive ghost is refilled from the converted
 owned cells: block exchange, $x_1$ seam rows, then the boundary functions
 (`src/hydro/hydro_forward.cpp:380-401@73c45a7c`).
 
 **Order and stage.** All of this runs in every RK stage, explicitly. Interior order is given in Derivation. At
 walls, conversion order 4 uses the one-sided fit above. The `wall` arm of `test_conversion_order_python` asserts
-a fitted order of at least 2.5 for the mass tendency in the three cells next to each wall (Tests); the wall
-order itself is not measured in this draft. Across an
+that the error of the mass tendency in the three cells next to each wall falls by at least $2^{2.5}$ from
+$n_1 = 64$ to $128$: the observed order between two resolutions, not a fitted one
+(`tests/test_conversion_order.py:252-266@73c45a7c`). The wall order itself is not measured in this draft. Across an
 $x_1$ block seam the stencil reads exchanged ghosts, so a seam is not a boundary for the reconstruction.
 
 **Precision and devices.** The stencil schemes run one CPU loop and one CUDA line kernel. Both call the same
@@ -327,12 +338,12 @@ mirrored" (`src/hydro/hydro_forward.cpp:350-351@73c45a7c`).
 | `test_plm.release` `interp_plm_round_off_slopes_stay_finite` | round-off-sized stencils give finite face values, equal to the reference in FP64 | `ASSERT_TRUE(isfinite)`; `EXPECT_EQ` (bitwise, FP64) | `tests/test_plm.cpp:175-198@73c45a7c` |
 | `test_plm.release` `reconstruct_preserves_a_constant_field` | dc, plm and weno5 reproduce a constant 2 on all three dims, output shape `(2, ...)` | `torch::allclose` defaults rtol=1e-05, atol=1e-08 | `tests/test_plm.cpp:200-216@73c45a7c`; libtorch defaults |
 | `test_weno.release` `interp_cp5*`, `interp_weno3*`, `interp_weno5*` | the module equals the scalar references of `tests/interp_simple.hpp` | `EXPECT_NEAR` 1.E-6; 2.E-6 in `interp_weno5m_torch2` (FP32 branch) | `tests/test_weno.cpp:92-636@73c45a7c` |
-| `test_weno.release` `interp_weno3_smooth_limit` | WENO3 on data varying by $10^{-7}$ equals cp3 | `EXPECT_NEAR` 1.E-6 | `tests/test_weno.cpp:226-245@73c45a7c` |
+| `test_weno.release` `interp_weno3_smooth_limit` | WENO3 on $1+\{1,2,4\}\cdot10^{-7}$ agrees with cp3 to 1.E-6. Every convex combination of the two candidates is within $\tfrac13\cdot10^{-7}$ of cp3 there, so the test does not show the weights reaching their linear limit | `EXPECT_NEAR` 1.E-6 | `tests/test_weno.cpp:226-245@73c45a7c` |
 | `test_weno.release` `interp_weno3a`, `interp_weno5b` | scalar references on linear data: 1.5 and 2.5000000000000004 | `EXPECT_NEAR` 1.E-10 | `tests/test_weno.cpp:217-256@73c45a7c` |
 | `test_weno.release` cast-cache tests | the FP64 tables follow buffer edits, storage changes and dtype | `torch::equal` (bitwise) | `tests/test_weno.cpp:21-90@73c45a7c` |
 | `test_conversion_order_python` arm `order` | acoustic pulse, $n_1$ = 64, 128, 256 against 1024, uniform and stretched $x_1$: fitted order $\ge 3.8$; tracer ratio within $10^{-13}$ | 3.8; `TOL` = 1.e-13 | `tests/test_conversion_order.py:43,171-186@73c45a7c` |
 | `test_conversion_order_python` arm `radial` | the conversion alone on spherical-polar and gnomonic blocks: order $\ge 3.8$; a rewritten `x1f` gives the converted $\mathbf W$ of a fresh block | 3.8; `torch.equal` (bitwise) | `tests/test_conversion_order.py:189-225@73c45a7c` |
-| `test_conversion_order_python` arms `mass`, `floor`, `slab`, `wall`, `gravity`, `theta` | mass $|\Delta M|/M \le 10^{-13}$; floor-insensitivity bitwise; seam ghosts bitwise; wall order $\ge 2.5$; gravity order $\ge 3.8$; $\theta'$ in its initial range $\pm2$ K | as listed in the docstring | `tests/test_conversion_order.py:2-31@73c45a7c`; asserted at `:298,306,313,337` and in `arm_wall`, `arm_gravity`, `arm_theta` |
+| `test_conversion_order_python` arms `mass`, `floor`, `slab`, `wall`, `gravity`, `theta` | mass: $|\Delta M|/M \le 10^{-13}$ (wall, seam jump), and the outflow run's $\Delta M/M$ within $10^{-10}$ (relative) of the pinned $-1.687639303786939\times10^{-2}$; floor: bitwise insensitivity; slab: $|\Delta M|/M \le 10^{-13}$, seam ghosts bitwise, $\sum y^2$ within $10^{-10}$ of its pinned value; wall: two-resolution order $\ge 2.5$; gravity: fitted order $\ge 3.8$; theta: $\theta'$ stays within its initial range widened by 2 K on each side | `TOL` = 1.e-13; 1.e-10 (twice); bitwise; 2.5; 3.8; 2 K | `tests/test_conversion_order.py:2-31,252-266,280-306,313,330-337@73c45a7c` |
 
 The `DeviceTest` suites run on CPU FP32 and FP64 and on CUDA FP32 and FP64. MPS is commented out, and CUDA
 skips when unavailable (`tests/device_testing.hpp:44-50@73c45a7c`). `test_conversion_order_cuda_python` runs the
@@ -348,17 +359,20 @@ draft records no run of these tests (command, device and versions) at the pin. T
    $x_2$ and $x_3$ are uniform-table only.
 3. Conversion order 4 is $x_1$ only. It refuses CUDA-graph capture when an outflow boundary is set, because
    the hydro step refills its primitive ghosts with it (`StageExecutor::config_reasons`,
-   `src/mesh/stage_executor.cpp:675-681@73c45a7c`). At walls the test asserts an order of at least 2.5 only (Tests), and
+   `src/mesh/stage_executor.cpp:675-681@73c45a7c`). At walls the test asserts only a two-resolution order (64 to 128) of at least 2.5, not a fitted
+   order (Tests), and
    with fewer than four $x_1$ cells it keeps mirrored ghosts.
 4. The figure scripts cited above were drawn against earlier snapy shas. Their agreement with the pin is not
    checked in this draft. The outline's **new** order figure (`recon_order_run.py`) is not written.
 5. The derivation checks (4.1)-(4.8) were run once with sympy 1.14.0 / Python 3.11.13 outside the report tree.
    They are not yet a committed `src/snapy_report/ch04/checks/*_check.py` with a `.out` (STYLE 7).
-6. Local symbols ($q^{[r]}, \beta_r, d_r, \alpha_r, \epsilon_{\mathrm w}, \mathsf L, k^\pm_i, \kappa_i, \Delta q_{i\pm1/2}, \delta q_i$) need an
+6. Local symbols ($q^{[r]}, \beta_r, \mathsf d_r, \mathsf a_r, \epsilon_{\mathrm w}, \mathsf L, k^\pm_i, \mathsf c_i, \Delta q_{i\pm1/2}, \delta q_i$) need an
    ISSUES.md item and a NOTATION.md decision. $\mathsf L$ was chosen because $\mathcal L$ is the RK right-hand side;
-   $\kappa_i$ clashes with NOTATION's thermal diffusivity $\kappa$ in spelling only and should be renamed at
-   conversion if the editor prefers.
-7. Untested combinations: `scale: true` with FP32 WENO5 on CUDA has no dedicated test found at the pin; the
+   the sans-serif $\mathsf a_r, \mathsf c_i, \mathsf d_r$ avoid NOTATION's $\alpha$ (never bare), $\kappa$ (thermal
+   diffusivity) and $d$ (always carries its quantity).
+7. No test at the pin resolves WENO's smooth limit: `interp_weno3_smooth_limit` is satisfied by any convex
+   combination of the candidates (Tests).
+8. Untested combinations: `scale: true` with FP32 WENO5 on CUDA has no dedicated test found at the pin; the
    switch-matrix cross-reference (chapter 15) is not filled in this draft.
 
 ---
@@ -394,9 +408,9 @@ star densities are negative.
 
 **Local symbols:** $\lambda^-,\lambda^+$ the HLLC outer wave speeds; $b^-, b^+$ the same clipped at zero;
 $\lambda^{\mathrm c}$ the contact speed; $p^{\mathrm c}$ the contact pressure; $v_n$ the face-normal and $v_t$ a
-tangential velocity in the face frame; $Z_f$ the face impedance $\bar\rho\bar c$ of LMARS (NOTATION's $Z$ is the
+tangential velocity in the face frame; $\mathcal Z_f$ the face impedance $\bar\rho\bar c$ of LMARS (NOTATION's $Z$ is the
 background impedance); $p_f, v_{n,f}$ the LMARS face pressure and velocity; $\hat h_t$ the total specific enthalpy;
-$m_K, t_K, q_K$ the HLLC intermediates; $p_{\mathrm{bg}}$ the face pressure background of the perturbation entry.
+$J_K, Q_K, \Gamma_K$ the HLLC intermediates (renamed from $m, t, q$, which NOTATION reserves for momentum, time and a generic quantity); $p_{\mathrm{bg}}$ the face pressure background of the perturbation entry.
 
 Every solver carries the dry-air mass flux $\rho_{\mathrm d}v_n = \rho(1-\sum_n y_n)v_n$ in the density row and
 $\rho y_n v_n$ in species row $n$. The face pressure output is kept as a total for the implicit and energy
@@ -422,26 +436,26 @@ p_{\mathrm{mid}} = \tfrac12\big(p^{\mathrm L}+p^{\mathrm R}\big) + \tfrac12\big(
 \qquad \bar\rho = \tfrac12(\rho^{\mathrm L}+\rho^{\mathrm R}),\quad \bar c = \tfrac12(c_s^{\mathrm L}+c_s^{\mathrm R}),
 $$
 $$
-q_K = \begin{cases}1 & p_{\mathrm{mid}}\le p^K\\ \sqrt{1+\frac{\gamma_K+1}{2\gamma_K}\big(\frac{p_{\mathrm{mid}}}{p^K}-1\big)} & \text{otherwise,}\end{cases}
-\qquad \lambda^- = v_n^{\mathrm L}-c_s^{\mathrm L}q_{\mathrm L},\quad \lambda^+ = v_n^{\mathrm R}+c_s^{\mathrm R}q_{\mathrm R} \tag{4.9}
+\Gamma_K = \begin{cases}1 & p_{\mathrm{mid}}\le p^K\\ \sqrt{1+\frac{\gamma_K+1}{2\gamma_K}\big(\frac{p_{\mathrm{mid}}}{p^K}-1\big)} & \text{otherwise,}\end{cases}
+\qquad \lambda^- = v_n^{\mathrm L}-c_s^{\mathrm L}\Gamma_{\mathrm L},\quad \lambda^+ = v_n^{\mathrm R}+c_s^{\mathrm R}\Gamma_{\mathrm R} \tag{4.9}
 $$
 
-(`src/riemann/riemann_kernels.h:79-102@73c45a7c`). Write $m_{\mathrm L} = \rho^{\mathrm L}(v_n^{\mathrm L}-\lambda^-)$,
-$m_{\mathrm R} = \rho^{\mathrm R}(\lambda^+-v_n^{\mathrm R})$ and $t_K = p^K + \rho^Kv_n^K(v_n^K-\lambda_K)$, with
+(`src/riemann/riemann_kernels.h:79-102@73c45a7c`). Write $J_{\mathrm L} = \rho^{\mathrm L}(v_n^{\mathrm L}-\lambda^-)$,
+$J_{\mathrm R} = \rho^{\mathrm R}(\lambda^+-v_n^{\mathrm R})$ and $Q_K = p^K + \rho^Kv_n^K(v_n^K-\lambda_K)$, with
 $\lambda_{\mathrm L}=\lambda^-$, $\lambda_{\mathrm R}=\lambda^+$. The normal-momentum jump condition across the left wave,
 with pressure $p^{\mathrm c}$ and normal velocity $\lambda^{\mathrm c}$ in the star region, is
 
 $$
 p^{\mathrm c} - p^{\mathrm L} = \rho^{\mathrm L}(\lambda^- - v_n^{\mathrm L})(\lambda^{\mathrm c}-v_n^{\mathrm L})
-\quad\Longleftrightarrow\quad p^{\mathrm c} = t_{\mathrm L} - m_{\mathrm L}\lambda^{\mathrm c},
+\quad\Longleftrightarrow\quad p^{\mathrm c} = Q_{\mathrm L} - J_{\mathrm L}\lambda^{\mathrm c},
 $$
 
-and across the right wave $p^{\mathrm c} = t_{\mathrm R} + m_{\mathrm R}\lambda^{\mathrm c}$. Equating the two and solving
+and across the right wave $p^{\mathrm c} = Q_{\mathrm R} + J_{\mathrm R}\lambda^{\mathrm c}$. Equating the two and solving
 first for $\lambda^{\mathrm c}$, then for $p^{\mathrm c}$:
 
 $$
-\lambda^{\mathrm c} = \frac{t_{\mathrm L}-t_{\mathrm R}}{m_{\mathrm L}+m_{\mathrm R}},\qquad
-p^{\mathrm c} = t_{\mathrm L} - m_{\mathrm L}\lambda^{\mathrm c} = \frac{m_{\mathrm L}t_{\mathrm R}+m_{\mathrm R}t_{\mathrm L}}{m_{\mathrm L}+m_{\mathrm R}}. \tag{4.10}
+\lambda^{\mathrm c} = \frac{Q_{\mathrm L}-Q_{\mathrm R}}{J_{\mathrm L}+J_{\mathrm R}},\qquad
+p^{\mathrm c} = Q_{\mathrm L} - J_{\mathrm L}\lambda^{\mathrm c} = \frac{J_{\mathrm L}Q_{\mathrm R}+J_{\mathrm R}Q_{\mathrm L}}{J_{\mathrm L}+J_{\mathrm R}}. \tag{4.10}
 $$
 
 These are the code's `am` and `cp` (`src/riemann/riemann_kernels.h:120-129@73c45a7c`). Their equality with Toro's
@@ -483,14 +497,14 @@ $p_{\mathrm{bg}}$. The wave speeds and the energy transport use totals $p_{\math
 the clamp use the anomaly (`:61-66`, `:85-86`, `:130-131`, `:186-187`).
 
 **LMARS.** LMARS takes one face pressure $p_f$ and one face velocity $v_{n,f}$ from the linear acoustic Riemann
-problem with impedance $Z_f=\bar\rho\bar c$, where $\bar c = \sqrt{\tfrac12\bar\gamma(p^{\mathrm L}+p^{\mathrm R})/\bar\rho}$ and
-$\bar\gamma = \tfrac12(\gamma_{\mathrm L}+\gamma_{\mathrm R})$. The characteristic variable $p+Z_fv_n$ carries the left state
-into the face, and $p-Z_fv_n$ the right state. Solving $p^{\mathrm L}+Z_fv_n^{\mathrm L} = p_f+Z_fv_{n,f}$ and
-$p^{\mathrm R}-Z_fv_n^{\mathrm R} = p_f-Z_fv_{n,f}$ gives
+problem with impedance $\mathcal Z_f=\bar\rho\bar c$, where $\bar c = \sqrt{\tfrac12\bar\gamma(p^{\mathrm L}+p^{\mathrm R})/\bar\rho}$ and
+$\bar\gamma = \tfrac12(\gamma_{\mathrm L}+\gamma_{\mathrm R})$. The characteristic variable $p+\mathcal Z_fv_n$ carries the left state
+into the face, and $p-\mathcal Z_fv_n$ the right state. Solving $p^{\mathrm L}+\mathcal Z_fv_n^{\mathrm L} = p_f+\mathcal Z_fv_{n,f}$ and
+$p^{\mathrm R}-\mathcal Z_fv_n^{\mathrm R} = p_f-\mathcal Z_fv_{n,f}$ gives
 
 $$
-p_f = \tfrac12(p^{\mathrm L}+p^{\mathrm R}) + \tfrac12 Z_f(v_n^{\mathrm L}-v_n^{\mathrm R}),\qquad
-v_{n,f} = \tfrac12(v_n^{\mathrm L}+v_n^{\mathrm R}) + \frac{p^{\mathrm L}-p^{\mathrm R}}{2Z_f} \tag{4.12}
+p_f = \tfrac12(p^{\mathrm L}+p^{\mathrm R}) + \tfrac12 \mathcal Z_f(v_n^{\mathrm L}-v_n^{\mathrm R}),\qquad
+v_{n,f} = \tfrac12(v_n^{\mathrm L}+v_n^{\mathrm R}) + \frac{p^{\mathrm L}-p^{\mathrm R}}{2\mathcal Z_f} \tag{4.12}
 $$
 
 (add and subtract the two conditions; checked symbolically). The flux is upwinded on the sign of $v_{n,f}$:
@@ -507,7 +521,9 @@ $a = \tfrac12\max(|v_n^{\mathrm L}|+c_s^{\mathrm L}, |v_n^{\mathrm R}|+c_s^{\mat
 (`roe_impl`, `src/riemann/riemann_kernels.h:263-444@73c45a7c`; the checks at `:363-392`, the fallback at
 `:429-443`). `shallow-roe` is the Roe solver of the shallow-water equations in the $x$-$y$ or $y$-$z$ plane
 (`:447-495`). `upwind` returns $\mathbf F = v\,\mathbf W^{\mathrm L}$ if $v>0$ and $v\,\mathbf W^{\mathrm R}$ otherwise, for a
-face velocity $v$ the caller passes. `plume-roe` is a Lax-Friedrichs flux of a four-variable plume model, $x_1$ only.
+face velocity $v$ the caller passes. `plume-roe` is a Lax-Friedrichs flux of a four-variable plume model whose dissipation differences the primitive
+rows (`src/riemann/riemann.cpp:151-153@73c45a7c`). It refuses every `dim` but 1 (`src/riemann/riemann.cpp:176-177@73c45a7c`),
+and with `DIM1 = 3, DIM2 = 2, DIM3 = 1` (`src/hydro/hydro_forward.cpp:301@73c45a7c`) that is the $x_3$ face, not $x_1$.
 The last two are torch formulas (`src/riemann/riemann.cpp:129-186@73c45a7c`).
 
 **Central mass flux.** When asked, the kernel also writes the mass rows of $\tfrac12(\mathbf F(\mathbf W^{\mathrm L}) +
@@ -517,7 +533,7 @@ in the species rows (`riemann_central`, `src/riemann/riemann_kernels.h:516-535@7
 
 **Exact and truncated.** Setting $\mathbf W^{\mathrm L} = \mathbf W^{\mathrm R}$ in (4.9)-(4.12) gives
 $\mathbf F_f = \mathbf F(\mathbf W)$ for HLLC and LMARS, so both are consistent. For HLLC: $p_{\mathrm{mid}} = p$,
-$q_K = 1$, $\lambda^{\mathrm c} = v_n$, $p^{\mathrm c} = p$, and (4.11) collapses to $\mathbf F(\mathbf W)$. For LMARS:
+$\Gamma_K = 1$, $\lambda^{\mathrm c} = v_n$, $p^{\mathrm c} = p$, and (4.11) collapses to $\mathbf F(\mathbf W)$. For LMARS:
 $p_f = p$, $v_{n,f} = v_n$. The dissipation is first order in the jump $\mathbf W^{\mathrm R}-\mathbf W^{\mathrm L}$, and
 that jump is itself as small as the reconstruction error. The scheme's order on smooth data therefore comes from
 (4.1). Properties beyond these (contact and shear resolution of HLLC, the low-Mach behaviour of LMARS) are
@@ -553,7 +569,7 @@ open (Limits, item 4).
 Derivation. Walls, seams and solids enter only through the face states (chapters 14, 13, 3).
 
 **Precision.** HLLC keeps all arithmetic in the dispatched type, and a `static_assert` enforces it
-(`src/riemann/riemann_kernels.h:94-97@73c45a7c`). In FP32 it forms $v_n-\lambda^\mp$ directly as $\pm c_s^Kq_K$ instead
+(`src/riemann/riemann_kernels.h:94-97@73c45a7c`). In FP32 it forms $v_n-\lambda^\mp$ directly as $\pm c_s^K\Gamma_K$ instead
 of subtracting large velocities (`:109-118`, `:136-143`). The FP64 branch keeps the subtraction (`:114-118`).
 
 ### Code
@@ -576,8 +592,10 @@ Walk-through. (i) `from_yaml` accepts only `type` and `dir` under `dynamics/riem
 keeps `hllc` and `omni` (`src/riemann/riemann.cpp:64-75@73c45a7c`, defaults at
 `src/riemann/riemann.hpp:61,64@73c45a7c`). (ii) `create` parses the type, so an unknown one fails at
 construction: "RiemannSolver: unknown type ..." (`src/riemann/riemann.cpp:84,353@73c45a7c`). (iii) `reset`
-allocates the `elr`, `clr`, `glr` buffers for `hllc` and `lmars`. It requires `dir = yz` for `shallow-roe` on
-gnomonic-equiangle (`:116-125`). (iv) Per sweep, `solve` as described above.
+allocates the `elr`, `clr`, `glr` buffers for `hllc` and `lmars`. Its check that `shallow-roe` uses `dir = yz` on
+gnomonic-equiangle compares the type with `"gnomonic_equiangle"` (`:118`), while the coordinate type is spelled
+`gnomonic-equiangle` (`src/coord/coordinate.cpp:468,714@73c45a7c`), so it never fires; the only `dir` check that
+runs is `solve`'s `xy`-or-`yz` test (`src/riemann/riemann.cpp:284-287@73c45a7c`). (iv) Per sweep, `solve` as described above.
 
 Errors a user can hit: "riemann.central is not defined for Riemann solver type ..." (`:160-163`); "Face-pressure
 output is not implemented for ..." for `upwind`, `plume-roe` and `shallow-roe` (`:165-168`, `:174-175`,
@@ -595,7 +613,7 @@ output is not implemented for ..." for `upwind`, `plume-roe` and `shallow-roe` (
 | `test_riemann.release` `HLLCFloat.shocks_rarefactions_and_boosts_match_double` | FP32 HLLC against FP64 on Sod, strong shock, expansion, boosts up to $10^8$ | $3\cdot10^{-4}\max(1,\lvert F\rvert)$ | `tests/test_riemann.cpp:433-481@73c45a7c` |
 | `test_riemann.release` `DeviceTest.hllc_pressure_split_dispatch_and_on_host` | the dispatched kernel and the `OnHost` CPU path agree; species rows are the mixture flux times their mass fraction | on CPU `torch::equal` (bitwise); on CUDA `allclose(2.e-5, 1.e-6)` flux and `allclose(2.e-5, 1.e-7)` face pressure; species `allclose(2.e-6, 1.e-12)` | `tests/test_riemann.cpp:483-549@73c45a7c` |
 | `test_riemann.release` `DeviceTest.riemann_central_matches_the_two_extra_solves` | `riemann.central` mass rows equal $\tfrac12(\mathbf F(\mathbf W^{\mathrm L},\mathbf W^{\mathrm L})+\mathbf F(\mathbf W^{\mathrm R},\mathbf W^{\mathrm R}))$; non-mass rows 0 | relative max error 1.e-14 (FP64), 2.e-6 (FP32) | `tests/test_riemann.cpp:551-601@73c45a7c` |
-| `test_riemann.release` `DeviceTest.hllc_perturbation_central_matches_total_central` | the central rows on the HLLC perturbation path equal those on the total path; non-mass rows 0; FP64 mass-row flux difference between the paths | `EXPECT_EQ` 0 (non-mass rows); relative 1.e-9 (FP64 flux) | `tests/test_riemann.cpp:603-691@73c45a7c` |
+| `test_riemann.release` `DeviceTest.hllc_perturbation_central_matches_total_central` | the central rows on the HLLC perturbation path equal those on the total path; non-mass rows 0; FP64 mass-row flux difference between the paths | `EXPECT_EQ` 0 (non-mass rows); relative 1.e-14 (FP64) / 2.e-6 (FP32) on both central comparisons; relative 1.e-9 (FP64 flux) | `tests/test_riemann.cpp:603-691@73c45a7c` (the bounds at `:651,679-680,686-688`) |
 | `test_riemann.release` `DeviceTest.g_r8_riemann_central_on_the_aam_decks` | FP64 only: the kernel's `riemann.central` against $\tfrac12(\mathbf F(\mathbf W^{\mathrm L},\mathbf W^{\mathrm L})+\mathbf F(\mathbf W^{\mathrm R},\mathbf W^{\mathrm R}))$ on every $x_2$/$x_3$ face of two decks (lmars/weno5 3D arm; shallow-roe W2 C16), normalised by $\max\rho(\lvert v_n\rvert+c_s)$ | `EXPECT_LE` 1.e-13 | `tests/test_riemann.cpp:693-700,843-850@73c45a7c` |
 | `test_riemann.release` `DeviceTest.riemann_events_count_clamped_and_llf_faces` | $v_1=\mp1$ (left/right): no events; $v_1=\mp2000$: HLLC clamps every interior face, Roe flags $>0$ and $\le$ interior faces | `EXPECT_EQ`/`GT`/`LE` (counts) | `tests/test_riemann.cpp:856-901@73c45a7c` |
 | `test_roe_cubed_sphere_rest_python` | a resting six-panel atmosphere stays at rest with `roe` over 2 cycles | $\max\lvert v_{2,3}\rvert < 10^{-9}$ m s$^{-1}$, no redo | `tests/test_roe_cubed_sphere_rest.py:36@73c45a7c`; the docstring says that without the face-local projection the corners spin up to about 2 m s$^{-1}$ (`:4-5`), a statement of the test's author, not a run of this draft |
@@ -612,10 +630,12 @@ evidence at the pin: missing evidence** (no recorded run in this draft).
 3. The contact-pressure clamp and Roe's LLF fallback change the flux silently. They are counted (section 4.3)
    but not refused.
 4. The figure's agreement with the pin is not checked in this draft.
-5. Local symbols ($\lambda^\pm, b^\pm, \lambda^{\mathrm c}, p^{\mathrm c}, v_n, v_t, Z_f, p_f, v_{n,f}, \hat h_t, m_K, t_K, q_K,
+5. Local symbols ($\lambda^\pm, b^\pm, \lambda^{\mathrm c}, p^{\mathrm c}, v_n, v_t, \mathcal Z_f, p_f, v_{n,f}, \hat h_t, J_K, Q_K, \Gamma_K,
    p_{\mathrm{bg}}$) need an ISSUES.md item.
 6. No convergence or shock-tube test of the full scheme is cited here. The outline lists none for 4.2.
    Chapter 16 holds the verification catalogue.
+7. The gnomonic `dir = yz` check for `shallow-roe` never fires (a string mismatch, Code walk-through (iii)), so a
+   gnomonic `shallow-roe` deck with `dir: xy` is not refused.
 
 ---
 
@@ -639,7 +659,8 @@ per stage at `flush_counts`.
 
 **Activation.** Always on. The counts exist whenever their floor or event ran.
 
-**Guarantee / limits.** Count = number of faces changed, exactly (integer sums).
+**Guarantee / limits.** A floor count is the number of face states changed, each side of a face counted;
+a solver-event count is the number of faces. Exact (integer sums).
 
 **Evidence.** `test_face_floor.release`, `test_fp32_face_floor_counts_python`, `test_riemann.release` (events).
 :::
@@ -650,9 +671,13 @@ and the $x_2$/$x_3$ path.
 ### Derivation
 
 None: this is control flow. The one quantitative statement is the count. Each floor that runs posts a boolean
-mask over the faces it computed, `true` where it changed the face. The monitor sums the masks as integers.
-Integer addition is exact, so a counter equals the number of changed faces in the stage
-(`RegisterMonitor::flush_counts`, `src/hydro/flux_register.cpp:139-156@73c45a7c`).
+mask over both sides of the faces it computed (the side axis of the result, `src/recon/reconstruct.cpp:280-300@73c45a7c`,
+`src/recon/reconstruct.hpp:168-175@73c45a7c`), `true` where it changed a face state. The monitor sums the masks as
+integers (`RegisterMonitor::flush_counts`, `src/hydro/flux_register.cpp:139-156@73c45a7c`). Integer addition is
+exact, so a floor counter equals the number of face states changed in the stage, up to two per face; this is what
+`test_face_floor.release` asserts, summing over both sides (`tests/test_face_floor.cpp:135-146@73c45a7c`). The
+solver events are one mask per interior face (`src/riemann/riemann.cpp:334-341@73c45a7c`), so those counters count
+faces.
 
 ### Numerical method
 
@@ -665,8 +690,9 @@ Integer addition is exact, so a counter equals the number of changed faces in th
    `face_floor.species` (`:23-29`).
 3. For $x_2$/$x_3$: the immersed-solid step, then the covariance hook (section 4.4) on the unrotated states
    (`solve_faces`, `:139-157`).
-4. `priemann->forward` into the register's slot `slot(d, "riemann")`, optionally with `riemann.central`
-   (`:153-155`).
+4. Without `perturbation-flux`, `priemann->forward` into the register's slot `slot(d, "riemann")`, optionally
+   with `riemann.central` (`:114-118`, `:153-155`); with `perturbation-flux` on, in FP64 as in FP32, the solve is
+   `forward_perturbations` on the split states (`:120-133`; Split-path solve, below).
 5. `post_events`, the lambda in `riemann_solve` (`:111-113`), calls `post_riemann_events` (`:31-35`). It posts
    the solver's masks under `riemann.pstar_clamp` and `riemann.llf`.
 6. `reg.post_slot(d, "riemann")` (`:156`). For $x_1$ the same post is at
@@ -686,7 +712,8 @@ would depend on the decomposition (`:50-57`). The reconstruction's own density a
 path. The species floor stays. The sweep then floors the total face density and pressure itself and posts the
 counts with `count_below`:
 
-- on an active horizontal sweep without covariance, against a static face gauge (`:72-88`);
+- on an active horizontal sweep without covariance: the floor tests the total face pressure, the reconstructed
+  value plus $p_{\mathrm{gauge}}$, and the static face gauge is subtracted after the clamp (`:72-88`);
 - otherwise after casting the face states back to FP64 and adding $p_{\mathrm{gauge}}$ (`:90-101`).
 
 **Split-path solve.** If no background was set (horizontal or gravity-free sweeps), `riemann_solve` subtracts the
@@ -767,7 +794,7 @@ shift. Out: correction rows (energy, species, dry mass; momentum on curved grids
 
 **Activation.** `dynamics/flux-covariance: true` (default). Off restores the plain face product. It must be the same in every block.
 
-**Guarantee / limits.** Zero at rest, exactly. Removes the $O(h^2)$ covariance of the $x_1$ profile. The other in-face direction is neglected.
+**Guarantee / limits.** At rest every row vanishes except the curved-grid normal-momentum pressure part, which the geometric source cancels. Removes the $O(h^2)$ covariance of the $x_1$ profile. The other in-face direction is neglected.
 
 **Evidence.** `test_flux_covariance_rows_python`, `test_horizontal_flux_covariance_python`, `test_x1_centroid_rest_python`.
 :::
@@ -775,8 +802,8 @@ shift. Out: correction rows (energy, species, dry mass; momentum on curved grids
 **Local symbols:** $\varsigma^2_{i}$ the second central $x_1$ moment of an $x_2$/$x_3$ face's own area measure over
 cell $i$ (NOTATION.md's $\sigma_i^2$ is the cell's own-measure variance; the two agree in Cartesian); $\delta^{\mathrm f}_i$
 the $x_1$ offset between the centroid of the cell measure and that of the face measure (NOTATION.md's $\delta_i$ is
-a different offset); $v_n$ the face-normal velocity, as in section 4.2; $\xi$ the $x_1$ offset from the face
-measure's centroid and $q_c$ a field's value there (expansion only); $D_1[q]_i = (q_{i+1}-q_{i-1})/(x_{1,i+1}-x_{1,i-1})$ the
+a different offset); $v_n$ the face-normal velocity, as in section 4.2; $\tilde x$ the $x_1$ offset from the face
+measure's centroid (NOTATION's $\xi$ is a panel coordinate) and $q_c$ a field's value there (expansion only); $D_1[q]_i = (q_{i+1}-q_{i-1})/(x_{1,i+1}-x_{1,i-1})$ the
 centred $x_1$ difference the code uses.[^ch04-cov-src]
 
 [^ch04-cov-src]: Derivation sources, cited, not pasted: `doc/tech-report/sources/deriv__289-covariance-x3-curved.md`,
@@ -786,11 +813,11 @@ this draft; see Limits, item 4. Credit and trail: chengcli/snapy#289.
 
 ### Derivation
 
-**Covariance of a density-weighted product.** Inside one cell, write each field linearly in $\xi$, the $x_1$ offset
-from the face measure's centroid: $\rho = \rho_c+\xi\,\partial_1\rho$, $v_n = v_{n,c}+\xi\,\partial_1v_n$,
-$q = q_c+\xi\,\partial_1q$. Assume, for this paragraph, that the cell values are averages over the same measure
+**Covariance of a density-weighted product.** Inside one cell, write each field linearly in $\tilde x$, the $x_1$ offset
+from the face measure's centroid: $\rho = \rho_c+\tilde x\,\partial_1\rho$, $v_n = v_{n,c}+\tilde x\,\partial_1v_n$,
+$q = q_c+\tilde x\,\partial_1q$. Assume, for this paragraph, that the cell values are averages over the same measure
 (exact in Cartesian; on curved grids the centroid term (4.16) carries the leading difference). Let the measure be
-symmetric to this order, $\langle\xi\rangle = 0$, $\langle\xi^2\rangle = \varsigma^2$, $\langle\xi^3\rangle=0$. The
+symmetric to this order, $\langle\tilde x\rangle = 0$, $\langle\tilde x^2\rangle = \varsigma^2$, $\langle\tilde x^3\rangle=0$. The
 stored cell values are density-weighted: $\bar\rho = \langle\rho\rangle$, $\tilde v_n = \langle\rho v_n\rangle/\bar\rho$,
 $\tilde q = \langle\rho q\rangle/\bar\rho$. Then
 
@@ -860,9 +887,13 @@ one-sided difference at the first and last interior cell (`d1_pressure`, `:36-46
 same difference, so that rest stays exact (`:221-224`). In Cartesian $\delta^{\mathrm f}\equiv0$ and none of this is
 computed (`:140-143`, `:181-196`).
 
-**What is exact and what is truncated.** Every term of (4.14) and (4.16) carries a factor $v_n$ or $D_1[v_n]$, and
-both are exactly zero at rest. A balanced state therefore keeps a zero tendency bit for bit (`:84-88`). The code
-comment adds that the covariance part is also zero for an isothermal state but the centroid part is not, so that
+**What is exact and what is truncated.** Every term of (4.14), and every row of (4.16) but one, carries a factor
+$v_n$ or $D_1[v_n]$, and both are exactly zero at rest. The exception is the normal-momentum pressure part
+$-\delta^{\mathrm f}D_1p$, which has no velocity factor and is nonzero at rest on a curved grid
+(`src/hydro/hydro_forward.cpp:221-224@73c45a7c`). A state at rest stays at rest because the same difference is
+subtracted from the cell pressure the geometric source reads (`src/hydro/hydro_forward.cpp:946-959@73c45a7c`); this
+draft does not claim that cancellation is bitwise. The code
+comment (`src/hydro/hydro_forward.cpp:84-88@73c45a7c`) adds that the covariance part is also zero for an isothermal state but the centroid part is not, so that
 second exact zero holds in Cartesian only (`:86-88`); for the energy row this follows from (4.14) when $\hat h$
 depends on $T$ alone, and it is not re-derived here for the tracer rows. The correction is added to the face flux, so it telescopes in the $x_2$/$x_3$ sums like the flux
 itself and conserves every row. The remaining error is $O(h^4)$ in the $x_1$ profile plus the neglected
@@ -877,9 +908,11 @@ After the solve, `add_cov` adds the result (`:782-795`). In Cartesian only the i
 species and dry rows are written, stacked as (energy, species..., dry). On curved grids the full flux-shaped
 correction is added. On $x_3$ faces the moment is taken along $x_1$ too, because $x_1$ is the stratified direction.
 
-**Stencil.** $D_1$ is centred over $x_{1,i\pm1}$ and needs both neighbours. A block with fewer than 3 $x_1$ cells
-gets no correction (`:96`). Shallow water gets none (`:98`). The ghost rows next to a cubed-sphere panel edge
-are not read by the pressure difference (`:30-35`).
+**Stencil.** $D_1$ is centred over $x_{1,i\pm1}$ and needs both neighbours. The check `n1 < 3`
+(`src/hydro/hydro_forward.cpp:92-96@73c45a7c`) reads the tensor extent, ghosts included (`nc1`,
+`src/coord/coordinate.hpp:62@73c45a7c`), so only an `nx1 = 1` block skips the correction. Shallow water gets none
+(`src/hydro/hydro_forward.cpp:98@73c45a7c`). The ghost rows next to a cubed-sphere panel edge are not read by the
+pressure difference (`src/hydro/hydro_forward.cpp:30-35@73c45a7c`).
 
 **Caching.** `face_moment2_x1()` is grid-only. It is cached per block, keyed on the `x1f` tensor, its version,
 device and dtype (`:117-132`).

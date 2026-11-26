@@ -37,9 +37,9 @@ None at the pin: the interpolant throws before it computes anything, and the ste
 
 #### Why the run stops rather than degrades
 
-1. *The factory accepts the name.* `InterpImpl::create` returns `PPMInterp` for `type: ppm`, so construction
-   succeeds.
-2. *Construction reads the stencil width.* `PPMInterpImpl::stencils()` returns 5, so the framework sets three
+1. *The parser accepts the name.* `parse_scheme` maps `type: ppm` to `Scheme::ppm` and `InterpImpl::create`
+   builds the module, so construction succeeds.
+2. *Construction reads the stencil width.* `InterpImpl::stencils()` returns 5 for `ppm` (its `SchemeTraits` entry), so the framework sets three
    ghost cells and the block is built with them.
 3. *The first reconstruction calls `forward`.* `_apply_inplace` calls `pinterp->forward(w, dim, outl, outr)`.
 4. *`InterpImpl::forward` throws before writing anything.* Its body computes the output shape and then
@@ -83,8 +83,8 @@ The `throw` line is step 4; the `return` is never reached.
 | what | code link | symbol | switch |
 |---|---|---|---|
 | the throwing body | {{< code src/recon/reconstruct.cpp InterpImpl::forward >}} | `runtime_error` | `type: ppm` |
-| stencil width 5 | {{< code src/recon/reconstruct.cpp InterpImpl::forward >}} | `stencils` | |
-| registration | {{< code src/recon/reconstruct.cpp InterpImpl::create >}} | `PPMInterp` | |
+| stencil width 5 | {{< code src/recon/reconstruct.cpp InterpImpl::stencils >}} | `stencils` | |
+| the name | {{< code src/recon/reconstruct.cpp parse_scheme >}} | `parse_scheme` | `type: ppm` |
 
 : Code map of PPM. {#tbl-ch04-ppm-code}
 
