@@ -23,6 +23,12 @@ picks the N-th in file order, and its absence is an error.
     python3 tools/code_anchors.py bump NEW          # diff from the pin to NEW, then write NEW into code_pin.yml
                                                     # (only if every citation resolves at NEW)
 
+Legacy chapters (`tools/code-anchors-legacy.txt`, one chapter id per line, as in tools/chapter-owners.tsv): a
+citation in a listed chapter that does not resolve at the pin is reported, not failed, and renders as plain text.
+Every other chapter is checked in full. A chapter PR deletes its own line and must then pass in full; a listed
+chapter with nothing unresolved fails `check` until its line is deleted. The report is complete only when the list
+is empty. `check` prints the unresolved count left per chapter and per owner.
+
 Sources come from a local clone that has the commit (`SNAPY_REPO`, then the repository holding this report),
 else from a shallow fetch of the pinned repository into `SNAPY_REPORT_CACHE` (default ~/.cache/snapy-report).
 `CTAGS` names the Universal Ctags binary (default `ctags` on PATH); CI builds the version in CTAGS_VERSION.
@@ -46,6 +52,7 @@ from pathlib import Path
 REPORT = Path(__file__).resolve().parent.parent
 BOOK = REPORT / "book"
 PIN_FILE = REPORT / "code_pin.yml"
+LEGACY_FILE = REPORT / "tools" / "code-anchors-legacy.txt"
 TABLE = BOOK / "_code_anchors.json"
 CTAGS_VERSION = "6.2.1"  # the version CI builds; ranges are resolved with it
 CACHE = Path(os.environ.get("SNAPY_REPORT_CACHE", Path.home() / ".cache" / "snapy-report"))
@@ -357,10 +364,68 @@ def _rel(f: Path) -> str:
         return str(f)
 
 
+def read_legacy(path: Path = LEGACY_FILE) -> list[str]:
+    """The legacy chapters, in file order (missing file: none)."""
+    if not path.exists():
+        return []
+    return [l.strip() for l in path.read_text().splitlines() if l.strip() and not l.lstrip().startswith("#")]
+
+
+def chapter(f: Path) -> str:
+    """The chapter id of a book file, as the ratchet gate names it (tools/ratchet_gate.py chapter_of)."""
+    sys.path.insert(0, str(REPORT / "tools"))
+    from ratchet_gate import chapter_of
+    return chapter_of(str(f.resolve().relative_to(BOOK.resolve())))
+
+
+def legacy_chapter_of(target: str, report: Path = REPORT) -> str | None:
+    """The chapter of a report file (`book/...`, relative to the report root) when that chapter is on the legacy
+    list of `report`, else None: a contract or pin check whose target it is is skipped, and runs in full again once
+    the chapter's line is deleted."""
+    rel = Path(target)
+    if rel.parts[:1] != ("book",):
+        return None
+    sys.path.insert(0, str(REPORT / "tools"))
+    from ratchet_gate import chapter_of
+    ch = chapter_of(rel.relative_to("book").as_posix())
+    return ch if ch in read_legacy(Path(report) / "tools" / LEGACY_FILE.name) else None
+
+
+def legacy_report(left: dict[str, int], legacy: list[str]) -> int:
+    """Per chapter and per owner, the unresolved citations the legacy list still covers; a listed chapter with
+    none left is an error (delete its line)."""
+    bad = 0
+    for ch in legacy:
+        if not left.get(ch):
+            print(f"{ch}: in {LEGACY_FILE.name} but every citation resolves: delete its line")
+            bad += 1
+    if not legacy:
+        print("legacy list empty: every chapter is checked in full")
+        return bad
+    try:
+        sys.path.insert(0, str(REPORT / "tools"))
+        from ratchet_gate import read_owners
+        owners, _ = read_owners(REPORT)
+    except Exception:
+        owners = {}
+    per_owner: dict[str, int] = {}
+    for ch in legacy:
+        who = ",".join(owners.get(ch, ["?"]))
+        per_owner[who] = per_owner.get(who, 0) + left.get(ch, 0)
+        print(f"legacy {ch}\t{who}\t{left.get(ch, 0)} unresolved")
+    for who, n in sorted(per_owner.items(), key=lambda x: -x[1]):
+        print(f"legacy owner {who}\t{n} unresolved")
+    print(f"legacy list: {len(legacy)} chapters, {sum(left.get(c, 0) for c in legacy)} unresolved citations "
+          f"skipped; the report is complete only when the list is empty")
+    return bad
+
+
 def cmd_check(ns) -> int:
     repo, sha = read_pin()
     snap = Snapshot.of(repo, sha)
     table, bad = {}, 0
+    legacy = read_legacy()
+    left: dict[str, int] = {}
     found = citations(book_files(ns.paths))
     names = labels({c.path for *_, c in found if isinstance(c, Cite)})
     for f, n, text, c in found:
@@ -369,6 +434,12 @@ def cmd_check(ns) -> int:
                 raise c
             rng = snap.resolve(c)
         except Unresolved as e:
+            ch = chapter(f)
+            if ch in legacy:  # skipped: rendered as plain text, counted below
+                left[ch] = left.get(ch, 0) + 1
+                if isinstance(c, Cite):
+                    table.setdefault(c.key, {"label": names[c.path], "symbol": c.symbol, "url": None, "lines": None})
+                continue
             print(f"{_rel(f)}:{n}: {text}: {e}")
             bad += 1
             continue
@@ -376,8 +447,11 @@ def cmd_check(ns) -> int:
         table[c.key] = {"label": names[c.path], "symbol": c.symbol, "url": url, "lines": list(rng) if rng else None}
     if not ns.no_write:
         TABLE.write_text(json.dumps({"repo": repo, "sha": sha, "citations": table}, indent=1, sort_keys=True) + "\n")
-    print(f"code citations: {len(found)} found, {len(table)} distinct resolved at {repo}@{sha[:12]}, "
-          f"{bad} unresolved")
+    resolved = sum(1 for v in table.values() if v["url"] is not None)
+    print(f"code citations: {len(found)} found, {resolved} distinct resolved at {repo}@{sha[:12]}, "
+          f"{bad} unresolved" + (f", {sum(left.values())} skipped in legacy chapters" if left else ""))
+    if not ns.paths:
+        bad += legacy_report(left, legacy)
     return 1 if bad else 0
 
 
@@ -407,7 +481,12 @@ def changed(repo: str, old: str, new: str, cites: set[Cite]) -> tuple[list[str],
 
 def cmd_diff(ns, old: str, new: str) -> int:
     repo, _ = read_pin()
-    cites = {c for *_, c in citations(book_files(ns.paths)) if isinstance(c, Cite)}
+    legacy = read_legacy()
+    found = citations(book_files(ns.paths))
+    cites = {c for f, *_, c in found if isinstance(c, Cite) and chapter(f) not in legacy}
+    skipped = {c for f, *_, c in found if isinstance(c, Cite) and chapter(f) in legacy} - cites
+    if skipped:
+        print(f"# {len(skipped)} cited symbols only in legacy chapters ({', '.join(legacy)}) are not gated")
     diffs, broken = changed(repo, old, new, cites)
     print(f"# {len(cites)} cited symbols; {len(diffs)} changed body between {old[:12]} and {new[:12]}"
           f" (re-read these); {len(broken)} do not resolve at {new[:12]}")

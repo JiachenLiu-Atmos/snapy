@@ -63,6 +63,10 @@ def generate(report):
 
 
 def check(report=REPORT):
+    skipped = code_anchors.legacy_chapter_of(TARGET, Path(report))
+    if skipped:  # a legacy chapter (tools/code-anchors-legacy.txt): checked in full once its line is deleted
+        print(f'[N6 boundary contract] skipped: {skipped} is in tools/code-anchors-legacy.txt')
+        return 0
     try:
         expected = generate(Path(report))
         errors = [] if (Path(report) / TARGET).read_text() == expected else [

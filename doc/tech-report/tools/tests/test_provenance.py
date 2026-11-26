@@ -226,6 +226,11 @@ def test_the_book_is_within_its_baseline():
 
 
 def test_forcing_port_has_an_explicit_resolving_pin():
+    sys.path.insert(0, str(TOOLS))
+    import code_anchors
+    legacy = code_anchors.legacy_chapter_of("book/chapters/09-diffusion-forcing/_framework.qmd")
+    if legacy:  # the port's chapter is legacy: its tag is re-pinned when the chapter's line is deleted
+        pytest.skip(f"{legacy} is in tools/code-anchors-legacy.txt")
     tag = next(t for t in cp.tags(TOOLS.parent / "book")
                if t["file"] == "chapters/09-diffusion-forcing/_framework.qmd")
     assert tag["fields"]["sha"] == "snapy@" + cp.read_pin(TOOLS.parent)

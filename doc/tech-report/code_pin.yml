@@ -1,4 +1,4 @@
 # The snapy commit at which every `{{< code >}}` citation of the book is resolved (tools/code_anchors.py;
 # README, "Citing code"). Move it only with `python3 tools/code_anchors.py bump <sha>`.
 repo: chengcli/snapy
-sha: 919936da07d80a310b98ab11da184972a3203274
+sha: 73c45a7c8c991209924e1137992352c335575062

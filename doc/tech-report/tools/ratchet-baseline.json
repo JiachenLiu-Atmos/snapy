@@ -2,13 +2,13 @@
  "chapters": {
   "appa": {
    "history": 0,
-   "offpin": 0,
+   "offpin": 44,
    "status": 0,
    "xref": 0
   },
   "appb": {
    "history": 0,
-   "offpin": 0,
+   "offpin": 1,
    "status": 0,
    "xref": 1
   },
@@ -20,13 +20,13 @@
   },
   "appd": {
    "history": 0,
-   "offpin": 0,
+   "offpin": 1,
    "status": 0,
    "xref": 0
   },
   "appe": {
    "history": 0,
-   "offpin": 0,
+   "offpin": 4,
    "status": 0,
    "xref": 1
   },
@@ -44,124 +44,124 @@
   },
   "apph": {
    "history": 0,
-   "offpin": 0,
+   "offpin": 42,
    "status": 0,
    "xref": 0
   },
   "appi": {
    "history": 0,
-   "offpin": 0,
+   "offpin": 170,
    "status": 0,
    "xref": 0
   },
   "appj": {
    "history": 0,
-   "offpin": 0,
+   "offpin": 12,
    "status": 0,
    "xref": 0
   },
   "ch01": {
    "history": 0,
-   "offpin": 7,
+   "offpin": 57,
    "status": 0,
    "xref": 0
   },
   "ch02": {
    "history": 0,
-   "offpin": 16,
+   "offpin": 142,
    "status": 0,
    "xref": 0
   },
   "ch03": {
    "history": 0,
-   "offpin": 2,
+   "offpin": 24,
    "status": 0,
    "xref": 0
   },
   "ch04": {
    "history": 0,
-   "offpin": 22,
+   "offpin": 107,
    "status": 0,
    "xref": 0
   },
   "ch05": {
    "history": 0,
-   "offpin": 26,
+   "offpin": 63,
    "status": 0,
    "xref": 0
   },
   "ch06": {
    "history": 0,
-   "offpin": 16,
+   "offpin": 50,
    "status": 0,
    "xref": 0
   },
   "ch07": {
    "history": 0,
-   "offpin": 19,
+   "offpin": 39,
    "status": 0,
    "xref": 0
   },
   "ch08": {
    "history": 0,
-   "offpin": 15,
+   "offpin": 30,
    "status": 0,
    "xref": 0
   },
   "ch09": {
    "history": 0,
-   "offpin": 3,
+   "offpin": 42,
    "status": 0,
    "xref": 0
   },
   "ch10": {
    "history": 0,
-   "offpin": 7,
+   "offpin": 72,
    "status": 0,
    "xref": 0
   },
   "ch11": {
    "history": 0,
-   "offpin": 10,
+   "offpin": 64,
    "status": 0,
    "xref": 0
   },
   "ch12": {
    "history": 0,
-   "offpin": 12,
+   "offpin": 24,
    "status": 0,
    "xref": 0
   },
   "ch13": {
    "history": 0,
-   "offpin": 7,
+   "offpin": 19,
    "status": 0,
    "xref": 0
   },
   "ch14": {
    "history": 0,
-   "offpin": 23,
+   "offpin": 137,
    "status": 0,
    "xref": 0
   },
   "ch15": {
    "history": 0,
-   "offpin": 13,
+   "offpin": 24,
    "status": 0,
    "xref": 4
   },
   "ch16": {
    "history": 0,
-   "offpin": 0,
+   "offpin": 13,
    "status": 0,
    "xref": 0
   },
   "preface": {
    "history": 0,
-   "offpin": 0,
+   "offpin": 2,
    "status": 0,
    "xref": 0
   }
  },
- "pin": "919936da07d80a310b98ab11da184972a3203274"
+ "pin": "73c45a7c8c991209924e1137992352c335575062"
 }

@@ -221,29 +221,13 @@
   "kintera": {
    "repo": "chengcli/kintera",
    "pin": "tools/package-pins.json: kintera",
-   "build": "b6ad37394b29f037bdf82dd540be613522bfe45d",
-   "build_version": "2.6.3",
-   "_why_build_differs_from_pin": [
-    "These are two different questions and the report had one field for both.",
-    "",
-    "`pin` is the commit the chapters CITE kintera source lines at: v2.6.2, c55b13b2. 296 citations",
-    "in 70 files resolve there, and tools/ratchet_gate.py counts any other kintera sha as `offpin`.",
-    "",
-    "`build` is the commit that must be INSTALLED for the snapy commit in code_pin.yml to configure.",
-    "snapy 919936da07d80a310b98ab11da184972a3203274 says, at CMakeLists.txt:104,",
-    "`find_package(Kintera 2.6.3 REQUIRED)`, so v2.6.2 cannot configure it:",
-    "  Could NOT find Kintera: Found unsuitable version \"2.6.2\", but required is at least \"2.6.3\"",
-    "v2.6.3 (b6ad3739) is the smallest revision at or above that floor -- exactly one commit after",
-    "the citation pin -- so setup.sh installs that and the pinned snapy builds.",
-    "",
-    "The citation pin is deliberately NOT moved here. Moving it is chapter work, not setup work:",
-    "v2.6.3 changes src/kinetics/{evaporation,kinetics}.{cpp,hpp}, and the lines shift from line 2",
-    "of evaporation.cpp onwards, so the 17 citations into those four files would silently point at",
-    "different code. Measured consequence of a bare move: ratchet offpin rises 92 -> 230 and nine",
-    "chapters fail (ch02 5->63, ch10 2->48, ch14 7->20, ch09 0->6, ch16 0->6, ch04 8->9, appa, appe,",
-    "apph). The project's own rule for the snapy pin says the same: `code_anchors.py bump` lists the",
-    "cited symbols whose body changed so their claims can be re-read. tools/check_env.py reports this",
-    "gap on every run so it stays visible until a chapter owner closes it."
+   "build": "0429d795f79a0665afeca565e5a05c87ab4ba1e2",
+   "build_version": "2.6.13",
+   "_why": [
+    "`pin` (tools/package-pins.json) and `build` are one revision, v2.6.13 (0429d795): the kintera snapy at",
+    "code_pin.yml builds against. Its CI installs kintera==2.6.13 (.github/workflows/ci.yml:86 and :162 at the pin) and",
+    "CMakeLists.txt:120 says find_package(Kintera 2.6.13 REQUIRED). The chapters' links written at v2.6.2 (c55b13b2)",
+    "count as offpin until their chapters re-point them; tools/kintera_pin_migration.py lists which survive the move."
    ]
   },
   "snapy": {

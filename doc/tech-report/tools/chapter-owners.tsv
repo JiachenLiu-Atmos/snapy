@@ -9,7 +9,7 @@ ch03	chengcli	jihenghu
 ch04	XinyueWang05	JiachenLiu-Atmos
 ch05	XinyueWang05	cshsgy
 ch06	chengcli	zoeyzyhu
-ch07	chengcli	jihenghu
+ch07	chengcli	zoeyzyhu
 ch08	JiachenLiu-Atmos	cshsgy
 ch09	zoeyzyhu	chengcli
 ch10	jihenghu	XinyueWang05
@@ -20,13 +20,13 @@ ch14	zoeyzyhu	jihenghu
 ch15	cshsgy	gitlinffff
 ch16	gitlinffff	chengcli
 ch17	XinyueWang05	gitlinffff
-appa	JiachenLiu-Atmos	XinyueWang05
+appa	JiachenLiu-Atmos	cshsgy
 appb	JiachenLiu-Atmos	chengcli
 appc	cshsgy	gitlinffff
 appd	jihenghu	gitlinffff
-appe	jihenghu	XinyueWang05
+appe	jihenghu	JiachenLiu-Atmos
 appf	gitlinffff	jihenghu
-appg	gitlinffff	chengcli
-apph	gitlinffff	XinyueWang05
+appg	gitlinffff	JiachenLiu-Atmos
+apph	gitlinffff	zoeyzyhu
 appi	gitlinffff	jihenghu
 appj	gitlinffff	chengcli
