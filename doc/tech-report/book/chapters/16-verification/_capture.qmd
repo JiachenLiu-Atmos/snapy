@@ -75,7 +75,7 @@ start of this chapter) with no `execution` key added to any deck, and keep the o
 2. a passing test is *refused* when its log carries the warning of step 2 above, and the reason is copied into
    the row as printed;
 3. a passing test with no warning is *captured* when its blocks run on the CUDA device, and *eager by device*
-   when they run on the CPU: a CUDA build still runs many tests on CPU tensors, and those never reach the
+   when they run on the CPU: a CUDA build still runs some tests on CPU tensors, and those never reach the
    executor's capture path.
 
 `StageExecutor::capability` ({{< code src/mesh/stage_executor.cpp StageExecutor::capability >}}) gives the same
@@ -111,7 +111,7 @@ holds the ones that are lasting limits. The sweep reports them; it adds no refus
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| `test_stage_executor_capture_python` | on the dry Straka case in float64 and float32, a cuda-graph block equals an eager block after every stage, with a changing step, rebound state tensors (which recapture), an in-place edit and a forced retry; captures and replays never synchronise the host; one capture per stage serves six step sizes (`captures` = `graphs` = stages, `replays` = stages × 6, `eager` = 0); on CPU only the setup refusals are checked, and the capture part ends with the skip code when the build has no CUDA | `torch.equal` (bitwise), 5 calls | `assert_equal` and `check_one_capture_many_dt` ({{< code tests/test_stage_executor_capture.py >}}) |
+| `test_stage_executor_capture_python` | on the dry Straka case in float64 and float32, a cuda-graph block equals an eager block after every stage, with a changing step, rebound state tensors (which recapture), an in-place edit and a forced retry; captures and replays never synchronise the host; one capture per stage serves six steps at four step sizes (`captures` = `graphs` = stages, `replays` = stages × 6, `eager` = 0); on CPU only the setup refusals are checked, and the capture part ends with the skip code when the build has no CUDA | `torch.equal` (bitwise), 5 calls | `assert_equal` and `check_one_capture_many_dt` ({{< code tests/test_stage_executor_capture.py >}}) |
 
 : Tests of the capture sweep. {#tbl-ch16-capture-tests}
 

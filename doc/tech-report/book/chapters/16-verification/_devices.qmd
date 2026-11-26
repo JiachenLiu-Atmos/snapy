@@ -40,19 +40,21 @@ reconstruction arms. No test compares a whole CUDA run with a whole CPU run.
 :::
 
 Local symbols of this section: $\mathrm{err}$ the relative error of one arm; $\mathrm{err}_{64}$ the same error of the CPU
-float32 run against the CPU float64 run; $\mathrm{tol}$ the fixed floor $10^{-4}$.
+float32 run against the CPU float64 run; $\mathrm{tol}$ the fixed floor $10^{-4}$; $s_q$ the scale of variable $q$:
+$\max|q_{\mathrm{cpu}}|$, except for the three momentum rows of `hydro_u`, whose scale is
+$\sqrt{\max|\rho_{\mathrm{cpu}}|\,\max|E_{\mathrm{cpu}}|}$, and 1 where the scale is 0.
 
 ### Derivation
 
 **The MPS tolerance.** For one arm, with $q$ ranging over the arm's variables,
 
 $$
-\mathrm{err} = \max_q \frac{\max |q_{\mathrm{mps}} - q_{\mathrm{cpu}}|}{\max |q_{\mathrm{cpu}}|}, \qquad
+\mathrm{err} = \max_q \frac{\max |q_{\mathrm{mps}} - q_{\mathrm{cpu}}|}{s_q}, \qquad
 \text{pass} \iff \mathrm{err} \le \max(\mathrm{tol},\ 3\,\mathrm{err}_{64}), \quad \mathrm{tol} = 10^{-4},
 $$ {#eq-ch16-mps}
 
 and both runs must be finite. MPS computes in float32, so it cannot be held to the CPU's float64 answer more
-tightly than the CPU's own float32 run is: $\mathrm{err}_{64}$ measures that, on the same arm, and the factor 3 leaves room
+tightly than the CPU's own float32 run is: $\mathrm{err}_{64}$ measures that, on the same arm and with the same $s_q$, and the factor 3 leaves room
 for a different but equally valid order of float32 operations. The floor $\mathrm{tol}$ covers arms where $\mathrm{err}_{64}$ is
 tiny. The reconstruction arms run the CPU kernel on MPS data, so they are held to $\mathrm{err} = 0$. The ripple arms compare
 the tendency $u(n) - u(0)$ instead of the state, so that a small tendency is not hidden behind a large

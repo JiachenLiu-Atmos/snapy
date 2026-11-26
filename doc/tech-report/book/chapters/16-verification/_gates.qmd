@@ -13,7 +13,7 @@ author: Linfeng Li
 
 A bitwise gate asks whether two builds of snapy compute the same bits. It runs a fixed set of decks with each
 build on the same machine and the same device, writes the state after a fixed number of steps, and compares the
-files byte for byte. Two gates of this kind are in use: the face-deck harness, which runs 16 implicit decks, and
+files byte for byte. Two gates of this kind are in use: the face-deck harness, built with 16 implicit decks, and
 the dump set, which runs 20 one-block cases across the reconstructions, Riemann solvers and equations of state.
 A change that should not alter results (a refactor, a move of code to another file, a new storage layout) passes
 only if every file is identical; a change that should alter results is expected to fail them, and the failure
@@ -70,11 +70,17 @@ also prints, for information, the largest relative difference of the energy row 
 | axis | values |
 |---|---|
 | implicit matrix | `full` (`implicit-scheme: 9`), `partial` (`implicit-scheme: 1`) |
-| gravity work | `face` (`gravity-work-fixer: false`), `cell` (the fixer key omitted, so its default holds) |
+| gravity work | `face` (`gravity-work-fixer: false`); `cell` (removed at the pin: `const-gravity`[^rg-b743ab6e7970] refuses it) |
 | geometry | `cartesian`, `stretched` ($x_1$ ratio 1.05), `spherical-polar`, `gnomonic-equiangle` |
 
 : The 2 × 2 × 4 decks of the face-deck harness; the deck files are written by `h348.py --write-decks`, whose
 `config()` is their one source. {#tbl-ch16-harness}
+
+At the code pin only the 8 `face` decks run. The `cell` form of the gravity work was removed (V3 I-7), and
+`const-gravity` refuses it, and a `gravity-work-fixer: true` too, when the deck is read
+({{< code src/forcing/const_gravity.cpp >}}); `h348.py` does not catch that error, so a run of the tool as
+committed stops at the first `cell` deck and writes no manifest. A gate at the pin needs the `cell` decks removed
+from `config()` first.
 
 **The dump set.** `dumpset349.py` runs 20 one-block cases for 20 rk3 steps each at a fixed step that the deck
 alone decides, one child process per case, and writes the final `hydro_u` (and `scalar_s` where the case has a
@@ -108,7 +114,7 @@ build's package first on `PYTHONPATH`:
 ```sh
 python h348.py --device cpu --out runs/base_cpu          # base build
 python h348.py --device cpu --out runs/head_cpu          # candidate build
-python h348.py --compare runs/base_cpu runs/head_cpu     # exit 0: 16 of 16 identical
+python h348.py --compare runs/base_cpu runs/head_cpu     # exit 0: every deck identical
 python dumpset349.py --device cuda --dtype float64 --out runs/base_cuda
 python dumpset349.py --device cuda --dtype float64 --out runs/head_cuda
 python compare.py runs/base_cuda runs/head_cuda          # exit 0: every case identical
@@ -119,8 +125,9 @@ not finish in one of the runs (a missing file is not equal to a present one), an
 redo, so a step that would have been redone ends the deck instead of hiding in the comparison.
 
 The gates read no symbol of the snapy tree; their code is the four files named in the PROVENANCE block, on the
-closing-plan branch. The one ctest that compares a full run with a reference, `test_straka`, is not a bitwise
-gate: `test_straka.py` ({{< code tests/test_straka.py >}}) passes when the $L_2$ norm of the potential
+closing-plan branch. The default build's one ctest that compares a full run with a reference, `test_straka`
+(with `FULL_TESTS`, `test_shallow_xy` and `test_shallow_splash` as well; {{< code tests/CMakeLists.txt >}}), is
+not a bitwise gate: `test_straka.py` ({{< code tests/test_straka.py >}}) passes when the $L_2$ norm of the potential
 temperature difference to the reference run is below 50.
 
 ### Tests
@@ -139,7 +146,7 @@ the review that ran it.
 
 ::: {.callout-warning title="Limits"}
 - A gate compares two builds on one device; it says nothing about agreement across devices (@sec-ch16-devices).
-- The decks are fixed: a code path that none of the 16 decks or 20 cases reaches is not gated. The harness has
+- The decks are fixed: a code path that none of the harness decks or 20 cases reaches is not gated. The harness has
   no scalar, no moisture and one Riemann solver; the dump set has no implicit solve.
 - Both tools are rebuilt from the case descriptions of the original gates, whose scripts were never committed;
   the deck sizes, initial states and steps are the rebuild's choices.[^ch16-gates-src]
@@ -158,6 +165,8 @@ the review that ran it.
 [^rg-7367fe18c296]: LMARS — low-Mach approximate Riemann solver
 
 [^rg-01fadbe6e8ea]: $x_1, x_2, x_3$ — the three coordinate directions; $x_1$ is always the vertical (radial) direction
+
+[^rg-b743ab6e7970]: const-gravity — constant-gravity forcing component
 
 [^rg-1d6fbd595d86]: WENO3 — third-order weighted essentially non-oscillatory reconstruction
 

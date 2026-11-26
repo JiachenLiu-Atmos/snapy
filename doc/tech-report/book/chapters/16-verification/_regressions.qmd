@@ -90,8 +90,10 @@ The tests are cited by file: `test_graph_stretched_x1.py` ({{< code tests/test_g
 ({{< code tests/test_seam_rotation_cache.py >}}) and `test_mesh_disagree.cpp`
 ({{< code tests/test_mesh_disagree.cpp >}}); their registrations are in {{< code tests/CMakeLists.txt >}}.
 
-**What is refused, and why.** Not applicable: a record refuses nothing. The graph tests among the rows end with
-the skip code when the build has no CUDA, and ctest then reports them skipped, not passed.
+**What is refused, and why.** Not applicable: a record refuses nothing. The graph tests in the skip-code list of
+{{< code tests/CMakeLists.txt >}} and `test_default_execution_python` end with the skip code when the build has
+no CUDA, and ctest then reports them skipped, not passed; `test_seam_rotation_cache_python` returns 0 without
+CUDA, so ctest reports it passed although its checks did not run.
 
 ### Tests
 
@@ -103,8 +105,8 @@ the skip code when the build has no CUDA, and ctest then reports them skipped, n
 | `test_default_execution_python` | the default path against explicit eager | `torch.equal` (bitwise), 2 calls | {{< code tests/test_default_execution.py >}} |
 | `test_graph_positivity_meters_match_eager_python` | the EfStatus meters, graph against eager | `torch.equal` (bitwise) | {{< code tests/test_graph_positivity_meters_match_eager.py >}} |
 | `test_flux_positivity_carry.release` | the carried energy and momentum of withheld mass | `torch::equal` (bitwise), 4 calls; `EXPECT_NEAR` with `tol = 1e-12` times the larger magnitude, and `0.` | {{< code tests/test_flux_positivity_carry.cpp >}} |
-| `test_prescribed_after_sources.release` | the energy change against the booked flux | `EXPECT_NEAR` with `tol = 1e-12` times the cell energy sum; `EXPECT_LT(tol0, ...)` | {{< code tests/test_prescribed_after_sources.cpp >}} |
-| `test_diffusion.release` | the diffusion's heat and the register's energy rows | `EXPECT_NEAR` and `allclose`, case by case; the row's case is read in the file | {{< code tests/test_diffusion.cpp >}} |
+| `test_prescribed_after_sources.release` | a wall post leaves `du` unchanged; a prescribed-temperature wall conducts $20\,\Delta t$ into `du` and books nothing | `EXPECT_EQ(..., 0.)` (exact); `EXPECT_NEAR` relative $10^{-9}$; `EXPECT_NEAR` with `tol = 1e-12` times the cells' energy sum; `EXPECT_LT(tol0, 1e-3 * 20 * dt0)` | {{< code tests/test_prescribed_after_sources.cpp >}} |
+| `test_diffusion.release` | for each disabled direction, the register's energy row is positive, the other rows are exactly 0 and the transfer is positive | `EXPECT_GT`, `EXPECT_EQ(..., 0.)` (exact) | {{< code tests/test_diffusion.cpp >}} |
 | `test_implicit_register_x1_off_python` | the booked transfers with the $x_1$ flux off | `torch.equal` (bitwise) | {{< code tests/test_implicit_register_x1_off.py >}} |
 | `test_graph_mesh_many_blocks_python` | a Mesh of many blocks, graph against eager | `torch.equal` (bitwise) | {{< code tests/test_graph_mesh_many_blocks.py >}} |
 | `test_mesh_worker_streams.release` | the worker streams are distinct | pass/fail checks only | {{< code tests/test_mesh_worker_streams.cpp >}} |
