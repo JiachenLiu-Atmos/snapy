@@ -35,8 +35,9 @@ path, before the first step (read).
 `initialize_from_restart` from Python. Default: no restart output.
 
 **Guarantee / limits.** The state is written in its own dtype on the host and read back bit for bit; a same-dtype
-resume continues the run bit for bit; a file for another grid, another metadata version or another stored dtype
-is refused. A resume needs the same block decomposition.
+resume continues the run bit for bit; a file written with anomaly storage on is refused when it is for another
+grid, another metadata version or another stored dtype; a file without the metadata pair is read as a legacy
+file without those checks. A resume needs the same block decomposition.
 
 **Evidence.** The Tests layer of this section, @tbl-ch15-restart-tests.
 :::
@@ -73,11 +74,14 @@ each is a statement about the code at the pin, and the Tests layer names the tes
    docstring. The saved schedules are keyed, legacy keys first and exact keys after them; the keys are
    `OutputType::schedule_key` ({{< code src/output/output_type.cpp OutputType::schedule_key >}}) and
    `OutputType::schedule_key_v2` ({{< code src/output/output_type.cpp OutputType::schedule_key_v2 >}}).
-4. *A file is refused unless it fits this block.* The metadata version must be 1; `hydro_ref` and
-   `hydro_u_stored` must be present; the stored dtype and shape must match the metadata and the totals; the
-   three saved face coordinates must equal this block's, bit for bit; and a `perturbation-flux` run needs the
-   original `hydro_ref` and `hydro_ref_species`, in `check_restart_metadata`
-   ({{< code src/output/restart.cpp check_restart_metadata >}}). A truncated bundle, a bundle without this
+4. *A file that carries the metadata pair is refused unless it fits this block.* `check_restart_metadata`
+   ({{< code src/output/restart.cpp check_restart_metadata >}}) runs its checks only when the file holds
+   `kHydroRestartMetadata`, which a run with anomaly storage on writes: then the metadata version must be 1;
+   `hydro_ref` and `hydro_u_stored` must be present; the stored dtype and shape must match the metadata and
+   the totals; and the three saved face coordinates must equal this block's, bit for bit. A file without the
+   pair, written by a run without anomaly storage, passes without those checks (the legacy arm of the test
+   below). Independently of the pair, a `perturbation-flux` run needs the original `hydro_ref` and
+   `hydro_ref_species`. A truncated bundle, a bundle without this
    block's part, and a bundle with a broken index all throw in `load_restart`
    ({{< code src/output/restart.cpp load_restart >}}).
 
@@ -158,12 +162,14 @@ The resumed run continues the file numbers of every output from the saved schedu
 
 **What is refused, and why.**
 
-- A file for another grid: "reference grid mismatch; remap totals and initialize a new background". A serialized
-  reference must never be attached to a different grid of the same shape; the check is in
-  `check_restart_metadata` ({{< code src/output/restart.cpp check_restart_metadata >}}).
-- Another metadata version, a stored dtype or shape that disagrees with the metadata, a file with metadata but
-  without `hydro_ref` and `hydro_u_stored`, and a `perturbation-flux` resume without the original references,
-  also in `check_restart_metadata` ({{< code src/output/restart.cpp check_restart_metadata >}}).
+- A file with the metadata pair for another grid: "reference grid mismatch; remap totals and initialize a new
+  background". A serialized reference must never be attached to a different grid of the same shape; the check
+  is in `check_restart_metadata` ({{< code src/output/restart.cpp check_restart_metadata >}}).
+- With the metadata pair: another metadata version, a stored dtype or shape that disagrees with the metadata,
+  and a file with the pair but without `hydro_ref` and `hydro_u_stored`; with or without the pair, a
+  `perturbation-flux` resume without the original references, also in `check_restart_metadata`
+  ({{< code src/output/restart.cpp check_restart_metadata >}}). A file without the pair is not checked against
+  the grid at all.
 - A truncated or malformed bundle, and a bundle with no part for this block, in `load_restart`
   ({{< code src/output/restart.cpp load_restart >}}).
 - A multi-block anomaly run resuming from a file written without `hydro_ref`, and a radiating-boundary run
@@ -241,7 +247,8 @@ on the code by rerunning the Python and gtest entries alone.
 ::: {.callout-warning title="Limits"}
 - A resume needs the same block decomposition: the bundle holds one part per block rank and each block reads
   the part of its rank in `load_restart` ({{< code src/output/restart.cpp load_restart >}}); a different grid
-  is refused by the face check, a different number of blocks by the missing part.
+  is refused by the face check when the file carries the metadata pair, a different number of blocks by the
+  missing part.
 - Only the block's variables are saved. Counters a block keeps outside its variable map, the EfStatus slots of
   @sec-ch08 and the register's monitor counts of @sec-ch10, are not in the file and start from the resume; the
   budget interval is the one exception, carried by `BudgetCarry` ({{< code src/output/restart.hpp BudgetCarry >}}).

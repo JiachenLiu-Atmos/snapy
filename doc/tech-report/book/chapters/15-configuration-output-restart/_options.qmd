@@ -121,8 +121,10 @@ the `plume-eos` equation of state. When a direction's flux is disabled, the grav
 set to zero after the gravity block is read.
 
 **Reporting.** With `verbose: true` every module prints its `report()` text, the generated `* name = value` lines
-under the table's title, as the deck is read, from `MeshBlockOptionsImpl::report`
-({{< code src/mesh/meshblock.hpp MeshBlockOptionsImpl::report >}}). The expected text of the defaults is pinned by
+under the table's title, as the deck is read: the generator writes each table's `report()` in `emit_members`
+({{< code tools/gen_options.py emit_members >}}), and `MeshBlockOptionsImpl::from_yaml`
+({{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}}) calls it for each module it has
+read. The expected text of the defaults is pinned by
 a test (below).
 
 ### Code
@@ -202,7 +204,7 @@ block:
 | dynamics rows | {{< code src/options/hydro.yaml >}} | `read_hydro_rows` | `dynamics/*` |
 | distribute rows | {{< code src/options/layout.yaml >}} | `LayoutOptionsImpl` | `distribute/*` |
 | external boundaries | {{< code src/mesh/meshblock.hpp MeshBlockOptionsImpl::bfuncs >}} | `bfuncs`, `bcnames` | `boundary-condition/external` |
-| report text | {{< code src/mesh/meshblock.hpp MeshBlockOptionsImpl::report >}} | `report` | `verbose` |
+| report text | {{< code tools/gen_options.py emit_members >}}, {{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}} | `report` | `verbose` |
 
 : Code map of the options schema. {#tbl-ch15-options-code}
 
