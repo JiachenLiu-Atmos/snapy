@@ -200,12 +200,15 @@ make_fig()
 
 ### Code
 
-**A minimal input.** The species come from the kintera part of the deck:
+**The deck.** The species come from the kintera part of the deck, and the `reference-state` line is
+required: without it kintera builds no thermo options and the block stops with "[IdealMoist] thermo pointer is
+null" (T-2):
 
-<!-- reader glossary keys -->Keys in this fragment: `name`[^rg-e6bf2057e7b8], `composition`[^rg-e540c1be9eba], `N`[^rg-b5dfd97dcd83], `cv_R`[^rg-69a0a493850f].
+<!-- reader glossary keys -->Keys in this fragment: `Tref`[^rg-d2638fa4bcad], `Pref`[^rg-7058b44e3174], `name`[^rg-e6bf2057e7b8], `composition`[^rg-e540c1be9eba], `N`[^rg-b5dfd97dcd83], `cv_R`[^rg-69a0a493850f].
 ```yaml
 dynamics:
   equation-of-state: {type: ideal-moist}
+reference-state: {Tref: 300., Pref: 1.e5}
 species:
   - {name: dry, composition: {N: 2}, cv_R: 2.5}
 ```
@@ -235,6 +238,8 @@ The constants are built in `IdealMoistImpl::reset`: `inv_mu_ratio_m1` holds $\mu
 `cv_ratio_m1` holds $c_{v,n}/c_{v,\mathrm d}-1$, and the buffer `u0` holds $u^\star$ for dry air and then each
 species, as `uref_R` times $\mathcal R/\mu_n$.
 
+{{< include 02-thermodynamics/_howto-species.qmd >}}
+
 #### The H2–He decks
 
 Six decks under `examples/` model a giant-planet atmosphere with the same thermodynamic choices. The H$_2$–He
@@ -252,8 +257,8 @@ the rotor formula, not a kintera run.[^h2he-run]
 | T-4 | Element weights: H 1.008, He 4.002602, N 14.007, O 15.999, S 32.06 g/mol | `helium` and the other rows in [`pyharp element.cpp:54-69`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/element.cpp#L54-L69) |
 | T-5 | `dry` `{H: 1.5, He: 0.15}` gives $\mu_{\mathrm d}=2.1123903$ g/mol; with $\mathcal R=8.31446261815324$ J mol$^{-1}$ K$^{-1}$, $R_{\mathrm d}=3936.04$ J kg$^{-1}$ K$^{-1}$ | `Rgas` in [`kintera constants.h:6`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/constants.h#L6); checks C1, C2 |
 | T-6 | `cv_R` defaults to 2.5; `u0_R` and `s0_R` default to 0 | `cv_R` in [`kintera species.cpp:172-187`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/species.cpp#L172-L187) |
-| T-7 | For a gas $c_p/\mathcal R=c_v/\mathcal R+1$; a condensate has $c_p=c_v$ | `cref_R` in [`kintera eval_uhs.cpp:178-179`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/eval_uhs.cpp#L178-L179) |
-| T-8 | snapy sets $\gamma_{\mathrm d}=1+1/c^{\mathrm{ref}}_{\mathrm d}$ and the dry molar mass from the thermo, overwriting any `gammad`/`weight` of the EOS block; for `cv_R: 2.5`, $\gamma_{\mathrm d}=7/5$, $c_{v,\mathrm d}=9840.11$ and $c_{p,\mathrm d}=13776.15$ J kg$^{-1}$ K$^{-1}$, $R_{\mathrm d}/c_{p,\mathrm d}=2/7$ | {{< code src/eos/moist_base.cpp MoistEOSImpl::sync_dry_options_ >}}; checks C3–C6 |
+| T-7 | For a gas $c_p/\mathcal R=c_v/\mathcal R+1$; a condensate has $c_p=c_v$ | `cref_R` in [`kintera eval_uhs.cpp:179-180`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/eval_uhs.cpp#L179-L180) |
+| T-8 | snapy sets $\gamma_{\mathrm d}=1+1/c^{\mathrm{ref}}_{\mathrm d}$ and the dry molar mass from the thermo, overwriting any `gammad`/`weight` of the EOS block; for `cv_R: 2.5`, $\gamma_{\mathrm d}=7/5$, $c_{v,\mathrm d}=9840.11$ and $c_{p,\mathrm d}=13776.16$ J kg$^{-1}$ K$^{-1}$, $R_{\mathrm d}/c_{p,\mathrm d}=2/7$ | {{< code src/eos/moist_base.cpp MoistEOSImpl::sync_dry_options_ >}}; checks C3–C6 |
 | T-9 | `ideal-moist` keeps every heat capacity constant: $c_{v,n}$ is `cref_R` times $R_n$[^rg-8291c2d31ed0] | {{< code src/eos/ideal_moist.cpp IdealMoistImpl::reset >}} |
 | T-10 | `moist-mixture` asks kintera for $c_p(T)$ and $c_v(T)$; they equal the constants unless a capacity switch is on | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_adiabatic_index >}} |
 | T-11 | The per-species "extra" capacity, energy and compressibility functions are empty names in these decks. **That an empty name adds exactly zero is a hypothesis** here: `call_func2` was not traced | `cp_R_extra` in [`kintera eval_uhs.cpp:160-176`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/eval_uhs.cpp#L160-L176) |
@@ -262,7 +267,7 @@ the rotor formula, not a kintera run.[^h2he-run]
 
 | id | fact | source |
 |---|---|---|
-| T-21 | `Tref`[^rg-d2638fa4bcad] and `Pref`[^rg-7058b44e3174] default to 300 K and $10^5$ Pa | `Tref` in [`kintera thermo.hpp:168-169`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo.hpp#L168-L169) |
+| T-21 | `Tref` and `Pref` default to 300 K and $10^5$ Pa | `Tref` in [`kintera thermo.hpp:168-169`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo.hpp#L168-L169) |
 | T-22 | At start-up kintera moves each `u0_R` to a $T=0$ zero (`u0_R -= cv_R*Tref`) and each vapour's `s0_R` to $T=1$ K, $P=1$ Pa; condensate entropy offsets are set to 0. With the decks' `Tref: 0.` the energy shift is zero | `thermo_zero_offsets` in [`kintera thermo_options.cpp:292-311`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_options.cpp#L292-L311) |
 | T-23 | The NASA-9 and H$_2$-rotor branches reference their energy to $T_0=300$ K (`kNasa9Tref`), not to `Tref` | `kNasa9Tref` in [`kintera eval_uhs.cpp:63-66`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/eval_uhs.cpp#L63-L66) |
 
@@ -305,7 +310,9 @@ declarations of the decks at the pin, not the drivers that read them.
 
 : Where the thermodynamic choices are configured. {#tbl-ch02-h2he-choices}
 
-No deck or test at the pin sets `use-h2-cp` or `use-nasa9-cp` (a search of `examples/` and `tests/` at the pin).
+No deck and no YAML file at the pin sets `use-h2-cp` or `use-nasa9-cp` (a search of `examples/` and `tests/` at the pin). One
+C++ test turns both on in code: `moist_mixture_nasa9_h2_enthalpy_matches_internal_plus_pressure` sets
+`use_nasa9_cp(true)` and `use_h2_cp(true)` on its thermo options (@sec-ch02-moist-mixture).
 **Hypothesis about composition, not author intent.** If `{H: 1.5, He: 0.15}` were meant as 0.75 H$_2$ plus 0.15 He
 molecules, the molecular mixture would have mean molar mass 2.347 g/mol and He mole fraction 1/6 (C10). No source
 establishes that interpretation, and the reason for `cv_R: 2.5` is also unsourced.
@@ -315,7 +322,7 @@ establishes that interpretation, and the reason for `cv_R: 2.5` is also unsource
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
 | {{< code tests/test_eos_temp2inteng.py main >}} (`test_eos_temp2inteng_python`) | `"UT->I"` equals `"W->I"` at 50, 100, 200 and 400 K; affine in $T$; intercept is the offset | rel. $10^{-12}$, $10^{-12}$, $10^{-10}$ | `--rtol` default; literals in the test |
-| {{< code tests/test_eos.cpp DeviceTest.ideal_moist_internal_energy_offset >}} (`test_eos.release`) | the offset of @eq-ch02-ideal-moist-offset | rtol $10^{-6}$, atol $10^{-6}$ | `torch::allclose` in the test |
+| {{< code tests/test_eos.cpp DeviceTest.ideal_moist_internal_energy_offset >}} (`test_eos.release`) | the dry term $\rho_{\mathrm d}u^\star_{\mathrm d}$ of @eq-ch02-ideal-moist-offset, and its linearity under a factor 0.25; the fixture `tests/test_eos.yaml` has only the species `dry`, so the species terms are not exercised | rtol $10^{-6}$, atol $10^{-6}$ | `torch::allclose` in the test |
 | {{< code tests/test_eos.cpp DeviceTest.ideal_moist_pressure_perturbations_include_species_and_ke >}} (`test_eos.release`) | $\delta p$ and $\delta\rho$ against the total-state difference | rtol $2\times10^{-6}$; atol $10^{-7}$, $10^{-12}$ | `torch::allclose` in the test |
 | {{< code tests/test_eos_species_sum_layout.py main >}} (`test_eos_species_sum_layout_python`) | identical $x_2$ columns give identical `"W->A"`, `"W->T"`, `"W->I"`, `"W->U"`, `"U->W"` | bitwise | `x != x[..., :1, :]` count is 0 |
 | `v3_relations_check.py` `[V4]`–`[V6]`, `[V9]` (this report) | factors, round trip, offset, heat ratio, enthalpy split, perturbation | exact | sympy simplifies the difference to 0 |
@@ -365,6 +372,10 @@ $10^{-10}$; these are round-off, so the text quotes them against the threshold, 
 
 [^rg-107866fa20ba]: $c_v, c_p$ — mixture specific heats **per unit total mass**, $c_v = \sum_n y_n c_{v,n}$ over dry air and every species [J kg$^{-1}$ K$^{-1}$]; a chapter that needs the per-dry-mass form writes it out and says so
 
+[^rg-d2638fa4bcad]: Tref — thermodynamic reference temperature
+
+[^rg-7058b44e3174]: Pref — thermodynamic reference pressure
+
 [^rg-e6bf2057e7b8]: name — name identifying the enclosing component
 
 [^rg-e540c1be9eba]: composition — elemental composition of a species
@@ -376,10 +387,6 @@ $10^{-10}$; these are round-off, so the text quotes them against the threshold, 
 [^rg-fa067cae2716]: u0_R — reference internal energy in the species gas-constant normalisation
 
 [^rg-8291c2d31ed0]: $R_n = \mathcal R/\mu_n$ — specific gas constant of species $n$ [J kg$^{-1}$ K$^{-1}$]; defined for gases only, a condensate has no $R_n$ and contributes no pressure; `Ri` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L40-L43)
-
-[^rg-d2638fa4bcad]: Tref — thermodynamic reference temperature
-
-[^rg-7058b44e3174]: Pref — thermodynamic reference pressure
 
 [^rg-e37071e794ae]: grav1 — gravity component along the first coordinate
 

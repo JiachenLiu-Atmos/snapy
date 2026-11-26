@@ -147,10 +147,18 @@ does not, so they were not run: **missing evidence** at the pin.
 
 1. **Forcings that need $T$.** The hydro step asks `W->T` before the forcing loop (@sec-ch07); only forcings that
    do not use the temperature are usable.
-2. **Floors with `limiter: true` (hypothesis, read from the source and not run).**
-   `apply_primitive_limiter_` clamps `prim[IPR]` with no check of the row count, while this class has four rows,
-   so `IPR` (row 4) is out of range. A shallow-water deck with `limiter: true` would then throw at its first
-   conversion. The conserved limiter guards the energy row with `nvar() > IPR`; the primitive one does not.
+2. **Floors with `limiter: true` (measured).** `apply_primitive_limiter_` clamps `prim[IPR]` with no check of the
+   row count, while this class has four rows, so `IPR` (row 4) is out of range. A shallow-water deck with
+   `limiter: true` throws at its first conversion: `examples/shallow_xy_single.yaml` with `limiter: true` raises
+   "select(): index 4 out of range for tensor of size [4, 1, 262, 518] at dimension 0" at its first `"U->W"`,
+   and with `limiter: false` the same conversion succeeds.[^sw-lim-run] The conserved limiter guards the energy row
+   with `nvar() > IPR`; the primitive one does not.
 3. **No gas-EOS statement** of this chapter transfers to shallow water.
 4. **No capture.** A CUDA graph refuses `shallow-water` (@sec-ch02-other-eos).
 5. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
+
+[^sw-lim-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: `examples/shallow_xy_single.yaml` with
+    `dynamics.equation-of-state.limiter` set to true and to false; run: `python3 -` with a short probe on standard input
+    that builds `snapy.MeshBlock` from each deck and calls `eos.compute("U->W", [u])` on a state of ones; CPU,
+    float64, one process, on a README Release build at the pin; Python 3.11.13, torch
+    2.10.0+cu128].

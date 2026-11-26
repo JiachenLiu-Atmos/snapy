@@ -36,7 +36,8 @@ CUDA graph refuses all three, so a block that uses one runs eager. The full clos
 
 #### moist-mixture
 
-The state keys are kintera's. From $\rho$ and $y_n$, `"DY->V"` forms the molar concentrations $\tilde c_n$[^rg-642707a05b55];
+The state keys are kintera's. From $\rho$ and $y_n$, `"DY->V"` forms the partial mass densities $\rho_n$, dry air included, and snapy
+multiplies them by $1/\mu_n$ (`inv_mu`) for the molar concentrations $\tilde c_n$[^rg-642707a05b55];
 `"VU->T"` inverts the internal energy for $T$; `"VT->P"` gives $p=\mathcal RT\sum_{\mathrm{gas}}Z_n\tilde c_n$.
 `MoistMixtureImpl::_cons2prim` ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_cons2prim >}}) runs these
 three after the shared density and velocity step of @eq-ch02-laws-state. The ratio of specific heats is

@@ -102,13 +102,15 @@ How many steps run is set once per thermo, in `reset`, by `temp_plan`
 
 - `exact`: no NASA-9 or H$_2$ capacity and no extra energy term. Then $U$ is linear in $T$, the start of step 5 is
   the root, and `solve` runs a single Newton step as its one correction, with no host read.
-- `newton`: otherwise. Under capture (or `SolveMode::fixed`) it runs `max_iter` passes and freezes each cell once
-  its relative step falls below `ftol`; otherwise (`eager_exit`) it stops when the largest relative step
+- `newton`: otherwise. Under capture (or `SolveMode::fixed`) it runs `max_iter` passes and updates every cell until
+  the largest relative step over all cells falls below `ftol`; from then on the whole tensor is frozen, every cell
+  together, because the run flag is one 0-dimensional tensor; otherwise (`eager_exit`) it stops when the largest relative step
   $\lvert1-T_{\mathrm{old}}/T_{\mathrm{new}}\rvert$ over all cells is below `ftol`, a host read per pass, and warns
   "max iterations reached" after `max_iter` passes.
 
-A cell that is still running at the end adds one to row 1 of kintera's failure counter (row 2 for the pressure
-inversion); those rows reach the register's monitor as `thermo.temp_solve` and `thermo.pres_solve` (@sec-ch13).
+A solve whose run flag is still set at the end (in `exact`, one that produced a non-finite $T$) adds one to row 1 of
+kintera's failure counter (row 2 for the pressure inversion): at most one per solve call, not one per cell
+([`kintera thermo_y.cpp:388-412`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_y.cpp#L388-L412)); those rows reach the register's monitor as `thermo.temp_solve` and `thermo.pres_solve` (@sec-ch13).
 
 **What the stopping rule guarantees (`eager_exit`).** Let $T_\ast$ be the root and $\psi$ the error of an iterate.
 Taylor's theorem gives $\lvert\psi_{\mathrm{new}}\rvert\le(\Upsilon/2)\psi_{\mathrm{old}}^2$ with
@@ -162,8 +164,8 @@ $J=40$; no error bound for the truncation is derived here.
 [`kintera species.cpp:232-243`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/species.cpp#L232-L243)).
 `use_nasa9_cp` and `use_h2_cp` default to false and `h2_cp_mode` to `equilibrium`
 ([`kintera species.hpp:104-119`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/species.hpp#L104-L119));
-the NASA-9 switch applies to a species whose **name** has an entry in `data/nasa9.dat` (`H2`, `H2O`, `H2S`, `He`,
-`NH3`, none named `dry`), and the rotor only to a species named exactly `H2`. Gas entropy follows either switch.
+the NASA-9 switch applies to a species whose **name** has an entry in `data/nasa9.dat` (293 entries at the kintera pin;
+the decks' `H2O`, `H2S` and `NH3`, and `H2` and `He`, have one, and no entry is named `dry`), and the rotor only to a species named exactly `H2`. Gas entropy follows either switch.
 `ideal-moist` reads only the constant `cref_R`, so neither switch reaches its dynamics
 (@sec-ch02-ideal-moist).
 

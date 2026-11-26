@@ -32,8 +32,7 @@ together.
 **Evidence.** @tbl-ch02-consistency-tests: three ctests by source reading, `consistency_check.py` `[C1]`–`[C3]`.
 :::
 
-Local symbols: $\Xi$ is the energy-magnitude sum [J m$^{-3}$] defined in @sec-ch02-ideal-moist;
-the remaining symbols are also defined there.
+Local symbols: the symbols of this section are those defined in @sec-ch02-ideal-moist.
 
 ### Derivation
 
@@ -77,8 +76,8 @@ $$ {#eq-ch02-consistency-enthalpy}
 8. *Hence a condensate must have no pressure share.* An $R_nT$ term on a condensate would make the sum exceed
    $E+p$ by $\rho_nR_nT$.
 
-In floating point each map has its own operation count. The thermal-energy subtraction in `U->W` has the
-bound of @sec-ch02-ideal-moist; it is not the count for `UT->I`.
+In floating point each map has its own operation count. The thermal-energy subtraction in `U->W` has its own
+count, which this report does not bound at the pin; the count below is that of `UT->I` only.
 
 For `UT->I`, hold the computed `cvd`, `cvy` and `u0` coefficients and the input densities and temperature fixed.
 Each of the offset and capacity sums uses $N_y+1$ products and at most $N_y$ additions along a sequential reduction.

@@ -147,8 +147,9 @@ product with $-\Delta t$ on interior cells is in `HydroImpl::forward`
 ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
 
 The sum $\sum_iV_i\Delta\mathbf U^{\mathrm{flux}}_i$ telescopes. Both products of face $i+\tfrac12$, the one
-cell $i$[^rg-9fe3deae45f9] subtracts and the one cell $i+1$ adds, are one element of one tensor product of the same area and flux
-tensors, so they are the same number. Every interior face then appears once with each sign, and only the two
+cell $i$[^rg-9fe3deae45f9] subtracts and the one cell $i+1$ adds, are computed in
+`x1_face_difference` as two separate elementwise products, on two overlapping slices of the same area and flux
+tensors; they are the same number because an IEEE multiplication of the same two operands is deterministic. Every interior face then appears once with each sign, and only the two
 outer faces remain. Conservation is therefore algebra, not accuracy; how accurate the flux is belongs to
 @sec-ch04.
 
@@ -239,7 +240,7 @@ overrides it and answers the keys it supports.
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| {{< code tests/test_eos.cpp DeviceTest.moist_mixture >}} (`test_eos.release`) | `"W->U"` then `"U->W"` then `"W->U"` returns the conserved state | rtol $10^{-6}$, atol $10^{-6}$ | `torch::allclose(cons, cons2, 1.E-6, 1.E-6)` in the test |
+| {{< code tests/test_eos.cpp DeviceTest.moist_mixture >}} (`test_eos.release`) | a random conserved state, `"U->W"` then `"W->U"`, returns that state (a U→W→U round trip) | rtol $10^{-6}$, atol $10^{-6}$ | `torch::allclose(cons, cons2, 1.E-6, 1.E-6)` in the test |
 | {{< code tests/test_anomaly_storage.py arm_match >}} (`test_anomaly_storage_python`) | anomaly on and off agree in totals, primitives and $\Delta t$ | relative $10^{-10}$ | `tol = 1.0e-10` in `arm_match` |
 | {{< code tests/test_anomaly_storage.py arm_restart >}} (`test_anomaly_storage_python`) | a restarted run continues bit for bit | bitwise | `torch.equal` |
 | `v3_relations_check.py` `[V1]`, `[V2]`, `[V7]`, `[V8]` (this report) | primitive form, metric, anomaly and density identities | exact | sympy simplifies the difference to 0 |
