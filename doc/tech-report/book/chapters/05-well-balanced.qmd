@@ -14,8 +14,8 @@ them: the well-balanced $x_1$ reconstruction, which reconstructs perturbations a
 reference; the reference kernel, which builds that reference from a top-down pressure scan; its closure at a
 physical wall; its continuity across $x_1$ block seams; the hydrostatic mode, which replaces gravity by the cell's
 own pressure difference; `balance_column`, which projects an initial column onto the scheme's discrete balance;
-the fourth-order reference `SNAP_WB_REF4`; the $r^2$-exact $x_1$ maps `SNAP_X1_CENTROID_EXACT` of spherical-polar
-grids; what is left of the $1/r$ term after them; and two legacy wall routines. The gravity work these schemes are
+the fourth-order face density of conversion order 4; the $r^2$-exact $x_1$ maps `SNAP_X1_CENTROID_EXACT` of spherical-polar
+grids; what is left of the $1/r$ term after them; and a legacy wall routine. The gravity work these schemes are
 used with is @sec-ch06; the switches and their tested combinations are @sec-ch12.
 
 ::: {.callout-important title="Check"}
@@ -35,10 +35,10 @@ the default reference from the equations of this chapter that reproduces the num
 | Seam continuity (@sec-ch05-seam) | $x_1$ split | on | exact | `test_pref_local_seam` |
 | Hydrostatic mode (@sec-ch05-hsmode) | `non-hydrostatic`[^rg-e659dcc78f19] | 1 (off) | rest exact | `test_hydrostatic` |
 | `balance_column` (@sec-ch05-balcol) | API[^rg-f70527012078] call | not called | fixed point | `test_balance_column` |
-| Fourth-order reference (@sec-ch05-wbref4) | `SNAP_WB_REF4` | off | 4 ($\rho_{\mathrm{sf}}$) | `test_wb_ref4_order` |
+| Fourth-order face density (@sec-ch05-wbref4) | `conversion-order: 4` | 2 (off) | 4 ($\rho_{\mathrm{sf}}$) | `test_x1_seam_split_co4_face_density` |
 | $r^2$-exact $x_1$ maps (@sec-ch05-x1cent) | `SNAP_X1_CENTROID_EXACT` | off | rest exact | `test_x1_centroid_rest` |
 | $1/r$ remainder (@sec-ch05-oneoverr) | none | — | $O(\Delta x_1^2/r)$ | none |
-| Legacy wall routines (@sec-ch05-legacy) | none | unreachable | — | none |
+| Legacy wall routine (@sec-ch05-legacy) | none | unreachable | — | none |
 
 : The schemes of this chapter. "Order" is the order of the face density reference $\rho_{\mathrm{sf}}$ against the
 exact profile where a number is given; "rest exact" means a discretely balanced column stays at rest to round-off.

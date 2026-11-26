@@ -16,7 +16,8 @@ scan and the six-face cell pressure, is a formula for plain means. Fed $r^2$ mea
 values, the scan step, and the pressure force, whose plain difference balances gravity only against the wrong scan.
 The switch converts the inputs of the maps, for the maps only, to plain means with a five-cell stencil exact to degree
 4, and makes the radial pressure force the $r^2$ mean of the gradient of a quintic through six face pressures. The
-reference on plain means is then the Cartesian one, and the switch implies `SNAP_WB_REF4` so that it is fourth order.
+reference on plain means is then the Cartesian one; its fourth-order face density is `dynamics/conversion-order: 4`
+(@sec-ch05-wbref4), which the switch does not turn on.
 
 ::: {.callout-note title="At a glance"}
 **Purpose.** Feeds every $x_1$ map plain means instead of $r^2$ means, and makes the pressure source exact, @eq-ch05-x1cent-source.
@@ -25,7 +26,7 @@ reference on plain means is then the Cartesian one, and the switch implies `SNAP
 
 **Placement.** The $x_1$ sweep of `HydroImpl::forward` and `SphericalPolarImpl::forward`, every RK stage.
 
-**Activation.** Environment variable `SNAP_X1_CENTROID_EXACT`, default off; acts on `spherical-polar`; implies `SNAP_WB_REF4`.
+**Activation.** Environment variable `SNAP_X1_CENTROID_EXACT`, default off; acts on `spherical-polar`; with gravity it requires $n_g\ge3$.
 
 **Guarantee / limits.** Rest exact for densities of degree $\le4$; ratios of means keep $O(\Delta x_1^2/r)$ (@sec-ch05-oneoverr).
 
@@ -38,7 +39,7 @@ weights and $c^S_{i,l}$ [m$^{-1}$] the source weights over the window starting a
 $d_{\mathrm{mon}}$ the monomial degree; $\tilde p$ [Pa] the quintic through six face pressures; $S_i$ [Pa m$^{-1}$] the radial
 pressure source. $\delta_i$[^rg-929a9e6df954], $A_{i\pm1/2}$[^rg-4cb11b837953], $V_i$[^rg-928038c8e04b], $p^{*}$ and $\epsilon_{\mathrm m}$ are defined in @sec-appa.
 
-On Cartesian blocks the switch only implies `SNAP_WB_REF4`; on cubed-sphere blocks it does nothing (their $x_{1v}$ is
+On Cartesian blocks the switch only adds the $n_g\ge3$ check with gravity; on cubed-sphere blocks it does nothing (their $x_{1v}$ is
 the mid-radius). `balance_column` balances only a column declared Cartesian under it.
 
 *Aliases.* "the centroid switch"; legs (i)-(iii) in the comments of `x1_centroid.hpp`.
@@ -145,7 +146,7 @@ is exact and the column is balanced exactly, which is the oracle of the test.
 *Exact and truncated.* Exact: the conversion for degree 4, both source identities, rest for degree $\le4$. For a
 smooth column the curvature part of the residual is $O(\Delta x_1^6/r)$; what remains is the truncation of the reference itself.
 Ratios of means (the Favre velocity, $T=p/\rho$, $\chi$ inside $\mathsf F$) are not made exact (@sec-ch05-oneoverr); for the
-velocity, `SNAP_X1_MASS_COVARIANCE` subtracts the covariance part (@sec-ch04-x1masscov).
+velocity, `dynamics/x1-mass-covariance: true` subtracts the covariance part (@sec-ch04-x1masscov).
 
 *Why a resting column of $r^2$ means stays at rest.* Four steps, each a line of the code.
 
@@ -155,7 +156,7 @@ velocity, `SNAP_X1_MASS_COVARIANCE` subtracts the covariance part (@sec-ch04-x1m
    the per-face rows of the $r$ faces `x1f` on a keyed stretched $x_1$, and leaves it on its uniform weights
    otherwise; it does not use the volume-coordinate rows that `x1_row_faces` returns without the switch
    ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
-2. *The seam ghosts are the neighbour's.* `_x1_ghost_rows(wx1, ...)` replaces the off-centre ghost windows, so a split
+2. *The seam ghosts are the neighbour's.* `Exchange(pmb).x1_rows({wx1}, ...)` replaces the off-centre ghost windows, so a split
    column converts like one block.
 3. *The source is the exact $r$-moment.* With the face pressures defined, `SphericalPolarImpl::forward` adds
    `x1_pressure_source` instead of the plain-difference correction, and its weights divide by the cube-form volume
@@ -237,8 +238,9 @@ hours.
 
 A PyPI release of snapy has no such switch and ignores the variable without a message.
 
-**What it refuses, and why.** Since the switch implies `SNAP_WB_REF4`, setup refuses $n_g<3$ with gravity on
-({{< code src/hydro/hydro.cpp HydroImpl::reset >}}), for the seam reason of @sec-ch05-wbref4. `balance_column` refuses
+**What it refuses, and why.** Setup refuses $n_g<3$ with gravity on, with the message "SNAP_X1_CENTROID_EXACT (or
+dynamics/conversion-order 4) needs nghost >= 3" ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}); the switch shares
+that requirement with conversion order 4, whose seam reason is @sec-ch05-wbref4. `balance_column` refuses
 it with any geometry other than `"cartesian"`
 ({{< code src/hydro/balance_column.cpp balance_column >}}), because a ghost-free column does not model the conversion.
 Not refused: on a block with fewer than five cells between its walls, or fewer than six faces for the source, the
@@ -274,27 +276,27 @@ solution `wgt = solve(M, rhs)` with `rhs` the plain moments $(1,0,\tfrac1{12},0,
 | conversion and mirrored ghosts | {{< code src/coord/x1_centroid.cpp x1_plain_means >}} | `x1_plain_means` | |
 | source stencils | {{< code src/coord/x1_centroid.cpp x1_pressure_source_stencils >}} | `x1_pressure_source_stencils` | |
 | plain-mean view and seam ghosts | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `x1_plain_means` | spherical-polar |
-| ghost face pressures at a seam | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `_x1_ghost_rows` | |
+| ghost face pressures at a seam | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `kTagFacePressure` | |
 | the source in the momentum equation | {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::forward >}} | `x1_pressure_source` | |
-| ghost-row exchange | {{< code src/hydro/hydro.cpp HydroImpl::_x1_ghost_rows >}} | `_x1_ghost_rows` | $x_1$ split |
-| implies `SNAP_WB_REF4` | {{< code src/hydro/wb_ref4.cpp wb_ref4_enabled >}} | `x1_centroid_exact_enabled` | |
+| ghost-row exchange | {{< code src/layout/exchange.cpp Exchange::x1_rows >}} | `x1_rows` | $x_1$ split |
+| the $n_g\ge3$ check | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `x1_centroid_exact_enabled` | gravity on |
 
 : Code map of `SNAP_X1_CENTROID_EXACT`. {#tbl-ch05-x1cent-code}
 
 1. `x1_centroid_exact_enabled` reads the environment once
    ({{< code src/coord/x1_centroid.cpp x1_centroid_exact_enabled >}}).
 2. On a spherical-polar block `HydroImpl::forward` builds the view with `x1_plain_means` and exchanges its seam ghost
-   rows with `_x1_ghost_rows`
+   rows with `Exchange::x1_rows` (tag `kTagPlainMeans`)
    ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
 3. The reference and the reconstruction of @sec-ch05-wbx1 read the view, the reconstruction with the $r$-face rows on
-   a keyed stretched $x_1$ (`plain`, {{< code src/hydro/hydro.cpp HydroImpl::reset >}}); `SNAP_WB_REF4` acts
-   through `wb_ref4_enabled` (@sec-ch05-wbref4).
-4. After the Riemann solve the face-pressure ghost rows are exchanged with `_x1_ghost_rows`
+   a keyed stretched $x_1$ (`plain`, {{< code src/hydro/hydro.cpp HydroImpl::reset >}}); the key-4 face density is
+   `dynamics/conversion-order: 4` and independent of the switch (@sec-ch05-wbref4).
+4. After the Riemann solve the face-pressure ghost rows are exchanged with `Exchange::x1_rows` (tag `kTagFacePressure`)
    ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
 5. `SphericalPolarImpl::forward` adds `x1_pressure_source` in place of the plain-difference correction
    ({{< code src/coord/spherical_polar.cpp SphericalPolarImpl::forward >}}).
 
-The ghost-depth check of @sec-ch05-wbref4 covers this switch, since it implies `SNAP_WB_REF4`; `balance_column` refuses
+The ghost-depth check is shared with conversion order 4 (@sec-ch05-wbref4); `balance_column` refuses
 a non-Cartesian geometry under it. A block too thin for the stencils (`usable` false) keeps the plain path silently.
 
 ### Tests
@@ -353,13 +355,13 @@ The switch does nothing on cubed-sphere grids. Under it `balance_column` balance
 :::
 
 1. **Ratios of means.** The Favre velocity, $T$ and $\chi$ are still treated as means (the velocity's covariance part is
-   subtracted under `SNAP_X1_MASS_COVARIANCE`); the $O(\Delta x_1^2/r)$ remainder
+   subtracted under `dynamics/x1-mass-covariance: true`); the $O(\Delta x_1^2/r)$ remainder
    is @sec-ch05-oneoverr.
 2. **Cubed sphere.** Not implemented: the gnomonic grids store the mid-radius as $x_{1v}$ and would need the
    conversion with their own radial measure.
 3. **The source copy differs from the code.** The copy of the derivation in the report's sources says the switch
-   leaves the reference unchanged;[^ch05-x1c-copy] at the pin it implies `SNAP_WB_REF4` and seam ghosts are
-   exchanged.
+   leaves the reference unchanged;[^ch05-x1c-copy] at the pin the switch changes the reference's inputs (plain means)
+   and its seam ghosts are exchanged.
 4. **Untested combinations.** See the switch coverage matrix, @sec-ch12-matrix.
 
 [^ch05-x1c-copy]: `sources/deriv__x1-centroid-spherical.md`.

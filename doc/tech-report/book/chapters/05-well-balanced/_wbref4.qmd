@@ -1,8 +1,8 @@
-## Fourth-order, cell-consistent face density reference (`SNAP_WB_REF4`) {#sec-ch05-wbref4}
+## Fourth-order, cell-consistent face density reference (`dynamics/conversion-order: 4`) {#sec-ch05-wbref4}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
-sources: OUTLINE.md 5.7; src/hydro/wb_ref4.cpp; src/hydro/hydro.cpp; src/hydro/balance_column.cpp;
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: OUTLINE.md 5.7; src/recon/x1_reference.cpp; src/recon/x1_rows.cpp; src/hydro/hydro.cpp; src/hydro/balance_column.cpp;
          docs/derivations/wb-ref4.md@919936da07d80a310b98ab11da184972a3203274 §§2-9; sources/gw__NEXTPR_spec_wbref_exact.md
 status: draft
 -->
@@ -11,19 +11,23 @@ status: draft
 
 The kernel's face density is not the face value of its own cell density, so the solver's face density carries
 the offset @eq-ch05-refkernel-offset. That offset enters the $x_1$ mass flux at linear order and, through it, the
-gravity work. The switch removes it with one operator: it replaces the face density by the face value of the
+gravity work. Conversion order 4 removes it with one operator: it replaces the face density by the face value of the
 kernel's own cell density, taken from the quartic through the primitive of that cell field, so that face and cell
 are consistent by construction. Nothing else is replaced. The cell density reference, the cell pressure and the
-face pressures, and so the rest state, are the kernel's on any grid.
+face pressures, and so the rest state, are the kernel's on any grid. With WENO5 or cp5 on $x_1$ the reconstruction's
+own cp5 row of $\rho_{\mathrm{ref}}$ (@sec-ch05-refkernel) sets each side's face density afterwards wherever it passes
+its range guard, so these rows decide the faces where that guard fails and, at a reflecting wall, the sides whose cp5
+row would read a ghost; with any other $x_1$ scheme they decide every owned face (`X1Reference::evaluate`,
+{{< code src/recon/x1_reference.cpp X1Reference::evaluate >}}).
 
 ::: {.callout-note title="At a glance"}
 **Purpose.** Makes the reference face density the face value of the kernel's own cell density, @eq-ch05-wbref4-face.
 
 **Data.** Reads $\rho_{\mathrm{ref}}$ and $p_{\mathrm{sf}}$ of the kernel; replaces $\rho_{\mathrm{sf}}$ only.
 
-**Placement.** Inside `HydroImpl::_hydro_ref_x1`: the resolution flag right after the kernel, the faces after the seam exchange.
+**Placement.** Inside `X1Reference::evaluate`: the resolution flag right after the kernel, the faces after the seam exchange.
 
-**Activation.** Environment variable `SNAP_WB_REF4` (or `SNAP_X1_CENTROID_EXACT`), default off; needs $n_g\ge3$.
+**Activation.** `dynamics/conversion-order: 4` (default 2), which also turns on the conversion of @sec-ch04-conv4; needs $n_g\ge3$ with gravity.
 
 **Guarantee / limits.** $\eta_{\rho,f}=O(\Delta x_1^4)$ where no guard fires; $\rho_{\mathrm{ref}}$, $p_{\mathrm{sf}}$ and so the rest balance are unchanged.
 
@@ -40,9 +44,11 @@ or @sec-ch05-refkernel.
 Guards keep the kernel's face value wherever the new one would leave the range of its two neighbouring cells or
 the column is under-resolved, and the face part runs after the seam exchange of @sec-ch05-seam. With the corrected-PE[^rg-36523dc32e4e] face
 work of @sec-ch06 on (its default with `gravity-work: face`), the one-step spurious stratification of a neutral column
-converges at about fourth order with the switch and second order without it.
+converged at about fourth order with these rows and second order without them, in the recorded run of the Tests
+layer, which predates the code pin.
 
-*Aliases.* "Leg W" in the centroid derivation note; `SNAPY_WB_REF_EXACT` in the specification.[^ch05-wb4-alias]
+*Aliases.* "Leg W" in the centroid derivation note; `SNAPY_WB_REF_EXACT` in the specification; `wb_ref4` and "key 4" in
+the code.[^ch05-wb4-alias]
 
 [^ch05-wb4-alias]: `docs/derivations/x1-centroid-spherical.md`; `sources/gw__NEXTPR_spec_wbref_exact.md`.
 
@@ -61,7 +67,7 @@ $\mathcal W[\overline\rho-\rho_{\mathrm{ref}}]_f+\rho_{\mathrm{sf},f}=\mathcal W
 linearity of the reconstruction. So the face density is a consistent high-order face value exactly when
 $\rho_{\mathrm{sf}}$ is the face value of the cell field $\rho_{\mathrm{ref}}$, **whatever the accuracy of
 $\rho_{\mathrm{ref}}$ itself**: a bias shared by the cell reference and its face value is subtracted and added back
-and cannot reach the flux. One operator therefore closes the offset, and the switch replaces nothing else. The
+and cannot reach the flux. One operator therefore closes the offset, and conversion order 4 replaces nothing else here. The
 cell density reference stays the kernel's $p_{\mathrm{ref}}\chi^{s}$ of @eq-ch05-refkernel-dens, and so does
 every pressure.
 
@@ -83,19 +89,19 @@ $(-1,7,7,-1)/12$ at $l_{\mathrm f}=2$ (the interior face, window $i_0=f-2$) (`[C
 point profiles on any grid, so $\eta_{\rho,f}=\rho_{\mathrm{sf}}-\mathcal W[\rho_{\mathrm{ref}}]=O(\Delta x_1^4)$ (`[C14]`:
 mid-column offset $3.22\times10^{-12}$, $5.18\times10^{-14}$, $6.91\times10^{-16}$ relative at $n_1$ = 32, 64, 128, orders
 5.96 and 6.23, against order 2.00 for the kernel; at $n_1=256$ it is at round-off level, $1.38\times10^{-16}$ in this run, so
-that level measures round-off, not truncation). @eq-ch05-wbref4-face is built as the weights `awt`
-({{< code src/hydro/wb_ref4.cpp wb_ref4_stencils >}})
+that level measures round-off, not truncation). @eq-ch05-wbref4-face is built as the weights `st.wt` by `face_density_rows`
+({{< code src/recon/x1_rows.cpp face_density_rows >}})
 and applied by `wb_ref4_faces`
-({{< code src/hydro/wb_ref4.cpp wb_ref4_faces >}}).
+({{< code src/recon/x1_reference.cpp wb_ref4_faces >}}).
 
 #### Cell pressure and cell density
 
-The switch changes no cell value, on any grid: `wb_ref4_faces` writes only $\rho_{\mathrm{sf}}$
-({{< code src/hydro/wb_ref4.cpp wb_ref4_faces >}}), and `wb_ref4_flag` reads the scan pressures and returns a
-boolean ({{< code src/hydro/wb_ref4.cpp wb_ref4_flag >}}). On a uniform grid the cell pressure is the six-face
+These rows change no cell value, on any grid: `wb_ref4_faces` writes only $\rho_{\mathrm{sf}}$
+({{< code src/recon/x1_reference.cpp wb_ref4_faces >}}), and `wb_ref4_flag` reads the scan pressures and returns a
+boolean ({{< code src/recon/x1_reference.cpp wb_ref4_flag >}}). On a uniform grid the cell pressure is the six-face
 pressure of @eq-ch05-refkernel-pref; on a keyed stretched $x_1$ it is the six-face average built from the widths,
 @eq-ch05-refkernel-stretched, of sixth order. The rest state is therefore the kernel's with the switch on or off,
-and `balance_column` does not call the switch (@sec-ch05-balcol). The stencils of the face part use the face
+and `balance_column` does not use these rows (@sec-ch05-balcol). The stencils of the face part use the face
 positions (physical spacing), so they apply to a stretched $x_1$ as built.
 
 #### Guards and rest balance
@@ -112,7 +118,7 @@ $p_{\mathrm{sf}}$ nor $p_{\mathrm{ref}}$ nor $\rho_{\mathrm{ref}}$ is changed, t
 *Why the two sides of an $x_1$ seam agree.* Three steps.
 
 1. *The flag is local.* `wb_ref4_flag` reads only the block's own scan pressures, so it needs no exchange; it is
-   built right after the kernel ({{< code src/hydro/wb_ref4.cpp wb_ref4_flag >}}).
+   built right after the kernel ({{< code src/recon/x1_reference.cpp wb_ref4_flag >}}).
 2. *The face part reads only exchanged cells.* `wb_ref4_faces` runs after the seam exchange of
    $(p_{\mathrm{ref}},\rho_{\mathrm{ref}})$, and its four-cell window at an interior face reaches two cells past the
    face, inside $n_g\ge2$. The flag of a cell is dilated by two cells (`max_pool1d` of width 5), so a face next to a
@@ -122,7 +128,7 @@ $p_{\mathrm{sf}}$ nor $p_{\mathrm{ref}}$ nor $\rho_{\mathrm{ref}}$ is changed, t
    the round-off of the next paragraph, so a split column and one block take the same branch on a flat profile,
    where the two bounds coincide.
 
-*Round-off.* The face weights are computed in double by `lagrange_deriv`, so they carry a rounding of their own
+*Round-off.* The face weights are computed in double by `face_value_row`, so they carry a rounding of their own
 that is not bounded here; their four-term sum adds at most $4\epsilon_{\mathrm m}\sum_l\lvert a_l\rvert\max\rho_{\mathrm{ref}}
 =\tfrac{16}{3}\epsilon_{\mathrm m}\max\rho_{\mathrm{ref}}$ in the interior, with $\sum_l\lvert a_l\rvert=16/12$ for the
 weights $a_l=(-1,7,7,-1)/12$. The $n_1=256$ level of `[C14]`, at round-off level, lies inside it.
@@ -134,15 +140,15 @@ which cancels out of the face value by the argument above.
 
 ### Numerical method
 
-The stencil is shown in @fig-ch05-wbref4-stencils. The stencils and weights are built once per block, on the CPU in double
-precision, and cached until device or dtype changes; application is a gather and a weighted sum on the block's device.
-The resolution flag is built right after the kernel in `_hydro_ref_x1`; the face part runs after the seam ghost-row
+The stencil is shown in @fig-ch05-wbref4-stencils. The stencils and weights are built on the CPU in double precision and
+cached until the $x_1$ faces, their version, the device or the dtype change (`X1RowsKey`); application is a gather and a
+weighted sum on the block's device. The resolution flag is built right after the kernel in `X1Reference::evaluate`; the face part runs after the seam ghost-row
 exchange, so a column split along $x_1$ gets the same faces as one block. A block with a clamped wall and fewer than
 four owned cells keeps the kernel's reference.
 
 ```{python}
 #| label: fig-ch05-wbref4-stencils
-#| fig-cap: "The `SNAP_WB_REF4` face stencil at a bottom wall (thick black line), $x_1$ to the right. The face density at the wall face comes from the quartic primitive over the four owned cells next to the wall (orange triangles at the five faces, sky-blue circles at the cell references the weights read); the window is kept inside the owned cells there, so the hatched ghosts are never read. Interior faces use the centred weights $(-1, 7, 7, -1)/12$."
+#| fig-cap: "The key-4 face stencil at a bottom wall (thick black line), $x_1$ to the right. The face density at the wall face comes from the quartic primitive over the four owned cells next to the wall (orange triangles at the five faces, sky-blue circles at the cell references the weights read); the window is kept inside the owned cells there, so the hatched ghosts are never read. Interior faces use the centred weights $(-1, 7, 7, -1)/12$."
 #| fig-alt: "A row of cells beside a wall with hatched ghosts, triangles marking five faces and circles marking four cell values, under a bracket of four cells."
 #| echo: false
 from snapy_report.ch05.figures.fig_wbref4_stencils import make_fig
@@ -153,7 +159,9 @@ make_fig()
 the polytropic index $n_{\mathrm{poly}}=1/(\gamma-1)$, $T_0=1+L_z-z$) seeded with a divergence-free overturning mode of amplitude $10^{-4}$, takes one RK3[^rg-5ce8343548de]
 step, and measures $N^2_{\mathrm{eff}}=\tfrac g\gamma\sum_i(-\mathcal S_i)v_{1,i}/\sum_iv_{1,i}^2$ from the entropy tendency $\mathcal S_i$ of
 the mode minus that of the rest state. For this column the exact cell-average tendencies vanish at linear order, so every
-$N^2_{\mathrm{eff}}$ is scheme error. @fig-ch05-wbref4-order shows the four arms at the pin.[^ch05-wb4-fig]
+$N^2_{\mathrm{eff}}$ is scheme error. @fig-ch05-wbref4-order shows the four arms of the recorded run, which predates the code
+pin; at the pin the test runs at conversion order 2 only and measures the cp5 face density of @sec-ch05-refkernel
+(Tests).[^ch05-wb4-fig]
 
 [^ch05-wb4-fig]: Data `src/snapy_report/ch05/data/wb_ref4_order.json`, from `python tests/test_wb_ref4_order.py` (from the
     build's `tests` directory, `PYTHONPATH` set to this build's Python package) against a CPU Release source build of snapy@68f4e066974ede87e4379285c4fba895b970b7f1 (Python 3.11.13, torch 2.10.0, kintera 2.6.6, GCC 11.5.0), 2026-11-08, double, 1 rank; the
@@ -162,14 +170,14 @@ $N^2_{\mathrm{eff}}$ is scheme error. @fig-ch05-wbref4-order shows the four arms
 
 ```{python}
 #| label: fig-ch05-wbref4-order
-#| fig-cap: "One-step spurious stratification $\\lvert N^2_{\\mathrm{eff}}\\rvert\\,n_1^2$ [-] of a neutral column against the number of cells $n_1$, (a) 1 and (b) 3 pressure e-folds deep. Vermillion circles: `SNAP_WB_REF4` off; bluish-green squares: on. Solid lines: the corrected-PE face work at its default (on); dotted lines with open markers: `SNAP_GRAVITY_WORK_RADIAL_EXACT=0`. A flat line is second-order convergence of $N^2_{\\mathrm{eff}}$; the black dotted guide has slope $-2$, i.e. fourth order. With the default gravity work the switch takes the error from second to fourth order."
+#| fig-cap: "One-step spurious stratification $\\lvert N^2_{\\mathrm{eff}}\\rvert\\,n_1^2$ [-] of a neutral column against the number of cells $n_1$, (a) 1 and (b) 3 pressure e-folds deep. Vermillion circles: key-4 rows off; bluish-green squares: on (recorded run). Solid lines: the corrected-PE face work at its default (on); dotted lines with open markers: `SNAP_GRAVITY_WORK_RADIAL_EXACT=0`. A flat line is second-order convergence of $N^2_{\\mathrm{eff}}$; the black dotted guide has slope $-2$, i.e. fourth order. With the default gravity work the switch takes the error from second to fourth order."
 #| fig-alt: "Two log-log panels with four lines each: two nearly flat vermillion lines, a steeply falling solid green line and a less steep dotted green line."
 #| echo: false
 from snapy_report.ch05.figures.fig_wbref4_order import make_fig
 make_fig()
 ```
 
-At the pin, with the corrected-PE face work at its default, the observed orders of $\lvert N^2_{\mathrm{eff}}\rvert$
+In that run, with the corrected-PE face work at its default, the observed orders of $\lvert N^2_{\mathrm{eff}}\rvert$
 are 4.07, 4.03 (1 e-fold) and 3.88, 3.94 (3 e-folds) with the switch, and 2.13, 2.04 and 2.21, 2.08 without it. With
 `SNAP_GRAVITY_WORK_RADIAL_EXACT=0` the switched arm returns 2.96, 2.98 and 2.83, 2.92; its 1 e-fold values
 $-0.0707$, $-0.0358$ ($n_1$ = 64, 128) equal the table of the derivation note to the printed digits, and its 3 e-fold
@@ -181,15 +189,17 @@ not derived.
 
 ### Code
 
-**A minimal input.** The switch is an environment variable, not a YAML key. A deck it acts on needs gravity along
-$x_1$, three ghost cells and, for the wall stencils, the wall clamp:
+**A minimal input.** The rows are a deck key. A deck they act on needs gravity along $x_1$, three ghost cells and,
+for the wall stencils, the wall clamp:
 
+<!-- reader glossary keys -->Keys in this fragment: `conversion-order`[^rg-62a5add73069].
 ```yaml
 geometry:
   type: cartesian
   bounds: {x1min: 0., x1max: 1.e4}
   cells: {nx1: 64, nghost: 3}   # three ghost cells: the setup check below
 dynamics:
+  conversion-order: 4           # these rows, and the conversion of the x1 primitives
   wb-wall-clamp: true           # the default; the wall stencils use owned cells only
 forcing:
   const-gravity: {grav1: -9.8}
@@ -199,17 +209,15 @@ With these keys in a copy of `straka_single.yaml`, saved as `deck.yaml` in `buil
 ([Install and run](#sec-preface-install)), run
 
 ```bash
-SNAP_WB_REF4=1 ./straka.release deck.yaml
+./straka.release deck.yaml
 ```
 
-A PyPI release of snapy has no such switch and ignores the variable without a message.
-
-**What it refuses, and why.** Setup refuses $n_g<3$ with gravity on
-({{< code src/hydro/hydro.cpp HydroImpl::reset >}}), because the flag of step 3 above would then read
-cells a block does not hold, and the two sides of a seam could disagree. Values of `SNAP_WB_REF4` other than empty,
-`0`, `false`, `off` or `no` (any case) turn it on. A block with a clamped wall and fewer than four owned cells, or with
-fewer than five cells in all, is not refused: its stencils are marked unusable
-({{< code src/hydro/wb_ref4.cpp wb_ref4_stencils >}}) and it keeps the kernel's reference.
+**What it refuses, and why.** Setup refuses $n_g<3$ with gravity on, with the message "SNAP_X1_CENTROID_EXACT (or
+dynamics/conversion-order 4) needs nghost >= 3" ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}), because the flag of
+step 3 above would then read cells a block does not hold, and the two sides of a seam could disagree. A conversion order
+other than 2 or 4 is refused by the same function. A block with a clamped wall and fewer than four owned cells, or with
+fewer than five cells in all, is not refused: its rows are marked unusable (`usable`,
+{{< code src/recon/x1_rows.cpp face_density_rows >}}) and it keeps the kernel's reference.
 
 **The lines that implement @eq-ch05-wbref4-face.** From `wb_ref4_flag` and `wb_ref4_faces`:
 
@@ -218,41 +226,41 @@ auto bad = ((psf_lo / psf_hi).log().abs() > kMaxLogDrop) & st.counted;
 return torch::max_pool1d(bad.to(psf_lo.dtype()).reshape({-1, 1, st.nc1}), 5,
                          1, 2).reshape(sizes) > 0.;
 ...
-auto face = apply(dref, st.aidx, st.awt);
+auto face = x1_stencil_apply(dref, st.idx, st.wt);
 auto ok = in_range(face, torch::minimum(dl, dr), torch::maximum(dl, dr)) &
           ~flag.narrow(-1, st.is - 1, nf) & ~flag.narrow(-1, st.is, nf);
 d.copy_(torch::where(ok, face, d));
 ```
 
 `bad` is the under-resolution test and `max_pool1d` the two-cell dilation, together the flag
-({{< code src/hydro/wb_ref4.cpp wb_ref4_flag >}}). `face` is $\partial_1\Pi(x_{1,f})$ of @eq-ch05-wbref4-face with
-the weights `awt`, read from the kernel's cell reference `dref`, which is never written; `ok` is the range guard
+({{< code src/recon/x1_reference.cpp wb_ref4_flag >}}). `face` is $\partial_1\Pi(x_{1,f})$ of @eq-ch05-wbref4-face with
+the weights `st.wt`, read from the kernel's cell reference `dref`, which is never written; `ok` is the range guard
 and the flag of the two cells beside the face, and where it fails the kernel's $\rho_{\mathrm{sf}}$ (`d`) stays
-({{< code src/hydro/wb_ref4.cpp wb_ref4_faces >}}).
+({{< code src/recon/x1_reference.cpp wb_ref4_faces >}}).
 
 | what | code link | symbol | switch |
 |--------|----------|----------|------|
-| the switch, implied by the centroid switch | {{< code src/hydro/wb_ref4.cpp wb_ref4_enabled >}} | `wb_ref4_enabled` | `SNAP_WB_REF4` |
-| margin and resolution threshold | {{< code src/hydro/wb_ref4.cpp kMaxLogDrop >}} | `kMaxLogDrop`, `kMargin` | |
-| stencils and weights | {{< code src/hydro/wb_ref4.cpp wb_ref4_stencils >}} | `wb_ref4_stencils` | |
-| resolution flag | {{< code src/hydro/wb_ref4.cpp wb_ref4_flag >}} | `wb_ref4_flag` | |
-| face part | {{< code src/hydro/wb_ref4.cpp wb_ref4_faces >}} | `wb_ref4_faces` | |
-| ghost-depth check | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `wb_ref4_enabled` | $n_g\ge3$ |
-| calls around the seam exchange | {{< code src/hydro/hydro.cpp HydroImpl::_hydro_ref_x1 >}} | `wb_ref4_flag` | |
-| face part after the exchange | {{< code src/hydro/hydro.cpp HydroImpl::_hydro_ref_x1 >}} | `wb_ref4_faces` | |
+| the key | {{< code src/recon/x1_reference.cpp X1Reference::evaluate >}} | `conversion_order` | `dynamics/conversion-order` |
+| margin and resolution threshold | {{< code src/recon/x1_reference.cpp kMaxLogDrop >}} | `kMaxLogDrop`, `kMargin` | |
+| stencils and weights | {{< code src/recon/x1_rows.cpp face_density_rows >}} | `face_density_rows` | |
+| resolution flag | {{< code src/recon/x1_reference.cpp wb_ref4_flag >}} | `wb_ref4_flag` | |
+| face part | {{< code src/recon/x1_reference.cpp wb_ref4_faces >}} | `wb_ref4_faces` | |
+| ghost-depth check | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `conversion_order` | $n_g\ge3$ |
+| calls around the seam exchange | {{< code src/recon/x1_reference.cpp X1Reference::evaluate >}} | `wb_ref4_flag` | |
+| the per-side cp5 face density after it | {{< code src/recon/x1_reference.cpp X1Reference::evaluate >}} | `dsf_lr` | $x_1$ `weno5`, `cp5` |
 
-: Code map of `SNAP_WB_REF4`. {#tbl-ch05-wbref4-code}
+: Code map of the key-4 face density. {#tbl-ch05-wbref4-code}
 
-1. `wb_ref4_enabled` reads the environment once; values other than empty, `0`, `false`, `off`, `no` turn it on, and
-   `SNAP_X1_CENTROID_EXACT` turns it on too
-   ({{< code src/hydro/wb_ref4.cpp wb_ref4_enabled >}}).
-2. At setup, with gravity on, $n_g<3$ fails the `TORCH_CHECK` that names `wb_ref4_enabled`
+1. `HydroImpl::_hydro_ref_x1` passes `dynamics/conversion-order` to the reference evaluator
+   ({{< code src/hydro/hydro.cpp HydroImpl::_hydro_ref_x1 >}}).
+2. At setup, with gravity on, $n_g<3$ fails the `TORCH_CHECK` for conversion order 4
    ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
-3. In `_hydro_ref_x1` the stencils are built once per block from the face positions and `wb_ref4_flag` returns
-   the resolution flag; the cell reference is left as the kernel built it
-   ({{< code src/hydro/hydro.cpp HydroImpl::_hydro_ref_x1 >}}).
-4. After the seam exchange `wb_ref4_faces` replaces $\rho_{\mathrm{sf}}$
-   ({{< code src/hydro/hydro.cpp HydroImpl::_hydro_ref_x1 >}}).
+3. In `X1Reference::evaluate` the rows are built from the face positions when their key changes and `wb_ref4_flag`
+   returns the resolution flag; the cell reference is left as the kernel built it
+   ({{< code src/recon/x1_reference.cpp X1Reference::evaluate >}}).
+4. After the seam exchange `wb_ref4_faces` replaces $\rho_{\mathrm{sf}}$; with $x_1$ `weno5` or `cp5` the per-side cp5
+   face density follows, and at a reflecting wall a side whose cp5 row reads a ghost keeps these rows' value
+   ({{< code src/recon/x1_reference.cpp X1Reference::evaluate >}}).
 
 The only user-facing error is the ghost-depth check of step 2.
 
@@ -260,15 +268,15 @@ The only user-facing error is the ghost-depth check of step 2.
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |----------------|-------------|-----|-----|
-| `tests/test_wb_ref4_order.py` (`test_wb_ref4_order_python`) | switch on: order of $\lvert N^2_{\mathrm{eff}}\rvert\ge2.75$ over both doublings at 1 and 3 e-folds, $n_1$ 32/64/128; off: $<2.5$ at the last doubling | `ORDER_ON 2.75`, `ORDER_OFF 2.5` | set between the measured off (about 2) and on orders; not derived |
-| `tests/test_x1_seam_split.cpp` (`test_x1_seam_split_wb_ref4.release`), `wb_ref4_flag_at_the_seam_split_matches_one_block` | a split column with the flag switching on next to the seam equals one block | $10^{-13}$ | round-off |
-| same (`test_x1_seam_split_wb_ref4_gravity_0.release`) | with gravity off, $n_g=1$ still steps | runs | the check applies with gravity only |
-| `test_x1_seam_split_mp_wb_ref4` (2 ranks) | two ranks equal two blocks and one block | $10^{-13}$ | round-off |
-| `test_balance_column_wb_ref4`, `test_face_floor_wb_ref4` | the `balance_column` tests pass with the switch set; switched dipped-face fluxes $-1.19257\times10^{-7}$ and $0.0303502$ | as in @sec-ch05-balcol; $10^{-3}$ relative, $10^{-6}$ | pinned values |
-| `tests/test_stretched_x1_ref.cpp` (`test_stretched_x1_ref_wb_ref4.release`), `wb_ref4_switch_runs`, `balance_column_wb_ref4_runs` | with the switch, a reflecting deck on a keyed stretched $x_1$ builds and steps; a stretched column balances | runs; residual $<10^{-13}$ | test bound |
+| `tests/test_x1_seam_split.cpp` (`test_x1_seam_split_co4_face_density.release`), `co4_face_density_at_the_seam_split_matches_one_block` | `plm` at conversion order 4 on a cold column whose flag switches on next to the seam: two blocks equal one; the one-block $\max\lvert m_1\rvert$ after 20 steps equals its recorded value, so the rows are applied | gap $\le10^{-13}$; relative $10^{-9}$ on the pinned value | round-off; pinned values (the test's comment: without the rows it moves by $3\times10^{-5}$) |
+| same, `_cuda` arm (`test_x1_seam_split_co4_face_density_cuda.release`) | the same on CUDA | as above | as above |
+| `test_x1_seam_split_mp_co4_face_density` (2 ranks) | two ranks equal two blocks bit for bit and one block to round-off | `EXPECT_EQ` 0; $\le10^{-13}$ | round-off |
+| `test_x1_seam_split_nghost_check_conversion_order_4.release` | $n_g<3$ with gravity is refused with a message naming the setting; $n_g=3$, or no gravity, sets up | message match | the setup check |
+| `tests/test_balance_column.cpp` (`test_balance_column.release`), `a_moist_column_balanced_at_order_4_stays_at_rest_in_key_4` | an order-4 balanced moist column stays at rest under key 4, explicit and implicit | $\max\lvert v_1\rvert/c_s\le10^{-12}$, $\max\lvert\Delta\rho\rvert/\rho\le10^{-12}$; order-2 control $>10^{-8}$ | round-off; non-vacuity |
+| `tests/test_wb_ref4_order.py` (`test_wb_ref4_order_python`, and `_cuda`) | at conversion order 2 (no key in its deck): order of $\lvert N^2_{\mathrm{eff}}\rvert\ge2.75$ at the last doubling, 1 and 3 e-folds, $n_1$ 32/64/128; it measures the cp5 face density of @sec-ch05-refkernel, not these rows | `ORDER_ON` 2.75 | set below the docstring's measured orders; not derived |
 | this chapter's check, `wbref_check.py` | `[C8]`, `[C14]` | per claim | stated in the check |
 
-: Tests of `SNAP_WB_REF4`. {#tbl-ch05-wbref4-tests}
+: Tests of the key-4 face density. {#tbl-ch05-wbref4-tests}
 
 `[C8]` derives the three face rows, interior, wall and next, in exact rationals. `[C14]` measures the face offset
 quoted in the Derivation, order 2.00 for the kernel and about 6 with the switch until round-off. The check also
@@ -276,14 +284,15 @@ carries `[C3]` and `[C7]`, which verify the moments of a five-point filter and a
 operator of this section uses them, and no claim here rests on them.
 
 ::: {.callout-important title="Test"}
-**Evidence.** Check numbers come from `wbref_check.py` (`[C8]`, `[C14]`).[^ch05-wb4-chk] At the pin
+**Evidence.** Check numbers come from `wbref_check.py` (`[C8]`, `[C14]`).[^ch05-wb4-chk] In the recorded run, which
+predates the code pin and was made with an environment switch in place of the deck key,
 $N^2_{\mathrm{eff}}n_1^2$ at $n_1$ = 32, 64, 128 is, switch off, $+0.0719$, $+0.0656$, $+0.0640$ (1 e-fold) and
 $+0.6197$, $+0.5344$, $+0.5060$ (3 e-folds); on, $+0.0025$, $+0.0006$, $+0.0001$ and $+0.0406$, $+0.0110$, $+0.0029$
-(@fig-ch05-wbref4-order). The seam tests print relative gaps of $9.9\times10^{-20}$ and $6.5\times10^{-16}$
-($\alpha_{\mathrm{nh}}$ = 1, 0) for the split and 0 for two ranks against two blocks, and every ctest entry of the table
-passes.[^ch05-wb4-run68]
-**Coverage.** CPU; the CUDA twin `test_wb_ref4_order_cuda` and the `_cuda` seam arms were not run (**pending: a CUDA
-run at the pin**); 2 ranks through the `_mp` arm.
+(@fig-ch05-wbref4-order). The seam tests of that run printed relative gaps of $9.9\times10^{-20}$ and $6.5\times10^{-16}$
+($\alpha_{\mathrm{nh}}$ = 1, 0) for the split and 0 for two ranks against two blocks.[^ch05-wb4-run68] The ctest
+entries of the table above are not run at the pin in this record.
+**Coverage.** CPU in the recorded run; the CUDA twin `test_wb_ref4_order_cuda` and the `_cuda` seam arm were not run
+(**pending: a CUDA run at the pin**); 2 ranks through the `_mp` arm.
 :::
 
 [^ch05-wb4-chk]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5, the formulas the check ports, as its header
@@ -292,9 +301,9 @@ run at the pin**); 2 ranks through the `_mp` arm.
     2.4.6, sympy 1.14.0]. Output `src/snapy_report/ch05/checks/wbref_check.out`.
 
 [^ch05-wb4-run68]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the tests' own columns; run:
-    `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 PYTHONPATH="$SITE" ctest -V -R 'test_wb_ref4_order|test_x1_seam_split|test_balance_column_wb_ref4|test_face_floor_wb_ref4|test_stretched_x1_ref_wb_ref4'`
-    in a CPU Release source build at the pin, with `$SITE` the snapy Python package built from the same checkout
-    against that build (`pip install --no-deps --no-build-isolation --target $SITE .`), CPU, double; 1 process, the
+    `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 PYTHONPATH=<site> ctest -V -R 'test_wb_ref4_order|test_x1_seam_split|test_balance_column_wb_ref4|test_face_floor_wb_ref4|test_stretched_x1_ref_wb_ref4'`
+    in a CPU Release source build at the pin, with `<site>` the snapy Python package built from the same checkout
+    against that build (`pip install --no-deps --no-build-isolation --target <site> .`), CPU, double; 1 process, the
     `_mp` entries 2 ranks (run with `-j1`); Python 3.11.13, torch 2.10.0, kintera 2.6.6, GCC 11.5.0]. Output lines
     `SNAP_WB_REF4 unset, 3 e-folds: N2_eff nz^2 +0.6197 / +0.5344 / +0.5060`, `SNAP_WB_REF4 1, 3 e-folds: N2_eff nz^2
     +0.0406 / +0.0110 / +0.0029`, `2 blocks vs 1, max rel gap 9.935e-20` and `6.506e-16`.
@@ -302,17 +311,18 @@ run at the pin**); 2 ranks through the `_mp` arm.
 ### Limits
 
 ::: {.callout-warning title="Limits"}
-`SNAP_WB_REF4` needs `nghost` $\ge3$. It is read once per process, so every block of a run makes the same choice.
+Conversion order 4 needs `nghost` of at least 3 with gravity. It is a deck key, so the blocks of a run built from one deck make the same choice.
 :::
 
 1. **Thresholds not derived.** The $0.5$ resolution threshold, the two-cell dilation and the $10^{-10}$ margin are
    design choices.[^ch05-wb4-thr]
 2. **Untested.** The order of the density reference on a stretched $x_1$ (the stretched test only builds and steps
    a deck with the switch), multi-species columns, and seams across more than two ranks.
-3. **Resolution of the order test.** The test grid is $n_1$ = 32/64/128 against 64/128/256 in the note's table, and the
-   threshold `ORDER_ON` 2.75 does not distinguish the fourth order measured at the pin from the third order of the
-   note; the test still separates on from off.
-4. **Names.** The specification calls the switch `SNAPY_WB_REF_EXACT`; the code reads `SNAP_WB_REF4`.
+3. **No order test of these rows at the pin.** `test_wb_ref4_order` runs at conversion order 2 and measures the cp5 face
+   density; the fourth order of these rows rests on `[C8]`, `[C14]` and the recorded run, and the seam and rest tests
+   above check that they are applied, not their order.
+4. **Names.** The specification calls the switch `SNAPY_WB_REF_EXACT`; the code's key is `dynamics/conversion-order: 4`,
+   which also changes the conversion of @sec-ch04-conv4, so these rows cannot be turned on alone.
 5. **Untested combinations.** See the switch coverage matrix, @sec-ch12-matrix.
 
 [^ch05-wb4-thr]: `docs/derivations/wb-ref4.md@919936da07d80a310b98ab11da184972a3203274` §7.
@@ -325,4 +335,6 @@ run at the pin**); 2 ranks through the `_mp` arm.
 [^rg-36523dc32e4e]: PE — potential energy
 
 [^rg-5ce8343548de]: RK3 — third-order Runge–Kutta
+
+[^rg-62a5add73069]: conversion-order — order of the $x_1$ cell-average to point conversion of the primitives: 2 (default) or 4
 <!-- end reader glossary notes -->

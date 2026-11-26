@@ -26,7 +26,7 @@ leaves the face density reference first order at the three faces next to each wa
 
 **Placement.** Inside the reference kernel, at the first and last cells of a column with a physical $x_1$ face.
 
-**Activation.** `dynamics/wb-wall-clamp`, default `true`; with `SNAP_WB_REF4` its cubic wall values take over.
+**Activation.** `dynamics/wb-wall-clamp`, default `true`; with `dynamics/conversion-order: 4` the face density of @sec-ch05-wbref4 takes over where it passes its guards.
 
 **Guarantee / limits.** $\rho_{\mathrm{sf}}$ second order at faces 0-2 on a uniform grid; on a keyed stretched $x_1$ the step count is a physical distance (@eq-ch05-wallclamp-steps); its order is not measured.
 
@@ -40,8 +40,8 @@ $\chi$ across one cell; $d_\chi=(\chi_1-\chi_0)/\chi_0$ its relative size; $\var
 
 The continuation changes only $\rho_{\mathrm{sf}}$ at faces 0-2 and $\rho_{\mathrm{ref}}$ at cells 0-1 next to each
 clamped wall (and their ghost rows); $p_{\mathrm{sf}}$, $p_{\mathrm{ref}}$ and the rest balance are untouched. It
-applies with `SNAP_WB_REF4` off; with it on, @sec-ch05-wbref4 replaces the density reference with its own cubic wall
-values. `balance_column` refuses to run with the clamp off.
+applies at conversion order 2; at conversion order 4, @sec-ch05-wbref4 replaces the face density reference with its
+own wall values where they pass its guards. `balance_column` refuses to run with the clamp off.
 
 *Aliases.* "wb-wall-clamp", "the wall closure", "linear/ln closure".[^ch05-wall-src]
 
@@ -151,8 +151,8 @@ the repeated wall cell (order 1.03) and second order with @eq-ch05-wallclamp-con
 The two branches are shown in @fig-ch05-wallclamp-continuation. The clamp applies on a side when the option is on and that
 side is a physical boundary; the continuation additionally needs the wall side to own at least two cells, so that
 only owned cells are read. The one-sided rows need the block to fit them (at least five interior cells, or a seam at
-the other end), else the face mean is kept. The rule runs inside the kernel, in every call, on the CPU, CUDA and MPS
-paths alike.
+the other end), else the face mean is kept. The rule runs inside the kernel, in every call; the CPU and CUDA paths share it, and MPS runs the CPU loop
+`hydro_ref_x1_cpu` on the host ({{< code src/hydro/hydro_dispatch.cpp hydro_ref_x1_cpu >}}).
 
 ```{python}
 #| label: fig-ch05-wallclamp-continuation
@@ -221,14 +221,14 @@ two cells (`ext_lo`, `ext_hi`), and repeats the wall cell otherwise.
 | what | code link | symbol | switch |
 |--------|----------|----------|------|
 | the YAML key | {{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}} | `wb_wall_clamp` | `dynamics/wb-wall-clamp` |
-| its default | {{< code src/hydro/hydro.hpp HydroOptionsImpl::wb_wall_clamp >}} | `wb_wall_clamp` | default `true` |
+| its default (the options schema) | {{< code src/options/hydro.yaml >}} | `wb_wall_clamp` | default `true` |
 | @eq-ch05-wallclamp-cont | {{< code src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_wall_rop >}} | `hydro_ref_x1_wall_rop` | |
 | continuation inside the binomial | {{< code src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_rop_smooth >}} | `ext_lo` | |
 | @eq-ch05-wallclamp-steps | {{< code src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_wall_steps >}} | `hydro_ref_x1_wall_steps` | `geometry/x1f`, `geometry/cells/x1rat` |
 | clamp gates of the rows | {{< code src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_cell_impl >}} | `clamp_in` | clamp on, physical side |
 | one-sided rows | {{< code src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_cell_impl >}} | `w6e` | |
 | ratio range and continuation flags | {{< code src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_cell_impl >}} | `ext_hi` | two owned cells |
-| MPS tensor path | {{< code src/hydro/hydro_dispatch.cpp hydro_ref_x1_mps >}} | `wall_rop` | |
+| MPS: the CPU loop on the host | {{< code src/hydro/hydro_dispatch.cpp hydro_ref_x1_cpu >}} | `hydro_ref_x1_cpu` | |
 
 : Code map of the wall clamp and continuation. {#tbl-ch05-wallclamp-code}
 
@@ -242,8 +242,8 @@ two cells (`ext_lo`, `ext_hi`), and repeats the wall cell otherwise.
    and the binomial replaces each index past the wall by `hydro_ref_x1_wall_rop`, with the step of
    @eq-ch05-wallclamp-steps on a keyed stretched $x_1$ and the ghost index otherwise
    ({{< code src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_rop_smooth >}}).
-4. The MPS path applies the same rule to its padded ratio with `wall_rop`
-   ({{< code src/hydro/hydro_dispatch.cpp hydro_ref_x1_mps >}}).
+4. On MPS the same CPU loop runs on the host, so there is no second implementation of the rule
+   ({{< code src/hydro/hydro_dispatch.cpp hydro_ref_x1_cpu >}}).
 
 An unknown key in `dynamics` is refused by the key check of the options parser; the clamp itself issues no warning.
 `balance_column` raises if called with the clamp off (@sec-ch05-balcol).
@@ -281,8 +281,8 @@ $\beta=0.5$; with one consistent width the faces next to the bottom wall move by
 relative error, far below the test's tolerances. The repeated-wall-cell numbers are the check's, not a snapy run:
 face-1 error $2.880\times10^{-3}$, $1.392\times10^{-3}$, $6.840\times10^{-4}$, $3.391\times10^{-4}$ at $n_1$ = 32 to
 256 (`[C12]`).
-**Coverage.** CPU; the CUDA cases exist and were not run (**pending: a CUDA run at the pin**); the MPS path was not
-run (no MPS device; the derivation note says the same); multi-rank only through @sec-ch05-seam.
+**Coverage.** CPU; the CUDA cases exist and were not run (**pending: a CUDA run at the pin**); the MPS dispatch (the CPU loop on the host) was not
+run (no MPS device); multi-rank only through @sec-ch05-seam.
 :::
 
 [^ch05-wall-chk]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5, the formulas the check ports, as its header
@@ -308,7 +308,7 @@ cells by index, so the second-order argument for faces 0-2 is not carried over; 
 1. **Stretched grids.** The step of @eq-ch05-wallclamp-steps is tested for its values
    (`test_hydro_ref_x1_rf_wall.release`, 4 passed at the pin[^ch05-wall-run68]); the order of the face density
    reference at a stretched wall is not measured. A non-uniform grid without the keys continues by index.
-2. **MPS.** The tensor path implements the same rule and is compared with the CPU path only when run on CPU.
+2. **MPS.** MPS runs the CPU loop on the host, so it shares the rule; no MPS run was made (no MPS device).
 3. **Straka at CFL 1.6.** `test_straka_redo` is a robustness test past the stability limit. The derivation note's
    ensembles are not measured at the pin, and its ensemble of perturbation amplitude $10^{-4}$ does not separate the
    references;[^ch05-wall-straka] the near-zero linear continuation as the cause of the linear form's failure there is
