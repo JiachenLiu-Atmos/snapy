@@ -152,7 +152,7 @@
 
 **calling snapy from Python**: Expose the C++ API to Python, @sec-ch01-python.
 
-**Cartesian grid**: Cartesian metric, @sec-ch03-cartesian.
+**Cartesian grid**: Cartesian and stretched $x_1$ grids, @sec-ch03-cartesian.
 
 **case**: Initialize primitives, ghosts and conserved states, @sec-ch01-initialization.
 
@@ -278,7 +278,7 @@
 
 **Coriolis force**: Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch07-coriolis; The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
-**corner ghost cells, walls**: $x_1$-wall corner refresh inside tangential ghost slabs, @sec-ch03-cornerrefresh.
+**corner ghost cells, walls**: Wall corner refresh inside tangential ghost slabs, @sec-ch03-cornerrefresh.
 
 **cost, by grid type**: Choosing a grid: Cartesian, spherical-polar or cubed sphere, @sec-ch03-choosing.
 
@@ -303,6 +303,10 @@
 **cubed sphere**: Gnomonic equiangular cubed sphere, @sec-ch03-gnomonic.
 
 **cubed sphere, ghost interpolation across panels**: Cross-panel ghost interpolation, @sec-ch03-csinterp.
+
+**cubed sphere, seam fluxes single-valued**: Panel rotation and the seam register, @sec-ch03-seamreg.
+
+**cubed sphere, seam rotation cache**: The seam rotation cache, @sec-ch03-seamcache.
 
 **cubed sphere, seams between panels**: Cubed-sphere face-state seam sync, @sec-ch03-cslrsync.
 
@@ -614,6 +618,8 @@
 
 **fluxes across panel seams**: Cubed-sphere face-state seam sync, @sec-ch03-cslrsync.
 
+**fluxes across panel seams, owner copy**: Panel rotation and the seam register, @sec-ch03-seamreg.
+
 **`forcing`**: Well-balanced $x_1$ reconstruction: perturbations about a hydrostatic reference (gravity on), @sec-ch05-wbx1.
 
 **forcing, adding a new one**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
@@ -660,7 +666,7 @@
 
 *getting started*, see **first run on a laptop**.
 
-**ghost cells, corners**: $x_1$-wall corner refresh inside tangential ghost slabs, @sec-ch03-cornerrefresh.
+**ghost cells, corners**: Wall corner refresh inside tangential ghost slabs, @sec-ch03-cornerrefresh.
 
 **ghost cells, initial fill**: Initialize primitives, ghosts and conserved states, @sec-ch01-initialization.
 
@@ -724,7 +730,7 @@
 
 *gravity-work-fixer*, see **energy fixer, gravity**.
 
-**grid, Cartesian**: Cartesian metric, @sec-ch03-cartesian.
+**grid, Cartesian**: Cartesian and stretched $x_1$ grids, @sec-ch03-cartesian.
 
 **grid, choosing**: Choosing a grid: Cartesian, spherical-polar or cubed sphere, @sec-ch03-choosing.
 
@@ -1288,6 +1294,10 @@
 
 *panel seam*, see **cubed sphere, seams between panels**.
 
+**panel seams, momentum rotation**: Panel rotation and the seam register, @sec-ch03-seamreg.
+
+**panel seams, rotation operands**: The seam rotation cache, @sec-ch03-seamcache.
+
 **$\partial_1 q$, $\partial_1^2 q$, $\partial_1^3 q$**: [4. Operators and averages](#sec-appa-4).
 
 **$\partial\mathbf F/\partial\mathbf U$**: [7. Time integration and the implicit solver](#sec-appa-7).
@@ -1466,6 +1476,8 @@
 
 **`reactions`**: Fixed-volume fixed-energy phase equilibrium, @sec-ch02-saturation.
 
+*reconcile_panel_seams*, see **cubed sphere, seam fluxes single-valued**.
+
 **`reconstruct`**: Follow the hydro increment through seven sections, @sec-ch01-hydro.
 
 *reconstruct block*, see **reconstruction**.
@@ -1639,6 +1651,10 @@
 *scheme selection*, see **reconstruction, choosing**.
 
 *SDIRK*, see **implicit radial conduction**.
+
+*seam register*, see **cubed sphere, seam fluxes single-valued**.
+
+*SeamRotationCache*, see **cubed sphere, seam rotation cache**.
 
 **seams, vertical**: $x_1$ seams between blocks, @sec-ch03-x1seams.
 

@@ -1,4 +1,4 @@
-"""Status of the coordinate types at snapy@6fbb39750f62b83df096058a4746e77d0a634bc5 (src/coord/coordinate.cpp:593-610). A cartoon; it reads no data."""
+"""Status of the coordinate types at snapy@73c45a7c8c991209924e1137992352c335575062 (src/coord/coordinate.cpp:702-719, CoordinateImpl::create). A cartoon; it reads no data."""
 
 from snapy_report import figstyle as fs
 

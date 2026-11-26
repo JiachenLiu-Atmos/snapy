@@ -1,9 +1,13 @@
 ## Physical and internal faces (`external`) {#sec-ch03-physfaces}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: src/mesh/meshblock.cpp, src/mesh/meshblock_options.cpp, src/bc/bc_func.cpp, src/hydro/hydro.cpp, src/layout/layout.cpp, tests/test_forcing_cubed_sphere.yaml
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/mesh/meshblock.cpp, src/mesh/meshblock_options.cpp, src/mesh/meshblock_exchange.cpp, src/layout/exchange.hpp,
+         src/layout/exchange.cpp, src/bc/bc_func.cpp, src/hydro/hydro.cpp, src/layout/layout.cpp,
+         tests/test_forcing_cubed_sphere.yaml at the pin
 status: draft
+author: chengcli
+reviewer: jihenghu
 -->
 
 ### Summary
@@ -31,7 +35,7 @@ the block's `bfuncs` per face and `is_x1_wall`.
 
 **Guarantee / limits.** Exactly one owner per face; an unknown name stops setup.
 
-**Evidence.** `test_exchange_decomp`, `test_wb_wall_corner`; check `[C18]`; the ctest entries were not run for this chapter at the pin (missing evidence).
+**Evidence.** `test_exchange_decomp`, `test_wb_wall_corner` (pass at the pin); check `[C18]`.
 :::
 
 Local symbols: none; the section is a rule about names and functions.
@@ -58,10 +62,19 @@ axis's own face; of the four $(\text{neighbour}, \text{periodic})$ combinations 
 ### Numerical method
 
 The rule runs once, when the block is built. The generic exchange skips every physical face when it packs and unpacks
-(@sec-ch03-exchange), so a physical face's ghosts are only ever written by its bfunc. A wall is a narrower notion:
-`is_wall_boundary` is true only for the whitelisted names `reflecting` and `fixed_temperature`, which diffusion uses,
-and `is_x1_wall` is a physical $x_1$ face that is not periodic, which the gravity work and the wall reconstructions
-use. On an axis with one cell no bfunc is installed, so its faces are never physical. @fig-ch03-physfaces-slab shows
+(@sec-ch03-exchange), so a physical face's ghosts are only ever written by its bfunc. The skip is the layout's
+`_skips_direction` ({{< code src/layout/layout.cpp LayoutImpl::_skips_direction >}}).
+
+Consumers that need more than "physical or not" ask `Exchange::kind` ({{< code src/layout/exchange.cpp Exchange::kind >}}),
+which gives each of the six faces one of seven kinds (`FaceKind`, {{< code src/layout/exchange.hpp FaceKind >}}). An
+installed bfunc answers first, through `face_kind` ({{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::face_kind >}}),
+by its recorded name: `periodic` for a periodic copy, `wall` for the whitelisted `reflecting` and `fixed_temperature`,
+`outflow` for the radiating function, and `custom` for any other or for one installed with no name. A face with no
+bfunc asks the layout: no neighbour is `interior`, the block itself is `periodic`, a block of another panel is
+`panel`, an $x_1$ neighbour is `seam_x1`, and an $x_2$ or $x_3$ neighbour past the domain edge is `periodic`, otherwise
+`interior`. `is_wall_boundary`, which diffusion uses, is the `wall` kind; `is_x1_wall`
+({{< code src/hydro/hydro.cpp HydroImpl::is_x1_wall >}}), which the gravity work and the wall reconstructions use, is
+an $x_1$ face of kind `wall`, `outflow` or `custom`, that is, a physical $x_1$ face that is not a periodic copy. On an axis with one cell no bfunc is installed, so its faces are never physical. @fig-ch03-physfaces-slab shows
 a $2\times2$ slab decomposition.
 
 ```{python}
@@ -80,11 +93,12 @@ make_fig()
 | names to bfuncs, default `reflecting` | {{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}} | `bfuncs` | `boundary-condition` |
 | internal faces lose their bfunc | {{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}} | `bfuncs` | `distribute` |
 | face of an offset; physical predicate | {{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::is_physical_boundary >}} | `is_physical_boundary` | none |
-| wall whitelist | {{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::is_wall_boundary >}} | `is_wall_boundary` | none |
+| wall whitelist | {{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::face_kind >}} | `face_kind` | none |
+| the seven face kinds | {{< code src/layout/exchange.cpp Exchange::kind >}} | `FaceKind` | none |
 | the no-op panel-edge bfuncs, defined by the `BC_FUNCTION` macro | {{< code src/bc/bc_func.cpp >}} | `custom_inner`, `custom_outer` | `custom` |
 | the no-op recognised by identity (corner refresh only) | {{< code src/bc/bc_func.cpp is_custom_noop >}} | `is_custom_noop` | `custom` |
 | $x_1$ wall | {{< code src/hydro/hydro.cpp HydroImpl::is_x1_wall >}} | `is_x1_wall` | none |
-| exchange skips physical faces | {{< code src/layout/layout.cpp LayoutImpl::serialize >}} | `is_physical_boundary` | none |
+| exchange skips physical faces | {{< code src/layout/layout.cpp LayoutImpl::_skips_direction >}} | `is_physical_boundary` | none |
 
 : Code map of physical and internal faces. {#tbl-ch03-physfaces-code}
 
@@ -95,7 +109,7 @@ In step order (@tbl-ch03-physfaces-code):
    ({{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}}).
 2. On `slab` and `cubed`, the constructor removes the `bfuncs` of internal and periodic faces
    ({{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}}); on `cubed-sphere` it removes none.
-3. Every consumer then asks `is_physical_boundary`, `is_wall_boundary` or `is_x1_wall`.
+3. Every consumer then asks `is_physical_boundary`, `is_wall_boundary`, `is_x1_wall` or `Exchange::kind`.
 
 **How to use it.** Name each face; an unnamed face of a live axis gets `reflecting`, and `periodic` on both faces of
 $x_2$ or $x_3$ (or of $x_1$ on `cubed`) makes the axis internal:
@@ -110,18 +124,27 @@ boundary-condition:
 ```
 
 Refused: an unknown name stops setup with "Boundary function 'reflectng_inner' is not defined.". The default, the
-periodic flag and the lookup are ({{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}}):
+periodic flag and the lookup are one loop over the axes and sides
+({{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}}):
 
 ```cpp
-    auto ix2 = external_bc["x2-inner"].as<std::string>("reflecting");
-    if (ix2 == "periodic") op->layout()->periodic_x(true);
-
-    ix2 += "_inner";
-    TORCH_CHECK(get_bc_func().find(ix2) != get_bc_func().end(),
-                "Boundary function '", ix2, "' is not defined.");
-
-    op->bfuncs().push_back(get_bc_func()[ix2]);
+    for (std::string side : {"inner", "outer"}) {
+      auto key = "x" + std::to_string(d + 1) + "-" + side;
+      auto name = external_bc[key].as<std::string>("reflecting");
+      if (name == "periodic") {
+        if (d == 0 && op->layout()->type() == "cubed")
+          op->layout()->periodic_z(true);
+        if (d == 1) op->layout()->periodic_x(true);
+        if (d == 2) op->layout()->periodic_y(true);
+      }
+      name += "_" + side;
+      TORCH_CHECK(get_bc_func().find(name) != get_bc_func().end(),
+                  "Boundary function '", name, "' is not defined.");
+      op->bfuncs().push_back(get_bc_func()[name]);
+      op->bcnames().push_back(name);
 ```
+
+The name is recorded beside the function (`bcnames`); `face_kind` classifies by it.
 
 ### Tests
 
@@ -135,8 +158,13 @@ periodic flag and the lookup are ({{< code src/mesh/meshblock_options.cpp MeshBl
 No test targets the classification alone. The forcing deck records why it must have more than one $x_1$ cell: with
 `nx1: 1` no $x_1$ bfunc is installed, `is_physical_boundary` is false at the top and bottom, and every top or bottom
 forcing returns early, so a test of them passes on zeros (the header comment of the deck,
-{{< code tests/test_forcing_cubed_sphere.yaml >}}). The cases above run on CPU; they were not run for this chapter
-at the pin (missing evidence).
+{{< code tests/test_forcing_cubed_sphere.yaml >}}). The cases above run on CPU; at the pin both pass.[^pf-run]
+
+[^pf-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 49 ctests the sections of this chapter cite,
+    in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro RTX 4000) for the
+    CUDA cases, no gtest case skipped; one process, two for the `_mp` entries, up to six for `test_exchange_decomp`;
+    Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 49 of 49 ctests passed.
 
 ### Limits
 
@@ -149,11 +177,15 @@ at the pin (missing evidence).
 :::
 
 Code that loops over every installed bfunc applies the panel-edge function: harmless for `custom`, but with the
-default `reflecting` a six-panel run with tangential flow differs from the `custom` run by about $10^{-3}$ relative
-in momentum after 5 cycles (measured on a source build of the pin; at rest the two agree); code that
+default `reflecting` a six-panel run with tangential flow is expected to differ from the `custom` run in momentum
+(a hypothesis from the code; how much is not measured at this pin); code that
 asks `is_physical_boundary` on $x_2$ or $x_3$ of a cubed sphere would classify a panel edge as physical (inferred from
 the code; at the pin the only tangential callers are in the generic layout, which the cubed sphere does not use for
 its own exchange; not measured). The corner refresh does not ask `is_physical_boundary`: it reads the installed
-functions through its own `physical` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}}), so on
-a cubed-sphere panel edge holding the built-in no-op the two answers differ. The switch combinations that are tested are listed in
+functions through its own `physical` ({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_ghost_zones >}}), so on
+a cubed-sphere panel edge holding the built-in no-op the two answers differ. A hypothesis from reading the code at this pin, not measured: the
+prescribed-face pass of the flux register, `supply_prescribed`
+({{< code src/layout/seam_register.cpp supply_prescribed >}}), books every face whose `face_kind` is `wall` as a wall
+plane, so a cubed-sphere card that leaves its panel edges at the default `reflecting` would also have those seam
+faces prescribed there; a run that compares it with the `custom` card would show it. The switch combinations that are tested are listed in
 the switch coverage matrix, @sec-ch12-matrix.

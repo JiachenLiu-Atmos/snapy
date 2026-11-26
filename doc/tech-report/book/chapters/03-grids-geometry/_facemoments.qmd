@@ -1,12 +1,14 @@
 ## Radial face moments and the face-centroid shift {#sec-ch03-facemoments}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: src/coord/coordinate.cpp, src/coord/coordinate.hpp, src/coord/spherical_polar.cpp, src/coord/spherical_polar.hpp,
-         src/coord/gnomonic_equiangle.cpp, src/coord/gnomonic_equiangle.hpp, src/hydro/hydro_forward.cpp,
+         src/coord/gnomonic_equiangle.cpp, src/coord/gnomonic_equiangle.hpp, src/hydro/hydro_forward.cpp, src/options/hydro.yaml,
          docs/derivations/289-covariance-x3-curved.md, tests/test_radial_face_moments.cpp, tests/test_coordinate.cpp
          at the pin; chengcli/snapy#289 and chengcli/snapy#308 (design of the zero-shift flag and its tripwire)
 status: draft
+author: chengcli
+reviewer: jihenghu
 -->
 
 The flux through an $x_2$ or $x_3$ face is a face average, weighted by the face's own area measure. On a Cartesian
@@ -34,13 +36,12 @@ on the face's own area measure, distinct from the cell measure of $\sigma_i^2$ a
 
 **Placement.** Read by the face-flux covariance in each stage's $x_2$/$x_3$ flux; `face_moment2_x1` is evaluated once per block and kept until `x1f` is replaced or modified or the device or dtype changes.
 
-**Activation.** Read by `SNAP_FLUX_COVARIANCE` (@sec-ch12-flux-covariance), on unless set to
-`0`/`false`/`off`/`no` or empty (any case); the helpers exist on every grid.
+**Activation.** Read by the face-flux covariance, deck key `dynamics.flux-covariance` (@sec-ch12-flux-covariance),
+default `true`; the helpers exist on every grid.
 
 **Guarantee / limits.** Exact, not truncated; zero shift on Cartesian.
 
-**Evidence.** `test_radial_face_moments`, `test_coordinate`; checks `[C1]` to `[C3]` (sympy, exact); the ctest
-entries were not run for this chapter at the pin (missing evidence).
+**Evidence.** `test_radial_face_moments`, `test_coordinate` (pass at the pin); checks `[C1]` to `[C3]` (sympy, exact).
 :::
 
 On the Cartesian grid the shift is zero by construction, and a host constant of the coordinate type,
@@ -147,10 +148,13 @@ inherits it; `false` in `SphericalPolarImpl`
 override the shift; and `false` in `CylindricalImpl`
 ({{< code src/coord/coordinate.hpp CylindricalImpl::face_centroid_shift_zero >}}). Cylindrical builds no `dx1f`, so the
 base shift has nothing to take `zeros_like` of, and its faces are $r$-weighted, so its shift is not zero in general.
-The flag is read in three places: the `centroid` parts of `_flux_covariance`
-({{< code src/hydro/hydro_forward.cpp HydroImpl::_flux_covariance >}}), the same in `scalar_flux_covariance`
-({{< code src/hydro/hydro_forward.cpp HydroImpl::scalar_flux_covariance >}}), and the shifted pressure of the geometric
-source in `HydroImpl::forward` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). Because the flag comes from
+The flag is read in three places. `centroid_shift_x1` ({{< code src/hydro/hydro_forward.cpp centroid_shift_x1 >}})
+returns an undefined tensor when it is true, so the centroid parts of `_flux_covariance`
+({{< code src/hydro/hydro_forward.cpp HydroImpl::_flux_covariance >}}) and of `scalar_flux_covariance`
+({{< code src/hydro/hydro_forward.cpp HydroImpl::scalar_flux_covariance >}}) drop out. In `HydroImpl::forward`
+({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}) it selects, as `cov_rows`, adding the covariance only
+to the rows and $x_1$ interior where it is nonzero, and it selects the plain geometric source over the shifted
+pressure. Because the flag comes from
 the type, it holds no state that a re-mesh or `.to()` could leave stale. Whether skipping the centroid parts changes
 any bit of a Cartesian run is **not measured at the pin**: no committed check compares the two paths.
 
@@ -171,13 +175,14 @@ make_fig()
 | Cartesian values | {{< code src/coord/coordinate.cpp CoordinateImpl::face_centroid_shift_x1 >}} | `face_centroid_shift_x1` | none |
 | exact radial moment | {{< code src/coord/coordinate.cpp CoordinateImpl::radial_face_moment2_ >}} | `radial_face_moment2_` | none |
 | exact radial shift | {{< code src/coord/coordinate.cpp CoordinateImpl::radial_face_centroid_shift_ >}} | `radial_face_centroid_shift_` | none |
-| spherical-polar overrides | {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::face_moment2_x1 >}} | `face_moment2_x1` | `SNAP_FLUX_COVARIANCE` |
-| gnomonic overrides | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::face_centroid_shift_x1 >}} | `face_centroid_shift_x1` | `SNAP_FLUX_COVARIANCE` |
-| the zero-shift flag, base `true` | {{< code src/coord/coordinate.hpp CoordinateImpl::face_centroid_shift_zero >}} | `face_centroid_shift_zero` | `SNAP_FLUX_COVARIANCE` |
+| spherical-polar overrides | {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::face_moment2_x1 >}} | `face_moment2_x1` | `dynamics.flux-covariance` |
+| gnomonic overrides | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::face_centroid_shift_x1 >}} | `face_centroid_shift_x1` | `dynamics.flux-covariance` |
+| the zero-shift flag, base `true` | {{< code src/coord/coordinate.hpp CoordinateImpl::face_centroid_shift_zero >}} | `face_centroid_shift_zero` | `dynamics.flux-covariance` |
 | spherical-polar `false` | {{< code src/coord/spherical_polar.hpp SphericalPolarImpl::face_centroid_shift_zero >}} | `face_centroid_shift_zero` | |
 | gnomonic `false` | {{< code src/coord/gnomonic_equiangle.hpp GnomonicEquiangleImpl::face_centroid_shift_zero >}} | `face_centroid_shift_zero` | |
 | cylindrical `false` | {{< code src/coord/coordinate.hpp CylindricalImpl::face_centroid_shift_zero >}} | `face_centroid_shift_zero` | |
-| the flag's readers | {{< code src/hydro/hydro_forward.cpp HydroImpl::_flux_covariance >}} | `centroid` | `SNAP_FLUX_COVARIANCE` |
+| the flag's readers | {{< code src/hydro/hydro_forward.cpp centroid_shift_x1 >}} | `centroid_shift_x1` | `dynamics.flux-covariance` |
+| the switch | {{< code src/options/hydro.yaml >}} | `flux_covariance` | `dynamics.flux-covariance` |
 
 : Code map of the radial face moments. {#tbl-ch03-facemoments-code}
 
@@ -191,18 +196,12 @@ In step order (@tbl-ch03-facemoments-code):
    `torch::where` ({{< code src/coord/coordinate.cpp CoordinateImpl::radial_face_moment2_ >}}).
 3. `radial_face_centroid_shift_` evaluates the cancellation-free quotient and masks the same cells
    ({{< code src/coord/coordinate.cpp CoordinateImpl::radial_face_centroid_shift_ >}}).
-4. The covariance reads `face_centroid_shift_zero` and skips its `centroid` parts when it is true
-   ({{< code src/hydro/hydro_forward.cpp HydroImpl::_flux_covariance >}}).
+4. The covariance reads `face_centroid_shift_zero` through `centroid_shift_x1` and skips its centroid parts when it
+   is true ({{< code src/hydro/hydro_forward.cpp centroid_shift_x1 >}}).
 
-**How to use it.** There is no YAML key: the helpers exist on every grid and are read by the face-flux covariance,
-which is on by default and off with an environment switch read once per run. From `build/bin`, with the
-complete deck and driver built as described in the preface, run:
-
-```bash
-SNAP_FLUX_COVARIANCE=0 ./straka.release straka_single.yaml
-```
-
-`false`, `off`, `no` or the empty string (any case) also turn it off; anything else is on.
+**How to use it.** The helpers have no key of their own: they exist on every grid and are read by the face-flux
+covariance, which is a deck choice, on by default: the boolean key `flux-covariance` of the `dynamics`[^rg-e78ab69b86b0] block, which
+`false` turns off. Every block of a run makes the same choice, since blocks built from one deck read the same key.
 Nothing is refused; on Cartesian the zero-shift flag skips the centroid parts. The cancellation-free shift
 @eq-ch03-facemoments-shift and its degenerate-face mask are
 ({{< code src/coord/coordinate.cpp CoordinateImpl::radial_face_centroid_shift_ >}}):
@@ -216,16 +215,8 @@ Nothing is refused; on Cartesian the zero-shift flag skips the centroid parts. T
   return torch::where(rbar > 0.5 * h, shift, torch::zeros_like(h));
 ```
 
-and the switch is ({{< code src/hydro/hydro.cpp HydroImpl::flux_covariance >}}):
-
-```cpp
-  static const bool on = [] {
-    auto v = get_env("SNAP_FLUX_COVARIANCE", "1");
-    std::transform(v.begin(), v.end(), v.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
-    return !(v.empty() || v == "0" || v == "false" || v == "off" || v == "no");
-  }();
-```
+and the switch is the row `flux_covariance` of {{< code src/options/hydro.yaml >}}, a boolean read from that key
+with the default `true`.
 
 ### Tests
 
@@ -243,7 +234,13 @@ The cases are the three `RadialFaceMoments` tests `the_rationals_are_the_integra
 {{< code tests/test_radial_face_moments.cpp >}}; the cells $[1.5, 2.5]$, $[3, 5]$, $[1, 2]$ have shift $47/1176$, $47/588$, $13/252$ and moment $47/576$, $47/144$,
 $13/162$, as listed in `kCells` ({{< code tests/test_radial_face_moments.cpp kCells >}}). The check reproduces these
 rationals exactly (`[C2]`). The test runs on CPU, one process; the helpers are pure tensor functions with no
-device-specific path. It was not run for this chapter at the pin (missing evidence).
+device-specific path. At the pin `test_radial_face_moments.release` and `test_coordinate.release` pass.[^fm-run]
+
+[^fm-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 49 ctests the sections of this chapter cite,
+    in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro RTX 4000) for the
+    CUDA cases, no gtest case skipped; one process, two for the `_mp` entries, up to six for `test_exchange_decomp`;
+    Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 49 of 49 ctests passed.
 
 The tripwire is the `Coordinate` test `face_centroid_shift_zero_matches_the_shift` of
 {{< code tests/test_coordinate.cpp >}}, in the `test_coordinate` ctest. It builds a block of each coordinate type, cartesian, cylindrical, spherical-polar and
@@ -265,5 +262,7 @@ are tested are listed in the switch coverage matrix, @sec-ch12-matrix.
 <!-- reader glossary notes -->
 [^rg-fb5c884bea4a]: $\sigma_i^2$ — variance of $x_1$ about the centroid over cell $i$ on its own measure, $\langle (x_1-x_{1,i})^2\rangle_{V_i}$
 
-[^rg-3aec6aa6f14d]: $\delta_i$ — centroid offset $x_{1,i}-x^{\mathrm{m}}_{1,i}$ (zero on Cartesian); [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/gravity_work_radial.hpp#L95-L105)
+[^rg-3aec6aa6f14d]: $\delta_i$ — centroid offset $x_{1,i}-x^{\mathrm{m}}_{1,i}$ (zero on Cartesian); `x1_centroid_offset` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/gravity_work_radial.hpp#L95-L105)
+
+[^rg-e78ab69b86b0]: dynamics — hydrodynamic options block
 <!-- end reader glossary notes -->

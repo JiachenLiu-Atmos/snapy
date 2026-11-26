@@ -1,10 +1,12 @@
-## $x_1$-wall corner refresh inside tangential ghost slabs {#sec-ch03-cornerrefresh}
+## Wall corner refresh inside tangential ghost slabs {#sec-ch03-cornerrefresh}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: src/mesh/meshblock.cpp, src/bc/bc_func.cpp, src/bc/bc_func.hpp, src/mesh/mesh.cpp, tests/test_wb_wall_corner.cpp,
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/mesh/meshblock_exchange.cpp, src/mesh/meshblock.cpp, src/bc/bc_func.cpp, src/bc/bc_func.hpp, src/mesh/mesh.cpp, tests/test_wb_wall_corner.cpp,
          tests/test_cubed_sphere_exchange.cpp; chengcli/snapy#337 (the cubed-sphere identity rule and its four test cases)
 status: draft
+author: chengcli
+reviewer: jihenghu
 -->
 
 ### Summary
@@ -13,11 +15,14 @@ The tangential exchange fills the $x_2$ and $x_3$ ghost slabs with the neighbour
 $x_1$ ghost rows (the corners next to an $x_1$ wall) hold whatever the neighbour's wall wrote last, or stale values on
 a periodic edge. A stencil with cross-derivatives, such as viscosity next to the wall, then reads a wall corner that
 does not belong to this column. Re-applying the $x_1$ boundary function on the slabs makes those corners the wall
-ghosts of the updated slab.
+ghosts of the updated slab. At this pin the same is done for $x_2$ and $x_3$ walls: `fill_corners` would otherwise
+synthesise a wall corner at a block seam from the edge strips, where an undivided block holds the wall's own ghost,
+and the corner, with every cell whose stencil reaches it, would depend on the decomposition.
 
 ::: {.callout-note title="At a glance"}
-**Purpose.** After the tangential exchange, re-apply each $x_1$ boundary function except outflow inside the
-exchange-owned $x_2$/$x_3$ ghost slabs, so the corners next to an $x_1$ wall match the updated column (Derivation).
+**Purpose.** After the tangential exchange, re-apply each installed boundary function except outflow inside the
+exchange-owned ghost slabs of the other directions, so the corners next to a wall match the updated column
+(Derivation).
 
 **Data.** In/out: the ghost corner cells of the conserved (`hydro_u`) and scalar (`scalar_s`) arrays, in their own units.
 
@@ -27,7 +32,7 @@ exchange-owned $x_2$/$x_3$ ghost slabs, so the corners next to an $x_1$ wall mat
 
 **Guarantee / limits.** Exact, if each boundary function gives the same ghosts when called again on an $n_g$-wide slab.
 
-**Evidence.** Cartesian and cubed-sphere cases plus check `[C19]`; spherical-polar unasserted (Tests).
+**Evidence.** Cartesian and cubed-sphere cases (pass at the pin) plus check `[C19]`; spherical-polar unasserted (Tests).
 :::
 
 Local symbols: $n_{\mathrm t}$ the array length along a tangential direction, ghosts
@@ -44,14 +49,14 @@ and it reaches the panel seams when $x_2$ and $x_3$ name `custom`, as every cube
 
 [^cr-src]: [source: `chengcli/snapy#337`, "Fix radial wall refresh at cubed-sphere panel seams": the identity rule
     `is_custom_noop` and its four `test_cubed_sphere_exchange` cases. The cards: `grep -l "layout: cubed-sphere"` over
-    `examples/` and `tests/` at the pin finds 16 files, and each names `custom` on all four tangential faces.]
+    `examples/` and `tests/` at the pin finds 18 files, and each names `custom` on all four tangential faces.]
 
 ### Derivation
 
-There is nothing to derive; it is a consistency rule. For each installed $x_1$ bfunc that is not outflow, and each
-tangential direction with more than one cell, the bfunc is called on the first and last $n_{\mathrm{slab}}$ cells of
-that direction, with $n_{\mathrm t}$ and $n_{\mathrm{slab}}$ as above (`int g = ng < n / 2 ? ng : n / 2` in
-{{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}}), unless that tangential face is physical in
+There is nothing to derive; it is a consistency rule. For each installed bfunc that is not outflow, on an $x_1$ face
+or on an $x_2$ or $x_3$ face that is itself physical, and each other direction with more than one cell, the bfunc is
+called on the first and last $n_{\mathrm{slab}}$ cells of that direction, with $n_{\mathrm t}$ and $n_{\mathrm{slab}}$ as above (`int g = ng < n / 2 ? ng : n / 2` in
+{{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_ghost_zones >}}), unless that tangential face is physical in
 the sense defined below, in which case its own bfunc already wrote the corner. A `reflecting` $x_1$ wall on a block
 none of whose tangential faces is physical is instead called once over the whole array: it mirrors each $x_1$ row
 from that row's own interior, so the one call writes the same corner values as the slab calls and rewrites the other
@@ -62,11 +67,11 @@ and it needs primitives.
 
 **The predicate `physical`.** The faces are numbered $0, \dots, 5$ in the order $x_1$ inner, $x_1$ outer, $x_2$
 inner, $x_2$ outer, $x_3$ inner, $x_3$ outer, so a face number of 2 or more is an $x_2$ or $x_3$ face. The refresh's
-local `physical(face)` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}}) answers in this
+local `physical(face)` ({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_ghost_zones >}}) answers in this
 order:
 
 1. false if no function is installed on the face;
-2. false if the layout type is `cubed-sphere`, the face number is 2 or more, and the installed function is the
+2. false if the layout is a cubed sphere, the face number is 2 or more, and the installed function is the
    built-in `custom_inner` or `custom_outer` (`is_custom_noop`, {{< code src/bc/bc_func.cpp is_custom_noop >}});
 3. false if the face's boundary name starts with `periodic`;
 4. true otherwise.
@@ -75,15 +80,15 @@ Step 2 tests the function itself, not its name. `is_custom_noop` asks the stored
 function pointer and compares that pointer with `custom_inner` and `custom_outer`, whose bodies are empty
 (`custom_inner`, {{< code src/bc/bc_func.cpp BC_FUNCTION overload=1 >}}). An empty function, a registered function
 such as `reflecting_inner`, and any callable a caller installs in the block's function table all fail that
-comparison, even when the face's boundary name is still `custom`. Step 2 reads the layout's type string, not the
-coordinate, so it never applies on `slab` or `cubed`.
+comparison, even when the face's boundary name is still `custom`. Step 2 reads the layout, not the coordinate, so it never
+applies on `slab` or `cubed`.
 
 **What `physical` resolves to on each layout**, because the rule reads the installed functions and the layouts do
 not install the same ones. On `slab` and `cubed`, construction removes the $x_2$ and $x_3$ function of a face that
 has a neighbouring block or whose axis is periodic ({{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}}), so
 `physical` is false exactly on the tangential faces the exchange owns and the slabs there are refreshed; this is
 the Cartesian and the spherical-polar case. On the cubed sphere that removal does not run at all (the whole step
-is guarded by `type() != "cubed-sphere"`), so every face keeps the function the card named. A card that names
+is guarded by `!is_cubed_sphere()`), so every face keeps the function the card named. A card that names
 `custom` on $x_2$ and $x_3$ installs the built-in no-ops there, step 2 makes all four tangential faces non-physical,
 and the radial-wall corners inside every panel halo are refreshed. With a `reflecting` $x_1$ wall that is the single
 whole-array call, because no tangential face is physical; with any other $x_1$ function it is the two end slabs of
@@ -105,7 +110,7 @@ enumeration is over the value of `physical`, so it covers the cubed-sphere step 
 are physical, not what happens once that is known.
 
 [^cr-c19]: `python3 src/snapy_report/ch03/checks/geometry_check.py`, output `src/snapy_report/ch03/checks/geometry_check.out`,
-    line `[C19]`; a Python enumeration of the slab rule of the corner refresh in `src/mesh/meshblock.cpp` at the pin,
+    line `[C19]`; a Python enumeration of the slab rule of the corner refresh (at 73c45a7c in `src/mesh/meshblock_exchange.cpp`),
     CPU, double; Python 3.11.13, numpy 2.4.6, sympy 1.14.0.
 
 ### Numerical method
@@ -133,8 +138,8 @@ make_fig()
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| refresh after the exchange | {{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}} | `refresh` | none |
-| which tangential faces own their corner | {{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}} | `physical` | none |
+| refresh after the exchange | {{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_ghost_zones >}} | `refresh` | none |
+| which tangential faces own their corner | {{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_ghost_zones >}} | `physical` | none |
 | the built-in no-op, recognised by identity | {{< code src/bc/bc_func.cpp is_custom_noop >}} | `is_custom_noop` | `custom` on $x_2$/$x_3$, cubed sphere |
 | the no-op functions themselves | {{< code src/bc/bc_func.cpp BC_FUNCTION overload=1 >}} | `custom_inner`, `custom_outer` | `custom` |
 | contract of a boundary function | {{< code src/bc/bc_func.hpp BC_FUNCTION >}} | `BC_FUNCTION` | none |
@@ -145,20 +150,21 @@ In step order (@tbl-ch03-cornerrefresh-code):
 
 1. `physical` is false for a face with no function, for an $x_2$ or $x_3$ face of a `cubed-sphere` block whose
    function `is_custom_noop` accepts, and for a name starting with `periodic`; it is true otherwise
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}}).
+   ({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_ghost_zones >}}).
 2. `is_custom_noop` returns true only when the stored function's target is the pointer `custom_inner` or
    `custom_outer` ({{< code src/bc/bc_func.cpp is_custom_noop >}}).
-3. `refresh` loops over the two $x_1$ faces, skips a missing or `is_outflow` function and an $x_1$ axis of one cell,
+3. `refresh` loops over the six faces, skips a missing or `is_outflow` function, an $x_2$ or $x_3$ face that is not
+   `physical` (the exchange owns it) and an axis of one cell,
    and calls the function on each tangential slab whose face is not `physical`, or, for a `reflecting` wall when no
-   tangential face is `physical` (`all_owned`), once on the whole array ({{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}}).
-4. It runs for `hydro_u` and `scalar_s` with their types ({{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}} for `refresh`).
+   tangential face is `physical` (`all_owned`), once on the whole array ({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_ghost_zones >}}).
+4. It runs for `hydro_u` and `scalar_s` with their types ({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_ghost_zones >}} for `refresh`).
 
-**How to use it.** No key: the refresh runs in every per-stage block sync for each installed $x_1$ function except
+**How to use it.** No key: the refresh runs in every per-stage block sync for each installed wall function except
 `outflow`. A user boundary function must honour the `BC_FUNCTION` contract (same ghosts on any slab size). On the
 cubed sphere, name `custom` on $x_2$ and $x_3$ to leave the panel edges, and their radial-wall corners, to the
 exchange and the refresh. A function you install yourself on a tangential face of a cubed-sphere block keeps that face
 physical whatever its name, so it must write the corner itself. The predicate is
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}}):
+({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_ghost_zones >}}):
 
 ```cpp
     auto physical = [&](int face) {
@@ -167,7 +173,7 @@ physical whatever its name, so it must write the corner itself. The predicate is
       // Cubed-sphere horizontal custom callbacks are built-in no-ops:
       // exchange owns these faces and their radial wall intersections.
       // Check callback identity, not its name, to retain genuine custom BCs.
-      if (options->layout()->type() == "cubed-sphere" && face >= 2 &&
+      if (options->layout()->is_cubed_sphere() && face >= 2 &&
           is_custom_noop(fns[face]))
         return false;
       return !(static_cast<size_t>(face) < names.size() &&
@@ -187,7 +193,7 @@ bool is_custom_noop(bcfunc_t const& func) {
 ```
 
 The slab rule, after the one-call branch of a `reflecting` wall, is
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}}):
+({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_ghost_zones >}}):
 
 ```cpp
       for (int f = 0; f < nface; ++f) {
@@ -247,8 +253,14 @@ boundary names `custom`. The slab case keeps the same cards on one `slab` block 
 `custom` faces are outer edges that construction keeps. None of the four cases has a `_cuda` twin; they run on CPU
 in one process.
 
-None of these cases was run for this chapter at the pin (missing evidence); the tolerances are the tests' own
-assertions.
+At the pin `test_wb_wall_corner.release`, with its CUDA twins on a GPU, and `test_cubed_sphere_exchange.release` pass;
+the tolerances are the tests' own assertions.[^cr-run]
+
+[^cr-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 49 ctests the sections of this chapter cite,
+    in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro RTX 4000) for the
+    CUDA cases, no gtest case skipped; one process, two for the `_mp` entries, up to six for `test_exchange_decomp`;
+    Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 49 of 49 ctests passed.
 
 **Layout coverage.** `test_wb_wall_corner` declares `layout: slab` with `type: cartesian` in every case, so it
 asserts the rule on the Cartesian layout. `test_cubed_sphere_exchange` asserts it on the cubed sphere, for the
@@ -263,7 +275,8 @@ function other than `reflecting`, so the per-slab branch is not asserted on the 
 
 ::: {.callout-warning title="Limits"}
 - `Mesh::exchange_ghost_zones` does not refresh corners; only the block's per-stage sync does.
-- Only $x_1$ walls are refreshed; $x_2$-$x_3$ corners are synthesised (@sec-ch03-exchange).
+- The refresh rewrites wall corners only; the $x_2$-$x_3$ corners away from a wall follow the layout's corner rule
+  (@sec-ch03-exchange).
 - On the cubed sphere a panel seam is refreshed only where the tangential face holds the built-in `custom` no-op. A
   face named `reflecting` (the default when the card names none) or anything else, and a caller's own function under
   any name, count as physical: their radial-wall corners are left to that function and the exchange.

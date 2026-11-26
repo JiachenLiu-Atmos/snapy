@@ -1,0 +1,117 @@
+## The seam rotation cache (`gnomonic-equiangle`) {#sec-ch03-seamcache}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md section 6, chapter 3.4; src/layout/seam_register.hpp, src/layout/seam_register.cpp,
+         src/coord/coord_rotation.cpp, tests/test_seam_rotation_cache.py at the pin
+status: draft
+author: chengcli
+reviewer: jihenghu
+-->
+
+### Summary
+
+The seam register of @sec-ch03-seamreg rotates momentum rows with the panel metric at the seam's face points:
+the tangents $X$ and $Y$, $Q$, $C$, $D$ and the face cosine. These depend only on the grid. Computing them every
+stage would launch the same trigonometric kernels again and again, so the block builds them once per seam side and
+reuses them. The cache must still notice when the grid changes, or it would rotate with a stale metric; it does
+so by stamping each operand with the grid tensors it was built from.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Build each seam side's rotation operands once per grid and reuse them every stage.
+
+**Data.** Per side: the stamps of the grid tensors it read, the side's extent, and the operands.
+
+**Placement.** Inside `reconcile_panel_seams`, every stage; a build happens only on the first use or a grid change.
+
+**Activation.** Always on with the seam register; no switch.
+
+**Guarantee / limits.** The operands are those of the current grid: any move, reallocation or in-place edit rebuilds.
+
+**Evidence.** @tbl-ch03-seamcache-tests: `test_seam_rotation_cache_python`.
+:::
+
+### Derivation
+
+There is no equation here; the section states one rule and why it is sufficient.
+
+1. *The operands are a function of the grid.* A side's operands, from `PanelRotation::face_operands`
+   ({{< code src/coord/coord_rotation.cpp PanelRotation::face_operands >}}), are the panel metric of
+   `cs_metric_at` at the face points and the face cosine. The face points are `x2f` and `x3v` on an $x_2$ side and
+   `x2v` and `x3f` on an $x_3$ side, and the cosine is `cosine_face2_kj` or `cosine_face3_kj`
+   (@eq-ch03-gnomonic-angle). Nothing else enters.
+2. *So equal inputs give equal operands.* If those three tensors hold the same values in the same layout, dtype
+   and device, the operands built from them are the same, and reusing them changes nothing.
+3. *The stamp decides "the same".* `SeamRotationCache`
+   ({{< code src/layout/seam_register.hpp SeamRotationCache >}}) stamps each of the three tensors with its storage,
+   storage offset, version counter, dtype, sizes and strides, and stamps the side with its extent (panel, cells in
+   $x_1$, cells along the edge). The side's operands are rebuilt when any stamp differs.
+4. *Why each field.* A move to another device or dtype gives new storage and a new dtype. A reallocation gives new
+   storage. An in-place edit advances the version counter. A reshaped view changes sizes, strides or offset. The
+   stamp **holds** the storage it refers to, so the address cannot be handed to another tensor while the stamp
+   lives; comparing storage identity is therefore not fooled by a new tensor that happens to reuse an old address.
+
+The device is not stored separately in the stamp: it is a property of the storage, which the stamp compares.
+
+### Numerical method
+
+`reconcile_panel_seams` ({{< code src/layout/seam_register.cpp reconcile_panel_seams >}}) keeps one cache per
+block (`seam_rotation_cache` of the block, created on first use). For a side it forms the three stamps and the
+extent, compares them with the side's stored ones, and if they differ builds the operands with `face_operands`,
+stores the new stamps and adds one to `builds`. Otherwise it returns the stored operands. The cache holds no
+state of the solution, only operands derived from the grid. @fig-ch03-seam-cache shows the check.
+
+```{python}
+#| label: fig-ch03-seam-cache
+#| fig-cap: "The seam rotation cache: the grid tensors a side reads are stamped (storage, offset, version, dtype, sizes, strides, and the side's extent); equal stamps reuse the operands, a different stamp rebuilds them and counts one build."
+#| fig-alt: "Three boxes left to right, grid tensors, stamps and operands, joined by arrows, with a note that equal stamps reuse and different ones rebuild."
+#| echo: false
+from snapy_report.ch03.figures.fig_seam_cache import make_fig
+make_fig()
+```
+
+### Code
+
+The cache has no deck key; any cubed-sphere deck uses it.
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| the cache and its stamps | {{< code src/layout/seam_register.hpp SeamRotationCache >}} | `Stamp`, `Side`, `builds` | |
+| the operands | {{< code src/coord/coord_rotation.cpp PanelRotation::face_operands >}} | `face_operands` | |
+| use and rebuild | {{< code src/layout/seam_register.cpp reconcile_panel_seams >}} | `operands` | `cubed-sphere` |
+
+: Code map of the seam rotation cache. {#tbl-ch03-seamcache-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| {{< code tests/test_seam_rotation_cache.py >}} (`test_seam_rotation_cache_python`), arm A | a steady step launches no `tan` kernel | exactly 0 kernels | `assert n == 0` |
+| same, arm B | a move from CPU to CUDA rebuilds, and the stepped Mesh equals a fresh one | rebuild: more than 0 `tan` kernels; state bitwise | `assert n > 0`, `torch.equal` |
+| same, arm C | new storage for `x2v` and `x3v` rebuilds, and the Mesh equals its twin | as arm B | `assert n > 0`, `torch.equal` |
+| same, arm D | a move to FP32 rebuilds, and the Mesh equals a fresh one | as arm B | `assert n > 0`, `torch.equal` |
+
+: Tests of the seam rotation cache. {#tbl-ch03-seamcache-tests}
+
+The test runs six panels in one process with `execution: eager`, because it counts the kernels each stage
+launches with the CUDA activity of the profiler; without a CUDA device it skips. At the pin it passes. The
+measured counts are 0 `tan` kernels in a steady step (arm A), 816 after the move to CUDA (arm B), 48 after the
+storage swap (arm C) and 816 after the move to FP32 (arm D).[^seamcache-run] In arm C on this run the caching
+allocator handed a freed address to 0 of the 12 swapped tensors, so the run did not exercise the case of
+new storage at an old address; the rebuild it shows is the plain new-storage case.
+
+[^seamcache-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs
+    (`tests/test_coordinate.yaml`, `tests/test_cubed_sphere_cell_volume.yaml` and the decks the other tests build); run:
+    `ctest -j1 -V -R <name>` for the seven ctests `test_coordinate.release`, `test_stretched_x1.release`,
+    `test_radial_face_moments.release`, `test_panel_rotation.release`, `test_cubed_sphere_seams.release`,
+    `test_cubed_sphere_cell_volume_python` and `test_seam_rotation_cache_python`, run together with one anchored `-R`
+    pattern, in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU for the CUDA
+    cases, 1 rank; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 7 of 7 ctests passed.
+
+### Limits
+
+1. **Same-address reuse not exercised here.** Arm C depends on the allocator reusing an address; in the recorded
+   run it did not (Tests layer).
+2. **CUDA only.** The test skips without a CUDA device; the cache's CPU behaviour is covered only indirectly by
+   arm B's CPU steps.
+3. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.

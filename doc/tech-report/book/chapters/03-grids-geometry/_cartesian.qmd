@@ -1,40 +1,42 @@
-## Cartesian metric (`cartesian`) {#sec-ch03-cartesian}
+## Cartesian and stretched $x_1$ grids (`cartesian`, `x1rat`, `x1f`) {#sec-ch03-cartesian}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: src/coord/cartesian.cpp, src/coord/coordinate.cpp, src/coord/coordinate.hpp
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md section 6, chapter 3.1; src/coord/coordinate.cpp, src/coord/coordinate.hpp,
+         src/options/coord.yaml, tests/test_coordinate.cpp, tests/test_stretched_x1.cpp at the pin
 status: draft
+author: chengcli
+reviewer: jihenghu
 -->
 
 ### Summary
 
-On a Cartesian grid every metric quantity is a product of cell widths, and the widths are the global $\Delta x_a$ of
-@sec-ch03-globalgrid, so a cell's metric does not depend on which block holds it. The cell centre is the midpoint of
-its faces, which is also the volume centroid, and the non-orthogonality cosine that the cubed sphere needs
-(@sec-ch03-gnomonic) is identically zero. The finite-volume operator is the plain flux divergence; there are no
-geometric source terms. The type is the default when `geometry.type` is absent.
+The Cartesian grid is a box of cells with straight faces. Its face areas and cell volumes are products of the
+cell widths, and it has no geometric source terms. The $x_1$ direction may be stretched: the faces are then a
+list given in the deck, or a geometric progression with a fixed ratio between neighbouring widths. Stretching
+lets a deck put fine cells near the surface and coarse cells aloft without changing the other two directions.
+The same $x_1$ rules apply to the gnomonic cubed sphere and to a pole-free spherical-polar grid.
 
 ::: {.callout-note title="At a glance"}
-**Purpose.** Uniform-width Cartesian metric: face areas are products of two widths, the volume the product of three,
-the centre the midpoint (@eq-ch03-cartesian-metric).
+**Purpose.** Widths, face areas and volumes of a box cell, @eq-ch03-cartesian-metric; stretched $x_1$ faces, @eq-ch03-cartesian-x1rat.
 
-**Data.** In: the block's slice of the global faces [m]. Out: widths, face areas [m$^2$], volumes [m$^3$] and
-centres [m] at cells and faces, ghosts included.
+**Data.** In: bounds [m], cell counts, optional `x1f` list or `x1rat`. Out: `x1f`, `dx1f`, `x1v`, `dx1v`, areas, volumes.
 
-**Placement.** Setup, in the coordinate's `reset`; rebuilt only when the grid is reset.
+**Placement.** Built once at setup; the areas and volume are cached and rebuilt only when the widths change.
 
-**Activation.** YAML `geometry.type: cartesian`; the default type; no couplings.
+**Activation.** `geometry/type: cartesian` (the default type); `cells/x1rat` or `x1f` stretch $x_1$. Default: uniform.
 
-**Guarantee / limits.** Exact; the face-centroid shift is identically zero.
+**Guarantee / limits.** Measures exact; neighbouring $x_1$ widths differ by at most a factor $1.5$.
 
-**Evidence.** `test_coordinate`, exact; check `[C17]`; the ctest entries were not run for this chapter at the pin (missing evidence).
+**Evidence.** @tbl-ch03-cartesian-tests: `test_coordinate.release`, `test_stretched_x1.release`.
 :::
 
-Local symbols: $A_{a,\pm}$ the areas of the two faces of cell $i$[^rg-741b89eeff43] normal to $x_a$
-[m$^2$]; $\overline q_i$ the cell average of the generic field $q$ of appendix A, notation group 3; $\overline F_{a,\pm}$ the
-face-average flux through those faces, in the units of $q$ times m s$^{-1}$.
+Local symbols: $q$ the stretch ratio `x1rat` [-]; $N_1$ the number of interior $x_1$ cells of the global grid [-];
+$x_{1,\min}, x_{1,\max}$ the $x_1$ bounds [m].
 
 ### Derivation
+
+#### Measures of a box cell
 
 For a cell $[x_{1,i-1/2}, x_{1,i+1/2}]\times[x_{2,j-1/2}, x_{2,j+1/2}]\times[x_{3,k-1/2}, x_{3,k+1/2}]$ with widths
 $\Delta x_1, \Delta x_2, \Delta x_3$ the measures are the integrals of $\mathrm{d}x_2\,\mathrm{d}x_3$,
@@ -49,48 +51,59 @@ V_i &= \Delta x_1\,\Delta x_2\,\Delta x_3.
 \end{aligned}
 $$ {#eq-ch03-cartesian-metric}
 
-The face areas of @eq-ch03-cartesian-metric are `face_area1` to `face_area3` and the volume is `cell_volume`
-({{< code src/coord/coordinate.cpp CoordinateImpl::cell_volume >}}, {{< code src/coord/coordinate.cpp CoordinateImpl::face_area1 >}}, {{< code src/coord/coordinate.cpp CoordinateImpl::face_area2 >}}, {{< code src/coord/coordinate.cpp CoordinateImpl::face_area3 >}}). The centroid of a uniform weight over an interval is its midpoint,
-$x_{1,i} = \tfrac12(x_{1,i-1/2}+x_{1,i+1/2})$, computed in `reset` for `x1v` ({{< code src/coord/cartesian.cpp CartesianImpl::reset >}}).
-Let $q$ be a conserved density (mass, momentum or energy per unit volume) and $\mathbf F$ its flux, in the units of
-$q$ times $\mathrm{m\,s^{-1}}$, with $F_a$ its component along $x_a$. Integrating the conservation law
-$\partial_t q + \nabla\cdot\mathbf F = 0$ over cell $i$ and applying the divergence theorem gives, line by line,
+@eq-ch03-cartesian-metric is computed by `CoordinateImpl::face_area1`
+({{< code src/coord/coordinate.cpp CoordinateImpl::face_area1 >}}), `face_area2`, `face_area3` and
+`CoordinateImpl::cell_volume` ({{< code src/coord/coordinate.cpp CoordinateImpl::cell_volume >}}) as outer
+products of the width vectors `dx1f`, `dx2f`, `dx3f` (`[G3]` of `v3_geometry_check.py`). The width of cell $i$[^rg-741b89eeff43]
+is `CoordinateImpl::center_width1` ({{< code src/coord/coordinate.cpp CoordinateImpl::center_width1 >}}),
+the vector `dx1f` broadcast over the block. The cell centre $x_{1,i}$[^rg-265b4f46a2ce] (`x1v`) is the midpoint of its faces, and
+`dx1v` is the distance between neighbouring centres.
+
+#### Stretched $x_1$ faces
+
+A deck stretches $x_1$ in one of two ways. With `x1f` it lists the $N_1+1$ interior faces. With `x1rat` it gives the
+ratio $q$ of neighbouring widths, and the faces are
 
 $$
-\begin{aligned}
-\int_{V_i}\partial_t q\,\mathrm{d}V + \oint_{\partial V_i}\mathbf F\cdot\mathbf n\,\mathrm{d}A &= 0, \\
-V_i\,\frac{\mathrm{d}\overline q_i}{\mathrm{d}t}
- + \sum_{a=1}^{3}\left(A_{a,+}\overline F_{a,+} - A_{a,-}\overline F_{a,-}\right) &= 0, \\
-\frac{\mathrm{d}\overline q_i}{\mathrm{d}t}
- &= -\frac{1}{V_i}\sum_{a=1}^{3}\left(A_{a,+}\overline F_{a,+} - A_{a,-}\overline F_{a,-}\right),
-\end{aligned}
+x_{1,k}=x_{1,\min}+(x_{1,\max}-x_{1,\min})\,\frac{q^{k}-1}{q^{N_1}-1},\qquad k=0,\dots,N_1 .
+$$ {#eq-ch03-cartesian-x1rat}
+
+@eq-ch03-cartesian-x1rat is built in `CoordinateOptionsImpl::from_yaml`
+({{< code src/coord/coordinate.cpp CoordinateOptionsImpl::from_yaml >}}), with $q^k-1$ written as
+`expm1(k log q)`, which keeps the small differences accurate when $q$ is close to 1. Three properties follow, and
+`[G1]` checks each: the first face is $x_{1,\min}$, the last is $x_{1,\max}$, and the ratio of neighbouring widths
+is $q$ exactly:
+
+$$
+\frac{x_{1,k+2}-x_{1,k+1}}{x_{1,k+1}-x_{1,k}}=\frac{q^{k+2}-q^{k+1}}{q^{k+1}-q^{k}}=q .
 $$
 
-with $\overline q_i$ the cell average, $A_{a,\pm}$ the areas of the two faces normal to $x_a$ from
-@eq-ch03-cartesian-metric and $\overline F_{a,\pm}$ the face-average fluxes through them. The second line holds because
-each face is flat with a constant outward normal $\pm\hat{\mathbf e}_a$. No further term appears: the basis vectors
-are constant, so a vector field's components obey the same law as a scalar's. The last line is
-`CoordinateImpl::divergence` followed by $\Delta\overline q_i = -\Delta t$ times it
-({{< code src/coord/coordinate.cpp CoordinateImpl::divergence >}}, {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). Every quantity here is exact: the check integrates the three face
-measures and $\mathrm{d}V$ over the cell in sympy and recovers $A_{i\pm1/2} = \Delta x_2\Delta x_3$,
-$A_{j\pm1/2} = \Delta x_1\Delta x_3$, $A_{k\pm1/2} = \Delta x_1\Delta x_2$ and $V_i$[^rg-10e86c4afb2b], and the uniform-weight
-centroid as the midpoint, each with zero residual (`[C17]`).[^cart-c17] The Tests layer adds the product test on
-the built grid.
+A ratio $q=1$ keeps the uniform path, so `x1rat: 1` gives the same grid as no key.
 
-[^cart-c17]: `python3 src/snapy_report/ch03/checks/geometry_check.py`, output `src/snapy_report/ch03/checks/geometry_check.out`,
-    line `[C17]`; a sympy restatement of `CoordinateImpl::face_area1` to `face_area3`, `CoordinateImpl::cell_volume`
-    and `CartesianImpl::reset` at the pin, CPU, double; Python 3.11.13, numpy 2.4.6, sympy 1.14.0.
+The ghost faces of a stretched $x_1$ are the mirror images of the interior faces at each end:
+$x_{1,-m}=2x_{1,0}-x_{1,m}$ and likewise at the top. `CoordinateOptionsImpl::global_x1f`
+({{< code src/coord/coordinate.cpp CoordinateOptionsImpl::global_x1f >}}) builds them. The ghost widths are then
+the interior widths in reverse order (`[G2]`), so a wall sees the same spacing on both sides. The global face
+array carries `x1f_ghosts` $=\max(n_g,3)+1$ ghost faces per end, so the faces do not depend on the deck's own
+ghost count $n_g$.
+
+Exact and truncated: the measures of @eq-ch03-cartesian-metric are exact integrals; the faces of
+@eq-ch03-cartesian-x1rat are exact in exact arithmetic and are computed once in double precision.
 
 ### Numerical method
 
-Widths `dx1f`, `dx2f`, `dx3f` are cell quantities, one per cell including ghosts; `x1v` holds the midpoints; `dx1v`
-(the centre spacing) equals the width. All are built once in `reset` from the global width, except on a stretched
-$x_1$: there `x1_metrics_` takes `dx1f` as the face differences, `x1v` as the face midpoints and `dx1v` as the
-midpoint differences of the global faces with their mirrored ghosts
-({{< code src/coord/coordinate.cpp CoordinateImpl::x1_metrics_ >}}). The divergence takes the
-face fluxes $\mathbf F_a$[^rg-e63dc7183ace] (face averages, from the Riemann solver), multiplies them by the face areas, differences
-them across each interior cell and divides by $V_i$; ghost cells receive no divergence. @fig-ch03-cartesian-cell
-draws one cell with its three face areas.
+Every block slices its faces from **one** global face array per axis, rather than building its own from its
+bounds. A face shared by two blocks then has one value whoever owns it, bit for bit, whatever the decomposition;
+@sec-ch03-globalgrid gives the reason and the uniform rule. For a stretched $x_1$ the constructor
+`CoordinateImpl::CoordinateImpl` ({{< code src/coord/coordinate.cpp CoordinateImpl::CoordinateImpl >}}) narrows
+the global array to the block's cells and ghosts.
+
+The face areas and the volume are computed once and cached. `CoordinateImpl::cached_geometry_`
+({{< code src/coord/coordinate.cpp CoordinateImpl::cached_geometry_ >}}) rebuilds a cached value when the width
+vectors are other objects, sit on another device, have another dtype or have been edited in place (their version
+counter moved), or when the cached value itself was edited. The hydrostatic reference rows of a stretched $x_1$
+are built from these faces once per grid, on the grid's device ({{< code src/recon/x1_reference.hpp >}}); they
+are @sec-ch05's.
 
 ```{python}
 #| label: fig-ch03-cartesian-cell
@@ -101,89 +114,76 @@ from snapy_report.ch03.figures.fig_cartesian_cell import make_fig
 make_fig()
 ```
 
-A mesh generator (`reset_coordinates`) may move the faces; the Cartesian override then recomputes widths, midpoints
-and centre spacings from the moved faces, so the grid need not be uniform and @eq-ch03-cartesian-metric uses the
-local widths ({{< code src/coord/cartesian.cpp CartesianImpl::reset_coordinates >}} for the $x_1$ part).
-
-A stretched $x_1$ grid (for example, one refined near the surface) is requested in the deck, with
-`geometry/x1f` (a face list) or `geometry/cells/x1rat` (a geometric ratio); @sec-ch03-globalgrid derives the faces
-and lists what such a deck must satisfy. No YAML key and no Python binding reaches `reset_coordinates`.
-
 ### Code
 
-| what | code link | symbol | switch |
-|---|---|---|---|
-| widths, centres, zero cosine | {{< code src/coord/cartesian.cpp CartesianImpl::reset >}} | `reset` | `type: cartesian` |
-| $x_1$ widths and centres | {{< code src/coord/coordinate.cpp CoordinateImpl::x1_metrics_ >}} | `x1_metrics_` | `geometry/x1f`, `geometry/cells/x1rat` |
-| face areas and volume | {{< code src/coord/coordinate.cpp CoordinateImpl::cell_volume >}} | `cell_volume` | none |
-| flux divergence | {{< code src/coord/coordinate.cpp CoordinateImpl::divergence >}} | `divergence` | none |
-| stage operator (no source) | {{< code src/coord/coordinate.cpp CoordinateImpl::forward >}} | `forward` | none |
-| type selection | {{< code src/coord/coordinate.cpp CoordinateImpl::create >}} | `create` | `geometry.type` |
-
-: Code map of the Cartesian metric. {#tbl-ch03-cartesian-code}
-
-In step order (@tbl-ch03-cartesian-code):
-
-1. `create` builds a `Cartesian` module when `type` is `cartesian`; an unknown type stops setup with "Unknown
-   coordinate type" ({{< code src/coord/coordinate.cpp CoordinateImpl::create >}}).
-2. `reset` sets the three cosine buffers to zero, the $x_1$ widths, midpoints and centre spacings from
-   `x1_metrics_` (the global width on a uniform $x_1$, the faces on a stretched one), and those of $x_2$, $x_3$ from
-   the global width ({{< code src/coord/cartesian.cpp CartesianImpl::reset >}}).
-3. In each stage, `forward` returns the `divergence` of the three fluxes and ignores the face pressure
-   ({{< code src/coord/coordinate.cpp CoordinateImpl::forward >}}); `divergence` forms the area-weighted differences over the interior cells
-   and divides by `cell_volume` ({{< code src/coord/coordinate.cpp CoordinateImpl::divergence >}}).
-
-**How to use it.** Cartesian is the type when `geometry.type` is absent or `cartesian`; the grid keys are those of
-@sec-ch03-globalgrid:
+**A minimal input.** A stretched column with 32 cells whose widths grow by 5 % per cell:
 
 ```yaml
 geometry:
   type: cartesian
-  bounds: {x1min: 0., x1max: 1000., x2min: 0., x2max: 1000.}
-  cells: {nx1: 8, nx2: 8, nghost: 2}
+  bounds: {x1min: 0., x1max: 1.e4, x2min: 0., x2max: 1.e5, x3min: 0., x3max: 1.e5}
+  cells: {nx1: 32, nx2: 16, nx3: 1, nghost: 3, x1rat: 1.05}
 ```
 
-Refused: any other type name stops setup in `create` with "Unknown coordinate type: <name>". The type selection is
-({{< code src/coord/coordinate.cpp CoordinateImpl::create >}}):
+**What is refused, and why.**
 
-```cpp
-  if (opts->type() == "cartesian") {
-    return p->register_module(name, Cartesian(opts, p));
-  } else if (opts->type() == "cylindrical") {
-    return p->register_module(name, Cylindrical(opts, p));
-  } else if (opts->type() == "spherical-polar") {
-    return p->register_module(name, SphericalPolar(opts, p));
-  } else if (opts->type() == "gnomonic-equiangle") {
-    return p->register_module(name, GnomonicEquiangle(opts, p));
-  } else {
-    TORCH_CHECK(false, "Unknown coordinate type: ", opts->type());
-  }
-```
+1. *Both keys.* `x1rat` and `x1f` together stop with "geometry: give cells/x1rat or x1f, not both"
+   ({{< code src/options/coord.yaml >}}).
+2. *A bad face list.* `x1f` must have `nx1 + 1` faces, start at `x1min` and end at `x1max` when the bounds are
+   given, and increase strictly; `x1rat` must be positive.
+3. *Too sharp a stretch.* Neighbouring widths may differ by at most `kX1MaxWidthRatio` $=1.5$
+   ({{< code src/coord/coordinate.hpp CoordinateOptionsImpl::kX1MaxWidthRatio >}}); a larger jump stops with
+   "outside the stage-1 bound".
+4. *Another grid type.* A stretched $x_1$ is accepted only on `cartesian`, `gnomonic-equiangle` and a
+   `spherical-polar` grid that does not reach a pole.
+5. *Too few cells.* A stretched $x_1$ needs at least `x1f_ghosts` interior cells, because the ghost faces mirror
+   that many interior widths.
 
-`cylindrical` is accepted here but builds no metric (@sec-ch03-cylindrical).
+| what | code link | symbol | switch |
+|---|---|---|---|
+| stretched faces | {{< code src/coord/coordinate.cpp CoordinateOptionsImpl::from_yaml >}} | `x1rat`, `x1f` | `cells/x1rat`, `x1f` |
+| global faces and ghosts | {{< code src/coord/coordinate.cpp CoordinateOptionsImpl::global_x1f >}} | `global_x1f` | |
+| block slice | {{< code src/coord/coordinate.cpp CoordinateImpl::CoordinateImpl >}} | `x1f` | |
+| widths | {{< code src/coord/coordinate.cpp CoordinateImpl::center_width1 >}} | `dx1f` | |
+| volume | {{< code src/coord/coordinate.cpp CoordinateImpl::cell_volume >}} | `cell_volume` | `cartesian` |
+
+: Code map of the Cartesian and stretched $x_1$ grids. {#tbl-ch03-cartesian-code}
 
 ### Tests
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| `test_coordinate` | the volume is the product of the caller's widths | $10^{-14}$ relative | round-off of a three-factor product |
-| `test_coordinate` | a degenerate $x_1$ beside live axes has width 5 | $10^{-14}$ absolute | round-off of one difference |
+| {{< code tests/test_coordinate.cpp CoordinateProgrammatic.cell_volume_is_the_product_of_the_callers_widths >}} (`test_coordinate.release`) | the volume is the product of the widths | relative $10^{-14}$ | `EXPECT_LT(... , 1.e-14 * want)` |
+| {{< code tests/test_coordinate.cpp CoordinateDecomposition.blocks_match_the_undecomposed_grid_bitwise >}} (`test_coordinate.release`) | every block's $x_2$ faces equal those of the undecomposed grid, for 2 and 3 blocks | bitwise | `torch::equal` |
+| {{< code tests/test_stretched_x1.cpp StretchedX1.x1rat_gives_a_geometric_grid >}} (`test_stretched_x1.release`) | end faces exact; width ratio $q$; first width | ratio abs. $10^{-12}$; width abs. $1.6\times10^{-12}$ | `EXPECT_LT(..., 1e-12)`, `EXPECT_NEAR(..., 1e-13 * 16.)` |
+| {{< code tests/test_stretched_x1.cpp StretchedX1.face_list_gives_mirrored_ghosts_and_metrics >}} (`test_stretched_x1.release`) | mirrored ghost widths; faces and metrics | exact, bitwise | `EXPECT_EQ`, `torch::equal` |
+| `v3_geometry_check.py` `[G1]`–`[G3]` (this report) | @eq-ch03-cartesian-x1rat and the mirror rule; the volume | exact | sympy simplifies the difference to 0 |
 
-: Tests of the Cartesian metric. C++ entries carry the build suffix (`.release`). {#tbl-ch03-cartesian-tests}
+: Tests of the Cartesian and stretched $x_1$ grids. {#tbl-ch03-cartesian-tests}
 
-The cases are `cell_volume_is_the_product_of_the_callers_widths` ({{< code tests/test_coordinate.cpp CoordinateProgrammatic.cell_volume_is_the_product_of_the_callers_widths >}}) and
-`a_degenerate_axis_beside_live_ones` ({{< code tests/test_coordinate.cpp CoordinateProgrammatic.a_degenerate_axis_beside_live_ones >}}). Both run on CPU only, one block, one
-rank. They were not run for this chapter at the pin (missing evidence).
+`test_stretched_x1.release` also checks that `x1rat: 1` is the uniform grid, that blocks slice the global face
+vector, that the global faces do not depend on the ghost count, and that bad keys are refused. The cases of the
+table run on CPU, one rank, one process; the `DeviceTest` cases of `test_coordinate.release` also run on
+CUDA. At the pin both ctests pass: `test_coordinate.release` ran 82 gtest cases and `test_stretched_x1.release`
+8.[^cart-run]
+
+[^cart-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs
+    (`tests/test_coordinate.yaml`, `tests/test_cubed_sphere_cell_volume.yaml` and the decks the other tests build); run:
+    `ctest -j1 -V -R <name>` for the seven ctests `test_coordinate.release`, `test_stretched_x1.release`,
+    `test_radial_face_moments.release`, `test_panel_rotation.release`, `test_cubed_sphere_seams.release`,
+    `test_cubed_sphere_cell_volume_python` and `test_seam_rotation_cache_python`, run together with one anchored `-R`
+    pattern, in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU for the CUDA
+    cases, 1 rank; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 7 of 7 ctests passed.
 
 ### Limits
 
-No known limits beyond those of the global grid (@sec-ch03-globalgrid). The divergence of a mesh-generator grid is not
-tested at the pin (not measured). The switch combinations that are tested are listed in the switch coverage matrix, @sec-ch12-matrix.
+1. **Width jump bound.** Neighbouring $x_1$ widths may differ by at most a factor $1.5$. The code calls it the
+   stage-1 bound; this section does not derive it.
+2. **$x_1$ only.** Only $x_1$ may be stretched; $x_2$ and $x_3$ are uniform on every grid type.
+3. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
 
 <!-- reader glossary notes -->
 [^rg-741b89eeff43]: $i, j, k$ — cell indices in $x_1, x_2, x_3$
 
-[^rg-10e86c4afb2b]: $V_i$ — cell volume
-
-[^rg-e63dc7183ace]: $\mathbf F_a$ — the numerical flux vector through faces normal to $x_a$
+[^rg-265b4f46a2ce]: $x_{1,i}$ — cell volume centroid ($r_{c,i}$ on spherical-polar)
 <!-- end reader glossary notes -->

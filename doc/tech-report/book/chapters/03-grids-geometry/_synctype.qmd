@@ -1,9 +1,13 @@
 ## Sync types and the velocity frame at seams (`type`) {#sec-ch03-synctype}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: src/mesh/meshblock.cpp, src/mesh/mesh.cpp, src/layout/cubed_sphere_layout.cpp, src/coord/cubed_sphere_utils.cpp, src/hydro/hydro_forward.cpp, src/scalar/scalar.cpp, tests/test_coordinate.cpp
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/mesh/meshblock.cpp, src/mesh/meshblock_exchange.cpp, src/mesh/mesh.cpp, src/layout/cubed_sphere_layout.cpp,
+         src/coord/coord_rotation.cpp, src/coord/cubed_sphere_utils.cpp, tests/test_coordinate.cpp,
+         tests/test_panel_rotation.cpp at the pin
 status: draft
+author: chengcli
+reviewer: jihenghu
 -->
 
 The stage update exchanges conserved variables, `hydro_u` and `scalar_s`, and rebuilds the scalar primitive from them
@@ -32,8 +36,8 @@ matrix [-].
 
 **Guarantee / limits.** Exact up to round-off (a change of basis), away from a pole.
 
-**Evidence.** `test_coordinate`, `test_cubed_sphere_vertical_velocity_exchange_python`; check `[C14]`; the ctest
-entries were not run for this chapter at the pin (missing evidence).
+**Evidence.** `test_panel_rotation`, `test_coordinate`, `test_cubed_sphere_vertical_velocity_exchange_python` (pass
+at the pin); check `[C14]`.
 :::
 
 ### Derivation
@@ -69,10 +73,12 @@ vectors, $v_2 = (D/Q)(v_x - Xv_z)$ and $v_3 = (C/Q)(v_y - Yv_z)$, with $v_z$ the
 (the first axis of $\hat{\mathbf u} = (1, X, Y)/Q$) and $v_x, v_y$ the components along the two in-panel axes, as the
 code names them. These are `cs_contra_to_cart_` and
 `cs_cart_to_contra_` ({{< code src/coord/cubed_sphere_utils.cpp cs_contra_to_cart_ >}},
-{{< code src/coord/cubed_sphere_utils.cpp cs_cart_to_contra_ >}}), composed with the Cartesian-to-spherical projection in
-`cs_contra_to_sph_` ({{< code src/coord/cubed_sphere_utils.cpp cs_contra_to_sph_ >}}). For a primitive strip $\mathsf G$ is
-left out. `cs_velocity_transform_matrix` builds each matrix numerically, column by column, by passing the three unit
-vectors through these maps ({{< code src/coord/cubed_sphere_utils.cpp cs_velocity_transform_matrix >}}).
+{{< code src/coord/cubed_sphere_utils.cpp cs_cart_to_contra_ >}}), composed with the projection on the local geographic frame (up, south, east) that `local_frame` builds from the
+point's Cartesian position alone, with no `atan2`. For a primitive strip $\mathsf G$ is left out.
+`PanelRotation::matrix` builds each matrix numerically, column by column, by passing the three unit vectors through
+these maps ({{< code src/coord/coord_rotation.cpp PanelRotation::matrix >}}); the older
+`cs_velocity_transform_matrix` ({{< code src/coord/cubed_sphere_utils.cpp cs_velocity_transform_matrix >}}), which
+goes through `cs_contra_to_sph_`, builds the same matrices for the Coriolis forcing.
 Each factor is exact; the composition is a change of basis and loses nothing but round-off. The check
 builds $\mathsf G$ from the gnomonic angle at four ghost positions and $\mathsf R$ at four rotation angles and
 forms both matrices of @eq-ch03-synctype-matrix: the round trip
@@ -81,7 +87,8 @@ conserved and for the primitive strip, which leaves $\mathsf G$ out, within the 
 $\det\mathsf G - \sin^2\psi$ (with $\sin\psi$ the panel metric `sine_cell_kj` of @sec-ch03-gnomonic) is exactly zero, so $\mathsf G$ is invertible away from a pole (`[C14]`).[^st-c14]
 
 [^st-c14]: `python3 src/snapy_report/ch03/checks/geometry_check.py`, output `src/snapy_report/ch03/checks/geometry_check.out`,
-    line `[C14]`; a numpy port of `cs_velocity_transform_matrix` at the pin, CPU, double; Python 3.11.13, numpy 2.4.6, sympy 1.14.0. The two round-trip deviations
+    line `[C14]`; a numpy port of the matrix of `cs_velocity_transform_matrix` (at 73c45a7c the layout builds the same composition
+    with `PanelRotation::matrix`), CPU, double; Python 3.11.13, numpy 2.4.6, sympy 1.14.0. The two round-trip deviations
     are round-off of a few products of order-one entries and are read against the check's threshold, not as
     values.
 
@@ -95,8 +102,8 @@ exchange and the corner refresh. @tbl-ch03-synctype-calls lists the syncs.
 
 | sync | type | interpolate | where |
 |---|---|---|---|
-| stage hydro / scalar | conserved / scalar | yes | `exchange_ghost_zones` |
-| initial hydro / scalar | primitive / scalar | yes | `initialize` |
+| stage hydro / scalar | conserved / scalar | yes | `exchange_ghost_zones`, through `exchange_state` |
+| initial hydro / scalar | primitive / scalar | yes | `initialize_under_mesh`, through `exchange_state` |
 | face states | primitive, scalar | no | @sec-ch03-cslrsync |
 | donor factor | scalar | no | @sec-ch03-thetacopy |
 | `Mesh` level | caller's choice | yes | `Mesh::exchange_ghost_zones` |
@@ -118,11 +125,12 @@ make_fig()
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| stage sync, scalar rebuild | {{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}} | `set_scalar_primitive` | none |
-| initial sync | {{< code src/mesh/meshblock.cpp MeshBlockImpl::initialize >}} | `kPrimitive` | none |
-| initial sync under `Mesh` | {{< code src/mesh/meshblock.cpp MeshBlockImpl::initialize_under_mesh >}} | `initialize_under_mesh` | none |
+| stage sync, scalar rebuild | {{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_ghost_zones >}} | `set_scalar_primitive` | none |
+| one state sync, hydro then scalar | {{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_state >}} | `exchange_state` | `type` |
+| initial sync | {{< code src/mesh/meshblock.cpp MeshBlockImpl::initialize_under_mesh >}} | `kPrimitive` | none |
 | `Mesh`-level sync | {{< code src/mesh/mesh.cpp MeshImpl::exchange_ghost_zones >}} | `exchange_ghost_zones` | `type` |
-| matrix with raise or lower | {{< code src/coord/cubed_sphere_utils.cpp cs_velocity_transform_matrix >}} | `cs_velocity_transform_matrix` | `type` |
+| matrix with raise or lower | {{< code src/coord/coord_rotation.cpp PanelRotation::matrix >}} | `PanelRotation::matrix` | `type` |
+| rotate one strip | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::_transform_velocity_ >}} | `_transform_velocity_` | `type` |
 | cached matrix, one radial plane | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::_velocity_transform >}} | `_velocity_transform` | `type` |
 | pack rotation | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::serialize >}} | `kConserved` | `type` |
 | unpack rotation | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::deserialize >}} | `kPrimitive` | `type` |
@@ -131,25 +139,30 @@ make_fig()
 
 In step order (@tbl-ch03-synctype-code):
 
-1. The caller picks the type in `SyncOptions`; `_velocity_transform` passes the cosine to the matrix only for
-   `kConserved` ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::_velocity_transform >}}).
-2. `serialize` applies `cs_apply_velocity_transform_` to the velocity rows of a conserved or primitive strip
-   ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::serialize >}}); `deserialize` applies the inverse matrix with
-   `cs_apply_velocity_transform_` ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::deserialize >}}).
+1. The caller picks the type in `SyncOptions`; `_transform_velocity_` returns at once for `kScalar`, and
+   `_velocity_transform` passes the cosine to `PanelRotation::matrix` only for `kConserved`
+   ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::_velocity_transform >}}).
+2. `serialize` calls `_transform_velocity_` toward the global frame on the velocity rows of a conserved or primitive
+   strip ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::serialize >}}); `deserialize` calls it
+   back toward the panel frame ({{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::deserialize >}}).
 
 **How to use it.** No YAML key: each caller sets `SyncOptions.type` in C++ (@tbl-ch03-synctype-calls); a
-`Mesh`-level sync from Python takes the caller's type. The stage sync sets conserved, then scalar
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::exchange_ghost_zones >}}):
+`Mesh`-level sync from Python takes the caller's type and refuses any other than primitive, conserved or scalar
+("Mesh::exchange_ghost_zones received invalid variable type"). The stage sync passes conserved, and the helper
+switches to scalar for the scalars ({{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_state >}}):
 
 ```cpp
-  SyncOptions sync_opts;
-  sync_opts.interpolate(true).type(kConserved);
-    ...
+  SyncOptions opts;
+  opts.interpolate(true).type(type);
+  Variables sync_vars;
+  sync_vars[hydro] = vars.at(hydro);
+  exchange(sync_vars, opts);
   if (pscalar->nvar() > 0) {
-    sync_opts.type(kScalar);
+    opts.type(kScalar);
     sync_vars.clear();
-    sync_vars["scalar_s"] = scalar_s;
-    exchange(sync_vars, sync_opts);
+    sync_vars[scalar] = vars.count(scalar) ? vars.at(scalar) : torch::Tensor();
+    exchange(sync_vars, opts);
+  }
 ```
 
 Nothing is refused; a primitive strip simply skips $\mathsf G$ in @eq-ch03-synctype-matrix.
@@ -158,14 +171,22 @@ Nothing is refused; a primitive strip simply skips $\mathsf G$ in @eq-ch03-synct
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| `test_coordinate` | the cached matrices, with and without the metric, equal the direct transforms | $10^{-4}$ rel., $10^{-5}$ abs. | float32 cases |
+| `test_panel_rotation` | contravariant to Cartesian and back is the identity on all six panels; the panel route equals the spherical route across a seam | abs. $4\times10^{-15}$; abs. $10^{-14}$ | @sec-ch03-seamreg |
+| `test_coordinate` | the Coriolis matrices `cs_velocity_transform_matrix`, with and without the metric, equal the direct transforms | $10^{-4}$ rel., $10^{-5}$ abs. | float32 cases |
 | `test_cubed_sphere_vertical_velocity_exchange_python` | a radial velocity crosses every edge unchanged | $10^{-12}$ | @sec-ch03-exchange |
 
 : Tests of the sync types. C++ entries carry the build suffix (`.release`). {#tbl-ch03-synctype-tests}
 
 The matrix case is `cached_cubed_sphere_velocity_matrices_match_direct` ({{< code tests/test_coordinate.cpp DeviceTest.cached_cubed_sphere_velocity_matrices_match_direct >}}); it
-runs on CPU and CUDA in float32 and float64 through `DeviceTest`. They were not run for this chapter at the pin
-(missing evidence).
+runs on CPU and CUDA in float32 and float64 through `DeviceTest`. The matrices the layout uses are those of
+`PanelRotation`, which `test_panel_rotation.release` checks (@sec-ch03-seamreg). At the pin all three ctests of the
+table pass.[^st-run]
+
+[^st-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 49 ctests the sections of this chapter cite,
+    in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro RTX 4000) for the
+    CUDA cases, no gtest case skipped; one process, two for the `_mp` entries, up to six for `test_exchange_decomp`;
+    Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 49 of 49 ctests passed.
 
 ### Limits
 

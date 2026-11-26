@@ -58,6 +58,8 @@ Regenerate every figure: `python3 tools/render_figures.py` (to `build/figures/<c
 | `fig-ch03-gnomonic-cosine` | `03-grids-geometry/_gnomonic.qmd` | `snapy_report/ch03/figures/fig_gnomonic_cosine.py` | - |
 | `fig-ch03-layouts-morton` | `03-grids-geometry/_layouts.qmd` | `snapy_report/ch03/figures/fig_layouts_morton.py` | - |
 | `fig-ch03-physfaces-slab` | `03-grids-geometry/_physfaces.qmd` | `snapy_report/ch03/figures/fig_physfaces_slab.py` | - |
+| `fig-ch03-seam-cache` | `03-grids-geometry/_seamcache.qmd` | `snapy_report/ch03/figures/fig_seam_cache.py` | - |
+| `fig-ch03-seamreg-owner` | `03-grids-geometry/_seamreg.qmd` | `snapy_report/ch03/figures/fig_seamreg_owner.py` | - |
 | `fig-ch03-sphpolar-centroids` | `03-grids-geometry/_sphpolar.qmd` | `snapy_report/ch03/figures/fig_sphpolar_centroids.py` | - |
 | `fig-ch03-synctype-pipeline` | `03-grids-geometry/_synctype.qmd` | `snapy_report/ch03/figures/fig_synctype_pipeline.py` | - |
 | `fig-ch03-x1seams-relay` | `03-grids-geometry/_x1seams.qmd` | `snapy_report/ch03/figures/fig_x1seams_relay.py` | - |

@@ -1,0 +1,177 @@
+## Panel rotation and the seam register (`gnomonic-equiangle`) {#sec-ch03-seamreg}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md section 6, chapter 3.3; src/coord/coord_rotation.cpp, src/coord/coord_rotation.hpp,
+         src/coord/cubed_sphere_utils.cpp, src/layout/seam_register.cpp, src/layout/seam_register.hpp,
+         src/hydro/flux_register.hpp, tests/test_panel_rotation.cpp, tests/test_cubed_sphere_seams.cpp at the pin
+status: draft
+author: chengcli
+reviewer: jihenghu
+-->
+
+### Summary
+
+A face on a cubed-sphere panel seam belongs to two panels at once, and each panel computes its own flux through
+it. The two values need not agree, because each panel reconstructs its face states from its own cells. If they
+differ, mass and energy leak at the seam. snapy removes the difference after the fluxes are formed: one block, the
+seam's owner, sends its face fluxes, and the other block replaces its own with them. The momentum rows must change
+basis on the way, because each panel stores momentum in its own covariant face basis.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** One flux value per seam face, the owner's, rotated into the neighbour's basis, @eq-ch03-seamreg-rotation.
+
+**Data.** The flux register's face rows of $x_2$ and $x_3$: the total and each kept part.
+
+**Placement.** Every stage, after the face fluxes and before the divergence; the transfer is a host cut.
+
+**Activation.** Always on a `cubed-sphere` layout; a no-op elsewhere and on edges inside one panel.
+
+**Guarantee / limits.** Mass and energy rows equal on both sides bit for bit; momentum to round-off of the rotation.
+
+**Evidence.** @tbl-ch03-seamreg-tests: `test_cubed_sphere_seams.release`, `test_panel_rotation.release`.
+:::
+
+Local symbols: $\mathsf L_P$ the lowering of panel $P$[^rg-8c1886e0d373] at the face point, @eq-ch03-gnomonic-lower [-];
+$\mathsf G_P$ the map from contravariant panel components to the global Cartesian frame at the face point [-];
+$\sigma=\pm1$ the seam sign [-]; $\mathsf F^{(A)}$, $\mathsf F^{(B)}$ a face row of the owner $A$ and the non-owner $B$[^rg-10785131fe49].
+
+### Derivation
+
+#### Rotating a momentum flux row
+
+The momentum rows of a face flux are a vector in the panel's covariant face basis. To hand it to the neighbour,
+the owner raises it to contravariant components with its face cosine, takes it to the global Cartesian frame with
+its panel metric at the face point, and sends it. The non-owner maps it to its own contravariant components at
+its face point and lowers it with its own face cosine:
+
+$$
+\mathsf F^{(B)}_{\mathbf m}=\sigma\,\mathsf L_B\,\mathsf G_B^{-1}\,\mathsf G_A\,\mathsf L_A^{-1}\,\mathsf F^{(A)}_{\mathbf m} .
+$$ {#eq-ch03-seamreg-rotation}
+
+The owner's half, $\mathsf G_A\mathsf L_A^{-1}$, is `PanelRotation::face_rows_to_cart_`
+({{< code src/coord/coord_rotation.cpp PanelRotation::face_rows_to_cart_ overload=2 >}}); the non-owner's half,
+$\mathsf L_B\mathsf G_B^{-1}$, is `PanelRotation::cart_to_face_rows_`
+({{< code src/coord/coord_rotation.cpp PanelRotation::cart_to_face_rows_ overload=2 >}}). $\mathsf G_P$ is
+`cs_contra_to_cart_at_` and $\mathsf G_P^{-1}$ is `cs_cart_to_contra_at_`
+({{< code src/coord/cubed_sphere_utils.cpp cs_cart_to_contra_at_ >}}). On panel $P$, with the metric of
+@sec-ch03-gnomonic and the panel's own axis order, a contravariant vector $(v_1,v_2,v_3)$ has the Cartesian
+components
+
+$$
+\begin{aligned}
+c_z&=\bigl(v_1-v_2X/D-v_3Y/C\bigr)/Q,\\
+c_x&=\bigl(v_1X+v_2D-v_3XY/C\bigr)/Q,\\
+c_y&=\bigl(v_1Y+v_3C-v_2XY/D\bigr)/Q,
+\end{aligned}
+$$
+
+and the inverse is $v_1=(c_z+Xc_x+Yc_y)/Q$, $v_2=D(c_x-Xc_z)/Q$, $v_3=C(c_y-Yc_z)/Q$; each panel then permutes and
+signs the three components into the global axes. `[G8]` of `v3_geometry_check.py` checks that the inverse undoes
+the forward map, and `[V2]` of chapter 2's check that raising undoes lowering, so on a face where the two panels
+share a point and a Cartesian vector, @eq-ch03-seamreg-rotation returns the vector the neighbour would have
+computed in its own basis.
+
+#### The seam sign and the edge direction
+
+Mass, energy and species rows are scalars per unit area and need no rotation, only the sign $\sigma$ and the
+order along the edge. `reconcile_panel_seams` ({{< code src/layout/seam_register.cpp reconcile_panel_seams >}})
+reverses the received slab along the edge when the two panels run the edge in opposite directions, and multiplies
+every row by $\sigma=-1$ when the two sides' indices have the same parity, which the header describes as the two
+normals being opposite. The same sign multiplies the rotated momentum rows.
+
+Exact and truncated: the scalar rows arrive unchanged apart from the sign, so they are equal on both sides bit for
+bit. The momentum rows pass through two changes of basis, so they agree to the rounding of those operations.
+
+### Numerical method
+
+1. *Sides.* For each of its four edges in $x_2$ and $x_3$, a block asks the one seam transport
+   (`Exchange::resolve_seam`, {{< code src/layout/exchange.cpp Exchange::resolve_seam >}}) for the neighbour. An
+   edge whose neighbour is on the same panel is skipped. The lower global rank owns the seam.
+2. *Rows.* The rows moved are the register's total face rows of the direction and then each kept part's, in the
+   register's order.
+3. *Pack.* The owner cuts the face slab of the edge (interior cells only), rotates the momentum rows to Cartesian,
+   and writes the slab into a fixed board buffer of the block. A captured segment writes this buffer before the
+   cut and the peer reads it after.
+4. *Transfer.* `exchange_cut` runs `Exchange::seam_exchange`
+   ({{< code src/layout/exchange.cpp Exchange::seam_exchange >}}) as a host cut: same-process blocks take the
+   owner's buffer, remote blocks receive into a fixed buffer.
+5. *Unpack.* The non-owner reverses and signs the slab, rotates the momentum rows into its own basis, and calls
+   `FluxRegister::replace` ({{< code src/hydro/flux_register.hpp FluxRegister::replace >}}) with the rule
+   `SeamRule::owner_copy`, once per direction. The register books the change of each total row as the amount
+   `reconcile.panel`. `HydroImpl::forward` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}) calls
+   `reconcile_panel_seams` before it applies the prescribed faces and forms the divergence.
+
+The rotation operands of a side (the metric at the face points and the face cosine) depend on the grid alone; they
+are cached (@sec-ch03-seamcache). @fig-ch03-seamreg-owner shows one seam.
+
+```{python}
+#| label: fig-ch03-seamreg-owner
+#| fig-cap: "One panel seam: the owner A (the lower rank) raises its face momentum rows and takes them to the Cartesian frame, a board buffer carries them across the host cut, and the non-owner B flips and signs them, takes them to its own basis, lowers them and replaces its face rows."
+#| fig-alt: "Two panel boxes meeting at a dashed seam, with three arrows from panel A to panel B labelled with the rotation, transfer and replacement steps."
+#| echo: false
+from snapy_report.ch03.figures.fig_seamreg_owner import make_fig
+make_fig()
+```
+
+### Code
+
+**A minimal input.** Any cubed-sphere deck runs it:
+
+```yaml
+distribute: {layout: cubed-sphere}
+geometry: {type: gnomonic-equiangle}
+```
+
+**What is refused, and why.** A cubed-sphere layout in which a block would be its own neighbour across a panel
+edge is refused by the layout's remote exchange with a message naming "its own neighbour"
+(`CubedSphereSeams.self_send_across_a_seam_is_refused` checks it).
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| seam reconciliation | {{< code src/layout/seam_register.cpp reconcile_panel_seams >}} | `reconcile_panel_seams` | `cubed-sphere` |
+| owner's rotation | {{< code src/coord/coord_rotation.cpp PanelRotation::face_rows_to_cart_ overload=2 >}} | `face_rows_to_cart_` | |
+| non-owner's rotation | {{< code src/coord/coord_rotation.cpp PanelRotation::cart_to_face_rows_ overload=2 >}} | `cart_to_face_rows_` | |
+| transfer | {{< code src/layout/exchange.cpp Exchange::seam_exchange >}} | `seam_exchange` | |
+| replacement | {{< code src/hydro/flux_register.hpp FluxRegister::replace >}} | `SeamRule::owner_copy` | |
+
+: Code map of the panel rotation and the seam register. {#tbl-ch03-seamreg-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| {{< code tests/test_cubed_sphere_seams.cpp CubedSphereSeams.panel_seam_fluxes_are_single_valued_after_a_stage >}} (`test_cubed_sphere_seams.release`) | after a stage, mass and energy face values equal on both sides; momentum equal after rotation | mass, energy exact; momentum $10^{-13}$ of the largest flux | `EXPECT_EQ(scalar_differ, 0)`, `EXPECT_LE(mom_err / mom_scale, 1e-13)` |
+| {{< code tests/test_cubed_sphere_seams.cpp CubedSphereSeams.seam_face_areas_are_single_valued >}} (`test_cubed_sphere_seams.release`) | a seam face has one area on both panels | bitwise | `torch::equal` |
+| {{< code tests/test_panel_rotation.cpp PanelRotation.round_trip_is_identity_on_every_panel >}} (`test_panel_rotation.release`) | contravariant to Cartesian and back, on all six panels | abs. $4\times10^{-15}$ | `EXPECT_LE(..., 4e-15)` |
+| {{< code tests/test_panel_rotation.cpp PanelRotation.components_equal_the_spherical_route_across_a_seam >}} (`test_panel_rotation.release`) | the panel route equals the route through spherical components | abs. $10^{-14}$ | `EXPECT_LE(d, 1e-14)` |
+| `v3_geometry_check.py` `[G8]` (this report) | the inverse map undoes the forward map | exact | sympy |
+
+: Tests of the panel rotation and the seam register. {#tbl-ch03-seamreg-tests}
+
+At the pin both ctests pass. In the seam-flux case, 0 of 3072 mass and energy face values differ and the
+momentum difference is below $10^{-15}$ of the largest flux, inside its $10^{-13}$ bound; the spherical-route
+case differs by less than $10^{-15}$, inside $10^{-14}$. These are round-off and are quoted against their
+bounds.[^seamreg-run] `test_cubed_sphere_seams.release` also checks that the seam slab a side receives is its
+neighbour's (bitwise) and that a reflecting wall carries no mass or energy flux.
+
+[^seamreg-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs
+    (`tests/test_coordinate.yaml`, `tests/test_cubed_sphere_cell_volume.yaml` and the decks the other tests build); run:
+    `ctest -j1 -V -R <name>` for the seven ctests `test_coordinate.release`, `test_stretched_x1.release`,
+    `test_radial_face_moments.release`, `test_panel_rotation.release`, `test_cubed_sphere_seams.release`,
+    `test_cubed_sphere_cell_volume_python` and `test_seam_rotation_cache_python`, run together with one anchored `-R`
+    pattern, in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU for the CUDA
+    cases, 1 rank; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 7 of 7 ctests passed.
+
+### Limits
+
+1. **Momentum agrees to round-off, not bitwise.** Two changes of basis round; a seam's momentum rows can differ by
+   a few units in the last place between the two sides.
+2. **One owner per seam.** The lower rank's flux is kept; the non-owner's is discarded, not averaged.
+3. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
+
+<!-- reader glossary notes -->
+[^rg-8c1886e0d373]: $P$ — corrected discrete potential energy $\sum_iV_i[\rho_i\phi_i - g_1\sigma_i^2s_i[\rho]]$, exact to $O(h^4)$
+
+[^rg-10785131fe49]: $B$ — the binomial weights $(1,4,6,4,1)/16$, written over `T(16)` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_ref_x1_impl.h#L126-L130)
+<!-- end reader glossary notes -->

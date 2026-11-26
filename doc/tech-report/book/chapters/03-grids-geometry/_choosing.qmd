@@ -1,11 +1,12 @@
 ## Choosing a grid: Cartesian, spherical-polar or cubed sphere (`geometry.type`) {#sec-ch03-choosing}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: src/coord/coordinate.cpp, src/coord/spherical_polar.cpp, src/coord/gnomonic_equiangle.cpp,
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/coord/coordinate.cpp, src/options/coord.yaml, src/coord/spherical_polar.cpp, src/coord/gnomonic_equiangle.cpp,
          src/layout/cubed_sphere_layout.cpp, src/mesh/meshblock.cpp, src/hydro/hydro.cpp, examples/ at the pin;
          the other sections of this chapter
-author: Zoey Hu
+author: Zoey Hu; rewritten at the V3 pin by chengcli
+reviewer: jihenghu
 status: draft
 -->
 
@@ -41,7 +42,7 @@ $c_s$[^rg-00cabad0ec0e] [m s$^{-1}$] the sound speed.
 |---|---|---|---|---|
 | Cartesian (@sec-ch03-cartesian) | a box, bounds in m | nothing beyond @sec-ch03-globalgrid | none: no geometric source terms | curvature of any kind |
 | spherical-polar (@sec-ch03-sphpolar) | a sector of a shell in $r$, $\theta$, $\varphi$ | $x_2$ inside $[0,\pi]$ | the curvature sources | a pole treatment; tests of the $m_2$, $m_3$ curvature terms |
-| cubed sphere (@sec-ch03-gnomonic) | the whole shell, six panels | `distribute.layout: cubed-sphere`, `nx2 == nx3`, `interp_order: 2`, $6n_{\mathrm b,2}^2$ blocks | curvature sources, frame changes, edge-ghost interpolation (@sec-ch03-csinterp), seam sync (@sec-ch03-cslrsync) | a fourth-order edge interpolation |
+| cubed sphere (@sec-ch03-gnomonic) | the whole shell, six panels | `distribute.layout: cubed-sphere`, `nx2 == nx3`, `interp_order` 2 or 4, $6n_{\mathrm b,2}^2$ blocks | curvature sources, frame changes, edge-ghost interpolation (@sec-ch03-csinterp), face-state sync (@sec-ch03-cslrsync), seam register (@sec-ch03-seamreg) | a test of its cubic edge interpolation on its own |
 
 : The three working grids side by side. `cylindrical` is accepted but builds no metric (@sec-ch03-cylindrical).
 {#tbl-ch03-choosing}
@@ -73,13 +74,13 @@ N/A: this section adds no scheme. Each grid's metric is built as its own section
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| type read, default | {{< code src/coord/coordinate.cpp CoordinateOptionsImpl::from_yaml >}} | `type` | `geometry.type` |
+| type read, default | {{< code src/options/coord.yaml >}} | `type` | `geometry.type` |
 | type dispatch, refusal | {{< code src/coord/coordinate.cpp CoordinateImpl::create >}} | `Unknown coordinate type` | |
 | no geometric sources (Cartesian) | {{< code src/coord/coordinate.cpp CoordinateImpl::forward >}} | `divergence` | `cartesian` |
 | $x_2$ range check | {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::reset >}} | `TORCH_CHECK` | `spherical-polar` |
 | $x_3$ width, @eq-ch03-choosing-width3 | {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::center_width3 >}} | `x2v.sin()` | `spherical-polar` |
 | panel widths | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::center_width3 >}} | `dx3f_ang_kj` | `gnomonic-equiangle` |
-| panel requirements | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::reset >}} | `nx2 must equal nx3` | `gnomonic-equiangle` |
+| panel requirements | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::reset >}} | `interp_order` | `gnomonic-equiangle` |
 | six panels of blocks | {{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}} | `nranks *= 6` | `cubed-sphere` |
 | square panel split | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::_initialize >}} | `px must equal py` | `cubed-sphere` |
 | time-step widths | {{< code src/hydro/hydro.cpp HydroImpl::max_time_step >}} | `center_width3` | `integration/cfl` |
@@ -91,8 +92,8 @@ N/A: this section adds no scheme. Each grid's metric is built as its own section
 **How to use it.** Start from an example deck of the chosen grid (@tbl-ch03-choosing-code) and change `geometry`
 as @sec-ch03-globalgrid describes. No example deck at the pin uses `spherical-polar`; the grid is set up only by
 tests, such as `test_x1_centroid_rest_python` (@sec-ch05-x1cent). Refused: an unknown type ("Unknown coordinate
-type"), a spherical-polar $x_2$ range outside $[0,\pi]$, and a cubed sphere with `nx2` $\neq$ `nx3` or
-`interp_order` $\neq 2$.
+type"), a spherical-polar $x_2$ range outside $[0,\pi]$, and a cubed sphere with `nx2` $\neq$ `nx3`, with an
+`interp_order` other than 2 or 4, or with `interp_order` above $2n_g$.
 
 ### Tests
 

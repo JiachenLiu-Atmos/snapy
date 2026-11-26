@@ -1,21 +1,29 @@
 ## $x_1$ seams between blocks (`layout: cubed`, `nb1` > 1) {#sec-ch03-x1seams}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: src/hydro/hydro.cpp, src/hydro/hydro_forward.cpp, src/layout/layout.cpp, src/eos/equation_of_state.cpp, tests/test_pref_local_seam.cpp, tests/test_x1_seam_split.cpp, tests/test_x1_seam_split_mp.cpp
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/layout/exchange.hpp, src/layout/exchange.cpp, src/layout/layout.cpp, src/hydro/hydro.cpp,
+         src/hydro/hydro_forward.cpp, src/recon/x1_reference.cpp, src/mesh/stage_executor.cpp,
+         src/eos/equation_of_state.cpp, tests/test_pref_local_seam.cpp, tests/test_x1_seam_split.cpp,
+         tests/test_x1_seam_split_mp.cpp at the pin
 status: draft
+author: chengcli
+reviewer: jihenghu
 -->
 
 Only the `cubed` layout splits $x_1$ (@sec-ch03-layouts). The vertical schemes of @sec-ch05 are column operations: the
 hydrostatic reference is a scan from the top of the column, and several switches read windows that reach past a block
 edge. Four mechanisms make a split column match one block. (a) The reference scan is relayed from the top block down,
-each block passing its bottom face value to the block below. (b) The reference ghost rows (`pref`, `dref`) are
-overwritten with the neighbour's interior rows. (c) Switch-specific ghost rows past the seam are the neighbour's: under `SNAP_X1_CENTROID_EXACT` the plain-mean
-ghost cells and the two face pressures; under the face-flux covariance (on by default) the $x_2$ and $x_3$ face
-states one row past the seam, for the hydro and for the scalars; under `SNAP_GRAVITY_WORK_RADIAL_EXACT` the density
-increment one row past it. (d) Across process seams only, the seam-face flux, face pressure
-and reference flux are replaced by the mean of the two sides. Wall reconstructions and wall mirroring are gated on a
-physical face, so they never act at a seam; column-wide EOS[^rg-b43b7aad09b4] repairs gather the whole column.
+each block passing its bottom face value to the block below. (b) The reference ghost rows are overwritten with the
+neighbour's interior rows. (c) Switch-specific ghost rows past the seam are the neighbour's: the primitive ghost
+layers under `dynamics.conversion-order: 4`, the plain-mean ghost cells under `SNAP_X1_CENTROID_EXACT`, the face
+pressures, the $x_2$ and $x_3$ face states one row past the seam under the face-flux covariance (on by default), for
+the hydro and for the scalars, and the density increment one row past it under `gravity-work: face`. (d) On every
+$x_1$ seam the seam-face flux, with its face pressure and pressure base, is replaced by the mean of the two sides.
+Wall reconstructions and wall mirroring are gated on a physical face, so they never act at a seam; column-wide
+EOS[^rg-b43b7aad09b4] repairs gather the whole column. Every relay is one call of the one seam transport: the column's
+two faces are the seam sides 0 (below) and 1 (above) of dimension 1, as the panel seams of @sec-ch03-seamreg are the
+sides of dimensions 2 and 3.
 
 Local symbols: $\mathrm{sm}$ (upright) an $x_1$ seam face shared by the block below ($\mathrm{B}$) and above
 ($\mathrm{T}$); $\mathbf F^{\mathrm{B}}_{\mathrm{sm}}$, $\mathbf F^{\mathrm{T}}_{\mathrm{sm}}$ the $x_1$ fluxes the two blocks compute there;
@@ -27,21 +35,21 @@ $p^{\mathrm{top}}$ the reference face pressure a block receives at its upper fac
 ::: {.callout-note title="At a glance"}
 **Purpose.** A column split into several $x_1$ blocks behaves like one block: the hydrostatic reference scan is
 relayed down the column, reference ghost rows are the neighbour's interior rows, switch-specific ghost rows are
-exchanged, and across process seams the seam flux is averaged (@eq-ch03-x1seams-average).
+exchanged, and the seam flux is averaged (@eq-ch03-x1seams-average).
 
 **Data.** In/out: reference rows, switch-specific ghost rows and seam fluxes, in their own units.
 
-**Placement.** Each stage: the relay when the well-balanced reconstruction builds its reference; the flux average
-on the $x_1$ flux slab, face pressure and `bflux1`, across process seams only.
+**Placement.** Each stage: the relay when the reconstruction builds its $x_1$ reference; the flux average after the
+$x_1$ fluxes, on the register's total and kept rows, the face pressure and the pressure base.
 
 **Activation.** YAML `distribute: {layout: cubed, nb1}` with `nb1` > 1; default off (`nb1: 1`). Requires
-`nghost` $\ge 3$ under `SNAP_WB_REF4`; blocks of one process must run concurrently.
+`nghost` $\ge 3$ with gravity under `conversion-order: 4` or `SNAP_X1_CENTROID_EXACT`; blocks of one process must run
+concurrently; no capture and no implicit solve.
 
-**Guarantee / limits.** Round-off agreement with one block, not bitwise; exact (gap 0) with
-`SNAP_GRAVITY_WORK_RADIAL_EXACT`.
+**Guarantee / limits.** Round-off agreement with one block ($10^{-13}$ relative in the tests), not bitwise.
 
-**Evidence.** `test_x1_seam_split` arms, `test_pref_local_seam`, `test_pref_local_seam_flux_covariance`,
-`test_parentless_cloud_nb1_mp`; check `[C13]`; the ctest entries were not run for this chapter at the pin (missing evidence).
+**Evidence.** `test_x1_seam_split` and its arms, `test_x1_seam_split_mp` and its arms, `test_pref_local_seam`,
+`test_parentless_cloud_nb1_mp` (pass at the pin); check `[C13]`.
 :::
 
 ### Derivation
@@ -58,32 +66,32 @@ V_{\mathrm B}\left(-\frac{A_{\mathrm{sm}}\mathbf F^{\mathrm B}_{\mathrm{sm}}}{V_
 = A_{\mathrm{sm}}\left(\mathbf F^{\mathrm T}_{\mathrm{sm}} - \mathbf F^{\mathrm B}_{\mathrm{sm}}\right)\Delta t ,
 $$
 
-zero only if the two agree. Both blocks
-replace their value by
+zero only if the two agree. Both blocks replace their value by
 
 $$
 \bar{\mathbf F}_{\mathrm{sm}} = \tfrac12\left(\mathbf F^{\mathrm{B}}_{\mathrm{sm}} + \mathbf F^{\mathrm{T}}_{\mathrm{sm}}\right),
 $$ {#eq-ch03-x1seams-average}
 
 and floating-point addition is commutative, so both hold the same bits and the sums telescope exactly across the seam.
-@eq-ch03-x1seams-average is the seam average in `hydro_forward.cpp`, applied to the flux slab and, packed with it, the
-face pressure and the reference flux `bflux1` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). It is applied only across
-process seams; with mechanism (b) the two sides of an in-process seam already compute the same states, and the code
-comment states that a same-process seam is not averaged.
+@eq-ch03-x1seams-average is the register's `SeamRule::mean`, applied by `FluxRegister::replace` to the seam faces of
+the total and of each kept part ({{< code src/hydro/flux_register.hpp FluxRegister::replace >}}); the face pressure
+and the pressure base, which are not register rows, are averaged beside it
+({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). It runs on every $x_1$ seam, between processes and
+inside one process alike, a periodic wrap included.
 
 **Reference relay.** The default reference is a scan of face pressures down from an anchor at the top of the column,
 each cell adding its own hydrostatic drop. Split into blocks, each block needs as anchor the face value the scan has
 reached at its upper face. The top block anchors itself; each other block takes $p^{\mathrm{top}}$ from the block above
-and, after its own scan, passes its bottom face value down (`take_x1_anchor` and `pass_x1_anchor`,
-{{< code src/hydro/hydro.cpp HydroImpl::_hydro_ref_x1 >}}). The relay is serial from top to bottom, so every block's anchor equals the value the
-one-block scan has at the same face, up to the order of the additions. The scan kernel itself is in @sec-ch05.
+and, after its own scan, passes its bottom face value down (`take_anchor` and `pass_anchor` of `ExchangeX1Link`,
+{{< code src/recon/x1_reference.cpp ExchangeX1Link::take_anchor >}}). The relay is serial from top to bottom, so every
+block's anchor equals the value the one-block scan has at the same face, up to the order of the additions. The scan
+kernel itself is in @sec-ch05.
 
-**Ghost rows.** A block's ghost rows of `pref`, `dref` computed locally from its ghost quadrature differ from the
-owner's interior values; how far apart near a wall is **not measured at the pin** (the code comment gives a size
-without a deck or run). Replacing them by the neighbour's
-interior rows, sent under `kWbGhostUpTag` and `kWbGhostDnTag`, makes the perturbation field identical on both
-sides of the seam ({{< code src/hydro/hydro.cpp HydroImpl::_hydro_ref_x1 >}}). Nothing in the derivation is truncated; the remaining differences from one block are round-off from
-the order of operations.
+**Ghost rows.** A block's ghost rows of the reference computed locally from its ghost quadrature differ from the
+owner's interior values. Replacing them by the neighbour's interior rows, through `exchange_ghost_rows`
+({{< code src/recon/x1_reference.cpp ExchangeX1Link::exchange_ghost_rows >}}), makes the perturbation field
+identical on both sides of the seam. Nothing in the derivation is truncated; the remaining differences from one block
+are round-off from the order of operations.
 
 The check takes the seam average on $4\times10^5$ random pairs with the two operands in both orders: the
 two blocks' results carry identical bit patterns, and the seam's contribution to the column total is exactly zero
@@ -92,24 +100,31 @@ $9.1\times10^3$ in flux units, which is the term @eq-ch03-x1seams-average remove
 and the ghost rows are covered by the tests below.
 
 [^x1s-c13]: `python3 src/snapy_report/ch03/checks/geometry_check.py`, output `src/snapy_report/ch03/checks/geometry_check.out`,
-    line `[C13]`; a numpy port of the $x_1$ seam-face average in `HydroImpl::forward` at the pin, CPU, double; Python 3.11.13, numpy 2.4.6, sympy 1.14.0.
+    line `[C13]`; a numpy port of the $x_1$ seam-face average (at 73c45a7c the register's `SeamRule::mean`), CPU,
+    double; Python 3.11.13, numpy 2.4.6, sympy 1.14.0.
 
 ### Numerical method
 
-All four mechanisms run in every stage of a split column. The relay and the ghost-row exchange run inside
-`_hydro_ref_x1`, when the well-balanced reconstruction builds its reference; the plain-mean ghost rows before it; the
-seam average after the $x_1$ fluxes are computed and before the positivity limiter; the face-pressure ghost rows after
-the average. A same-process neighbour is reached through an in-memory board, a remote one through the process group
-(@sec-ch14); `_x1_ghost_rows` packs $n_{\mathrm{rows}}$ rows ($n_{\mathrm{rows}}$, its argument `m`, is 1 or $n_g$ = `il` depending on the caller) from below the top face (up) and from above the bottom face (down) and
-copies the neighbour's rows into its ghosts. The message tags are 0x7715 (relay), 0x7717 and 0x7718 (reference ghost
-rows), 0x7720 and 0x7721 (seam flux), 0x7722 to 0x7725 (face-pressure and plain-mean ghost rows), 0x7726 and 0x7727 (the density increment of the
-radial-exact work), 0x7730 to 0x7737 (the covariance face states), and `0x7740 + 4k` to `0x7743 + 4k` for scalar
-row $k$[^rg-2dedcdaf1d1e] (the scalar covariance); `_x1_ghost_rows` uses each tag and the next. EOS column repairs
-call `gather_x1`, which joins the column's pieces bottom first. @fig-ch03-x1seams-relay shows a column of three blocks.
+All four mechanisms run in every stage of a split column. The relay and the reference ghost rows run when the
+reconstruction builds its $x_1$ reference; the switch ghost rows before the reconstruction that reads them; the seam
+average after the $x_1$ fluxes are computed and before the positivity limiter; the face-pressure ghost rows after the
+average. Each relay is a call of `Exchange` ({{< code src/layout/exchange.cpp Exchange::x1_rows >}}): `x1_rows`
+packs $m$ rows from below the top face (up) and from above the bottom face (down), hands the two seam sides to
+`seam_exchange`, and copies the neighbour's rows into its ghosts; `x1_seam_slab`
+({{< code src/layout/exchange.cpp Exchange::x1_seam_slab >}}) moves the seam-face slab. A same-process neighbour is
+reached through an in-memory board, a remote one through the process group (@sec-ch14). The neighbours are
+`x1_neighbors` for the relays, which has none on a periodic $x_1$ column, and `x1_seam_peers` for the flux average
+({{< code src/layout/exchange.cpp Exchange::x1_seam_peers >}}). The message tags are the `ExchangeTag` values
+({{< code src/layout/exchange.hpp ExchangeTag >}}): 0x7715 (the reference anchor), 0x7717 (its ghost rows), 0x7720
+(the seam flux), 0x7722 (face pressures), 0x7724 (plain means), 0x7726 (the density increment of the face gravity
+work), 0x772a (primitive ghost layers), 0x7730 and 0x7734 (the $x_2$ and $x_3$ covariance face states), and
+`0x7740 + 4k` for scalar row $k$[^rg-2dedcdaf1d1e]; the up message carries the tag and the down message the tag plus
+one. EOS column repairs call `gather_x1`, which joins the column's pieces bottom first. @fig-ch03-x1seams-relay shows
+a column of three blocks.
 
 ```{python}
 #| label: fig-ch03-x1seams-relay
-#| fig-cap: "A column split into three $x_1$ blocks. Black arrows: the reference relay, top block to bottom block, one face value per seam. Purple arrows: each block's interior rows copied into the neighbour's ghost rows. At each seam face the two one-sided fluxes (orange) are replaced by their mean when the seam is between processes."
+#| fig-cap: "A column split into three $x_1$ blocks. Black arrows: the reference relay, top block to bottom block, one face value per seam. Purple arrows: each block's interior rows copied into the neighbour's ghost rows. At each seam face the two one-sided fluxes (orange) are replaced by their mean."
 #| fig-alt: "Three stacked blocks with downward arrows at the seams, short arrows into hatched ghost rows, and paired flux arrows at each seam face."
 #| echo: false
 from snapy_report.ch03.figures.fig_x1seams_relay import make_fig
@@ -120,30 +135,30 @@ make_fig()
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| WB4 needs three ghosts | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `wb_ref4_enabled` | `SNAP_WB_REF4` |
-| neighbours below and above | {{< code src/hydro/hydro.cpp HydroImpl::x1_neighbors >}} | `x1_neighbors` | `nb1` |
-| switch ghost rows | {{< code src/hydro/hydro.cpp HydroImpl::_x1_ghost_rows >}} | `_x1_ghost_rows` | `SNAP_X1_CENTROID_EXACT` |
-| relay and reference ghost rows | {{< code src/hydro/hydro.cpp HydroImpl::_hydro_ref_x1 >}} | `_hydro_ref_x1` | `nb1` |
-| physical-face gating | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `phys_x1inner` | none |
-| seam average | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `kSeamFluxUpTag` | none |
-| relay and boards | {{< code src/layout/layout.cpp LayoutImpl::take_x1_anchor >}} | `take_x1_anchor` | none |
+| ghost check with gravity | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `conversion_order` | `conversion-order`[^rg-dedb5a7b037d], `SNAP_X1_CENTROID_EXACT` |
+| neighbours below and above | {{< code src/layout/exchange.cpp Exchange::x1_neighbors >}} | `x1_neighbors` | `nb1` |
+| row relay | {{< code src/layout/exchange.cpp Exchange::x1_rows >}} | `x1_rows` | `nb1` |
+| seam-face slab | {{< code src/layout/exchange.cpp Exchange::x1_seam_slab >}} | `x1_seam_slab` | `nb1` |
+| message tags | {{< code src/layout/exchange.hpp ExchangeTag >}} | `kTagSeamFlux` | none |
+| reference relay and ghost rows | {{< code src/recon/x1_reference.cpp ExchangeX1Link::take_anchor >}} | `ExchangeX1Link` | `nb1` |
+| seam average | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `SeamRule::mean` | none |
+| anchors and boards | {{< code src/layout/layout.cpp LayoutImpl::take_x1_anchor >}} | `take_x1_anchor` | none |
 | block messages, at most 16 blocks | {{< code src/layout/layout.cpp LayoutImpl::send_to_block >}} | `send_to_block` | `blocks_per_process` |
 | column gather | {{< code src/layout/layout.cpp LayoutImpl::gather_x1 >}} | `gather_x1` | none |
-| EOS column repair | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}} | `gather_x1` | `nb1` |
+| capture refusal | {{< code src/mesh/stage_executor.cpp StageExecutor::config_reasons >}} | `pz` | `execution` |
 
 : Code map of the $x_1$ seams. {#tbl-ch03-x1seams-code}
 
 In step order (@tbl-ch03-x1seams-code):
 
-1. Setup refuses `SNAP_WB_REF4` (or `SNAP_X1_CENTROID_EXACT`, which implies it) with `nghost` < 3, through
-   `wb_ref4_enabled` ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
-2. In the stage, `phys_x1inner` and `phys_x1outer` gate the wall treatments ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}});
-   under `SNAP_X1_CENTROID_EXACT` the plain-mean ghost rows come from the neighbours with `_x1_ghost_rows`
+1. Setup refuses `dynamics.conversion-order: 4` or `SNAP_X1_CENTROID_EXACT` with gravity and `nghost` < 3
+   ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
+2. In the stage, the switch ghost rows come from the neighbours through `x1_rows`
    ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-3. `_hydro_ref_x1` takes the anchor from above, scans, passes its bottom face down, and swaps reference ghost rows
-   with both neighbours using `kWbGhostDnTag` ({{< code src/hydro/hydro.cpp HydroImpl::_hydro_ref_x1 >}}).
-4. After the $x_1$ fluxes, a process seam is averaged with `kSeamFluxDnTag` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}),
-   then the face-pressure ghost rows past the seam are exchanged with `_x1_ghost_rows`
+3. The reference evaluation takes the anchor from above, scans, passes its bottom face down, and swaps its ghost rows
+   with both neighbours ({{< code src/hydro/hydro.cpp HydroImpl::_hydro_ref_x1 >}}).
+4. After the $x_1$ fluxes, every seam face is averaged with `x1_seam_slab` and `replace(1, faces, peer,
+   SeamRule::mean)`, then the face-pressure ghost rows past the seam are exchanged with `x1_rows`
    ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
 
 **How to use it.** A column split into two blocks held by one process:
@@ -155,28 +170,26 @@ distribute: {layout: cubed, nb1: 2, blocks_per_process: 2}   # build through Mes
 Refused:
 
 - `nb1` > 1 on another layout ("SlabLayoutImpl: pz must be 1 for slab layout");
-- with gravity, `SNAP_WB_REF4` or `SNAP_X1_CENTROID_EXACT` with `nghost` < 3 ("SNAP_WB_REF4 (or
-  SNAP_X1_CENTROID_EXACT, which implies it) needs nghost >= 3, got 2; unset it");
+- with gravity, `conversion-order: 4` or `SNAP_X1_CENTROID_EXACT` with `nghost` < 3 ("SNAP_X1_CENTROID_EXACT (or
+  dynamics/conversion-order 4) needs nghost >= 3, got 2");
 - an implicit scheme ("[Hydro] implicit scheme requires nb1 = 1 (no x1 decomposition): the vertical solve has no
   cross-rank coupling.");
 - more than 16 blocks per process when blocks exchange with another process ("[Layout:send_to_block] at most 16 blocks per process").
 
-The seam average @eq-ch03-x1seams-average runs across process seams only
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}):
+A split column also runs eager: the stage executor records "an x1 split (pz > 1): its relays inside the stage are
+not cut into segments yet" among its refusals and does not capture (@sec-ch14). The seam average
+@eq-ch03-x1seams-average is ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}):
 
 ```cpp
-    // No exchange, no behavior change at nb1 = 1. Across process seams only,
-    // as with one block per process; a same-process seam is not averaged.
-    if (!options->disable_flux_x1() && playout &&
-        playout->has_process_group() && playout->options->pz() > 1) {
-      auto iloc = playout->loc_of(playout->options->rank());
-      int above = playout->neighbor_rank(iloc, {0, 0, 1});
-      int below = playout->neighbor_rank(iloc, {0, 0, -1});
-      if (above >= 0 && playout->is_local_block(above)) above = -1;
-      if (below >= 0 && playout->is_local_block(below)) below = -1;
+    if (!options->disable_flux_x1() && playout && playout->options->nb(1) > 1) {
+      Exchange ex(pmb);
+      auto [below, above] = ex.x1_seam_peers(/*process_only=*/false);
       if (above >= 0 || below >= 0) {
-        constexpr int kSeamFluxUpTag = 0x7720;  // payload travels upward
-        constexpr int kSeamFluxDnTag = 0x7721;  // payload travels downward
+    ...
+        auto [from_below, from_above] =
+            ex.x1_seam_slab(dn_mine, up_mine, kTagSeamFlux, false);
+    ...
+        freg.replace(1, faces, peer, SeamRule::mean);
 ```
 
 ### Tests
@@ -184,9 +197,9 @@ The seam average @eq-ch03-x1seams-average runs across process seams only
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
 | `test_pref_local_seam` | an in-process split restarts the reference at the seam; split equals one block after 200 steps | $10^{-6}$; $10^{-12}$ relative | set in the test |
-| `test_x1_seam_split` and arms `_x1_centroid`, `_radial_exact`, `_radial_exact_off`, `_vic_refuses_split`, `_wb_ref4`, `_wb_ref4_gravity_0`, `_x1_mass_covariance` | two blocks in one process equal one block after 20 steps, per switch; the setup refusals | $10^{-13}$ relative | round-off of 20 steps |
-| `test_pref_local_seam_flux_covariance` | the 200-step split comparison with the face-flux covariance forced on | $10^{-12}$ relative | as `test_pref_local_seam` |
-| `test_x1_seam_split_mp` and arms | the same split across two ranks | $10^{-13}$ relative | as above |
+| `test_x1_seam_split` and arms `_x1_centroid`, `_radial_exact`, `_co4_face_density` | two blocks in one process equal one block after 20 steps, per switch | $10^{-13}$ relative | round-off of 20 steps |
+| arms `_relays_are_seam_sides`, `_nghost_check_conversion_order_4`, `_nghost_check_x1_centroid`, `_vic_refuses_split`, `_x1_mass_covariance` | the relays are the seam sides 0 and 1 with each other as peer; the setup refusals | exact | contract |
+| `test_x1_seam_split_mp` and arms | the same split across two processes | $10^{-13}$ relative | as above |
 | `test_parentless_cloud_nb1_mp` | column repair across two processes keeps mass | in the test | @sec-ch10 |
 
 : Tests of the $x_1$ seams. C++ entries carry the build suffix (`.release`). {#tbl-ch03-x1seams-tests}
@@ -194,29 +207,34 @@ The seam average @eq-ch03-x1seams-average runs across process seams only
 The reference cases are `local_blocks_restart_the_reference_at_the_seam` ({{< code tests/test_pref_local_seam.cpp HydroRefX1.local_blocks_restart_the_reference_at_the_seam >}}) and
 `in_process_split_matches_one_block_after_200_steps` ({{< code tests/test_pref_local_seam.cpp HydroRefX1.in_process_split_matches_one_block_after_200_steps >}}). The arms run one
 gtest each with their environment through the CMake function `seam_arm` ({{< code tests/CMakeLists.txt >}}); the
-comparisons are in
-`split_gap` and its callers ({{< code tests/test_x1_seam_split.cpp split_gap >}}). With `SNAP_GRAVITY_WORK_RADIAL_EXACT` on, `radial_exact_split_gap`
-({{< code tests/test_x1_seam_split.cpp radial_exact_split_gap >}}) requires the split column to equal one block
-exactly (gap 0) and its drift of $\mathcal E=\sum_iV_iE_i+P$ (appendix A, notation group 5) to stay within $10^{-13}$; the switch-off control bounds the gap by $10^{-13}$. CUDA twins of four arms (`_x1_centroid_cuda`, `_radial_exact_cuda`, `_radial_exact_off_cuda`, `_wb_ref4_cuda`)
-are registered by `seam_arm` when CUDA is built, in the same file; the `_mp` entries run on two ranks with
-`torchrun`. They were not run for this chapter at the pin (missing evidence).
+comparisons are in `split_gap` and its callers ({{< code tests/test_x1_seam_split.cpp split_gap >}}). With
+`gravity-work: face`, `radial_exact_split_gap` ({{< code tests/test_x1_seam_split.cpp radial_exact_split_gap >}})
+bounds both the split column's gap to one block and its drift of $\mathcal E=\sum_iV_iE_i+P$ (appendix A, notation
+group 5) by $10^{-13}$, for 32, 64 and 128 cells. The seam-side case is `the_x1_relays_are_seam_sides`
+({{< code tests/test_x1_seam_split.cpp X1SeamSplit.the_x1_relays_are_seam_sides >}}). CUDA twins of three arms
+(`_x1_centroid_cuda`, `_radial_exact_cuda`, `_co4_face_density_cuda`) are registered by `seam_arm` when CUDA is built;
+the `_mp` entries run on two processes. At the pin all 16 `test_x1_seam_split*` entries (12 in one process, the CUDA twins on a GPU, and 4 on two
+processes) pass,
+and so do `test_pref_local_seam.release` and `test_parentless_cloud_nb1_mp.release`.[^x1s-run]
+
+[^x1s-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>` with one anchored pattern over the 49 ctests the sections of this chapter cite,
+    in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro RTX 4000) for the
+    CUDA cases, no gtest case skipped; one process, two for the `_mp` entries, up to six for `test_exchange_decomp`;
+    Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 49 of 49 ctests passed.
 
 ### Limits
 
 ::: {.callout-warning title="Limits"}
 - Blocks of one process in a split column must run concurrently; a block waits at most 5 minutes for its anchor.
 - At most 16 blocks per process can exchange block messages.
-- Under `SNAP_GRAVITY_WORK_RADIAL_EXACT` a seam cell takes the centred slope of one block through
-  `corrected_pe_work_seam` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}), so the corrected-PE work does
-  not depend on the $x_1$ decomposition; `test_x1_seam_split_radial_exact` requires a gap of exactly 0 in `radial_exact_split_gap`
-  ({{< code tests/test_x1_seam_split.cpp radial_exact_split_gap >}}). A periodic $x_1$ column keeps the one-sided
-  slope at its block edges, where `x1_neighbors` returns no neighbour ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}), and setup warns with
-  `TORCH_WARN_ONCE` ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}). An implicit scheme refuses any $x_1$ split with
-  `TORCH_CHECK` ({{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}}).
+- A split column is not captured, and an implicit scheme refuses it.
+- A periodic $x_1$ column has no relay neighbours (`x1_neighbors`), so its block edges keep one-sided slopes in the
+  face gravity work; setup warns that $-g_1x_1$ jumps at the periodic face ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
 :::
 
 A split column is not bitwise equal to one block; the tests use $10^{-13}$ and $10^{-12}$. How far a split column
-differs from one block on CPU and on GPU is **not measured at the pin**. The header comment of
+differs from one block on CPU and on GPU beyond these bounds is **not measured at the pin**. The header comment of
 `test_pref_local_seam.cpp` says that `HydroImpl` restarts the scan in a second same-process block and that the test
 does not fix it, while the assertions expect the relay of this section ({{< code tests/test_pref_local_seam.cpp >}});
 the comment is stale against the code it tests. The switch combinations that are tested are listed in the switch coverage matrix, @sec-ch12-matrix.
@@ -227,4 +245,6 @@ the comment is stale against the code it tests. The switch combinations that are
 [^rg-6e5d28d7b425]: $\Delta t$ — the step
 
 [^rg-2dedcdaf1d1e]: $k = 1..N_r$ — scalar row index in the seam tag list
+
+[^rg-dedb5a7b037d]: conversion-order — order of the $x_1$ cell-average to point conversion of the primitives: 2 (default) or 4
 <!-- end reader glossary notes -->
