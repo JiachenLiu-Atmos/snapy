@@ -4,5 +4,10 @@
  "eq-ch08-carry-dm": "The mass withheld at a face by the limiter is $(1 - \\Theta_d)F$.",
  "eq-ch08-borrow-fractions": "A cloud's deficit is shared among its parent vapours by the fractions $f_n=\\nu_{nk}\\mu_n/\\sum_m\\nu_{mk}\\mu_m$, which sum to one, so the cell total is unchanged.",
  "eq-ch08-fixvapor-sums": "A window's deficit $D$ and the vapour $Q$ of its donor cells, both weighted by cell volume; the window ends where $Q - D \\ge 0$.",
- "eq-ch08-fixvapor-borrow": "Negative cells of the window go to zero and each donor gives up the fraction $D/Q$ of its vapour, so the window's mass is kept and the donors move by the deficit only."
+ "eq-ch08-fixvapor-borrow": "Negative cells of the window go to zero and each donor gives up the fraction $D/Q$ of its vapour, so the window's mass is kept and the donors move by the deficit only.",
+ "eq-ch08-satadj-state": "The saturation adjustment hands kintera the total density, the internal energy density and the mass fractions of each interior cell, formed from the total state.",
+ "eq-ch08-sed-stokes": "A condensate settles at the slip-corrected Stokes velocity $w_{\\mathrm s,n}=2\\beta_na_n^2g_1(\\rho_{\\mathrm p,n}-\\rho)/(9\\mu)$, unless a prescribed velocity replaces it; either is clamped at the upper limit.",
+ "eq-ch08-sed-viscosity": "The gas viscosity is the Chapman-Enskog value for a Lennard-Jones gas with a fitted collision integral, and the mean free path follows from it.",
+ "eq-ch08-sed-fluxes": "The donor cell carries the condensate's mass flux, the momentum it moves and its internal plus kinetic energy, with no pressure-work share.",
+ "eq-ch08-carry-prescribed": "On a prescribed face the advected and settling parts of the carry have opposite donors, so their withheld energies sum to $s\\lvert F_{\\mathrm{sed}}\\rvert(\\hat h_u-\\hat h_\\ell)$, not zero."
 }

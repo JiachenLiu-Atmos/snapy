@@ -1,7 +1,7 @@
 ## The floor detector and the redo decision {#sec-ch08-redo}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: OUTLINE.md 8.12
 status: draft
 -->
@@ -15,11 +15,11 @@ positivity failure path.
 ::: {.callout-note title="At a glance"}
 **Purpose.** Decide whether the step just taken must be redone: a floor test on the primitives plus the limiter marks.
 
-**Data.** In: `hydro_u`, the floors, the two marks, the implicit clamp flag. Out: one boolean per block.
+**Data.** In: `hydro_u`, the floors, the `EfStatus` marks and latches, the implicit clamp. Out: a cause bit set.
 
 **Placement.** In `check_redo`, after the stages of a step and before the clock advances (@sec-ch01-driver).
 
-**Activation.** Always; a hit is a primitive at or below $1.001$ times a floor, a NaN, a mark, or the clamp flag.
+**Activation.** Always; a hit is a primitive at or below $1.001$ times a floor, a NaN, a mark, a latch or the clamp.
 
 **Guarantee / limits.** Detection only: a redo repeats the step and the redo budget of @sec-ch09 ends the loop.
 
@@ -28,67 +28,83 @@ positivity failure path.
 
 ### Derivation
 
-The test is a margin above the floor rather than equality with it, at `hit`
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::floor_hit >}}). A minimum density at or below $1.001$ times the
-density floor counts as a hit. The same holds for pressure where there is a pressure row. Testing equality with the
-floor would miss a cell that was floored and then nudged by a later operation; the margin catches the neighbourhood of
-the floor instead. `[C7]` nudges a just-floored cell by fifteen relative amounts from $10^{-16}$ up to $10^{-3}$. The
-margin counts all fifteen as hits. Equality counts only two, the unnudged cell and the single nudge below machine
-epsilon, so thirteen are hits the margin keeps and equality loses. A density $1.002$ times the floor is a hit under
-neither. `[C4]` covers the marking itself, including that it happens only from the interior [check
-`src/snapy_report/ch08/checks/floors_check.py`, output `src/snapy_report/ch08/checks/floors_check.out`].
+The test is a margin above the floor rather than equality with it, in `local_redo_flag_tensor`
+({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}}). A minimum interior density at or
+below $1.001$ times the density floor counts as a hit. The same holds for pressure where there is a pressure row.
+Testing equality with the floor would miss a cell that was floored and then nudged by a later operation; the margin
+catches the neighbourhood of the floor instead. `[C7]` nudges a just-floored cell by fifteen relative amounts from
+$10^{-16}$ up to $10^{-3}$. The margin counts all fifteen as hits. Equality counts only two, the unnudged cell and
+the single nudge below machine epsilon, so thirteen are hits the margin keeps and equality loses. A density $1.002$
+times the floor is a hit under neither. `[C4]` covers the marking itself, including that it happens only from the
+interior [check `src/snapy_report/ch08/checks/floors_check.py`, output
+`src/snapy_report/ch08/checks/floors_check.out`].
 
 Two orderings around it matter, and the code states both. In the decision the floor test runs first: it converts
 the state to primitives to test them, and that conversion may itself make a limiter repair and set a mark. The marks
-are read after the floor test, so that such a repair counts in this decision (`limiter_marks`,
-{{< code src/mesh/meshblock.cpp MeshBlockImpl::local_redo_flag_tensor >}}). The marks are reset only later, in
+are read after the floor test, so that such a repair counts in this decision (`limiter_marks`, read in
+{{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}}). The marks are reset only later, in
 `apply_redo`, once a redo has been decided and the state restored: the conversions of the floor test and of the
 restore must not mark the step that is redone (`reset_limiter_marks`,
-{{< code src/mesh/meshblock.cpp MeshBlockImpl::apply_redo >}}).
+{{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::apply_redo >}}).
 
 ### Numerical method
 
-The detector is `hydro_u` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::floor_hit >}}). The marks are read through
-`limiter_hits` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::limiter_hits >}}), which returns the pair set by the
-limiter passes of @sec-ch08-eoslimiter. The implicit clamp of @sec-ch08-vic is read through its own accessor at
-`vic_dry_clamp_hit` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::vic_dry_clamp_hit >}}). The redo decision combines
-them at {{< code src/mesh/meshblock.cpp MeshBlockImpl::local_redo_flag_tensor >}}, where the floor test is run first
-and the marks are read afterwards, so that a mark set by the floor test's own conversion is part of the decision.
+The detector does not read the state back to the host. `local_redo_flag_tensor` builds one small device tensor per
+block, in this order ({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}}):
+
+1. `floor`: the margin test on the interior primitives, density and, where there is one, pressure;
+2. `clamp`: whether the implicit dry clamp of @sec-ch08-vic acted in the step, read from `dry_clamp_step`
+   ({{< code src/implicit/implicit_hydro.hpp ImplicitHydroImpl::dry_clamp_step >}});
+3. and 4. the two limiter marks of @sec-ch08-eoslimiter, `limiter_marks` ({{< code src/eos/equation_of_state.hpp
+   EquationOfStateImpl::limiter_marks >}}): a floor patched an interior cell, and an interior NaN;
+5. the saturation adjustment's unconverged cells, row 0 of kintera's failure counter (@sec-ch08-satadj);
+6. the implicit solve's failure latch (@sec-ch06);
+7. the step's deferred vapour-repair failures (@sec-ch08-fixvapor);
+8. the ideal-moist heat-capacity latch.
+
+The marks, the vapour failures and the heat-capacity latch are slots of the block's `EfStatus` (@sec-ch08-efstatus).
+`read_redo_flags` ({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::read_redo_flags >}}) makes the one
+device-to-host copy and folds entries 7 and 8 into the limiter cause. `decide_retry`
+({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::decide_retry >}}) takes the maximum over the local blocks and,
+with a process group, over the ranks, so a hit in any block redoes every block. `apply_redo`
+({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::apply_redo >}}) prints the causes by name (`floor`, `clamp`,
+`limiter`, `nan`, `saturation`, `vic-solve`), rolls the flux register back, restores the state and resets the
+marks.
 
 **Why a margin, and why the marks are reset.** Three facts of the code.
 
-1. The test is `!(min > 1.001 * floor)`, a margin above the floor rather than equality
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::floor_hit >}}). So a floored cell nudged by a later operation is
-   still a hit. `[C7]` counts 15 of 15 nudges up to $10^{-3}$ relative, against 2 for equality.
+1. The test is `(min > 1.001 * floor).logical_not()`, a margin above the floor rather than equality
+   ({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}}). So a floored cell nudged by a
+   later operation is still a hit. `[C7]` counts 15 of 15 nudges up to $10^{-3}$ relative, against 2 for equality.
 2. The comparison is negated, so a NaN, which fails every comparison, counts as a hit.
 3. The marks are read after the floor test, whose conversion may mark a repair that then counts in this decision
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::local_redo_flag_tensor >}}). They are reset in `apply_redo` after
-   the redo is decided and the state restored, so the floor test's and the restore's conversions do not mark the
-   redone step ({{< code src/mesh/meshblock.cpp MeshBlockImpl::apply_redo >}}).
+   ({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}}). They are reset in `apply_redo`
+   after the redo is decided and the state restored, so the floor test's and the restore's conversions do not mark
+   the redone step ({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::apply_redo >}}).
 
 ### Code
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| the detector | {{< code src/mesh/meshblock.cpp MeshBlockImpl::floor_hit >}} | `floor_hit` | |
-| the margin above the floor | {{< code src/mesh/meshblock.cpp MeshBlockImpl::floor_hit >}} | `density_floor` | |
-| the implicit clamp accessor | {{< code src/mesh/meshblock.cpp MeshBlockImpl::vic_dry_clamp_hit >}} | `dry_clamp_step` | implicit on |
-| reading the limiter marks | {{< code src/mesh/meshblock.cpp MeshBlockImpl::limiter_hits >}} | `limiter_marks` | |
-| resetting after the redo is decided | {{< code src/mesh/meshblock.cpp MeshBlockImpl::apply_redo >}} | `reset_limiter_marks` | |
-| the decision | {{< code src/mesh/meshblock.cpp MeshBlockImpl::local_redo_flag_tensor >}} | `floor_hit` | |
+| the detector and the flag vector | {{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}} | `local_redo_flag_tensor` | |
+| the one host read, and the folding of the vapour and heat-capacity entries | {{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::read_redo_flags >}} | `read_redo_flags` | |
+| the reduction over blocks and ranks | {{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::decide_retry >}} | `decide_retry` | |
+| the implicit clamp accessor | {{< code src/implicit/implicit_hydro.hpp ImplicitHydroImpl::dry_clamp_step >}} | `dry_clamp_step` | implicit on |
+| reading the limiter marks | {{< code src/eos/equation_of_state.hpp EquationOfStateImpl::limiter_marks >}} | `limiter_marks` | |
+| resetting after the redo is decided | {{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::apply_redo >}} | `reset_limiter_marks` | |
 
 : Code map of the floor detector. {#tbl-ch08-redo-code}
 
 **How to use it.** Nothing is set; the detector reads the floors of @sec-ch08-eoslimiter. The floor test is
-these lines ({{< code src/mesh/meshblock.cpp MeshBlockImpl::floor_hit >}}):
+these lines ({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}}):
 
 ```cpp
   // negated so a NaN, which fails every comparison, counts as a hit
-  bool hit = !(w[IDN].min().item<double>() > 1.001 * eos->density_floor());
+  auto floor = (w[IDN].min() > 1.001 * eos->density_floor()).logical_not();
   if (w.size(0) > IPR) {  // shallow water carries no pressure row
-    hit = hit || !(w[IPR].min().item<double>() > 1.001 * eos->pressure_floor());
+    floor = floor.logical_or(
+        (w[IPR].min() > 1.001 * eos->pressure_floor()).logical_not());
   }
-  return hit;
 ```
 
 `w` is the primitive state restored from `hydro_u` on the interior, and `eos` the equation-of-state options. A
@@ -105,11 +121,11 @@ driver sees the result as the positive return of `check_redo` and repeats the cy
 
 The chapter's check ports the floor test on a just-floored cell.[^ch08-redo-run] `[C7]`: of 15 nudges from $10^{-16}$
 to $10^{-3}$ relative, the margin counts all 15 as hits and equality counts 2, so 13 are hits the margin keeps. A
-density $1.002$ times the floor is a hit under neither. The ctest has not been run for this report at the pin:
-**pending a pinned ctest run**.
+density $1.002$ times the floor is a hit under neither. The ctest passes at the pin, on CPU (the run record of
+@sec-ch08-theta).
 
-[^ch08-redo-run]: [sha: snapy@ccf40f9565642c32be69f4b9ef0cfa6daff3f201; deck: the check itself, synthetic numpy states;
-    run: `python3 src/snapy_report/ch08/checks/floors_check.py`, CPU, double, 1 process; Python 3.14.7, numpy 2.5.1; output
+[^ch08-redo-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the check itself, synthetic numpy states;
+    run: `python3 src/snapy_report/ch08/checks/floors_check.py`, CPU, double, 1 process; Python 3.13.15, numpy 2.4.6, sympy 1.14.0; output
     identical to the committed file]. Output
     `floors_check.out`, line `[C7]`.
 

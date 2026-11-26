@@ -142,6 +142,8 @@ Regenerate every figure: `python3 tools/render_figures.py` (to `build/figures/<c
 | figure | section file | code | data (written by) |
 |---|---|---|---|
 | `fig-ch08-deps` | `08-positivity.qmd` | `snapy_report/ch08/figures/fig_ch08_deps.py` | - |
+| `fig-ch08-satadj-order` | `08-positivity/_satadj.qmd` | `snapy_report/ch08/figures/fig_satadj_order.py`<br>`snapy_report/ch01/flow.py` | - |
+| `fig-ch08-sed-donor` | `08-positivity/_sed.qmd` | `snapy_report/ch08/figures/fig_sed_donor.py` | - |
 | `fig-ch08-theta-action` | `08-positivity/_theta.qmd` | `snapy_report/ch08/figures/fig_theta_action.py` | `src/snapy_report/ch08/data/theta_action.json` (`snapy_report/ch08/checks/positivity_check.py`) |
 | `fig-ch08-theta-stencil` | `08-positivity/_theta.qmd` | `snapy_report/ch08/figures/fig_theta_stencil.py` | - |
 

@@ -1,7 +1,7 @@
 ## The vapour column repair {#sec-ch08-fixvapor}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: OUTLINE.md 8, lifted out of scheme 8.5 as the outline recommends; chengcli/snapy#332 (PR body and squash-merge
          commit message)
 status: draft
@@ -93,9 +93,11 @@ fixed columns.
 ### Numerical method
 
 The repair is the lambda at `split` ({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}}). When the $x_1$ axis is split
-across ranks it gathers the column first, but only on a call made with `whole_column` true. The two calls of the stage
-pass it, after the multi-stage averaging and before the saturation adjustment (`whole_column`,
-{{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}), and every block of the column then calls together.
+across ranks it gathers the column first, but only on a call made with `whole_column` true. Two calls of the stage
+pass it: the one after the multi-stage averaging in `stage_combine`
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}}), and the one that opens the saturation
+adjustment in `stage_saturation` ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}};
+@sec-ch08-satadj). Every block of the column then calls together.
 The calls inside the equation-of-state conversions keep the default of `whole_column`, false
 ({{< code src/eos/equation_of_state.hpp EquationOfStateImpl >}}), and repair only the block's own piece of the
 column, so on a split axis their column-mass conservation holds per block piece.
@@ -107,7 +109,8 @@ column that cannot be repaired and fall back to a clamp at `clamp_min_`
 throw rather than copy a bad gathered column back, which is the check at `err`
 ({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}}). Inside a MeshBlock stage
 and in the conversion of `check_redo`, on the CPU and on CUDA alike, the failure is not raised at the call. The
-repair adds its count to a 0-d count, `vapor_failures_`: on CUDA the kernel adds it on the device with no read back,
+repair adds its count to a 0-d int32 count, the slot `kVaporFail` of the block's `EfStatus` (@sec-ch08-efstatus): on
+CUDA the kernel adds it on the device with no read back,
 and on the CPU the kernel returns it and the caller adds it. The column is copied back as the kernel left it.
 `check_redo` carries the count in its one device-to-host copy and turns a nonzero count into a redo of the step,
 which restores the step's start state (@sec-ch09-redo); stage 0 zeroes it. Every other call raises at once. A
@@ -147,8 +150,8 @@ the test. A deficit below the bound is still repaired; it only does not ask for 
 | the mark on the deficit | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}} | `species_before` | marks enabled |
 | the mark's bound | {{< code src/hydro/flux_positivity.cpp species_repair_mark >}} | `species_repair_mark` | |
 | vapour must succeed | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}} | `TORCH_CHECK` | `require_success` |
-| the count deferred to `check_redo` | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}} | `vapor_failures_` | in a stage or `check_redo`, CPU and CUDA |
-| the count becomes a redo | {{< code src/mesh/meshblock.cpp MeshBlockImpl::read_redo_flags >}} | `read_redo_flags` | count > 0 |
+| the count deferred to `check_redo`, in the `EfStatus` slot `kVaporFail` | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}} | `kVaporFail` | in a stage or `check_redo`, CPU and CUDA |
+| the count becomes a redo | {{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::read_redo_flags >}} | `read_redo_flags` | count > 0 |
 | clouds clamp instead | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}} | `clamp_min_` | parentless or unrepairable |
 
 : Code map of the vapour column repair. {#tbl-ch08-fixvapor-code}
@@ -158,7 +161,12 @@ kernel's count added in a step (`defer`) and the error raised outside one
 ({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}}):
 
 ```cpp
-      if (defer && err > 0) vapor_failures_ += err;  // the CPU returns it
+      bool defer = require_success && defer_vapor_check_;
+      auto sink = defer ? status.flag(EfStatus::kVaporFail, cons, torch::kInt)
+                        : torch::Tensor();
+      int err = at::native::call_fix_vapor(cons.device().type(), iter,
+                                           require_success, sink);
+      if (defer && err > 0) sink += err;  // the CPU returns it
       TORCH_CHECK(!require_success || defer || err == 0,
                   "[EquationOfState] apply_conserved_limiter_: "
                   "Failed to fix vapor mass fractions.");
@@ -172,20 +180,27 @@ The borrow is these lines of `fix_vapor_impl` ({{< code src/eos/fix_vapor_impl.h
 cell below the window and `is` its top:
 
 ```cpp
-    T share = donors > 0. ? deficit / donors : T(0.);
+    double share = donors > 0. ? deficit / donors : 0.;
     for (int j = is; j > i; --j) {
       vapor[j] = vapor[j] < 0. ? T(0.) : vapor[j] - vapor[j] * share;
     }
 ```
 
+`T` is the storage type of the vapour. The column sums, the deficit, the donors and the share are accumulated in
+double whatever `T` is, so a float32 column is repaired with FP64 sums and only the result is rounded to `T`.
+
 and the mark is these
 ({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}}):
 
 ```cpp
-      auto rho = cons.index(interior)[IDN] + species_before.sum(0);
+      auto rho = dry_total(cons).unsqueeze(0).index(interior)[0] +
+                 species_before.sum(0);
       auto tol = species_repair_mark(cons.scalar_type()) * rho.abs();
-      push_mark_(0, (species_before < -tol).any());
+      status.mark(0, (species_before < -tol).any());
 ```
+
+`dry_total` is the total dry density, the anomaly plus the reference where the block stores anomalies, and
+`status.mark` ORs into the patch mark of the block's `EfStatus` (@sec-ch08-efstatus).
 
 Refused: a vapour column that cannot be repaired, with the message above; a cloud column in the same state is
 clamped at zero instead.
@@ -216,8 +231,8 @@ $1.82\times10^{-13}$, a quarter of the bound $7.28\times10^{-13}$, the donor mov
 step is not marked. The second command of the footnote ran `test_fix_vapor_volume`, `test_eos` and `test_forcing`
 on the same build: every CPU case passed, in float32 and float64, and their CUDA cases were skipped. The three CPU
 Python failure ctests, `test_fix_vapor_reports_failure_python`, `test_fix_vapor_counts_every_column_python` and
-`test_fix_vapor_stale_count_python`, and `test_check_redo_vapor_deficit.release` passed at the pin; of the CUDA arms
-only the stale-count one was run, and it passed.[^ch08-fixvapor-pyrun]
+`test_fix_vapor_stale_count_python`, and `test_check_redo_vapor_deficit.release` passed at the pin; no CUDA arm was
+run.[^ch08-fixvapor-pyrun]
 
 ### Limits
 
@@ -241,11 +256,8 @@ only the stale-count one was run, and it passed.[^ch08-fixvapor-pyrun]
 
 [^ch08-fixvapor-alias]: Source: chengcli/snapy#332 (closes chengcli/snapy#330), the PR body and the commit message
     of its squash-merge, which is this book's pin.
-[^ch08-fixvapor-run]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck:
-    `tests/test_fix_vapor_deficit.yaml` and the column set in `tests/test_fix_vapor_deficit.cpp`; run: `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 ctest -R "test_fix_vapor_deficit|test_species_face_clamp" -V` and
-    `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 ctest -R "^test_eos\.release|^test_fix_vapor_volume\.release|^test_forcing\.release|test_cycle_diagnostics\.release" -V`, in the build's `tests` directory of a Release build (`cmake -B build -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DCUDA=OFF`), CPU, double (float32 cases as named), 1 process; GCC 13.3.1, CMake 3.26.5, Python 3.11.13, torch 2.10.0, kintera 2.6.6]. The printed lines are the test's own `printf` output.
-[^ch08-fixvapor-pyrun]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the columns the scripts and the
-    C++ test build; run: `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 PYTHONPATH="$SITE" ctest -R "test_forcing_species_clip|test_fix_vapor_reports_failure_python|test_fix_vapor_counts_every_column|test_fix_vapor_stale_count_python|test_check_redo_vapor_deficit" -V`, in the build's `tests` directory of a Release build (`cmake -B build -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DCUDA=OFF`), CPU, double (float32 cases as named), 1 process; GCC 13.3.1, Python 3.11.13, torch 2.10.0, numpy 2.4.6, kintera 2.6.6; `$SITE` is the directory the build was installed into with `pip install --no-deps --no-build-isolation --target`]: 5 of 5 passed. The CUDA arm `test_fix_vapor_stale_count_cuda_python` passed on a CUDA source build of the same commit (`-DCUDA=ON`, torch 2.10.0+cu126, one device of compute capability 6.1).
+[^ch08-fixvapor-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: `tests/test_fix_vapor_deficit.yaml` and the column set in `tests/test_fix_vapor_deficit.cpp`; run: the command of the run record of @sec-ch08-theta, restricted to the tests named here and with `-V` so that their own printed lines show; same build, CPU, versions as there]. The printed lines are the test's own `printf` output.
+[^ch08-fixvapor-pyrun]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the columns the scripts and the C++ test build; run: the command of the run record of @sec-ch08-theta, restricted to the tests named here and with `-V` so that their own printed lines show; same build, CPU, versions as there]. `test_fix_vapor_reports_failure_python`, `test_fix_vapor_counts_every_column_python`, `test_fix_vapor_stale_count_python` and `test_check_redo_vapor_deficit.release` passed; no CUDA arm was run.
 
 <!-- reader glossary notes -->
 [^rg-31bbd5b6a214]: $l$ — stencil offset index ($\bar\rho_{i+l}$); never $k$, which is the $x_3$ index
