@@ -115,7 +115,7 @@ void RiemannSolverImpl::reset() {
                           torch::empty({2, nc3, nc2, nc1}, torch::kFloat64));
   } else if (kind == RiemannKind::shallow_roe) {
     auto pcoord = phydro->pmb->pcoord;
-    if (pcoord->options->type() == "gnomonic_equiangle") {
+    if (pcoord->options->type() == "gnomonic-equiangle") {
       TORCH_CHECK(options->dir() == "yz",
                   "ShallowRoeSolver with GnomonicEquiangle coordinate "
                   "only supports options->dir() = 'yz' but got "
