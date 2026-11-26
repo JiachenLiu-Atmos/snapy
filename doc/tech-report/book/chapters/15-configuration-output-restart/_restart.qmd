@@ -1,0 +1,261 @@
+## Restart (`outputs: - type: restart`, `-r` or `--restart`) {#sec-ch15-restart}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (code_pin.yml)
+sources: src/output/restart.{hpp,cpp}, src/output/restart_metadata.hpp, src/mesh/meshblock_restart.cpp,
+         src/mesh/meshblock.{hpp,cpp}, src/output/output_type.cpp, examples/straka.cpp, python/csrc/pymesh.cpp,
+         python/csrc/snapy.cpp, tests/test_restart_bundle.cpp, tests/test_fp32_restart.py,
+         tests/test_restart_resume_schedule.py, tests/run_restart_*.py, tests/CMakeLists.txt, all read at the pin;
+         chengcli/snapy#367 (the metadata checks)
+status: draft
+author: Sihe Chen
+reviewer: Linfeng Li
+-->
+
+### Summary
+
+A restart file is the saved state of a run: every variable each block holds, the time and cycle, the output
+schedules, and, with anomaly storage, the reference the anomalies are measured from. A run resumes from it by
+reading its own block's part, checking that the file was written for this grid and this state layout, restoring
+the schedules by position and by key, and continuing from the saved time. The restart writer exists so that a
+long run can be cut into legs, and the metadata checks exist so that a file written for another grid, another
+precision or another storage form is refused instead of silently reinterpreted.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Saves each block's state and output schedule, bundles the blocks' parts into one file, and resumes a
+run from that file at the saved time and cycle.
+
+**Data.** Writes `<basename>.<NNNNN>.restart` (and `<basename>.final.restart` at the end of the run); on resume each
+block reads its own part by rank.
+
+**Placement.** `make_outputs` at the output's cadence and on the final call (write); `initialize` with a restart
+path, before the first step (read).
+
+**Activation.** `outputs: - type: restart` with `dt`; the driver's `-r <file>` (or `--restart`), or
+`initialize_from_restart` from Python. Default: no restart output.
+
+**Guarantee / limits.** The state is written in its own dtype on the host and read back bit for bit; a same-dtype
+resume continues the run bit for bit; a file for another grid, another metadata version or another stored dtype
+is refused. A resume needs the same block decomposition.
+
+**Evidence.** The Tests layer of this section, @tbl-ch15-restart-tests.
+:::
+
+Local symbols of this section: $t_r$ the time saved in the file [s]; $t_{\mathrm{next}}$ an output's saved next time
+[s]; $\Delta t_o$ its interval [s]; $N$ the number of outputs of the deck. *Aliases.* Lane O's item O7 (the merged
+writer, bundle and reader) in commit messages.
+
+### Derivation
+
+None: the section describes a file format and a resume protocol. Four invariants take the place of a derivation;
+each is a statement about the code at the pin, and the Tests layer names the test that holds it.
+
+1. *What is saved is the state, in its own dtype.* Every defined entry of the block's variables goes to the file
+   on the host, except the scalar primitives when the scalar conserved state is present (they are rebuilt), and
+   except a budget carry read from an earlier restart, in `RestartOutput::write_output_file`
+   ({{< code src/output/restart.cpp RestartOutput::write_output_file >}}). With anomaly storage the file also
+   holds the totals as `hydro_u`, the stored anomalies as `hydro_u_stored`, the reference `hydro_ref`, a metadata
+   pair `[1, bits]` with the stored dtype's width, the three face coordinates the reference was built on, the
+   species reference, and the solid fill values as totals; the names are `kHydroRestartMetadata`
+   ({{< code src/output/restart_metadata.hpp kHydroRestartMetadata >}}) and `kHydroReferenceGrid`
+   ({{< code src/output/restart_metadata.hpp kHydroReferenceGrid >}}).
+2. *A same-dtype resume is exact.* The totals are float64 and the anomalies keep their stored bits, so reading
+   `hydro_u_stored` back gives the same state the run had; stepping on from it gives the same bits as the
+   uninterrupted run, which `precision_cases` ({{< code tests/test_fp32_restart.py precision_cases >}}) checks.
+   A cross-precision resume rebuilds the state in the target dtype from the totals and is bounded by the test,
+   not exact.
+3. *The schedule is saved as advanced.* `make_outputs` advances an output's schedule only after writing it
+   (@eq-ch15-output-schedule). A restart written in the same pass therefore saves, for itself and for every
+   output after it that fires at this time, the file number and next time *as they will be after the pass*, so a
+   resumed run does not write the source restart or the other outputs' frames again; this is the schedule loop
+   of `RestartOutput::write_output_file` ({{< code src/output/restart.cpp RestartOutput::write_output_file >}}),
+   and `test_restart_resume_schedule.py` ({{< code tests/test_restart_resume_schedule.py >}}) states it as its
+   docstring. The saved schedules are keyed, legacy keys first and exact keys after them; the keys are
+   `OutputType::schedule_key` ({{< code src/output/output_type.cpp OutputType::schedule_key >}}) and
+   `OutputType::schedule_key_v2` ({{< code src/output/output_type.cpp OutputType::schedule_key_v2 >}}).
+4. *A file is refused unless it fits this block.* The metadata version must be 1; `hydro_ref` and
+   `hydro_u_stored` must be present; the stored dtype and shape must match the metadata and the totals; the
+   three saved face coordinates must equal this block's, bit for bit; and a `perturbation-flux` run needs the
+   original `hydro_ref` and `hydro_ref_species`, in `check_restart_metadata`
+   ({{< code src/output/restart.cpp check_restart_metadata >}}). A truncated bundle, a bundle without this
+   block's part, and a bundle with a broken index all throw in `load_restart`
+   ({{< code src/output/restart.cpp load_restart >}}).
+
+### Numerical method
+
+**Write.** `RestartOutput::write_output_file` ({{< code src/output/restart.cpp RestartOutput::write_output_file >}})
+gathers each block's variables on the host (invariant 1), adds `last_time` and `last_cycle`, then for every output
+of the block its file number and next time, advanced when the output fires in this pass (invariant 3), the
+outputs' carries (the budget interval; @sec-ch10), and the two key lists. It saves the map as a tensor archive
+`<basename>.block<r>.<NNNNN>.part`, or `.final.part` on the final call. A restart output is always combined: its
+constructor `RestartOutput::RestartOutput` ({{< code src/output/restart.cpp RestartOutput::RestartOutput >}})
+sets `combine` on.
+
+**Bundle.** `RestartOutput::combine_blocks` ({{< code src/output/restart.cpp RestartOutput::combine_blocks >}})
+runs under the same per-process protocol as the gridded writers (`combine_on_root`,
+{{< code src/output/writer_core.cpp combine_on_root >}}): the root collects the parts, removes a stale target,
+renames a single part, or writes a bundle with `make_restart_bundle`
+({{< code src/output/restart.cpp make_restart_bundle >}}): one magic line `SNAPY_RESTART_BUNDLE_V1`, the part
+count, one `<part name>\t<bytes>` line per part, an empty line, then the parts' bytes in index order. The parts
+are then removed. The result is `<output_dir>/<basename>.<NNNNN>.restart` or `<basename>.final.restart`.
+
+**Read.** `load_restart` ({{< code src/output/restart.cpp load_restart >}}) reads a file whose first line is not
+the magic as one block's archive, whole; for a bundle it parses the index, finds the entry whose part name carries
+`block<rank>` of this block (`part_rank`, {{< code src/output/restart.cpp part_rank >}}), copies its bytes to a
+temporary file, reads that as an archive and removes it. Python exposes the same reader as
+`snapy.load_restart(path, rank)` in the module definition `PYBIND11_MODULE`
+({{< code python/csrc/snapy.cpp PYBIND11_MODULE >}}).
+
+**Resume.** `MeshBlockImpl::_init_from_restart`
+({{< code src/mesh/meshblock_restart.cpp MeshBlockImpl::_init_from_restart >}}) is entered through
+`MeshBlockImpl::initialize` with a restart file ({{< code src/mesh/meshblock.cpp MeshBlockImpl::initialize >}}),
+the driver's `-r`/`--restart` argument (`ParseArguments`, {{< code examples/straka.cpp ParseArguments >}}) or
+`initialize_from_restart` from Python (bound in `bind_mesh`, {{< code python/csrc/pymesh.cpp bind_mesh >}}):
+
+1. A relative path that does not exist is looked up under `output_dir`; the block's part is read; `hydro_u`,
+   `last_time`, `last_cycle`, `file_number` and `next_time` must be present; the metadata checks run
+   (invariant 4).
+2. The cycle and time are restored from the file, so a run limited by `nlim`[^rg-92bdb6d45d3b] takes no extra step.
+3. The schedules are restored. When the file holds $2N$ keys the exact keys are used, else the legacy ones. An
+   output that still matches its own saved slot keeps it; an output whose key matches an unclaimed slot takes
+   that slot; an output with no match keeps its position when that slot is unclaimed. The file number always
+   follows the position, because the file name is `out<n>`. The next time is the saved one, except that a saved
+   time more than one interval past the resume is pulled to $t_r + \Delta t_o$ (a disabled output whose interval
+   was shrunk would otherwise never fire), and a new output joins the grid at $t_r - (t_r \bmod \Delta t_o)$.
+4. Each output loads its carry; the variables move to the block's device, the reference, metadata and carry
+   entries staying out of the variable map.
+5. With anomaly storage the file's reference is reused and the stored anomaly bits are taken as the state; a
+   file without a reference can only resume a single-block run, which rebuilds the reference from the restored
+   state at rest; the solid fill values are put in stored form too.
+6. With `perturbation-flux` the state is stored by the precision policy; a radiating boundary needs its saved
+   reference tensors; the timing entries are removed from the variables; the scalar primitives are rebuilt from
+   the conserved scalars; and the block's state store is reallocated and its executor entry invalidated, so the
+   next step adopts the new storage.
+
+All six steps are the body of `MeshBlockImpl::_init_from_restart`
+({{< code src/mesh/meshblock_restart.cpp MeshBlockImpl::_init_from_restart >}}), in this order.
+
+### Code
+
+**How to use it.** Write a restart every 3600 s and resume the run from the second one:
+
+```yaml
+outputs:
+  - type: restart
+    dt: 3600.
+  - type: netcdf
+    dt: 600.
+    variables: [prim]
+```
+
+```sh
+straka.release deck.yaml                       # the base leg
+straka.release deck.yaml -r deck.00002.restart  # resumes at the second restart's time
+```
+
+The resumed run continues the file numbers of every output from the saved schedule: with the deck above it writes
+`out1` frames from the next unwritten number, not from zero.
+
+**What is refused, and why.**
+
+- A file for another grid: "reference grid mismatch; remap totals and initialize a new background". A serialized
+  reference must never be attached to a different grid of the same shape; the check is in
+  `check_restart_metadata` ({{< code src/output/restart.cpp check_restart_metadata >}}).
+- Another metadata version, a stored dtype or shape that disagrees with the metadata, a file with metadata but
+  without `hydro_ref` and `hydro_u_stored`, and a `perturbation-flux` resume without the original references,
+  also in `check_restart_metadata` ({{< code src/output/restart.cpp check_restart_metadata >}}).
+- A truncated or malformed bundle, and a bundle with no part for this block, in `load_restart`
+  ({{< code src/output/restart.cpp load_restart >}}).
+- A multi-block anomaly run resuming from a file written without `hydro_ref`, and a radiating-boundary run
+  resuming from a file without its boundary references, in `MeshBlockImpl::_init_from_restart`
+  ({{< code src/mesh/meshblock_restart.cpp MeshBlockImpl::_init_from_restart >}}).
+
+**The excerpt.** Invariant 4, the checks of `check_restart_metadata`
+({{< code src/output/restart.cpp check_restart_metadata >}}):
+
+```cpp
+    TORCH_CHECK(meta[0].item<int64_t>() == kHydroRestartVersion,
+                "restart: unsupported hydro restart metadata version");
+    TORCH_CHECK(data.count("hydro_ref") && data.count("hydro_u_stored"),
+                "restart: metadata requires hydro_ref and hydro_u_stored");
+    auto const& stored = data.at("hydro_u_stored");
+    int bits = stored.scalar_type() == torch::kFloat32   ? 32
+               : stored.scalar_type() == torch::kFloat64 ? 64
+                                                         : 0;
+    TORCH_CHECK(bits && meta[1].item<int64_t>() == bits &&
+                    stored.sizes() == data.at("hydro_u").sizes(),
+                "restart: stored hydro dtype/shape disagrees with metadata");
+    for (int d = 0; d < 3; ++d) {
+      auto key = kHydroReferenceGrid[d];
+      TORCH_CHECK(data.count(key) &&
+                      torch::equal(data.at(key), grid[d].to(torch::kCPU)),
+                  "restart: reference grid mismatch at ", key,
+                  "; remap totals and initialize a new background");
+    }
+```
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| write a part, with the saved schedule | {{< code src/output/restart.cpp RestartOutput::write_output_file >}} | `RestartOutput::write_output_file` | `type: restart`, `dt` |
+| the schedule keys | {{< code src/output/output_type.cpp OutputType::schedule_key >}}, {{< code src/output/output_type.cpp OutputType::schedule_key_v2 >}} | `schedule_key`, `schedule_key_v2` | none |
+| bundle the parts | {{< code src/output/restart.cpp make_restart_bundle >}}, {{< code src/output/restart.cpp RestartOutput::combine_blocks >}} | `make_restart_bundle`, `RestartOutput::combine_blocks` | always on |
+| read a part | {{< code src/output/restart.cpp load_restart >}} | `load_restart` | `-r` |
+| the metadata checks | {{< code src/output/restart.cpp check_restart_metadata >}} | `check_restart_metadata` | anomaly, `perturbation-flux` |
+| the metadata names | {{< code src/output/restart_metadata.hpp kHydroRestartMetadata >}}, {{< code src/output/restart_metadata.hpp kHydroReferenceGrid >}} | `kHydroRestartMetadata`, `kHydroReferenceGrid` | none |
+| resume | {{< code src/mesh/meshblock_restart.cpp MeshBlockImpl::_init_from_restart >}} | `MeshBlockImpl::_init_from_restart` | `-r` |
+| the budget carry | {{< code src/output/restart.hpp BudgetCarry >}}, {{< code src/output/restart.cpp write_budget_carry >}}, {{< code src/output/restart.cpp read_budget_carry >}} | `BudgetCarry`, `write_budget_carry`, `read_budget_carry` | `type: budget` |
+| the driver argument | {{< code examples/straka.cpp ParseArguments >}} | `ParseArguments` | `-r`, `--restart` |
+| Python | {{< code python/csrc/pymesh.cpp bind_mesh >}}, {{< code python/csrc/snapy.cpp PYBIND11_MODULE >}} | `initialize_from_restart`, `load_restart` | none |
+
+: Code map of the restart writer and reader. {#tbl-ch15-restart-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `test_restart_bundle.release` `RestartBundle.four_blocks_read_back_their_own_variables` | a four-block Mesh writes one bundle and each block reads back its own `hydro_u` and `hydro_w` | `torch::equal` (bitwise) | {{< code tests/test_restart_bundle.cpp RestartBundle.four_blocks_read_back_their_own_variables >}} |
+| `test_restart_bundle.release` `RestartBundle.a_truncated_bundle_throws`, `a_block_missing_from_the_bundle_throws` | a bundle cut 100 bytes short, one cut inside its index, and a request for a block the bundle lacks all throw | `EXPECT_THROW(std::runtime_error)` | {{< code tests/test_restart_bundle.cpp RestartBundle.a_truncated_bundle_throws >}}, {{< code tests/test_restart_bundle.cpp RestartBundle.a_block_missing_from_the_bundle_throws >}} |
+| `test_restart_bundle.release` `RestartBundle.metadata_mismatches_are_still_refused` | a matching file passes; another grid of the same shape, stored bits that disagree with the metadata, and `perturbation-flux` without the species reference are refused | `EXPECT_NO_THROW`, `EXPECT_THROW(c10::Error)` | {{< code tests/test_restart_bundle.cpp RestartBundle.metadata_mismatches_are_still_refused >}} |
+| `test_restart_resume_schedule` | a base run writes restart and netcdf frames 0-2; a run resumed from restart 1 writes both from frame 2, so neither the source restart nor its $t_0$ frame is written again | exact file numbers | `main` ({{< code tests/test_restart_resume_schedule.py main >}}) |
+| `test_fp32_restart_python` `precision_cases` (plain, outflow, rest) | the metadata reads `[1, 32]` or `[1, 64]`; a same-dtype resume equals the saved state bit for bit and steps on bit for bit; the references read back as float64 bit for bit; a cross-precision resume stays within the bound; a legacy file without metadata is accepted; five rejections carry their messages; a changed `x1f` is refused | `torch.equal` (bitwise); normalised error $< 2\times10^{-5}$ over four steps (cross precision); exact message containment | {{< code tests/test_fp32_restart.py precision_cases >}} |
+| `test_fp32_restart_python` four-block and Jupiter arms | a four-block FP32 run resumed at step 5 is bit-identical to the uninterrupted run; the Jupiter hydro, scalar and chemistry state resumed at step 6 is bit-identical in both precisions | `torch.equal` (bitwise) | `main` ({{< code tests/test_fp32_restart.py main >}}) |
+| `test_restart_dt_change` | a restart output whose `dt` shrinks does not keep a next time computed from its former interval, so the resumed run writes frames | file presence (exact) | the driver's docstring ({{< code tests/run_restart_dt_change.py >}}) |
+| `test_restart_inplace_reorder` | an in-place resume with reordered output blocks never rewrites a frame the base leg completed, because the file counter follows the position | exact file numbers | the driver's docstring ({{< code tests/run_restart_inplace_reorder.py >}}) |
+| `test_restart_key_collision` | editing one output's interval to equal another's does not renumber the other (its own slot is kept first) | exact file numbers | the driver's docstring ({{< code tests/run_restart_key_collision.py >}}) |
+| `test_restart_output_schedule` | appended and inserted output streams preserve the restart schedules and file counters | exact file numbers | the driver's docstring ({{< code tests/run_restart_output_schedule.py >}}) |
+| `test_restart_multiblock` | a multi-block run resumes from its bundle | the driver test's own comparison (not read for this chapter) | its registration in {{< code tests/CMakeLists.txt >}} |
+
+: Tests of the restart writer and reader and the tolerance each uses. {#tbl-ch15-restart-tests}
+
+Every ctest entry of this table passed at the pin on a serial CPU run: 16 of the 16 tests selected for this
+chapter, among them `test_restart_bundle.release`, `test_fp32_restart_python`, `test_restart_resume_schedule`
+and the five `test_restart_*` driver tests, which ran the `straka` executable through
+`torchrun`.[^ch15-restart-run]
+
+[^ch15-restart-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own decks; run: `ctest -j 1 --timeout 1800 -R 'test_options_table|test_options_defaults|test_yaml_keys|test_user_output|test_combine_parts|test_restart_bundle|test_netcdf_cubed_lonlat|test_fp32_restart|test_restart_resume_schedule|test_restart_|test_netcdf_axis_attrs'` from the build directory of a CPU build (`-DCUDA=OFF -DNETCDF=ON -DPNETCDF=ON -DBUILD_EXAMPLES=ON -DCMAKE_BUILD_TYPE=Release`), one process, the driver tests through `torchrun`; torch 2.10.0+cu128, kintera 2.6.13, pyharp 2.7.17, snapy 2.14.4] All 16 passed. The driver tests (`test_restart_*`) run the `straka` executable through `torchrun`; on a host whose
+`torchrun` or compiled driver is not usable they fail for that reason, which a reviewer separates from a verdict
+on the code by rerunning the Python and gtest entries alone.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- A resume needs the same block decomposition: the bundle holds one part per block rank and each block reads
+  the part of its rank in `load_restart` ({{< code src/output/restart.cpp load_restart >}}); a different grid
+  is refused by the face check, a different number of blocks by the missing part.
+- Only the block's variables are saved. Counters a block keeps outside its variable map, the EfStatus slots of
+  @sec-ch08 and the register's monitor counts of @sec-ch10, are not in the file and start from the resume; the
+  budget interval is the one exception, carried by `BudgetCarry` ({{< code src/output/restart.hpp BudgetCarry >}}).
+- A multi-block anomaly run can only resume from a file that holds `hydro_ref`
+  (`MeshBlockImpl::_init_from_restart`, {{< code src/mesh/meshblock_restart.cpp MeshBlockImpl::_init_from_restart >}}).
+- The schedule keys hash the type, the interval and the variable names; two outputs that agree on all three are
+  distinguished by position only (`OutputType::schedule_key_v2`,
+  {{< code src/output/output_type.cpp OutputType::schedule_key_v2 >}}).
+- A cross-precision resume is not bit-exact; the state is rebuilt from the float64 totals in the target dtype,
+  as `precision_cases` ({{< code tests/test_fp32_restart.py precision_cases >}}) bounds it.
+- The restart writer always combines; a `combine: false` on a restart entry is overridden by
+  `RestartOutput::RestartOutput` ({{< code src/output/restart.cpp RestartOutput::RestartOutput >}}).
+:::
+
+<!-- reader glossary notes -->
+[^rg-92bdb6d45d3b]: nlim — maximum number of integration cycles
+<!-- end reader glossary notes -->

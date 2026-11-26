@@ -174,7 +174,7 @@
 
 *channel*, see **Cartesian grid**.
 
-*check_keys*, see **unknown keys rejected**.
+*check_keys*, see **unknown key, refused**; **unknown keys rejected**.
 
 *checkpoint*, see **restart**.
 
@@ -205,6 +205,8 @@
 *collectives*, see **global decisions across ranks**.
 
 *column split*, see **vertical split into several blocks**.
+
+*combine*, see **output files, combining the blocks**.
 
 **communication backends**: Communication backends: Gloo, UCX through commux, an external group, @sec-ch14-backends.
 
@@ -314,6 +316,8 @@
 
 **CUDA**: Accumulate and combine one stage, @sec-ch01-stage. See also **build options**; **GPU**.
 
+*cuda-graph*, see **execution key**.
+
 *CUDA kernels*, see **GPU kernels, CPU and CUDA dispatch**.
 
 **curvature terms**: Geometric sources on the spherical-polar grid: placement in the stage, @sec-ch04-sphsrc.
@@ -340,6 +344,8 @@
 
 **deck**: [Install and run](#sec-preface-install).
 
+**deck file, how keys are read**: Options schema and YAML keys (the deck file), @sec-ch15-options.
+
 **deck keys, full list**: Deck key reference, @sec-appi.
 
 *deck option reference*, see **deck keys, full list**.
@@ -357,6 +363,8 @@
 *default values of deck keys*, see **default of a YAML key**.
 
 **defaults, scheme settings**: YAML scheme selection and setup guards, @sec-ch12-yaml.
+
+**defaults, where they are defined**: Options schema and YAML keys (the deck file), @sec-ch15-options.
 
 **defaults, where they come from**: Build options from YAML and reject unknown keys, @sec-ch01-options.
 
@@ -434,6 +442,8 @@
 
 *domain decomposition*, see **decomposition into blocks**.
 
+*domain_decomposition*, see **output files, combining the blocks**.
+
 *domain size*, see **grid definition**.
 
 **$\dot q$**: [4. Operators and averages](#sec-appa-4).
@@ -442,7 +452,7 @@
 
 *double precision*, see **precision**.
 
-*double_precision*, see **precision, output files**.
+*double_precision*, see **output precision**; **precision, output files**.
 
 *drift per step*, see **conservation budget, measured drift**.
 
@@ -471,6 +481,8 @@
 **$E$**: [2. State, thermodynamics and species](#sec-appa-2).
 
 **$e$**: [2. State, thermodynamics and species](#sec-appa-2).
+
+*eager*, see **execution key**.
 
 **edges and corners**: Cross-panel ghost interpolation, @sec-ch03-csinterp.
 
@@ -560,6 +572,10 @@
 
 *every YAML key*, see **deck keys, full list**.
 
+**`execution`**: Options schema and YAML keys (the deck file), @sec-ch15-options.
+
+**execution key**: Options schema and YAML keys (the deck file), @sec-ch15-options.
+
 **`external`**: Construct a MeshBlock and its modules, @sec-ch01-construction.
 
 **external components**: External component interfaces, @sec-appe-components.
@@ -582,6 +598,8 @@
 
 *field registration*, see **adding an output field**.
 
+*file numbers after restart*, see **restart, schedule after resume**.
+
 *find_package*, see **dependencies**.
 
 **finite volume method**: The finite-volume update and the flux divergence, @sec-ch04-divergence.
@@ -595,6 +613,8 @@
 *fixed point of the step*, see **steady state**.
 
 *float32*, see **precision**.
+
+*float32 output*, see **output precision**.
 
 *float32 vs float64*, see **precision**.
 
@@ -655,6 +675,8 @@
 **$\gamma$**: [2. State, thermodynamics and species](#sec-appa-2).
 
 **`gammad`**: Constant-heat-capacity moist mixture, @sec-ch02-ideal-moist.
+
+*gen_options*, see **deck file, how keys are read**.
 
 **geometric source terms, cubed sphere**: Geometric sources and the face frame on the gnomonic cubed sphere: placement in the stage, @sec-ch04-gnomonic.
 
@@ -790,6 +812,8 @@
 
 *hydro increment*, see **what happens in one step**.
 
+*hydro_u_stored*, see **restart, what it saves**.
+
 *hydrostatic balance*, see **well-balanced scheme**.
 
 *hydrostatic initialization*, see **balanced initial state**.
@@ -866,6 +890,8 @@
 
 *import snapy*, see **Python interface**.
 
+*include_ghost_zones*, see **output slices and sums**.
+
 **incompatible settings refused**: YAML scheme selection and setup guards, @sec-ch12-yaml.
 
 **index direction in x1**: Conventions at a glance, @sec-appa-conventions.
@@ -893,6 +919,8 @@
 **`integration`**: Driver loop and accepted steps, @sec-ch01-driver.
 
 *integration block*, see **driver loop**.
+
+*integration/execution*, see **execution key**.
 
 *integration type*, see **time integrator**.
 
@@ -1186,6 +1214,8 @@
 
 *NetCDF totals*, see **conservation from output files**.
 
+*netcdf writer*, see **output files, NetCDF and PnetCDF**.
+
 *netCDF4*, see **output, reading in Python**.
 
 *new diagnostic*, see **adding an output field**.
@@ -1232,6 +1262,8 @@
 
 **numerical diffusion/dissipation**: Isotropic viscosity and heat conduction, @sec-ch07-viscosity.
 
+*NumFilesInSet*, see **output files, combining the blocks**.
+
 **`nx1`**: Construct a MeshBlock and its modules, @sec-ch01-construction.
 
 **`nx2`**: Construct a MeshBlock and its modules, @sec-ch01-construction.
@@ -1252,11 +1284,17 @@
 
 **$\operatorname{cov}_i(a,b)$**: [4. Operators and averages](#sec-appa-4).
 
+*option defaults*, see **defaults, where they are defined**.
+
+*option tables*, see **deck file, how keys are read**.
+
 **options object**: Build options from YAML and reject unknown keys, @sec-ch01-options.
 
 *outflow*, see **boundary condition, open**.
 
 **output**: NetCDF output: per-block files and the combine, @sec-ch14-netcdf.
+
+**`output_dir`**: Output writers, @sec-ch15-output.
 
 *output dt*, see **output frequency**.
 
@@ -1266,21 +1304,35 @@
 
 **output files, combining per-block**: NetCDF output: per-block files and the combine, @sec-ch14-netcdf.
 
+**output files, combining the blocks**: Output writers, @sec-ch15-output.
+
+**output files, NetCDF and PnetCDF**: Output writers, @sec-ch15-output.
+
+*output frames*, see **output files, NetCDF and PnetCDF**.
+
 **output frequency**: Output scheduling, statistics and termination, @sec-ch14-schedule.
 
 **output, parallel**: PnetCDF output, @sec-ch14-pnetcdf.
+
+**output precision**: Output writers, @sec-ch15-output.
 
 **output, reading in Python**: NetCDF output: per-block files and the combine, @sec-ch14-netcdf.
 
 *output schedule*, see **output frequency**.
 
+**output slices and sums**: Output writers, @sec-ch15-output.
+
+*output_sumx1*, see **output slices and sums**.
+
 **output, time averages**: Output scheduling, statistics and termination, @sec-ch14-schedule.
+
+**output, time-weighted statistics**: Output writers, @sec-ch15-output.
 
 *output units*, see **units, of output fields**.
 
 **output variables**: Output-field diagnostics: `div`, `curl`, `theta_v`, `ic_*`, paths and means on request, @sec-ch13-output-diag.
 
-**`outputs`**: Output-field diagnostics: `div`, `curl`, `theta_v`, `ic_*`, paths and means on request, @sec-ch13-output-diag.
+**`outputs`**: Output writers, @sec-ch15-output.
 
 ## P {.unnumbered .unlisted}
 
@@ -1358,6 +1410,8 @@
 
 *PnetCDF*, see **output, parallel**.
 
+*pnetcdf writer*, see **output files, NetCDF and PnetCDF**.
+
 *point primitives*, see **cell average to point value, x1 conversion**.
 
 **pole, spherical-polar time step**: Choosing a grid: Cartesian, spherical-polar or cubed sphere, @sec-ch03-choosing.
@@ -1401,6 +1455,8 @@
 *pressure floor*, see **floors, density and pressure**.
 
 **pressure from energy**: Ideal gas conversion, @sec-ch02-ideal-gas.
+
+*prim_stat*, see **output, time-weighted statistics**.
 
 *primitive and conserved rows*, see **conventions at a glance**.
 
@@ -1506,6 +1562,8 @@
 
 *redo causes*, see **log messages, rejected steps**.
 
+*reference grid mismatch*, see **restart, refused files**.
+
 *reference profile*, see **hydrostatic reference state**.
 
 **`reference-state`**: EOS interface and dispatch, @sec-ch02-interface.
@@ -1521,6 +1579,8 @@
 **`relax-bot-velo`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
 **relaxation at the bottom**: Bottom relaxation of temperature, velocity and composition, @sec-ch07-relax.
+
+*report text*, see **defaults, where they are defined**.
 
 *repository layout*, see **source tree**.
 
@@ -1538,13 +1598,25 @@
 
 **restart**: Restart files: write, bundle, read, @sec-ch14-restart.
 
+*restart bundle*, see **restart, what it saves**.
+
 **restart file**: Restart files: write, bundle, read, @sec-ch14-restart. See also **restart**.
 
 **restart file, starting from**: Initialize primitives, ghosts and conserved states, @sec-ch01-initialization.
 
 **restart, from a checkpoint**: Restart files: write, bundle, read, @sec-ch14-restart.
 
+*restart metadata*, see **restart, what it saves**.
+
+*restart metadata version*, see **restart, refused files**.
+
+**restart, refused files**: Restart, @sec-ch15-restart.
+
+**restart, schedule after resume**: Restart, @sec-ch15-restart.
+
 **restart test**: Driver loop and accepted steps, @sec-ch01-driver.
+
+**restart, what it saves**: Restart, @sec-ch15-restart.
 
 *resume a run*, see **restart**.
 
@@ -1644,7 +1716,11 @@
 
 *scalar block*, see **passive scalars**.
 
+*scalar_stat*, see **output, time-weighted statistics**.
+
 **`scale`**: Donor cell, @sec-ch04-dc.
+
+*schedule keys*, see **restart, schedule after resume**.
 
 *scheme keys*, see **input file keys**.
 
@@ -1972,6 +2048,10 @@
 
 **units, of output fields**: NetCDF output: per-block files and the combine, @sec-ch14-netcdf.
 
+*unknown key error*, see **unknown key, refused**.
+
+**unknown key, refused**: Options schema and YAML keys (the deck file), @sec-ch15-options.
+
 **unknown keys rejected**: Build options from YAML and reject unknown keys, @sec-ch01-options.
 
 **`upper-bound`**: Transport passive scalars with dry mass, @sec-ch01-scalar.
@@ -2010,7 +2090,7 @@
 
 *variable order*, see **state vector layout**.
 
-**`variables`**: Output-field diagnostics: `div`, `curl`, `theta_v`, `ic_*`, paths and means on request, @sec-ch13-output-diag.
+**`variables`**: Output writers, @sec-ch15-output.
 
 **$\varphi$**: [1. Coordinates and grids](#sec-appa-1).
 
@@ -2152,6 +2232,8 @@
 
 *x1 seams*, see **vertical split into several blocks**.
 
+*x1_slice*, see **output slices and sums**.
+
 **`x1max`**: One global grid, sliced per block, @sec-ch03-globalgrid.
 
 **`x1min`**: One global grid, sliced per block, @sec-ch03-globalgrid.
@@ -2195,6 +2277,8 @@
 **$y_n$**: [2. State, thermodynamics and species](#sec-appa-2).
 
 **YAML**: Construct a MeshBlock and its modules, @sec-ch01-construction.
+
+*YAML deck*, see **deck file, how keys are read**.
 
 *YAML input*, see **input file, how it is read**.
 

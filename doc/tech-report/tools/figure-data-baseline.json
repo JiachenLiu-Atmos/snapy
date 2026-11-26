@@ -31560,5 +31560,9 @@
  "fig-ch16-evidence": {
   "chapter": "ch16",
   "series": {}
+ },
+ "fig-ch15-deps": {
+  "chapter": "ch15",
+  "series": {}
  }
 }

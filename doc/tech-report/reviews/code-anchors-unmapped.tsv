@@ -603,3 +603,42 @@ chapters/01-overview/_stage.qmd	148	enclosing definition: `pintg` is not a symbo
 chapters/01-overview/_stage.qmd	149	enclosing definition: `pthermo` is not a symbol at the pin; cited MeshBlockImpl::advance_local	{{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}
 chapters/01-overview/_stage.qmd	150	enclosing definition: `cw` is not a symbol at the pin; cited HydroImpl::forward	{{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}
 chapters/14-parallelism-io/_netcdf.qmd	196	w is a local variable; cite its enclosing loader definition	{{< code src/output/load_diag_output_data.cpp OutputType::loadDiagOutputData >}}
+chapters/15-configuration-output-restart/_options.qmd	51	the module docstring and column constants at the head of the file, no enclosing definition	{{< code tools/gen_options.py >}}
+chapters/15-configuration-output-restart/_options.qmd	59	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/hydro.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	64	the module docstring and column constants at the head of the file, no enclosing definition	{{< code tools/gen_options.py >}}
+chapters/15-configuration-output-restart/_options.qmd	67	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/output.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	72	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/coord.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	73	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/hydro.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	74	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/layout.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	75	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/output.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	76	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/internal_boundary.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	78	top-level CMake: the generator step is not a symbol	{{< code CMakeLists.txt >}}
+chapters/15-configuration-output-restart/_options.qmd	81	a generated stub block between marker comments, no enclosing definition	{{< code python/snapy/hydro.pyi >}}
+chapters/15-configuration-output-restart/_options.qmd	82	a generated stub block between marker comments, no enclosing definition	{{< code python/snapy/output.pyi >}}
+chapters/15-configuration-output-restart/_options.qmd	84	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/hydro.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	167	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/hydro.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	195	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/hydro.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	195	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/output.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	195	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/coord.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	195	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/layout.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	195	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/internal_boundary.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	196	the module docstring and column constants at the head of the file, no enclosing definition	{{< code tools/gen_options.py >}}
+chapters/15-configuration-output-restart/_options.qmd	196	top-level CMake: the generator step is not a symbol	{{< code CMakeLists.txt >}}
+chapters/15-configuration-output-restart/_options.qmd	202	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/hydro.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	203	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/layout.yaml >}}
+chapters/15-configuration-output-restart/_options.qmd	218	a gtest suite cited as a whole: the row covers every TEST of the suite	{{< code tests/test_options_defaults.cpp >}}
+chapters/15-configuration-output-restart/_options.qmd	219	a gtest suite cited as a whole: the row covers every TEST of the suite	{{< code tests/test_yaml_keys.cpp >}}
+chapters/15-configuration-output-restart/_options.qmd	240	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/layout.yaml >}}
+chapters/15-configuration-output-restart/_output.qmd	217	the NETCDF=OFF stub is compiled conditionally and carries no symbol at the pin	{{< code src/output/netcdf.cpp >}}
+chapters/15-configuration-output-restart/_output.qmd	256	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/output.yaml >}}
+chapters/15-configuration-output-restart/_output.qmd	259	a YAML option table: rows are not ctags symbols; the file is cited and the row named in the prose	{{< code src/options/output.yaml >}}
+chapters/15-configuration-output-restart/_output.qmd	306	a gtest suite cited as a whole: the row covers every TEST of the suite	{{< code tests/test_user_output.cpp >}}
+chapters/15-configuration-output-restart/_output.qmd	313	a gtest suite cited as a whole: the row covers every TEST of the suite	{{< code tests/test_user_output.cpp >}}
+chapters/15-configuration-output-restart/_output.qmd	315	a gtest suite cited as a whole: the row covers every TEST of the suite	{{< code tests/test_user_output.cpp >}}
+chapters/15-configuration-output-restart/_output.qmd	316	a gtest suite cited as a whole: the row covers every TEST of the suite	{{< code tests/test_combine_parts.cpp >}}
+chapters/15-configuration-output-restart/_restart.qmd	72	the docstring states the invariant, no enclosing definition	{{< code tests/test_restart_resume_schedule.py >}}
+chapters/15-configuration-output-restart/_restart.qmd	222	a driver script whose claim is its docstring, no enclosing definition	{{< code tests/run_restart_dt_change.py >}}
+chapters/15-configuration-output-restart/_restart.qmd	223	a driver script whose claim is its docstring, no enclosing definition	{{< code tests/run_restart_inplace_reorder.py >}}
+chapters/15-configuration-output-restart/_restart.qmd	224	a driver script whose claim is its docstring, no enclosing definition	{{< code tests/run_restart_key_collision.py >}}
+chapters/15-configuration-output-restart/_restart.qmd	225	a driver script whose claim is its docstring, no enclosing definition	{{< code tests/run_restart_output_schedule.py >}}
+chapters/15-configuration-output-restart/_restart.qmd	226	a ctest registration, not a symbol	{{< code tests/CMakeLists.txt >}}

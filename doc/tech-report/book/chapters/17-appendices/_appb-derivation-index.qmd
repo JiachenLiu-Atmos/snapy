@@ -22,6 +22,7 @@ Every derivation the written chapters carry, read from their Derivation layers: 
 | @sec-ch12 | {{< generated appb ch12.schemes >}} | {{< generated appb ch12.with-eq >}} | {{< generated appb ch12.equations >}} | {{< generated appb ch12.exists >}} | {{< generated appb ch12.re-derived >}} | {{< generated appb ch12.with-check >}} |
 | @sec-ch13 | {{< generated appb ch13.schemes >}} | {{< generated appb ch13.with-eq >}} | {{< generated appb ch13.equations >}} | {{< generated appb ch13.exists >}} | {{< generated appb ch13.re-derived >}} | {{< generated appb ch13.with-check >}} |
 | @sec-ch14 | {{< generated appb ch14.schemes >}} | {{< generated appb ch14.with-eq >}} | {{< generated appb ch14.equations >}} | {{< generated appb ch14.exists >}} | {{< generated appb ch14.re-derived >}} | {{< generated appb ch14.with-check >}} |
+| @sec-ch15 | {{< generated appb ch15.schemes >}} | {{< generated appb ch15.with-eq >}} | {{< generated appb ch15.equations >}} | {{< generated appb ch15.exists >}} | {{< generated appb ch15.re-derived >}} | {{< generated appb ch15.with-check >}} |
 | total | {{< generated appb schemes >}} | {{< generated appb with-eq >}} | {{< generated appb equations >}} | {{< generated appb exists >}} | {{< generated appb re-derived >}} | {{< generated appb with-check >}} |
 
 : Derivations per chapter. {#tbl-appb-summary}
@@ -53,3 +54,5 @@ Every derivation the written chapters carry, read from their Derivation layers: 
 {{< include 17-appendices/_appb-ch13.qmd >}}
 
 {{< include 17-appendices/_appb-ch14.qmd >}}
+
+{{< include 17-appendices/_appb-ch15.qmd >}}

@@ -604,7 +604,9 @@
       "term": "dt",
       "meaning": "time-step duration",
       "meaning_by_file": {
-        "chapters/14-parallelism-io.qmd": "output interval"
+        "chapters/14-parallelism-io.qmd": "output interval",
+        "chapters/15-configuration-output-restart/_output.qmd": "output interval",
+        "chapters/15-configuration-output-restart/_restart.qmd": "output interval"
       },
       "section": "sec-ch09-vic-assembly",
       "not_defined_here": true
@@ -718,15 +720,15 @@
       "kind": "key",
       "term": "outputs",
       "meaning": "output-stream configuration",
-      "section": "sec-ch13-output-diag",
-      "not_defined_here": true
+      "section": "sec-ch15-output",
+      "not_defined_here": false
     },
     {
       "kind": "key",
       "term": "variables",
       "meaning": "variables requested by an output stream",
-      "section": "sec-ch13-output-diag",
-      "not_defined_here": true
+      "section": "sec-ch15-output",
+      "not_defined_here": false
     },
     {
       "kind": "key",
@@ -2544,6 +2546,20 @@
       "kind": "concept",
       "term": "steady state",
       "section": "sec-ch09-vic-steady",
+      "not_defined_here": false
+    },
+    {
+      "kind": "key",
+      "term": "execution",
+      "meaning": "run mode of the integrator: auto, eager or cuda-graph",
+      "section": "sec-ch15-options",
+      "not_defined_here": false
+    },
+    {
+      "kind": "key",
+      "term": "output_dir",
+      "meaning": "directory the output and restart files are written to",
+      "section": "sec-ch15-output",
       "not_defined_here": false
     }
   ]

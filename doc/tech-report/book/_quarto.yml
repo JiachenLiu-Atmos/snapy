@@ -42,6 +42,7 @@ book:
     - chapters/12-configuration.qmd
     - chapters/13-diagnostics.qmd
     - chapters/14-parallelism-io.qmd
+    - chapters/15-configuration-output-restart.qmd
     - chapters/16-verification.qmd
     - chapters/17-known-limits.qmd
   appendices:

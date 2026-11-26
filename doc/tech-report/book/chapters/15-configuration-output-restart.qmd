@@ -1,0 +1,66 @@
+# Configuration, output and restart {#sec-ch15}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (code_pin.yml)
+sources: STRUCTURE.md chapter 15 (15.1-15.3); src/options/*.yaml, tools/gen_options.py, src/input/check_keys.cpp,
+         src/mesh/meshblock_options.cpp, src/hydro/hydro_options.cpp, src/mesh/meshblock.cpp,
+         src/mesh/meshblock_output.cpp, src/mesh/mesh.cpp, src/output/output_type.{hpp,cpp},
+         src/output/writer_core.{hpp,cpp}, src/output/netcdf.cpp, src/output/pnetcdf.cpp,
+         src/output/combine_netcdf.cpp, src/output/combine_parts.cpp, src/output/output_utils.{hpp,cpp},
+         src/output/restart.{hpp,cpp}, src/output/restart_metadata.hpp, src/mesh/meshblock_restart.cpp,
+         examples/straka.cpp, python/csrc/pymesh.cpp, python/csrc/snapy.cpp and the tests named in each Tests
+         layer, all read at the pin; chengcli/snapy#367 (the restart metadata checks)
+status: draft
+author: Sihe Chen
+reviewer: Linfeng Li
+-->
+
+This chapter is about the three places where a run meets the outside world. A run starts from a YAML[^rg-7a2c673d547c] deck:
+@sec-ch15-options explains how the deck's keys become the options of every module, where each key's default and
+its checks are defined, and how an unknown key is refused. While it runs, the model writes gridded output:
+@sec-ch15-output follows a frame from the block's tensors to a NetCDF or PnetCDF file, through the slices, sums
+and time-weighted statistics the deck can ask for, and through the step that joins the files of all blocks. A run
+can also save its whole state and resume from it later: @sec-ch15-restart describes the restart file, what it
+holds, how it is bundled over blocks, and how a resumed run continues its output schedule without writing a frame
+twice.
+
+Three neighbouring topics are elsewhere. Which boundary a face gets, and what the names mean, is @sec-ch14; this
+chapter only shows where the `boundary-condition`[^rg-1e296ee737f4] keys are read. The `distribute`[^rg-6422110faeed] keys and the block layout are
+@sec-ch13. The execution keys (`integration/execution`) are @sec-ch11, and the budget output (`type: budget`) is
+part of @sec-ch10. @sec-appd lists the environment variables, and @sec-appi lists every deck key with its default.
+
+The three sections depend on each other in one direction, as @fig-ch15-deps shows: the deck reader of
+@sec-ch15-options builds the output entries that @sec-ch15-output writes, and the restart of @sec-ch15-restart
+saves and restores the schedule those writers advance.
+
+```{python}
+#| label: fig-ch15-deps
+#| fig-cap: "Dependency map of the three sections. A solid arrow reads 'requires'. The output writers are built from the entries the deck reader produces; the restart writer is one of those entries, runs under the writers' combine protocol, and saves the schedule the gridded writers advance."
+#| fig-alt: "Directed graph of three nodes labelled options schema, output writers and restart, with solid arrows from output writers to options schema and from restart to both."
+#| echo: false
+from snapy_report.ch15.figures.fig_deps import make_fig
+make_fig()
+```
+
+| scheme | switch | default | order | main test |
+|---|---|---|---|---|
+| Options schema (@sec-ch15-options) | the deck file | every table row at its default | exact (a schema) | `test_options_table` |
+| Output writers (@sec-ch15-output) | `outputs: - type: netcdf` or `pnetcdf` | no outputs | float32 storage, $2^{-24}$ relative | `test_user_output` |
+| Restart (@sec-ch15-restart) | `outputs: - type: restart`; `-r` | no restart output | bit for bit at the same dtype | `test_restart_bundle` |
+
+: The sections of this chapter, their switches and defaults, the precision each guarantees, and the test that
+carries each one. Full ctest names and their tolerances are in each section's Tests layer. {#tbl-ch15-schemes}
+
+{{< include 15-configuration-output-restart/_options.qmd >}}
+
+{{< include 15-configuration-output-restart/_output.qmd >}}
+
+{{< include 15-configuration-output-restart/_restart.qmd >}}
+
+<!-- reader glossary notes -->
+[^rg-7a2c673d547c]: YAML — YAML Ain't Markup Language, the structured input format used for decks
+
+[^rg-1e296ee737f4]: boundary-condition — boundary options: `external` boundary-function names for the domain faces and `internal` solid-cell settings
+
+[^rg-6422110faeed]: distribute — domain-distribution options
+<!-- end reader glossary notes -->

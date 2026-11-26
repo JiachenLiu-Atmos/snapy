@@ -222,6 +222,12 @@ Regenerate every figure: `python3 tools/render_figures.py` (to `build/figures/<c
 | `fig-ch13-regression` | `13-diagnostics/_regression.qmd` | `snapy_report/ch13/figures/fig_regression_matrix.py` | - |
 | `fig-ch13-vicclamp` | `13-diagnostics/_vicclamp.qmd` | `snapy_report/ch13/figures/fig_vicclamp.py` | - |
 
+## ch15
+
+| figure | section file | code | data (written by) |
+|---|---|---|---|
+| `fig-ch15-deps` | `15-configuration-output-restart.qmd` | `snapy_report/ch15/figures/fig_deps.py`<br>`snapy_report/ch15/_draw.py` | - |
+
 ## ch16
 
 | figure | section file | code | data (written by) |
