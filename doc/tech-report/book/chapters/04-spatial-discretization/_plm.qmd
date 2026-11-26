@@ -158,7 +158,7 @@ option: the harmonic mean is hard-coded, and a key such as `limiter` is refused 
 
 `[C3]` holds symbolically, with smooth-limit face error $-\tfrac{a_2}{6}h^2$; `[C5]` finds no TVD violation in
 20 000 random triples and a face value equal to the cell value at every extremum.[^plm-run] `test_plm.release`
-passes at the pin on CPU, one rank (@tbl-ch04-ctest-run). No test measures the order of PLM on a refinement
+passed in the recorded run of @tbl-ch04-ctest-run (CPU, one rank). No test measures the order of PLM on a refinement
 ladder.
 
 [^plm-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: the checks themselves; run:

@@ -101,7 +101,7 @@ dynamics:
 
 **What the parser accepts and refuses.** The framework's rules apply (@sec-ch04-framework). Only `cp3` and `cp5`
 are registered: `cp2`, `cp4`, `cp6` and the upwind-biased `bp2`, `bp3`, `bp5` exist only as templates in
-`interp_simple.hpp`, and naming them is refused ("Interp: unknown type").
+`tests/interp_simple.hpp`, and naming them is refused ("Interp: unknown type").
 
 **The excerpt.** The buffer of `InterpImpl::reset` ({{< code src/recon/reconstruct.cpp InterpImpl::reset >}})
 and the kernel ({{< code src/recon/recon_point.h poly_point >}}):
@@ -144,8 +144,10 @@ loop is the dot product of step 1 of the round-off argument.
 : Tests of the centred polynomials. {#tbl-ch04-cp-tests}
 
 `[C4]` of `derivation_check.py` and `[C1]` of `recon_check.py` hold symbolically; `[C4]` of `recon_check.py`
-fits 3.02 and 5.02 on a monotone profile.[^cp-run] `test_weno.release` passes at the pin on CPU, one rank
-(@tbl-ch04-ctest-run). No ctest selects `cp3` or `cp5` as a deck's type.
+fits 3.02 and 5.02 on a monotone profile.[^cp-run] `test_weno.release` passed in the recorded run of
+@tbl-ch04-ctest-run (CPU, one rank). Decks with `type: cp5` are run by `test_cp5_nghost.release`,
+`test_radial_order_python` and `test_graph_positivity_meters_match_eager_python`; `cp3` is set in a deck only to
+be refused on a stretched $x_1$ (`test_x1_stretched_refusal.release`).
 
 [^cp-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: the checks themselves; run:
     `python3 src/snapy_report/ch04/checks/derivation_check.py`

@@ -88,8 +88,9 @@ The code is the only record of the split; no source states a reason for it.
 
 1. *Two interpolants per reconstruction.* `reset` builds `pinterp1` and `pinterp2` from the same options, named
    `interp1` and `interp2`.
-2. *The names select the partner.* `InterpImpl::create` returns the named type for both, except that for
-   `weno3` and `weno5` it returns `Center3Interp` and `Center5Interp` when the module name ends in `2`.
+2. *The scheme selects the partner.* `ReconstructImpl::reset` builds `interp1` with the parsed scheme and
+   `interp2` with `velocity_pressure_scheme` of it: `cp3` for `weno3`, `cp5` for `weno5`, the scheme itself
+   otherwise. `InterpImpl::create` takes the `Scheme` and does not read the module name.
 3. *The rows.* With `shock: false`, `forward` reconstructs the density row with `pinterp1`, the velocity and
    pressure rows with `pinterp2`, and the species rows with `pinterp1`.
 4. *Hence under `weno5` velocity and pressure are fifth-order linear and unlimited*, while density and tracers
@@ -197,7 +198,7 @@ The `shock` branch is step 4 of the row split; the three calls below it are step
 | a block with fewer ghosts is refused | {{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}} | `stencils() / 2 + 1` | the block's `nghost` |
 | shock branch | {{< code src/recon/reconstruct.cpp ReconstructImpl::forward >}} | `shock` | `shock: true` |
 | density, velocity and pressure, tracers | {{< code src/recon/reconstruct.cpp ReconstructImpl::forward >}} | `pinterp2` | |
-| which interpolant is `interp2` | {{< code src/recon/reconstruct.cpp InterpImpl::create >}} | `Center5Interp` | `weno3`, `weno5` |
+| which interpolant is `interp2` | {{< code src/recon/reconstruct.cpp velocity_pressure_scheme >}} | `velocity_pressure_scheme` | `weno3`, `weno5` |
 | the two reconstructions of a block | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `precon1` | always |
 
 : Code map of the reconstruction framework. {#tbl-ch04-framework-code}

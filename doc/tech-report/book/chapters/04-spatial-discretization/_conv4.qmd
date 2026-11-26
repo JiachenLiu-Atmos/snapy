@@ -231,7 +231,7 @@ would close it. $x_2$ and $x_3$: second order in every configuration, because no
 ({{< code src/hydro/hydro.hpp HydroOptionsImpl >}}).
 
 **What else the key turns on.** With the key at 4 and gravity on, the well-balanced $x_1$ reference takes the
-fourth-order **face** density of @sec-ch05-wbref4, the same one `SNAP_WB_REF4` selects, and with it that scheme's
+fourth-order **face** density of @sec-ch05-wbref4, and with it that scheme's
 resolution flag and its $n_{\mathrm{gh}} \ge 3$ requirement ({{< code src/hydro/hydro.cpp HydroImpl::_hydro_ref_x1 >}},
 {{< code src/recon/x1_reference.cpp wb_ref4_flag >}}). Without it a fourth-order conversion would sit on a
 second-order hydrostatic reference and the gravity arm of the test would not converge.
@@ -259,8 +259,8 @@ dynamics:
    "[Hydro] dynamics/conversion-order must be 2 or 4, got ..." for anything else. The check is the first option
    check `reset` makes, before the equation of state is built.
 3. *With 4 and $g_1 \ne 0$ a block needs $n_{\mathrm{gh}} \ge 3$*, the requirement of the fourth-order face
-   density reference it turns on, with the message "SNAP_WB_REF4 (or SNAP_X1_CENTROID_EXACT, which implies it, or
-   dynamics/conversion-order 4) needs nghost >= 3, got ..." ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
+   density reference it turns on, with the message "SNAP_X1_CENTROID_EXACT (or dynamics/conversion-order 4) needs nghost >= 3,
+   got ..." ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
 4. *A block needs at least four $x_1$ cells, ghosts included, and $n_{c1}+1$ faces.* `conv4_rows`
    ({{< code src/recon/x1_rows.cpp conv4_rows >}}) refuses less with "dynamics/conversion-order 4
    needs nc1 >= 4 cells and nc1 + 1 x1 faces, got ...". The check is made where the weights are built, so it

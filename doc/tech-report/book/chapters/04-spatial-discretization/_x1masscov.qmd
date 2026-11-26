@@ -72,7 +72,7 @@ step 2 below; $\langle\cdot\rangle$ a cell average (appendix A, notation group 4
 2. *A one-sided second-order slope.* In the first cell above a physical, non-outflow bottom wall the code uses
    $\partial^{\mathrm w}_1\rho = (-3\rho_i + 4\rho_{i+1} - \rho_{i+2})/\bigl(2(x_{1,i+1} - x_{1,i})\bigr)$, and in the last cell below
    such a top wall the mirror image, $(3\rho_i - 4\rho_{i-1} + \rho_{i-2})/\bigl(2(x_{1,i} - x_{1,i-1})\bigr)$; the code writes both
-   as one lambda, `one_sided(i, s)` with `s` $= \pm1$. Both are $\partial_1\rho - \tfrac74a_3h^2 + O(h^3)$ on cell averages
+   as one function, `x1_cov_one_sided(a, x1v, i, s, stretched)` with `s` $= \pm1$. Both are $\partial_1\rho - \tfrac74a_3h^2 + O(h^3)$ on cell averages
    (`[C15]`), and `covariance_check.py` `[C6]` measures order 1.98.
 3. *The velocity ghosts are odd.* After the correction the ghost velocities are set to the odd mirror of the
    corrected interior, the parity of a velocity at a reflecting wall.
@@ -191,12 +191,12 @@ of the correction; the reconstruction reads the corrected velocity and the last 
 : Tests of the $x_1$ mass-flux covariance. {#tbl-ch04-x1masscov-tests}
 
 `[C15]` holds symbolically; `covariance_check.py` gives the orders quoted in the derivation and an exact zero at
-rest.[^x1c-run] The three ctest entries pass at the pin on CPU.[^x1c-ctest68] No ctest measures the effect of the
+rest.[^x1c-run] The three ctest entries passed on CPU at the sha the footnote records.[^x1c-ctest68] No ctest measures the effect of the
 correction on a flow.
 
 [^x1c-ctest68]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the tests' own columns; run:
     `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 ctest -V -R 'test_x1_seam_split_x1_mass_covariance|^test_stretched_x1_ref'`
-    in a CPU Release source build at the pin, CPU, double, 1 process; torch 2.10.0, kintera 2.6.6, GCC 11.5.0].
+    in a CPU Release source build at that sha, CPU, double, 1 process; torch 2.10.0, kintera 2.6.6, GCC 11.5.0].
 
 [^x1c-run]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the checks themselves; run:
     `python3 src/snapy_report/ch04/checks/derivation_check.py`

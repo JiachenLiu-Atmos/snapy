@@ -190,8 +190,10 @@ the last block is the fallback with $a_{\mathrm{LF}}$ = `a`.
 
 `[C10]` holds symbolically for the dry gas. On a numpy port for a dry ideal gas without species,
 `solvers_check.py` `[C3]` gives the physical flux exactly, `[C4]` the left flux to $4.1\times10^{-16}$ when every
-wave moves right, and `[C5]` a stationary contact exactly.[^roe-run] `test_riemann.release` passes at the pin on
-CPU, one rank (@tbl-ch04-ctest-run). No test triggers the fallback or the moist path.
+wave moves right, and `[C5]` a stationary contact exactly.[^roe-run] `test_riemann.release` passed in the recorded run
+of @tbl-ch04-ctest-run (CPU, one rank; the sha is in its footnote, not the code pin). Its
+`riemann_events_count_clamped_and_llf_faces` drives the fallback (Limits 3), and
+`RiemannSolver.roe_writes_face_pressure_output_ideal_moist` runs `roe` on an ideal-moist deck.
 
 [^roe-run]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the checks themselves; run:
     `python3 src/snapy_report/ch04/checks/derivation_check.py`
@@ -201,8 +203,9 @@ CPU, one rank (@tbl-ch04-ctest-run). No test triggers the fallback or the moist 
 ### Limits
 
 1. **No entropy fix**, step 4 of the branches; no test runs a transonic rarefaction.
-2. **One curved-grid test**: `roe` is projected like the other solvers, and `test_roe_cubed_sphere_rest_python` is
-   its only test on the gnomonic grid.
+2. **Two curved-grid tests**: `roe` is projected like the other solvers. On the gnomonic grid it runs in
+   `test_roe_cubed_sphere_rest_python` (a rest state) and in arm (f) of `test_axial_momentum_flux_form_python`
+   (six panels with rotation).
 3. **One fallback test.** `riemann_events_count_clamped_and_llf_faces` drives the LLF branch with $\lvert v_1\rvert = 2000$
    and asserts only that it fires on at least one and at most every interior face (`tests/test_riemann.cpp`); the
    fallback flux itself is not compared with a reference.

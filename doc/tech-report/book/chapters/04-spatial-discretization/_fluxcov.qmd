@@ -365,9 +365,10 @@ The ratio's evaluation at three cloud bases is @tbl-ch04-fluxcov-b3 in the Deriv
    a stratified atmosphere, not for a strong horizontal background gradient.
 5. **The switch turns on the species limiter.** A run with the correction on and the equation of state's limiter
    off still runs the limiter.
-6. **One rows fixture depends on another switch.** `test_flux_covariance_rows_python` records its dry Cartesian
-   values with `SNAP_GRAVITY_WORK_RADIAL_EXACT=0`, which its ctest entry sets; run with that switch at its default
-   (on), the same arm gives $+0.0033$ at $n_z = 16$ against the recorded $+0.0348$ and fails.
+6. **The rows fixture is recorded for one configuration.** `test_flux_covariance_rows_python` compares its dry
+   Cartesian arm with values recorded for the corrected-PE face work and the unsmoothed $x_1$ density reference
+   ($\varepsilon_{\mathrm{eff}}n_z^2 = 0.009686$, $0.007529$, $0.006987$ at $n_z = 16, 32, 64$, within $2\times10^{-3}$);
+   its ctest entry sets no environment. A change to either ingredient moves those values.
 7. **The buoyancy ratio is evaluated, not simulated.** No snapy run measures $\Upsilon$; it depends on the lapse rate
    by up to 40 % and, for the ice giant, on the deep methane abundance, which `uranus.yaml` does not set.
 8. **Solid cells and the scalar row.** With solid cells the hydro face states pass through the solid forward and

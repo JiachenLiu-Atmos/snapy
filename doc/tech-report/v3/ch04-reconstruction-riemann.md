@@ -149,7 +149,7 @@ $$
 This is `weno5_point` (`src/recon/recon_point.h:114-147@73c45a7c`), with $\epsilon_{\mathrm w}$ from `weno_eps`
 (`:64-67`). With `scale: true`, `weno_scale` (`:71-83`) first divides the five values by their mean
 magnitude $\frac15\sum|\bar q|$, and multiplies the result back. The weights then do not depend on the units of
-$q$. A stencil whose values are all zero returns 0. Where the $\beta_r$ are equal (smooth data), $\mathsf a_r/\sum\alpha
+$q$. A stencil whose values are all zero returns 0. Where the $\beta_r$ are equal (smooth data), $\mathsf a_r/\sum_s\mathsf a_s
 \to \mathsf d_r$ and (4.5) reduces to cp5. WENO3 is the same construction on the two two-cell candidates
 $\tfrac12(\bar q_{i-1}+\bar q_i)$ and $\tfrac32\bar q_i-\tfrac12\bar q_{i+1}$ with $\mathsf d=(\tfrac23,\tfrac13)$ and
 $\beta_r$ the squared one-sided differences (`src/recon/reconstruct.cpp:56-63@73c45a7c`,
@@ -343,7 +343,7 @@ mirrored" (`src/hydro/hydro_forward.cpp:350-351@73c45a7c`).
 | `test_weno.release` cast-cache tests | the FP64 tables follow buffer edits, storage changes and dtype | `torch::equal` (bitwise) | `tests/test_weno.cpp:21-90@73c45a7c` |
 | `test_conversion_order_python` arm `order` | acoustic pulse, $n_1$ = 64, 128, 256 against 1024, uniform and stretched $x_1$: fitted order $\ge 3.8$; tracer ratio within $10^{-13}$ | 3.8; `TOL` = 1.e-13 | `tests/test_conversion_order.py:43,171-186@73c45a7c` |
 | `test_conversion_order_python` arm `radial` | the conversion alone on spherical-polar and gnomonic blocks: order $\ge 3.8$; a rewritten `x1f` gives the converted $\mathbf W$ of a fresh block | 3.8; `torch.equal` (bitwise) | `tests/test_conversion_order.py:189-225@73c45a7c` |
-| `test_conversion_order_python` arms `mass`, `floor`, `slab`, `wall`, `gravity`, `theta` | mass: $|\Delta M|/M \le 10^{-13}$ (wall, seam jump), and the outflow run's $\Delta M/M$ within $10^{-10}$ (relative) of the pinned $-1.687639303786939\times10^{-2}$; floor: bitwise insensitivity; slab: $|\Delta M|/M \le 10^{-13}$, seam ghosts bitwise, $\sum y^2$ within $10^{-10}$ of its pinned value; wall: two-resolution order $\ge 2.5$; gravity: fitted order $\ge 3.8$; theta: $\theta'$ stays within its initial range widened by 2 K on each side | `TOL` = 1.e-13; 1.e-10 (twice); bitwise; 2.5; 3.8; 2 K | `tests/test_conversion_order.py:2-31,252-266,280-306,313,330-337@73c45a7c` |
+| `test_conversion_order_python` arms `mass`, `floor`, `slab`, `wall`, `gravity`, `theta` | mass: $|\Delta M|/M \le 10^{-13}$ (wall, seam jump), and the outflow run's $\Delta M/M$ within $10^{-10}$ (relative) of the pinned $-1.687639303786939\times10^{-2}$; floor: bitwise insensitivity; slab: dry and water $|\Delta M|/M$ and the tracer ratio $\le 10^{-13}$, seam ghosts bitwise, and $\sum(\rho y_{\mathrm v})^2$ over the conserved vapour row within $10^{-10}$ (relative) of its pinned value; wall: two-resolution order $\ge 2.5$; gravity: fitted order $\ge 3.8$; theta: $\theta'$ stays within its initial range widened by 2 K on each side | `TOL` = 1.e-13; 1.e-10 (twice); bitwise; 2.5; 3.8; 2 K | `tests/test_conversion_order.py:2-31,252-266,280-306,313,324-337@73c45a7c` |
 
 The `DeviceTest` suites run on CPU FP32 and FP64 and on CUDA FP32 and FP64. MPS is commented out, and CUDA
 skips when unavailable (`tests/device_testing.hpp:44-50@73c45a7c`). `test_conversion_order_cuda_python` runs the

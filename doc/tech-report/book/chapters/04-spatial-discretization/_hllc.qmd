@@ -159,8 +159,8 @@ dynamics:
 
 `pmid` is $p_{\mathrm{pv}}$; `al`, `ar` are $\lambda^{\mathrm L}, \lambda^{\mathrm R}$; `bp`, `bm` the clipped speeds; `am`, `cp` are
 @eq-ch04-hllc-contact; `sl`, `sm` and the two `FLX` lines are @eq-ch04-hllc-flux for the normal momentum and
-energy rows ($\mathbf D$ has $1$ and $\lambda_{\mathrm c}$ there). The middle-state velocity `umid` is computed and not
-used.
+energy rows ($\mathbf D$ has $1$ and $\lambda_{\mathrm c}$ there). No other intermediate is computed: `rhoa` and `ca`
+only enter `pmid`.
 
 | what | code link | symbol | switch |
 |---|---|---|---|

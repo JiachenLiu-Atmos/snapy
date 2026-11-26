@@ -96,7 +96,9 @@ The `throw` line is step 4; the `return` is never reached.
 
 : Tests of PPM. {#tbl-ch04-ppm-tests}
 
-No ctest selects `type: ppm`. The committed `ch04-ppm` card reproduces the refusal.[^ppm-probe] The template
+Two ctests set `ppm` and stop before a stage: `test_x1_stretched_refusal.release` builds a uniform `type: ppm` deck and
+expects the stretched one to be refused, and `X1Coeffs.uncovered_types_refuse_faces` expects `set_x1_faces` to
+throw. No ctest runs a stage with `ppm`. The committed `ch04-ppm` card reproduces the refusal.[^ppm-probe] The template
 `interp_ppm` of `interp_simple.hpp`, which returns the centre value, is not on any production path;
 `recon_check.py` `[C6]` checks that template, not the module.
 
