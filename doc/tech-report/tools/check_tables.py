@@ -2,7 +2,8 @@
 """Table gate: the book's pipe tables against STYLE.md 10.5 and the Code and Tests layers of section 2.
 
 A static check of the chapter sources (`book/chapters/**/*.qmd`), in ratchet mode like `check_figstyle.py`. Fenced
-code and HTML comments are skipped, so tables a Python cell generates are not seen here (`check_table_cells.py`
+code and HTML comments are skipped, so tables a Python cell generates are not seen here, and neither are appendix B's
+generated per-chapter fragments (`_appb-chNN.qmd`, written by `gen_derivation_index.py`) (`check_table_cells.py`
 gates those in the render). Every pipe table is counted under four kinds:
 
   * `columns`: more than 5 columns (STYLE 10.5: the PDF column is about 6.3 in wide);
@@ -46,10 +47,13 @@ _FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 _SEPARATOR = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$")
 _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*(\{[^}]*\})?\s*$")
 _LABEL = re.compile(r"\{#tbl-[\w-]+\}\s*$")
+# appendix B's per-chapter fragments are written by tools/gen_derivation_index.py, one six-column table each: the
+# generator owns their shape, so they are not counted here
+_GENERATED = re.compile(r"_appb-ch\d\d\.qmd")
 
 
 def chapter_of(rel: str) -> str:
-    """`book/chapters/09-time-integration/_rk.qmd` -> `ch07`; `book/chapters/appd-switches/...` -> `appd`"""
+    """`book/chapters/09-time-integration/_rk.qmd` -> `ch09`; `book/chapters/appd-switches/...` -> `appd`"""
     parts = rel.split("/")
     name = parts[2] if len(parts) > 2 else rel
     m = re.match(r"(\d\d)", name)
@@ -137,6 +141,8 @@ def scan_text(text: str) -> list[tuple[int, str, str]]:
 def scan(report: Path = REPORT) -> dict[str, list[tuple[str, int, str, str]]]:
     out: dict[str, list] = {}
     for path in sorted((report / "book" / "chapters").rglob("*.qmd")):
+        if _GENERATED.fullmatch(path.name):
+            continue
         rel = path.relative_to(report).as_posix()
         for line, kind, detail in scan_text(path.read_text(encoding="utf-8")):
             out.setdefault(chapter_of(rel), []).append((rel, line, kind, detail))

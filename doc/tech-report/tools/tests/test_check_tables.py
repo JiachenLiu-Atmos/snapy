@@ -108,3 +108,34 @@ def test_the_ratchet_fails_both_ways_and_update_only_lowers(tmp_path):
 def test_the_report_is_at_its_committed_baseline():
     status, msgs = check_tables.check()
     assert status == 0, msgs
+
+
+SIX = """| 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|
+| a | b | c | d | e | f |
+
+: Six columns. {#tbl-x}
+"""
+
+
+def write(root, rel, text):
+    q = root / "book" / "chapters" / rel
+    q.parent.mkdir(parents=True, exist_ok=True)
+    q.write_text(text)
+
+
+def test_a_hand_written_six_column_table_still_counts(tmp_path):
+    # in a chapter, and in a hand-written appendix file beside the generated fragments
+    write(tmp_path, "03-demo/_a.qmd", SIX)
+    write(tmp_path, "17-appendices/_appa-notation.qmd", SIX)
+    write(tmp_path, "17-appendices/_appb-derivation-index.qmd", SIX)
+    found = check_tables.counts(check_tables.scan(tmp_path))
+    assert found["ch03"] == {"columns": 1}
+    assert found["ch17"] == {"columns": 2}
+
+
+def test_a_generated_appendix_b_fragment_is_excluded(tmp_path):
+    # tools/gen_derivation_index.py writes one six-column table per chapter into _appb-chNN.qmd
+    write(tmp_path, "17-appendices/_appb-ch03.qmd", SIX)
+    write(tmp_path, "17-appendices/_appb-ch15.qmd", SIX)
+    assert check_tables.counts(check_tables.scan(tmp_path)) == {}
