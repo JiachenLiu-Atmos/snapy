@@ -1,5 +1,14 @@
 ## How to add an equation of state {#sec-ch02-new-eos}
 
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/eos/equation_of_state.hpp, src/eos/equation_of_state.cpp, src/eos/ideal_gas.cpp, src/CMakeLists.txt,
+         src/mesh/stage_executor.cpp, src/hydro/hydro.cpp at the pin
+status: draft
+author: chengcli
+reviewer: XinyueWang05
+-->
+
 A new equation of state needs a C++ implementation and a factory entry. Changing the deck alone cannot add
 one: the factory rejects an unknown `type`. Start with the dry ideal-gas implementation when the new model
 uses the same state layout; the existing choices and conversion keys are listed in @sec-ch02-interface.
@@ -26,8 +35,9 @@ uses the same state layout; the existing choices and conversion keys are listed 
    {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::internal_energy_offset >}}).
    These defaults do not establish consistency for a new model; use @sec-ch02-consistency.
 4. **Register and select it.** Include the new header and add a branch to
-   {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::create >}}. For example, this is the existing
-   ideal-gas registration with only the proposed name and holder substituted:
+   {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::create >}}. For example, this is the shape of the
+   existing registrations with only the proposed name and holder substituted (the `ideal-gas` branch also checks
+   that the card has no species):
 
    ```cpp
    } else if (opts->type() == "my-eos") {
@@ -45,9 +55,14 @@ uses the same state layout; the existing choices and conversion keys are listed 
        type: my-eos
    ```
 
+5. **Decide on capture and anomaly storage.** A new type is not in the capture allow-list `capture_eos` of
+   {{< code src/mesh/stage_executor.cpp StageExecutor::config_reasons >}}, so a CUDA graph refuses a block that
+   uses it and the block runs eager (@sec-ch02-other-eos); adding it there requires the class to be graph-safe.
+   Anomaly storage is refused for every type but `ideal-moist` ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
+
 The smallest implementation exercise is to copy `ideal_gas.hpp` and `ideal_gas.cpp` to new names, rename
 `IdealGasImpl`/`IdealGas` throughout, and add the factory branch above before changing any thermodynamics.
-Reconfigure and rebuild: [`src/CMakeLists.txt:35-40`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/CMakeLists.txt#L35-L40)
-collects `eos/*.cpp` at configure time. This recipe preserves the existing dry-gas closure; it is not a
+Reconfigure and rebuild: the `file(GLOB src_files ...)` of {{< code src/CMakeLists.txt >}} collects
+`eos/*.cpp` (and `eos/*.cu` in a CUDA build) at configure time. This recipe preserves the existing dry-gas closure; it is not a
 validated new physical model. Check conversion round trips, the temperature/internal-energy identities and
 sound speed before using a changed closure. Runtime validation of this proposed copy is not provided here.

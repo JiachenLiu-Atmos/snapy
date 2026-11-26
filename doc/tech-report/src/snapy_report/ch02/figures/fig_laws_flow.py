@@ -1,10 +1,11 @@
-"""Cell-local flow; snapy 6fbb39750f62b83df096058a4746e77d0a634bc5. No measured data."""
+"""The stage order of MeshBlockImpl::stage_advance, stage_forcing, stage_combine, stage_saturation, stage_chemistry and
+stage_boundaries (src/mesh/meshblock_advance.cpp) at the code pin. No measured data."""
 from snapy_report import figstyle as fs
 
 
 def make_fig():
     fig, ax = fs.new_figure(fs.SINGLE, 3.1)
-    labels = ['face fluxes + sources', 'VIC + user callbacks', 'RK average + limiter', 'phase solve + boundaries']
+    labels = ['face fluxes + sources', 'VIC + user callbacks', 'RK average + limiter', 'phase solve, chemistry, boundaries']
     for n, label in enumerate(labels):
         y = 3-n
         ax.text(.5, y, label, ha="center", va="center", fontsize=fs.SMALL_PT,

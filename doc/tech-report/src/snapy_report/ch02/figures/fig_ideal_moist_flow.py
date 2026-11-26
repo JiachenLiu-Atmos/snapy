@@ -1,10 +1,11 @@
-"""Cell-local flow; snapy 6fbb39750f62b83df096058a4746e77d0a634bc5. No measured data."""
+"""Cell-local flow of IdealMoistImpl::_cons2prim (src/eos/ideal_moist.cpp, src/eos/moist_base.cpp) at the code pin.
+No measured data."""
 from snapy_report import figstyle as fs
 
 
 def make_fig():
     fig, ax = fs.new_figure(fs.SINGLE, 3.1)
-    labels = ['dry + vapor + cloud mass', 'subtract reference energy', 'thermal energy / capacity', 'temperature + gas pressure']
+    labels = ['dry + vapor + cloud mass', 'subtract kinetic + reference energy', 'thermal energy / capacity', 'temperature + gas pressure']
     for n, label in enumerate(labels):
         y = 3-n
         ax.text(.5, y, label, ha="center", va="center", fontsize=fs.SMALL_PT,

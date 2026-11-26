@@ -18,7 +18,7 @@ closure of every dry test deck, and one of the two closures a CUDA graph may cap
 ::: {.callout-note title="At a glance"}
 **Purpose.** Pressure from the stored energy, @eq-ch02-ideal-gas-pressure, and its inverse.
 
-**Data.** Reads $\rho$, $\mathbf m$, $E$; writes $p$, $T$, $c_s$. Constants $\gamma_{\mathrm d}$ and $\mu_{\mathrm d}$.
+**Data.** Reads $\rho$, $\mathbf m$, $E$; writes $p$, $T$[^rg-a8a15585c552], $c_s$. Constants $\gamma_{\mathrm d}$ and $\mu_{\mathrm d}$.
 
 **Placement.** Every `"U->W"` and `"W->U"` of the block; `"W->A"` and `"WA->L"` for the Riemann solver.
 
@@ -154,6 +154,12 @@ CPU and CUDA in FP32 and FP64.[^ideal-gas-run]
 
 1. **No floating-point round-trip test** in the chapter-2 tests (Tests layer). Other tests run ideal-gas decks
    end to end; this section does not cite them for the conversion.
-2. **One gas, constant $\gamma_{\mathrm d}$.** No species, no temperature-dependent heat capacity.
-3. **No anomaly storage** (refused at setup, @sec-ch02-laws).
-4. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
+2. **Not provided:** a round-off bound for the conversion on a nonorthogonal cell; the estimate in the Derivation
+   layer is the conditioning of $E-\tfrac12\sum v_am_a$ only, and the metric raise adds its own roundings.
+3. **One gas, constant $\gamma_{\mathrm d}$.** No species, no temperature-dependent heat capacity.
+4. **No anomaly storage** (refused at setup, @sec-ch02-laws).
+5. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
+
+<!-- reader glossary notes -->
+[^rg-a8a15585c552]: $T$ — temperature [K]
+<!-- end reader glossary notes -->

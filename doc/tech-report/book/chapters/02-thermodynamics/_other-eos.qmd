@@ -36,7 +36,7 @@ CUDA graph refuses all three, so a block that uses one runs eager. The full clos
 
 #### moist-mixture
 
-The state keys are kintera's. From $\rho$ and $y_n$, `"DY->V"` forms the molar concentrations $\tilde c_n$;
+The state keys are kintera's. From $\rho$ and $y_n$, `"DY->V"` forms the molar concentrations $\tilde c_n$[^rg-642707a05b55];
 `"VU->T"` inverts the internal energy for $T$; `"VT->P"` gives $p=\mathcal RT\sum_{\mathrm{gas}}Z_n\tilde c_n$.
 `MoistMixtureImpl::_cons2prim` ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_cons2prim >}}) runs these
 three after the shared density and velocity step of @eq-ch02-laws-state. The ratio of specific heats is
@@ -51,9 +51,11 @@ $$
 
 from `MoistMixtureImpl::_isothermal_sound_speed`
 ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_isothermal_sound_speed >}}), the closure's
-@eq-ch02-moist-mixture-speed. This is $(\partial p/\partial\rho)$ at fixed $T$ and composition when each $Z_n$
+@eq-ch02-moist-mixture-speed. This is $(\partial p/\partial\rho)$ at fixed $T$ and composition when each $Z_n$[^rg-48897db479d9]
 depends on its own $\tilde c_n$ only: scale every $\tilde c_n$ by $\lambda$ and differentiate $p$ at
-$\lambda=1$ (`[V10]` of `v3_relations_check.py`, under that assumption). The keys are answered by
+$\lambda=1$ (`[V10]` of `v3_relations_check.py`, under that assumption). **That assumption is unverified**: it is
+settled by reading, at the kintera pin 0429d795, the `czh` and `czh_ddC` tables that `tables_for` builds and the
+`call_func2` kernel that `eval_czh_ddC` runs (the open issue of @sec-ch02-moist-mixture). The keys are answered by
 `MoistMixtureImpl::compute` ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::compute >}}).
 
 #### aneos
@@ -88,7 +90,7 @@ A CUDA graph captures a stage only for `ideal-gas` and `ideal-moist`. `StageExec
 ({{< code src/mesh/stage_executor.cpp StageExecutor::config_reasons >}}) lists every reason a block cannot be
 captured; for the closure it checks the type against the set `capture_eos` and, for any other type, adds the
 reason "equation of state is `<type>`; capture allows ideal-gas, ideal-moist". In default execution such a
-block then runs eager (@sec-ch11). The flow of each closure is drawn in its own section
+block then runs eager (@sec-ch14). The flow of each closure is drawn in its own section
 (@fig-ch02-moist-mixture-flow, @fig-ch02-shallow-water-flow, @fig-ch02-aneos-flow); this overview has no figure
 of its own.
 
@@ -106,7 +108,7 @@ of its own.
 
 **What is refused, and why.**
 
-1. *Capture.* The reason above; under default execution the block runs eager (@sec-ch11).
+1. *Capture.* The reason above; under default execution the block runs eager (@sec-ch14).
 2. *Anomaly storage.* `HydroImpl::reset` allows it for `ideal-moist` only (@sec-ch02-laws).
 3. *An ideal gas with species.* `EquationOfStateImpl::create` refuses `ideal-gas` with species or reactions
    and names `ideal-moist` and `moist-mixture` as the closures that support them.
@@ -117,7 +119,7 @@ of its own.
 |---|---|---|---|
 | {{< code tests/test_eos.cpp DeviceTest.moist_mixture >}} (`test_eos.release`) | conserved round trip; $\gamma=1.4$ for the deck; $T$ changes and matches its reference | rtol $10^{-6}$, atol $10^{-6}$ | `torch::allclose(..., 1.E-6, 1.E-6)`, four calls |
 | {{< code tests/test_aneos_gamma.cpp AneosGamma.implicit_index_takes_the_solved_state >}} (`test_aneos_gamma.release`) | the implicit solve takes its sound speed from the solid-filled state | exact | `rho.masked_select(solid) == 2.` |
-| `v3_relations_check.py` `[V10]` (this report) | $c_T^2$ is the isothermal derivative, if $Z_n$ depends on $\tilde c_n$ only | exact | sympy, under that assumption |
+| `v3_relations_check.py` `[V10]` (this report) | $c_T^2$ is the isothermal derivative, if $Z_n$ depends on $\tilde c_n$ only (assumption unverified) | exact | sympy, under that assumption |
 
 : Tests of the other closures. {#tbl-ch02-other-eos-tests}
 
@@ -139,7 +141,14 @@ Of the four `allclose` calls in `DeviceTest.moist_mixture`, the one on $T$ befor
 1. **No CUDA graph.** All three closures run eager under default execution (Numerical method).
 2. **aneos has no metric.** Its conversions do not lower or raise the momenta; no test runs `aneos` on a
    skewed grid. Not measured.
-3. **moist-mixture sound speed.** `[V10]` holds only if each $Z_n$ depends on its own $\tilde c_n$; kintera's
-   `eval_czh_ddC` was not read for this section.
+3. **moist-mixture sound speed: unverified.** `[V10]` holds only if each $Z_n$ depends on its own $\tilde c_n$.
+   The kintera check that settles it is named in the open issue of @sec-ch02-moist-mixture; it has not been
+   done.
 4. **No shallow-water test** in the chapter-2 set.
 5. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
+
+<!-- reader glossary notes -->
+[^rg-642707a05b55]: $\tilde c_n$ — molar concentration of species $n$ [mol m$^{-3}$]; the tilde separates it from the specific heats $c_{v,n}, c_{p,n}$ and the sound speed $c_s$
+
+[^rg-48897db479d9]: $Z_n$ — compressibility factor of gas species $n$, $p_n = Z_n\rho_nR_nT$, dimensionless [-]; $Z_n=1$ at the pin, because kintera's `func2` registry is empty. Capital, because $z$ is the Cartesian height (§1)
+<!-- end reader glossary notes -->

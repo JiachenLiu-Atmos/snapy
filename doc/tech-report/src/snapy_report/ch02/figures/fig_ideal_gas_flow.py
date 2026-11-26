@@ -1,4 +1,4 @@
-"""Cell-local flow; snapy 6fbb39750f62b83df096058a4746e77d0a634bc5. No measured data."""
+"""Cell-local flow of ideal_gas_cons2prim (src/eos/ideal_gas_impl.h) at the code pin. No measured data."""
 from snapy_report import figstyle as fs
 
 

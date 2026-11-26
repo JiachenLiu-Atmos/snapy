@@ -88,6 +88,10 @@ sections:
   sec-ch02-laws:
     - equations solved: [governing equations, equation set, conservation laws]
     - mass conservation, why the update conserves
+    - anomaly storage: [dynamics anomaly, anomaly rows]
+  sec-ch02-other-eos:
+    - equation of state, which can be captured: [capture allow-list, CUDA graph and EOS]
+    - anomaly storage, which EOS supports it
   sec-ch02-pecore:
     - hydrostatic primitive-equation core, differences: [primitive equations, hydrostatic model, porting from a GCM]
     - compressible versus hydrostatic equations

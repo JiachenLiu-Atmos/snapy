@@ -19,9 +19,9 @@ into each other. It matters because three choices are easy to get wrong: the den
 momentum rows are covariant on a skewed grid, and with anomaly storage two rows hold a difference from a reference.
 
 ::: {.callout-note title="At a glance"}
-**Purpose.** Defines $\mathbf U$ and $\mathbf W$ and the maps between them, @eq-ch02-laws-state and @eq-ch02-laws-metric.
+**Purpose.** Defines $\mathbf U$[^rg-8ef399e5745d] and $\mathbf W$[^rg-f3dd2ef14420] and the maps between them, @eq-ch02-laws-state and @eq-ch02-laws-metric.
 
-**Data.** `hydro_u` holds $\mathbf U$, `hydro_w` holds $\mathbf W$; SI units; species rows are partial densities.
+**Data.** `hydro_u` holds $\mathbf U$, `hydro_w` holds $\mathbf W$; SI[^rg-91b05fec3201] units; species rows are partial densities.
 
 **Placement.** Every stage: `"U->W"` after each update, `"W->U"` when a state is set from primitives.
 
@@ -32,7 +32,7 @@ momentum rows are covariant on a skewed grid, and with anomaly storage two rows 
 **Evidence.** @tbl-ch02-laws-tests: `test_eos.release`, `test_anomaly_storage_python`, `v3_relations_check.py`.
 :::
 
-Local symbols: $g_{ab}$ the metric of the cell's coordinate directions, dimensionless [-]; $\cos\vartheta$ the
+Local symbols: $g_{ab}$[^rg-b8fab1baae22] the metric of the cell's coordinate directions, dimensionless [-]; $\cos\vartheta$ the
 cosine of the angle between the $x_2$ and $x_3$ directions of a cell [-]; $A_{i+1/2}$ the area of face
 $i+\tfrac12$ [m$^2$]; $[A\mathbf F_1]_{i+1/2}=A_{i+1/2}\mathbf F_{1,i+1/2}$ the face product.
 
@@ -52,9 +52,9 @@ $$
 \end{aligned}
 $$
 
-with $\rho=\rho_{\mathrm d}+\sum_n\rho_n$ in kg m$^{-3}$, $\mathbf v$ in m s$^{-1}$, $p$ in Pa, $E$ in J m$^{-3}$
+with $\rho=\rho_{\mathrm d}+\sum_n\rho_n$ in kg m$^{-3}$, $\mathbf v$[^rg-e34067e65a82] in m s$^{-1}$, $p$[^rg-4a97e2fbfd24] in Pa, $E$[^rg-360f6f825688] in J m$^{-3}$
 and $\mathbf g$ in m s$^{-2}$. Gravity work, Coriolis, diffusion and the other sources add their own terms
-(@sec-ch06, @sec-ch09); the geometric terms enter through the coordinate operator (@sec-ch03). The vertical
+(@sec-ch06, @sec-ch07); the geometric terms enter through the coordinate operator (@sec-ch03). The vertical
 momentum equation is kept in full, so sound waves are resolved.
 
 For smooth solutions the energy flux $(E+p)\mathbf v$ is the one that makes these equations equivalent to the
@@ -69,7 +69,7 @@ $$
 \end{aligned}
 $$
 
-Here $\gamma$ is held constant. Check `[V1]` of `v3_relations_check.py` repeats this elimination in sympy.
+Here $\gamma$[^rg-b007763f49e5] is held constant. Check `[V1]` of `v3_relations_check.py` repeats this elimination in sympy.
 
 #### The stored state and its inverse
 
@@ -93,13 +93,13 @@ The first two rows are formed in `MoistEOSImpl::_prim2cons`
 `MoistEOSImpl::_cons2prim_layout` ({{< code src/eos/moist_base.cpp MoistEOSImpl::_cons2prim_layout >}}), which
 returns $\rho e$ to the closure. The closures of @sec-ch02-ideal-gas and @sec-ch02-ideal-moist then turn $\rho e$
 into $p$. A dry ideal gas has no species rows, so $\rho_{\mathrm d}=\rho$. Substituting the first two rows into
-the third gives $\rho$ back exactly (`[V8]`).
+the third gives $\rho$[^rg-549e5380ddb0] back exactly (`[V8]`).
 
 #### Covariant momentum and the kinetic energy
 
 On the cubed-sphere panels the $x_2$ and $x_3$ directions of a cell are not orthogonal. The primitive velocity is
 contravariant, the stored momentum is covariant. With $c=\cos\vartheta$ the metric of the $(x_2,x_3)$ pair is
-$g=\begin{pmatrix}1&c\\c&1\end{pmatrix}$, and $x_1$ is orthogonal to both:
+$g=\begin{pmatrix}1&c\\c&1\end{pmatrix}$, and $x_1$[^rg-88d9f77d83d1] is orthogonal to both:
 
 $$
 \begin{aligned}
@@ -131,9 +131,9 @@ On a Cartesian or spherical-polar grid $c=0$ and the maps reduce to $m_a=\rho v_
 
 #### The flux-only increment and why it conserves
 
-Integrate the conservation law over a fixed cell of volume $V_i$, turn the divergence into face integrals with
+Integrate the conservation law over a fixed cell of volume $V_i$[^rg-6dfd3fd44de6], turn the divergence into face integrals with
 Gauss's theorem, and replace each face integral by the face area times one numerical flux. Multiplying by the
-stage step $\Delta t$ and keeping only the $x_1$ faces,
+stage step $\Delta t$[^rg-6e8706cff990] and keeping only the $x_1$ faces,
 
 $$
 \Delta\mathbf U^{\mathrm{flux}}_i=-\frac{\Delta t}{V_i}\Delta_i[A\mathbf F_1],
@@ -147,7 +147,7 @@ product with $-\Delta t$ on interior cells is in `HydroImpl::forward`
 ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
 
 The sum $\sum_iV_i\Delta\mathbf U^{\mathrm{flux}}_i$ telescopes. Both products of face $i+\tfrac12$, the one
-cell $i$ subtracts and the one cell $i+1$ adds, are one element of one tensor product of the same area and flux
+cell $i$[^rg-9fe3deae45f9] subtracts and the one cell $i+1$ adds, are one element of one tensor product of the same area and flux
 tensors, so they are the same number. Every interior face then appears once with each sign, and only the two
 outer faces remain. Conservation is therefore algebra, not accuracy; how accurate the flux is belongs to
 @sec-ch04.
@@ -193,8 +193,8 @@ anomaly. The floors are @sec-ch08's.
 
 ```{python}
 #| label: fig-ch02-laws-flow
-#| fig-cap: "Transport produces a flux increment before forcing, phase adjustment and physical ghost filling."
-#| fig-alt: "Transport produces a flux increment before forcing, phase adjustment and physical ghost filling."
+#| fig-cap: "Transport produces a flux increment before forcing, the stage combine, the phase solve, chemistry and physical ghost filling."
+#| fig-alt: "Four stacked boxes joined by arrows: face fluxes and sources, VIC and user callbacks, RK average and limiter, phase solve, chemistry and boundaries."
 #| echo: false
 from snapy_report.ch02.figures.fig_laws_flow import make_fig
 make_fig()
@@ -202,13 +202,8 @@ make_fig()
 
 ### Code
 
-**A minimal input.** Any deck runs the laws; this one also turns on anomaly storage:
-
-```yaml
-dynamics:
-  equation-of-state: {type: ideal-moist}
-  anomaly: true
-```
+**A minimal input.** Any deck runs the laws. Anomaly storage is the boolean key `anomaly` of the `dynamics`[^rg-e0f7416a96dd] block,
+off by default; it needs `type: ideal-moist` and a Cartesian grid (refusal 1 below).
 
 **What is refused, and why.**
 
@@ -251,7 +246,7 @@ overrides it and answers the keys it supports.
 
 : Tests of the conservation laws and variables. {#tbl-ch02-laws-tests}
 
-`DeviceTest` runs on CPU FP32, CPU FP64, CUDA FP32 and CUDA FP64; its MPS row is commented out
+`DeviceTest` runs on CPU[^rg-d5c518c05d4f] FP32, CPU FP64, CUDA FP32 and CUDA FP64; its MPS[^rg-eacc0154b64b] row is commented out
 ({{< code tests/device_testing.hpp >}}). `test_anomaly_storage` is registered once on CPU and once with
 `--device cuda`. At the pin every test of the table passes.[^laws-run] In `arm_match` over 10 steps, the largest
 relative difference between anomaly on and off is below $10^{-12}$ for totals, primitives and $\Delta t$, on CPU
@@ -264,7 +259,7 @@ and on CUDA, against the threshold $10^{-10}$; this is round-off and is quoted a
     `test_anomaly_storage_python`, `test_anomaly_storage_cuda_python`, `test_eos_temp2inteng_python`,
     `test_eos_species_sum_layout_python`, `test_sk1_failure_counter_python` and `test_sk1_failure_counter_cuda_python`,
     run together with one anchored `-R` pattern, in the `tests` directory of a README CUDA Release build at the pin; CPU
-    and one CUDA GPU, FP32 and FP64 as each test sets them, 1 rank; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6,
+    and one CUDA GPU[^rg-479d9c95df5c], FP32 and FP64 as each test sets them, 1 rank; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6,
     kintera 2.6.13, pyharp 2.8.2]. 8 of 8 ctests passed; `test_eos.release` ran 43 gtest cases, 18 of them on CUDA.
 
 [^laws-check]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062 (the relations are read from the code there);
@@ -281,3 +276,39 @@ and on CUDA, against the threshold $10^{-10}$; this is round-off and is quoted a
    so an FP32 anomaly run keeps its precision gain only in density and energy; the setup refuses any closure but
    `ideal-moist` and any grid but Cartesian (Code layer).
 4. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
+
+<!-- reader glossary notes -->
+[^rg-8ef399e5745d]: $\mathbf U$ — conserved state vector $(\rho_d, m_1, m_2, m_3, E, \rho_1..\rho_{N_y})$
+
+[^rg-f3dd2ef14420]: $\mathbf W$ — primitive state vector $(\rho, v_1, v_2, v_3, p, y_1..y_{N_y})$
+
+[^rg-91b05fec3201]: SI — International System of Units; notation only; see @sec-appa
+
+[^rg-b8fab1baae22]: $g_{ab}$ — covariant panel metric, mapping contravariant velocity to covariant momentum per density [-]
+
+[^rg-e34067e65a82]: $\mathbf v = (v_1,v_2,v_3)$ — velocity [m s$^{-1}$]
+
+[^rg-4a97e2fbfd24]: $p$ — pressure [Pa]
+
+[^rg-360f6f825688]: $E$ — total energy density, internal plus kinetic, $\rho e + \tfrac12\rho\lvert\mathbf v\rvert^2$ [J m$^{-3}$]; excludes potential energy
+
+[^rg-b007763f49e5]: $\gamma$ — mixture ratio of specific heats $c_p/c_v$, local, varies with composition, dimensionless [-]; $\gamma_{\mathrm{d}}$ is the dry value
+
+[^rg-549e5380ddb0]: $\rho$ — total density, dry plus every species that carries mass [kg m$^{-3}$]
+
+[^rg-88d9f77d83d1]: $x_1, x_2, x_3$ — the three coordinate directions; $x_1$ is always the vertical (radial) direction
+
+[^rg-6dfd3fd44de6]: $V_i$ — cell volume
+
+[^rg-6e8706cff990]: $\Delta t$ — the step
+
+[^rg-9fe3deae45f9]: $i, j, k$ — cell indices in $x_1, x_2, x_3$
+
+[^rg-e0f7416a96dd]: dynamics — hydrodynamic options block
+
+[^rg-d5c518c05d4f]: CPU — central processing unit
+
+[^rg-eacc0154b64b]: MPS — Metal Performance Shaders
+
+[^rg-479d9c95df5c]: GPU — graphics processing unit
+<!-- end reader glossary notes -->
