@@ -21,7 +21,7 @@ than a conversion question. Each row names the test, what it asserts and the tol
 
 **Placement.** Verification outside the simulation step, in a build at the code pin.
 
-**Activation.** Select the tests by their ctest name; the fixtures choose the EOS[^rg-17196f1aab8c].
+**Activation.** Select the tests by their ctest name; the fixtures choose the EOS.
 
 **Guarantee / limits.** A round trip proves reversibility, not the energy zero and not conservation.
 
@@ -155,7 +155,5 @@ reactions, or thermodynamics across ranks. The tolerances are the authors' accep
 round-off bounds; @sec-ch16 bounds only the reductions inside the wall test.
 
 <!-- reader glossary notes -->
-[^rg-17196f1aab8c]: EOS — equation of state
-
 [^rg-db9faf126655]: $T$ — temperature [K]
 <!-- end reader glossary notes -->

@@ -40,7 +40,7 @@ cannot be broken from inside the check that owns the list; and `[Z6]`/`[B6]` are
 
 **Placement.** Analysis of the update operator, outside the solver step; the run record is a full six-panel integration.
 
-**Activation.** None for the checks; the run record needs a build at the pin and, for its GPU[^rg-d1be4fb0f62d] arm, a CUDA-enabled one.
+**Activation.** None for the checks; the run record needs a build at the pin and, for its GPU arm, a CUDA-enabled one.
 
 **Guarantee / limits.** Exact identities and measured drifts for the configurations tested; a budget that closes here is not a claim about any other deck.
 
@@ -523,8 +523,6 @@ factor is exactly zero rather than merely small — which is the distinction the
     section; moving it is the editor's]
 
 <!-- reader glossary notes -->
-[^rg-d1be4fb0f62d]: GPU — graphics processing unit
-
 [^rg-3bafdb78128c]: $p$ — pressure [Pa]
 
 [^rg-b06d1779eb4d]: limiter — whether the enclosing component enables its limiter

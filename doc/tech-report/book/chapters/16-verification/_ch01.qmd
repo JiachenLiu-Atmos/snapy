@@ -150,11 +150,9 @@ precondition. Its skip code is not evidence that the compiled stage or any devic
 ### Limits
 
 These six tests do not establish ghost freshness after a split source, the equivalence of initialization and
-restart ghosts, MPS[^rg-5a8fdd30db1b] execution, or the compatibility of dependency versions. Runtime switch coverage is the
+restart ghosts, MPS execution, or the compatibility of dependency versions. Runtime switch coverage is the
 matrix of @sec-ch12-matrix.
 
 <!-- reader glossary notes -->
 [^rg-a9cb8a56905f]: YAML — YAML Ain't Markup Language, the structured input format used for decks
-
-[^rg-5a8fdd30db1b]: MPS — Metal Performance Shaders
 <!-- end reader glossary notes -->

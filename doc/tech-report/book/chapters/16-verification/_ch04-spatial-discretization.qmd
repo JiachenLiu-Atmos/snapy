@@ -16,9 +16,9 @@ indexing error, for example by feeding a constant field and demanding a constant
 establish the convergence order the chapter derives.
 
 The orders themselves are derived, and where a report check measures them also measured, in the section of each
-scheme: donor cell is first order everywhere (@sec-ch04-dc); PLM[^rg-519f17b4266b] with its van Leer harmonic-mean slope limiter is
+scheme: donor cell is first order everywhere (@sec-ch04-dc); PLM with its van Leer harmonic-mean slope limiter is
 second order where the field is smooth and first order at an extremum (@sec-ch04-plm); the unlimited cp3 and cp5
-are third and fifth order on a uniform smooth field (@sec-ch04-cp); WENO3[^rg-1d6fbd595d86] and WENO5[^rg-2616ddfc1c3d] reach their design orders 3
+are third and fifth order on a uniform smooth field (@sec-ch04-cp); WENO3 and WENO5 reach their design orders 3
 and 5 where smooth, and WENO3 falls to second order at a critical point, measured at 2.09 (@sec-ch04-weno). The
 horizontal flux covariance removes two $O(\Delta x_1^2)$ terms of the face fluxes (@sec-ch04-fluxcov), and the
 $x_1$ mass covariance raises the stored velocity from second to fourth order (@sec-ch04-x1masscov).
@@ -150,7 +150,7 @@ EXPECT_TRUE(torch::allclose(result, torch::full_like(result, 2.)))
 | `test_horizontal_flux_covariance_python` | onset error off in $[-0.32, -0.20]$, on below 0.04; energy drift | `BASE`, `FIXED`, `EPE_TOL` $= 10^{-12}$ | the script's constants |
 | `recon_check.py` (report only) | polynomial and WENO[^rg-bc2b21d31a31] identities, slope bounds, face-order ladders | script assertions | the ported formulas |
 | `covariance_check.py` (report only) | moment identities, centroid correction, rest and wall slope | script assertions | the ported formulas |
-| `operator_check.py` (report only) | divergence, LMARS[^rg-7367fe18c296] and species-row bookkeeping | script assertions | the ported formulas |
+| `operator_check.py` (report only) | divergence, LMARS and species-row bookkeeping | script assertions | the ported formulas |
 
 : Acceptance criteria at the code pin; CPU run evidence is recorded below, with CUDA coverage limited explicitly. {#tbl-ch16-ch04-tests-assertions}
 
@@ -185,21 +185,11 @@ dispatched kernel.[^ch16-ch04-run]
 
 ### Limits
 
-The selected tests do not establish the end-to-end order of the corrected fluxes, HLLC[^rg-2e823fe9fba3] contact resolution, Roe
+The selected tests do not establish the end-to-end order of the corrected fluxes, HLLC contact resolution, Roe
 accuracy, plume-Roe coverage, or the error hidden by seam averaging; those need dedicated runs at the pin.
 
 <!-- reader glossary notes -->
-[^rg-519f17b4266b]: PLM — piecewise-linear method
-
-[^rg-1d6fbd595d86]: WENO3 — third-order weighted essentially non-oscillatory reconstruction
-
-[^rg-2616ddfc1c3d]: WENO5 — fifth-order weighted essentially non-oscillatory reconstruction
-
 [^rg-bc2b21d31a31]: WENO — weighted essentially non-oscillatory
 
-[^rg-7367fe18c296]: LMARS — low-Mach approximate Riemann solver
-
 [^rg-81104a9e74ab]: PPM — piecewise-parabolic method
-
-[^rg-2e823fe9fba3]: HLLC — Harten–Lax–van Leer solver with the contact restored
 <!-- end reader glossary notes -->

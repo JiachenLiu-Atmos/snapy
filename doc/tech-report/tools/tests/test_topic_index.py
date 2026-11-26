@@ -155,4 +155,4 @@ def test_the_real_uncited_counts_ignore_the_topic_index():
     counts, detail = rg.xref_counts(TOOLS.parent / "book")
     uncited = _uncited((counts, detail))
     assert sum(d.startswith("appe:") for d in uncited) == 1
-    assert sum(d.startswith("ch16:") for d in uncited) == 4
+    assert sum(d.startswith("ch16:") for d in uncited) == 0  # the derivation index (appendix B) cites every ch16 section

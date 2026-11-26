@@ -74,8 +74,8 @@ _SHORTCODE = re.compile(r"(?<!\{)\{\{<\s*code\s[^>]*>\}\}")
 _CHECK = re.compile(r"\b([\w-]+_check\.py)\b")
 _CLINE = re.compile(r"\[C\d+\]")
 _NOTE = re.compile(r"docs/derivations/|(?<![\w/])sources/")
-#: chapters that are not schemes: the verification catalogue restates the other chapters' checks
-EXCLUDE = {"sec-ch16"}
+#: chapters that are not schemes (none since chapter 16 became the verification-method chapter of the V3 outline)
+EXCLUDE: set[str] = set()
 _INCLUDE = re.compile(r"\{\{<\s*include\s+(\S+)\s*>\}\}")
 
 

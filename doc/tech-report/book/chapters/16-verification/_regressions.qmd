@@ -1,0 +1,148 @@
+## Regression provenance {#sec-ch16-regressions}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (code_pin.yml)
+sources: tests/CMakeLists.txt and the sixteen test files of tbl-ch16-regressions, read at the pin; the RED and fix
+         commits of each row read with `git log` and `git show --stat` on the history of the pin, and each checked
+         to be an ancestor of the pin with `git merge-base --is-ancestor`
+status: draft
+author: Linfeng Li
+-->
+
+### Summary
+
+A regression test is a test that was written to fail on a defect before the defect was fixed. Its value is in
+that history: it fails on the commit it was written against (RED), it passes on the fix (GREEN), and from then on
+it keeps the defect from coming back. The history is not visible in the test's body, and most of the tests below
+do not name the defect they pin. This section is that record, for the regression tests of the closing round: for
+each one, what it checks and the RED and fix commits it came from. Every commit named here is on the history of
+the code pin.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Record, for each regression test of the closing round, the defect it pins and the commits that
+made it RED and then GREEN.
+
+**Data.** Reads the test files and the commit history at the pin; writes nothing.
+
+**Placement.** A record; the tests themselves run in ctest with the rest of the suite.
+
+**Activation.** None: every row is a registered ctest entry, run by `ctest -R <name>`.
+
+**Guarantee / limits.** Every RED and fix commit is an ancestor of the pin, and every named test case exists at
+the pin. The record covers the closing round; earlier regression tests are listed in the chapters that own
+their code.
+
+**Evidence.** The tests of @tbl-ch16-regressions; their tolerances are in @tbl-ch16-regressions-tests.
+:::
+
+Local symbols of this section: none.
+
+### Derivation
+
+None: a record. The one rule it follows is the order of a regression fix: the test is committed first and fails
+on the code of its commit (RED), and the fix commit makes it pass without changing the test's assertion
+(GREEN). Where a test case arrived in the same commit as its fix, the row says so instead of naming a RED commit.
+
+### Numerical method
+
+Each row was built the same way: find the commit that added the test case (`git log --diff-filter=A` for a new
+file, `git show` for a case added to an existing file), read its message for the RED marker, find the commits
+after it that change the code the test exercises, and check with `git merge-base --is-ancestor` that each is on
+the history of the pin. The commits are given in each row's footnote; the body of a chapter carries no commit
+sha.
+
+| test (ctest name) | case | what it pins |
+|---|---|---|
+| `test_graph_stretched_x1_python` | `main` | a stretched cubed sphere captures and equals eager; the stretched $x_1$ reference rows are built on the grid's device, so no host-to-device copy runs inside a capture[^ch16-reg-stretched] |
+| `test_graph_monitor_amounts.release` | `GraphSaveList.user_forcing_graph_books_wall_rates_like_eager` | under a user forcing, a cuda-graph block books the wall rates and count masks as eager does, from fixed device storage in the stage's push order[^ch16-reg-monitor] |
+| `test_flux_register.release` | `FluxRegister.wall_prescription_books_in_float32_on_the_device` | the wall weights' scalar operands are in the wide dtype on the device[^ch16-reg-f32] |
+| `test_flux_register.release` | `FluxRegister.the_wall_batch_books_with_the_rebuilt_weights` | a wall-batch slot is tied to the weights it was registered with[^ch16-reg-weights] |
+| `test_flux_register.release` | `FluxRegister.the_solid_mask_frees_the_x1_wall_rows_too` | the solid-mask prescription frees the $x_1$ wall rows too[^ch16-reg-solid] |
+| `test_default_execution_python` | `main` | `integration/execution` defaults to cuda-graph on CUDA; split cubed-sphere panels capture by default[^ch16-reg-default] |
+| `test_graph_positivity_meters_match_eager_python` | `main` | the graph path's EfStatus meters, the conversion-trips slot among them, match eager across capture warm-ups[^ch16-reg-meters] |
+| `test_flux_positivity_carry.release` | `flux_positivity.a_carry_without_settling_marks_the_direction` | a positivity carry without a settling part marks its direction for the post-implicit apply[^ch16-reg-carry] |
+| `test_prescribed_after_sources.release` | `FluxRegister.a_source_post_on_the_walls_does_not_reach_du`, `FluxRegister.a_prescribed_wall_temperature_conducts_in_a_full_step` | the prescribed faces are prescribed again after the sources' posts; a wall that prescribes a temperature keeps its energy row[^ch16-reg-sources] |
+| `test_diffusion.release` | `DeviceTest.disabled_direction_register_carries_the_diffusion_energy` | with a flux direction off, the diffusion's energy rows still go through the register[^ch16-reg-diffusion] |
+| `test_implicit_register_x1_off_python` | `main` | with the $x_1$ flux off, the implicit solve books its transfers in the register[^ch16-reg-implicit] |
+| `test_graph_mesh_many_blocks_python` | `main` | a Mesh of many blocks captures and equals eager; a capture owns its stream[^ch16-reg-many] |
+| `test_mesh_worker_streams.release` | `MeshWorkerStreams.no_two_blocks_share_a_stream` | the block worker pool creates its own streams[^ch16-reg-streams] |
+| `test_mesh_block_job_failure_python` | `main` | a block job that fails on one block of a Mesh ends the Mesh's same-process waits instead of hanging it[^ch16-reg-failure] |
+| `test_seam_rotation_cache_python` | `main` | the panel-seam rotation operands are built once per grid[^ch16-reg-rotation] |
+| `test_mesh_disagree.release` | `MeshDisagree.*` | a Mesh whose blocks disagree on capture runs eager, in bounded time; strict refuses it[^ch16-reg-disagree] |
+
+: The regression tests of the closing round, the case each RED commit added, and the defect each one pins.
+{#tbl-ch16-regressions}
+
+### Code
+
+The tests are cited by file: `test_graph_stretched_x1.py` ({{< code tests/test_graph_stretched_x1.py >}}),
+`test_graph_monitor_amounts.cpp` ({{< code tests/test_graph_monitor_amounts.cpp >}}), `test_flux_register.cpp`
+({{< code tests/test_flux_register.cpp >}}), `test_default_execution.py`
+({{< code tests/test_default_execution.py >}}), `test_graph_positivity_meters_match_eager.py`
+({{< code tests/test_graph_positivity_meters_match_eager.py >}}), `test_flux_positivity_carry.cpp`
+({{< code tests/test_flux_positivity_carry.cpp >}}), `test_prescribed_after_sources.cpp`
+({{< code tests/test_prescribed_after_sources.cpp >}}), `test_diffusion.cpp`
+({{< code tests/test_diffusion.cpp >}}), `test_implicit_register_x1_off.py`
+({{< code tests/test_implicit_register_x1_off.py >}}), `test_graph_mesh_many_blocks.py`
+({{< code tests/test_graph_mesh_many_blocks.py >}}), `test_mesh_worker_streams.cpp`
+({{< code tests/test_mesh_worker_streams.cpp >}}), `test_mesh_block_job_failure.py`
+({{< code tests/test_mesh_block_job_failure.py >}}), `test_seam_rotation_cache.py`
+({{< code tests/test_seam_rotation_cache.py >}}) and `test_mesh_disagree.cpp`
+({{< code tests/test_mesh_disagree.cpp >}}); their registrations are in {{< code tests/CMakeLists.txt >}}.
+
+**What is refused, and why.** Not applicable: a record refuses nothing. The graph tests in the skip-code list of
+{{< code tests/CMakeLists.txt >}} and `test_default_execution_python` end with the skip code when the build has
+no CUDA, and ctest then reports them skipped, not passed; `test_seam_rotation_cache_python` returns 0 without
+CUDA, so ctest reports it passed although its checks did not run.
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `test_graph_stretched_x1_python` | every block's state after every step, graph against eager | `torch.equal` (bitwise); its `rtol=1.e-13` is the tolerance of the column solve that builds the initial state, not of a comparison | {{< code tests/test_graph_stretched_x1.py >}} |
+| `test_graph_monitor_amounts.release` | the monitor's amounts, graph against eager | `torch::equal` (bitwise), 7 calls | {{< code tests/test_graph_monitor_amounts.cpp >}} |
+| `test_flux_register.release` | the register's booked and applied amounts | `torch::equal` (bitwise), 29 calls; one `allclose` with `rtol=0., atol=0.` | {{< code tests/test_flux_register.cpp >}} |
+| `test_default_execution_python` | the default path against explicit eager | `torch.equal` (bitwise), 2 calls | {{< code tests/test_default_execution.py >}} |
+| `test_graph_positivity_meters_match_eager_python` | the EfStatus meters, graph against eager | `torch.equal` (bitwise) | {{< code tests/test_graph_positivity_meters_match_eager.py >}} |
+| `test_flux_positivity_carry.release` | the carried energy and momentum of withheld mass | `torch::equal` (bitwise), 4 calls; `EXPECT_NEAR` with `tol = 1e-12` times the larger magnitude, and `0.` | {{< code tests/test_flux_positivity_carry.cpp >}} |
+| `test_prescribed_after_sources.release` | a wall post leaves `du` unchanged; a prescribed-temperature wall conducts $20\,\Delta t$ into `du` and books nothing | `EXPECT_EQ(..., 0.)` (exact); `EXPECT_NEAR` relative $10^{-9}$; `EXPECT_NEAR` with `tol = 1e-12` times the cells' energy sum; `EXPECT_LT(tol0, 1e-3 * 20 * dt0)` | {{< code tests/test_prescribed_after_sources.cpp >}} |
+| `test_diffusion.release` | for each disabled direction, the register's energy row is positive, the other rows are exactly 0 and the transfer is positive | `EXPECT_GT`, `EXPECT_EQ(..., 0.)` (exact) | {{< code tests/test_diffusion.cpp >}} |
+| `test_implicit_register_x1_off_python` | the booked transfers with the $x_1$ flux off | `torch.equal` (bitwise) | {{< code tests/test_implicit_register_x1_off.py >}} |
+| `test_graph_mesh_many_blocks_python` | a Mesh of many blocks, graph against eager | `torch.equal` (bitwise) | {{< code tests/test_graph_mesh_many_blocks.py >}} |
+| `test_mesh_worker_streams.release` | the worker streams are distinct | pass/fail checks only | {{< code tests/test_mesh_worker_streams.cpp >}} |
+| `test_mesh_block_job_failure_python` | a 24-block Mesh whose capture or eager step runs out of device memory on some blocks returns one error to the caller and does not hang (each arm runs in a child process under a timeout) | pass/fail checks only | {{< code tests/test_mesh_block_job_failure.py >}} |
+| `test_seam_rotation_cache_python` | after a warm step no rotation kernel is launched again; after a device move, a storage swap at the same address or a dtype move, the operands are rebuilt and the Mesh equals a fresh one | `torch.equal` (bitwise), 3 calls; a kernel count from the profiler |  {{< code tests/test_seam_rotation_cache.py >}} |
+| `test_mesh_disagree.release` | the disagreeing Mesh against eager | `torch::equal` (bitwise) | {{< code tests/test_mesh_disagree.cpp >}} |
+
+: Tests of the regression record and the tolerance each uses. {#tbl-ch16-regressions-tests}
+
+The call counts are `grep -cE 'torch(::|\.)equal'` over each test file at the pin.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- The record covers the regression tests of the closing round only; a regression test written earlier is cited
+  in the chapter that owns its code, without its commits.
+- A row's "what it pins" is read from the RED and fix commits' messages and the test; it is not rerun on the RED
+  commit here.
+- Where a row has two fixes, the second refined the first; both are needed at the pin.
+:::
+
+[^ch16-reg-stretched]: [source: RED `213189c4`, fix `069769ba`; issue chengcli/snapy#316]
+[^ch16-reg-monitor]: [source: RED `8019073b`, fixes `a78dc50f` and then `fa734fff`]
+[^ch16-reg-f32]: [source: the test case came with its fix, `9766b2d7`]
+[^ch16-reg-weights]: [source: RED `2a20e4fc`, fix `ead839e3`]
+[^ch16-reg-solid]: [source: RED `715d8b39`, fix `9e03e4d3`]
+[^ch16-reg-default]: [source: the default, RED `53c46723`, fix `02e4ef05`; split panels, RED `c7bbca02`, fix `b81f1c1f`]
+[^ch16-reg-meters]: [source: RED `e276ece3` and `897ef787`, fixes `66614c32` and then `4c023985`; the
+    conversion-trips slot `d0d83bf6`]
+[^ch16-reg-carry]: [source: RED `83ef60c7`, fix `2b0914c8`]
+[^ch16-reg-sources]: [source: the re-prescription, RED `abd8670f`, fix `c7401fdb`; the conducting wall, RED
+    `fae998e0`, fix `e71206ef`]
+[^ch16-reg-diffusion]: [source: RED `875ec321`, fix `3d898fd7`]
+[^ch16-reg-implicit]: [source: RED `28b84f9b`, fix `b860b16e`]
+[^ch16-reg-many]: [source: RED `c9977805`, fixes `838028c6` through `e474ff90`]
+[^ch16-reg-streams]: [source: RED `10027e12`, fix `2a25a3ff`]
+[^ch16-reg-failure]: [source: RED `0affeb86`, fixes `17c05904` and `9cf0bcb2`]
+[^ch16-reg-rotation]: [source: RED `3d44ee7e`, fixes `1a3c45e7` and then `70f6e15e`]
+[^ch16-reg-disagree]: [source: RED `e440a5de`, fix `4b21ca22`]

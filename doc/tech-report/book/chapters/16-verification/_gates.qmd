@@ -1,0 +1,178 @@
+## The bitwise gates {#sec-ch16-gates}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (code_pin.yml)
+sources: on cshsgy/snapy branch v3/closing-dryrun-plan at be267b70: docs/v3/closing/tools/harness348/README.md,
+         harness348/h348.py, harness348/decks/, tools/dumpset349/README.md, dumpset349/dumpset349.py,
+         dumpset349/compare.py, tools/gates.sh; tests/test_straka.py and tests/CMakeLists.txt at the pin
+status: draft
+author: Linfeng Li
+-->
+
+### Summary
+
+A bitwise gate asks whether two builds of snapy compute the same bits. It runs a fixed set of decks with each
+build on the same machine and the same device, writes the state after a fixed number of steps, and compares the
+files byte for byte. Two gates of this kind are in use: the face-deck harness, built with 16 implicit decks, and
+the dump set, which runs 20 one-block cases across the reconstructions, Riemann solvers and equations of state.
+A change that should not alter results (a refactor, a move of code to another file, a new storage layout) passes
+only if every file is identical; a change that should alter results is expected to fail them, and the failure
+names the cases it touched. The gates exist because a tolerance-based test cannot tell a harmless refactor from
+a small new error, and a byte comparison can.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Decide whether two builds give identical state, byte for byte, on a fixed set of decks.
+
+**Data.** Reads nothing from a run directory; writes, per build, the harness's `<deck>.pt` and `manifest.json`,
+or the dump set's `<case>.hydro_u.bin`, `<case>.scalar_s.bin`, `<case>.json` and `status.json`.
+
+**Placement.** Outside the solver and outside ctest: two Python scripts run against each build's installed
+package, then a compare step.
+
+**Activation.** `h348.py --device <dev> --out <dir>` and `dumpset349.py --device <dev> --dtype <dtype> --out
+<dir>`, then `h348.py --compare <a> <b>` and `compare.py <a> <b>`. Default: not run.
+
+**Guarantee / limits.** Exit 0 only when every case ran in both runs and every file is byte-identical. Holds
+only between runs on one machine and one device: a CPU run is compared with a CPU run, a CUDA run with a CUDA run.
+
+**Evidence.** No ctest at the pin; the gate is its own evidence, run with a control (@tbl-ch16-gates-tests).
+:::
+
+Local symbols of this section: $u_{\mathrm{A}}(d)$ and $u_{\mathrm{B}}(d)$ the arrays that builds A and B write for deck $d$;
+$n_{\mathrm{step}}$ the number of steps a deck takes.
+
+### Derivation
+
+None: a gate is a method, not a scheme. Its rule is one line. For every deck $d$ of the set, with $u_{\mathrm{A}}(d)$
+and $u_{\mathrm{B}}(d)$ the arrays the two builds write after $n_{\mathrm{step}}$ steps,
+
+$$
+\text{pass} \iff \forall d:\ \mathrm{bytes}\big(u_{\mathrm{A}}(d)\big) = \mathrm{bytes}\big(u_{\mathrm{B}}(d)\big)
+\ \text{ and both runs of } d \text{ finished.}
+$$ {#eq-ch16-gate}
+
+@eq-ch16-gate compares the arrays as raw bytes, ghost cells included, so it sees every bit of every variable,
+including a sign of zero and a NaN payload. It holds for a pair of runs on one device: the same build gives
+different bits on CPU and on CUDA (the floating-point operations are not issued in the same order), so a
+CPU-against-CUDA comparison is information only, never a gate.[^ch16-gates-src]
+
+### Numerical method
+
+**The face-deck harness.** `h348.py` builds 16 decks from one function and runs each for $n_{\mathrm{step}} = 10$ steps at a
+fixed step: two implicit matrices, two forms of the gravity work and four geometries
+(@tbl-ch16-harness). Every deck uses an ideal gas, the positivity limiter, WENO5[^rg-2616ddfc1c3d] in both directions, the LMARS[^rg-7367fe18c296]
+solver, rk3, reflecting $x_1$[^rg-01fadbe6e8ea] walls and float64, and a redo raises. The initial state is an isothermal
+hydrostatic column with a small density perturbation; the step is fixed at a vertical acoustic Courant number of
+about 20, so the implicit solve is exercised. After each step the harness saves `hydro_u`, every variable with its
+ghost cells, and `--compare` compares the two `[10, nvar, nc3, nc2, nc1]` arrays of each deck byte for byte; it
+also prints, for information, the largest relative difference of the energy row per step.
+
+| axis | values |
+|---|---|
+| implicit matrix | `full` (`implicit-scheme: 9`), `partial` (`implicit-scheme: 1`) |
+| gravity work | `face` (`gravity-work-fixer: false`); `cell` (removed at the pin: `const-gravity`[^rg-b743ab6e7970] refuses it) |
+| geometry | `cartesian`, `stretched` ($x_1$ ratio 1.05), `spherical-polar`, `gnomonic-equiangle` |
+
+: The 2 × 2 × 4 decks of the face-deck harness; the deck files are written by `h348.py --write-decks`, whose
+`config()` is their one source. {#tbl-ch16-harness}
+
+At the code pin only the 8 `face` decks run. The `cell` form of the gravity work was removed (V3 I-7), and
+`const-gravity` refuses it, and a `gravity-work-fixer: true` too, when the deck is read
+({{< code src/forcing/const_gravity.cpp >}}); `h348.py` does not catch that error, so a run of the tool as
+committed stops at the first `cell` deck and writes no manifest. A gate at the pin needs the `cell` decks removed
+from `config()` first.
+
+**The dump set.** `dumpset349.py` runs 20 one-block cases for 20 rk3 steps each at a fixed step that the deck
+alone decides, one child process per case, and writes the final `hydro_u` (and `scalar_s` where the case has a
+scalar) as raw C-order bytes, ghost cells included: 23 files per run. The cases cover what a step can route
+through (@tbl-ch16-dumpset). `compare.py` exits 0 only if both runs have every case at exit code 0 in their
+`status.json` and every file is byte-identical; otherwise it lists the cases that differ, failed or are missing,
+with the first differing element of each.
+
+| group | cases | what varies |
+|---|---|---|
+| 2-D box, gravity | 8 | the reconstruction (WENO5 and WENO3[^rg-1d6fbd595d86], each with and without scaling; the scaled shock form; CP5, CP3, PLM[^rg-519f17b4266b]) against the LMARS, HLLC[^rg-2e823fe9fba3] and Roe solvers |
+| 3-D box, gravity | 1 | scaled WENO5 with HLLC |
+| gnomonic face block, gravity | 3 | scaled WENO5 with LMARS, HLLC and Roe |
+| 2048-cell $x_1$ column, no gravity | 3 | the tiled CUDA reconstruction path, with three reconstructions |
+| moist box | 4 | ideal-moist with the EOS[^rg-17196f1aab8c] limiter on or off, cloud sedimentation, a passive scalar and a scalar with a zero hole |
+| shallow water, periodic | 1 | WENO5 with the shallow-water Roe solver |
+
+: The 20 cases of the dump set, grouped; the case table of `dumpset349/README.md` names each one with its grid,
+solver and step. {#tbl-ch16-dumpset}
+
+**The pairing rule.** A gate run pairs the base build and the candidate build on one machine, with identical
+build flags, on one device; `gates.sh` runs the harness and the dump set in float64 and the dump set again in
+float32, on CPU and on CUDA, and also runs the base twice and compares it with itself. That control matters: a
+gate is only meaningful on a device that gives the base the same bits twice.
+
+### Code
+
+**How to use it.** From outside the source tree (so that `import snapy` loads the installed build), with each
+build's package first on `PYTHONPATH`:
+
+```sh
+python h348.py --device cpu --out runs/base_cpu          # base build
+python h348.py --device cpu --out runs/head_cpu          # candidate build
+python h348.py --compare runs/base_cpu runs/head_cpu     # exit 0: every deck identical
+python dumpset349.py --device cuda --dtype float64 --out runs/base_cuda
+python dumpset349.py --device cuda --dtype float64 --out runs/head_cuda
+python compare.py runs/base_cuda runs/head_cuda          # exit 0: every case identical
+```
+
+**What is refused, and why.** Nothing in `src/` refuses a gate run. The gate fails, by design, when a case does
+not finish in one of the runs (a missing file is not equal to a present one), and the harness's decks raise on a
+redo, so a step that would have been redone ends the deck instead of hiding in the comparison.
+
+The gates read no symbol of the snapy tree; their code is the four files named in the PROVENANCE block, on the
+closing-plan branch. The default build's one ctest that compares a full run with a reference, `test_straka`
+(with `FULL_TESTS`, `test_shallow_xy` and `test_shallow_splash` as well; {{< code tests/CMakeLists.txt >}}), is
+not a bitwise gate: `test_straka.py` ({{< code tests/test_straka.py >}}) passes when the $L_2$ norm of the potential
+temperature difference to the reference run is below 50.
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| none at the pin | the gates are tools on the closing-plan branch, not ctest entries | exact (byte for byte) | @eq-ch16-gate |
+| base against base, per device | a device gives the base build the same bits twice, so a base-against-candidate difference is the candidate's | exact | the control runs of `gates.sh` |
+
+: Tests of the bitwise gates. {#tbl-ch16-gates-tests}
+
+This chapter quotes no gate result. A gate result belongs to a pair of commits, and the record of each pair is
+the review that ran it.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- A gate compares two builds on one device; it says nothing about agreement across devices (@sec-ch16-devices).
+- The decks are fixed: a code path that none of the harness decks or 20 cases reaches is not gated. The harness has
+  no scalar, no moisture and one Riemann solver; the dump set has no implicit solve.
+- Both tools are rebuilt from the case descriptions of the original gates, whose scripts were never committed;
+  the deck sizes, initial states and steps are the rebuild's choices.[^ch16-gates-src]
+- The stored checksums of the reference runs match only on hardware that gives the reference build the same
+  bits; the gate is always a fresh pair of runs, not a comparison with those files.
+:::
+
+[^ch16-gates-src]: [source: cshsgy/snapy branch `v3/closing-dryrun-plan` at `be267b70`,
+    `docs/v3/closing/tools/harness348/README.md` (decks, rule, CPU against CUDA "information only") and
+    `docs/v3/closing/tools/dumpset349/README.md` (cases, rule, "compare CPU with CPU and CUDA with CUDA only");
+    both READMEs state that the tools rebuild the gates described in chengcli/snapy#348 and #349]
+
+<!-- reader glossary notes -->
+[^rg-2616ddfc1c3d]: WENO5 — fifth-order weighted essentially non-oscillatory reconstruction
+
+[^rg-7367fe18c296]: LMARS — low-Mach approximate Riemann solver
+
+[^rg-01fadbe6e8ea]: $x_1, x_2, x_3$ — the three coordinate directions; $x_1$ is always the vertical (radial) direction
+
+[^rg-b743ab6e7970]: const-gravity — constant-gravity forcing component
+
+[^rg-1d6fbd595d86]: WENO3 — third-order weighted essentially non-oscillatory reconstruction
+
+[^rg-519f17b4266b]: PLM — piecewise-linear method
+
+[^rg-2e823fe9fba3]: HLLC — Harten–Lax–van Leer solver with the contact restored
+
+[^rg-17196f1aab8c]: EOS — equation of state
+<!-- end reader glossary notes -->

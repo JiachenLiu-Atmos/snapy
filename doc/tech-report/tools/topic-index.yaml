@@ -550,7 +550,24 @@ sections:
   sec-ch14-tools:
     - output files, combining and inspecting: [pd-combine, pd-inspect]
 
-  # Chapter 15. Verification catalogue
+  # Chapter 16. Verification and reproducibility
+  sec-ch16-gates:
+    - bitwise gate: [byte-for-byte comparison, face-deck harness, dump set]
+    - reproducibility, between two builds
+    - refactor, checking it changes no result
+  sec-ch16-capture:
+    - capture sweep: [captured, refused or failed tests]
+    - CUDA graph, which tests capture
+    - execution report: [captures, replays, eager segments]
+  sec-ch16-launches:
+    - launch counting: [kernel launches per step, profiler trace]
+    - S4 table, where it is
+  sec-ch16-regressions:
+    - regression test, which defect it pins: [RED and GREEN commits]
+    - test provenance
+  sec-ch16-devices:
+    - reproducibility, across devices: [CPU and CUDA agreement, MPS tolerance]
+    - MPS, what is compared
   sec-ch16-metrics:
     - verification evidence, reading: [convergence order, two-grid order estimate]
     - agreement with a reference result
