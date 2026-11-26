@@ -284,10 +284,9 @@ tasks:
   lookup_grade: PARTIAL
 - id: Q-048
   question: My run stopped with negative density or NaN. What do I check first, and which settings usually fix it?
-  status: partly documented
-  dest: sec-ch13-redo-view
-  missing: first-check order and usual fixes
-  lookup_grade: PARTIAL
+  status: undocumented
+  not_provided: 'its answering section (sec-ch13-redo-view, in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10'
+  lookup_grade: NONE
 - id: Q-049
   question: How do I tell whether a feature in my result is physics or a numerical artifact, and which simple test should I run first?
   status: outside scope
@@ -411,10 +410,9 @@ tasks:
   lookup_grade: PARTIAL
 - id: Q-070
   question: Is there a harness I can reuse to show my forcing changes mass, momentum and energy only as intended, budgeted per step?
-  status: partly documented
-  dest: sec-ch13-cycle
-  missing: a reusable per-forcing harness; momentum budget
-  lookup_grade: PARTIAL
+  status: undocumented
+  not_provided: 'its answering section (sec-ch13-cycle, in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10'
+  lookup_grade: NONE
 - id: Q-071
   question: 'How do I test that a new condensate conserves total water (vapor + condensate) and moist energy through a phase change? What tolerance should I expect: round-off or truncation?'
   status: partly documented

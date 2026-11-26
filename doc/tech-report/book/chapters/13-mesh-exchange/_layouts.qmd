@@ -23,7 +23,7 @@ map a location back to a rank, and give the neighbour rank at an offset $(\iota_
 
 **Placement.** At construction; read by every exchange (@sec-ch13-ghost) and seam (@sec-ch03).
 
-**Activation.** `distribute: layout` (`slab`, `cubed` or `cubed-sphere`; default `slab`), `nb1`, `nb2`, `nb3`
+**Activation.** `distribute: layout` (`slab`, `cubed` or `cubed-sphere`; default `slab`), `nb1`, `nb2`[^rg-cb3951278c07], `nb3`
 (default 1 each) and `blocks_per_process` (default 1).
 
 **Guarantee / limits.** The map is a bijection on the ranks of the run; edge neighbours are symmetric. No
@@ -43,14 +43,14 @@ There is no equation: the layout is a map. Its properties are stated here and ch
 $n_b \in \{1,2,3,4\}$ the cubed-sphere layout has $6\,n_b^2$ ranks (6, 24, 54, 96) on panels 0 to 5;
 `rank_of(loc_of(r))` is `r` for every rank and `loc_of` returns $(-1,-1,-1)$ one past the last; each of the four
 edge neighbours of a rank is another valid rank, and the edge relation is symmetric (a block is an edge
-neighbour of each of its edge neighbours); every corner neighbour is a valid rank.[^lay-run] The process map is
-$p = \lfloor r / B \rfloor$, $\ell = r \bmod B$ for rank $r$ and $B$ = `blocks_per_process`
-(`owner_process_rank`, `local_block_index`), whose inverse is $r = pB + \ell$ (`global_block_rank`).
+neighbour of each of its edge neighbours); every corner neighbour is a valid rank.[^lay-run] The process map is integer
+division: a block of rank `rank` belongs to process `rank / blocks_per_process` and is block
+`rank % blocks_per_process` of it (`owner_process_rank`, `local_block_index`), and the inverse is
+`process * blocks_per_process + index` (`global_block_rank`).
 
-[^lay-run]: [sha: 1b12ea5dc7eb71c89f07256d10cf379c20defe20] `a2run/ch13/cs_neighbors.py` in the writer's workspace,
-    through the snapy Python bindings (`CubedSphereLayout`); this build's `src/layout/cubed_sphere_layout.cpp`,
-    `layout.hpp` and `src/options/layout.yaml` have no diff to the pin. Not an executable check of section 7: it
-    imports snapy.
+[^lay-run]: [sha: 73c45a7c8c991209924e1137992352c335575062; deck: none (layout objects only); run: `python cs_neighbors.py`, clean CUDA Release build, CPU[^rg-09c7f58a7a6a] (the layout is host code), one process; torch 2.10.0+cu126, kintera 2.6.13, pyharp 2.8.1, gcc 13.3.1, nvcc 12.9, Python 3.11.13];
+    `cs_neighbors.py` is a script in the writer's workspace that calls the snapy Python bindings
+    (`CubedSphereLayout`); log `cs_neighbors-73c45a7c.log`. Not an executable check of section 7: it imports snapy.
 
 ### Numerical method
 
@@ -73,8 +73,8 @@ make_fig()
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| options (the `distribute:` card) | {{< code src/options/layout.yaml >}} | `blocks_per_process` | `distribute` |
-| option struct | {{< code src/layout/layout.hpp LayoutOptionsImpl >}} | `LayoutOptionsImpl` | `layout`, `nb1`-`nb3` |
+| options (the `distribute:` card) | {{< code src/options/layout.yaml >}} | `blocks_per_process` | `distribute`[^rg-2848cea6966c] |
+| option struct | {{< code src/layout/layout.hpp LayoutOptionsImpl >}} | `LayoutOptionsImpl` | `layout`[^rg-7eac3aec75e5], `nb1`-`nb3` |
 | sphere test | {{< code src/layout/layout.hpp LayoutOptionsImpl::is_cubed_sphere >}} | `is_cubed_sphere` | `layout: cubed-sphere` |
 | process of a rank | {{< code src/layout/layout.hpp LayoutOptionsImpl::owner_process_rank >}} | `owner_process_rank` | `blocks_per_process` |
 | index in its process | {{< code src/layout/layout.hpp LayoutOptionsImpl::local_block_index >}} | `local_block_index` | `blocks_per_process` |
@@ -83,6 +83,8 @@ make_fig()
 | location to rank | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::rank_of >}} | `rank_of` | none |
 | neighbour at an offset | {{< code src/layout/cubed_sphere_layout.cpp CubedSphereLayoutImpl::neighbor_rank >}} | `neighbor_rank` | none |
 | panel of a rank | {{< code src/layout/layout.hpp LayoutImpl::panel_of >}} | `panel_of` | none |
+
+: The code of the layouts. {#tbl-ch13-layouts-code}
 
 `LayoutImpl::create` builds the layout named by `layout`; an unknown name is refused there. The process of a
 block and its index in the process are read wherever a same-process path is chosen (`is_local_block`).
@@ -94,11 +96,26 @@ block and its index in the process are read wherever a same-process path is chos
 | `tests/test_process_group.cpp` (`test_process_group.release`) | backend default and override, master port in 29500-29600 or from the environment, world size, refusal of an inconsistent environment | exact (pass/fail) | the options are integers and strings |
 | `tests/test_local_horizontal_cells.py` (`test_local_horizontal_cells_python`) | a block's local face coordinates match the global grid at its bounds | $\le 10^{-12}$ times the cell width or the extent | the test source; round-off of the face sums |
 
-The map properties of the Derivation are from a run, not a ctest (@sec-ch13-layouts). Neither test was run at the
-pin for this chapter (missing evidence); both are CPU tests.
+: The tests of the layouts. {#tbl-ch13-layouts-tests}
+
+Evidence: both tests passed at the pin on a CPU-only build and on a CUDA build, in the by-name run of every test
+this chapter cites (CPU: 22 passed and 4 skipped of 26; CUDA: 29 of 29 passed).[^lay-ctest] `test_process_group`
+ran its 9 cases with none skipped on both. The map properties of the Derivation are from a run, not a ctest.
+
+[^lay-ctest]: [sha: 73c45a7c8c991209924e1137992352c335575062; deck: the tests' own decks; run: `ctest --test-dir build/tests -j 1 -V --timeout 1200 -R '^(test_process_group\.|test_local_horizontal_cells_python$|test_exchange\.|test_mesh_exchange_python$|test_cubed_sphere_exchange\.|test_periodic_corners_python$|test_mesh_block_job_failure_python$|test_mesh_capture\.|test_mesh_capture_moist_python$|test_cubed_sphere_capture_python$|test_graph_mesh_many_blocks_python$|test_mesh_worker_streams\.|test_mesh_disagree\.|test_x1_seam_split)'`, clean CPU-only Release build, CPU, FP64, one process (two for `test_exchange` and the `_mp` entries); and the same command on a clean CUDA Release build (sm_61 code), one CUDA device, FP64 unless the test sets FP32, one process (two for `test_exchange` and the `_mp` entries); torch 2.10.0+cu126, kintera 2.6.13, pyharp 2.8.1, gcc 13.3.1, nvcc 12.9, Python 3.11.13]; logs `ctest-ch13-cpu-verbose.log` and `ctest-ch13-cuda.log`.
 
 ### Limits
 
 The schema's own description of `layout` names `slab` and `cubed-sphere` only, while `create` also accepts
 `cubed`. At a cube corner the corner neighbour is a convention (one step along $x_2$), not a geometric
 neighbour; @sec-ch03 covers how corner ghosts are filled. Switch combinations are in @sec-ch12-matrix.
+
+<!-- reader glossary notes -->
+[^rg-cb3951278c07]: nb2 — number of blocks along the second coordinate direction
+
+[^rg-09c7f58a7a6a]: CPU — central processing unit
+
+[^rg-2848cea6966c]: distribute — domain-distribution options
+
+[^rg-7eac3aec75e5]: layout — block-layout selector
+<!-- end reader glossary notes -->
