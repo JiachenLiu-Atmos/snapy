@@ -87,7 +87,7 @@
 - Select the cell form of the gravity work. See Constant gravity and the cell form of the gravity work, @sec-ch06-cell.
 - Use the default face form of the gravity work. See Face form of the gravity work, @sec-ch06-face.
 - Turn on the gravity-work fixer. See Gravity-work fixer, @sec-ch06-fixer.
-- Turn on the corrected-PE face gravity work (`gravity-work: face` on a curvilinear x1 grid). See The corrected-PE face gravity work, @sec-ch06-dwork.
+- Get the corrected-PE face gravity work (on by default with `gravity-work: face` and nonzero `grav1` on a Cartesian, spherical-polar or gnomonic-equiangle grid). See The corrected-PE face gravity work, @sec-ch06-dwork.
 - Run with the vertical implicit scheme so gravity work enters the implicit operator. See Gravity work inside the vertical implicit operator, @sec-ch06-vic.
 - Install two forcing modules (constant gravity and body heating) from YAML. See The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 - Add a rotation about the polar axis (Coriolis) on a spherical-polar or cubed-sphere grid. See Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch07-coriolis.

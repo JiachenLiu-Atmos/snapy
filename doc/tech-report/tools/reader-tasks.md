@@ -187,7 +187,7 @@ anchored row it starts with the rendered section number. A literal `|` inside a 
 | DO-ch06-cell | Select the cell form of the gravity work | DO ch06-cell | sec-ch06-cell | §6.1; card class CPU-seconds; deck examples/straka_single.yaml |
 | DO-ch06-face | Use the default face form of the gravity work | DO ch06-face | sec-ch06-face | §6.2; card class CPU-seconds; deck examples/straka_single.yaml |
 | DO-ch06-fixer | Turn on the gravity-work fixer | DO ch06-fixer | sec-ch06-fixer | §6.3; card class CPU-seconds; deck examples/straka_single.yaml |
-| DO-ch06-dwork | Turn on the corrected-PE face gravity work (`gravity-work: face` on a curvilinear x1 grid) | DO ch06-dwork | sec-ch06-dwork | §6.4; card class CPU-seconds; deck examples/straka_single.yaml |
+| DO-ch06-dwork | Get the corrected-PE face gravity work (on by default with `gravity-work: face` and nonzero `grav1` on a Cartesian, spherical-polar or gnomonic-equiangle grid) | DO ch06-dwork | sec-ch06-dwork | §6.4; card class CPU-seconds; deck examples/straka_single.yaml |
 | DO-ch06-vic | Run with the vertical implicit scheme so gravity work enters the implicit operator | DO ch06-vic | sec-ch06-vic | §6.5; card class CPU-minutes+; deck examples/straka_single.yaml |
 | DO-ch09-framework | Install two forcing modules (constant gravity and body heating) from YAML | DO ch07-framework | sec-ch07-framework | §9.1; card class CPU-seconds; deck examples/straka_single.yaml |
 | DO-ch09-coriolis | Add a rotation about the polar axis (Coriolis) on a spherical-polar or cubed-sphere grid | DO ch07-coriolis | sec-ch07-coriolis | §9.3; card class CPU-seconds; deck examples/straka_single.yaml |
