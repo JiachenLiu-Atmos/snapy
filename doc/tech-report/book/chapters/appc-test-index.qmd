@@ -35,9 +35,9 @@ command's name. The following steps explain why the total in the generated table
 can exceed its row count.
 
 1. **Start with the configured registry.** CTest's `--show-only=json-v1` returns
-   names and the CMake call stack that created each command. For example,
-   `setup_test` ([`macro_setup_test.cmake:8-34`](https://github.com/chengcli/snapy/blob/68f4e066974ede87e4379285c4fba895b970b7f1/cmake/macros/macro_setup_test.cmake#L8-L34))
-   ultimately calls `add_test`. A source file by itself is not a registration.
+   names and the CMake call stack that created each command. For example, the
+   `setup_test` macro ({{< code cmake/macros/macro_setup_test.cmake >}}) builds one
+   gtest executable and ends in `add_test`. A source file by itself is not a registration.
 2. **Partition by origin.** The index generator assigns a command to $D$ if any
    backtrace frame is in the configured build's `_deps` directory; otherwise it
    assigns it to $S$. Every entry takes exactly one branch, giving
@@ -48,7 +48,7 @@ can exceed its row count.
    This documents the index generator's classification, not a solver equation.
 3. **Recover the displayed count.** Subtracting the dependency count gives
    $N_S=N_R-N_D$. The refresh at the code pin gives
-   $1089-927=162$: 162 snapy rows and 927 Eigen registrations. These are
+   $1176-938=238$: 238 snapy rows and 938 Eigen registrations. These are
    configuration-specific measurements, not constants of snapy.[^appc-provenance]
 4. **Keep count accuracy separate from solver accuracy.** Sorting names changes
    no membership and therefore no count. Python integer counts and SymPy integer
@@ -69,13 +69,26 @@ that this table displays, not that the command has no environment or timeout.
 
 ### Code
 
-The table below links every registration to its defining call at
-chengcli/snapy `68f4e066974ede87e4379285c4fba895b970b7f1`. The C++ helper
-`setup_test` appends the lower-case build type to the name, while
-`snapy_add_python_test` ([`CMakeLists.txt:320-337`](https://github.com/chengcli/snapy/blob/68f4e066974ede87e4379285c4fba895b970b7f1/tests/CMakeLists.txt#L320-L337))
-appends `_python`. A parallel helper invokes `torchrun`; the absence of a
-`PROCESSORS` note does not prove that a command uses only one process:
-`setup_parallel_test` ([`macro_setup_parallel_test.cmake:1-34`](https://github.com/chengcli/snapy/blob/68f4e066974ede87e4379285c4fba895b970b7f1/cmake/macros/macro_setup_parallel_test.cmake#L1-L34)).
+The table below names the call that defines every registration at the code pin;
+all 238 calls are in `tests/CMakeLists.txt` ({{< code tests/CMakeLists.txt >}}), and
+the generator links each one at the pin. Six calls account for the rows:
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| 90 rows: one gtest executable per C++ test file, named by the file stem plus the lower-case build type (`test_eos.release`) | {{< code cmake/macros/macro_setup_test.cmake >}} | `setup_test` | `CMAKE_BUILD_TYPE` |
+| 101 rows: a Python script run by the configured interpreter, with labels and an optional timeout, named by the stem plus `_python` | {{< code tests/CMakeLists.txt >}} | `snapy_add_python_test` | `SNAPY_TEST_PYTHONPATH` |
+| 28 rows: a built binary or script driven by a written-out call: environment variants of built tests (`*_x1_centroid`), the `*_cuda`, `*_mp` and `*_gloo` launches, the example-deck runs (`test_straka`, `test_bryan_balance_ic`) and the restart scripts | {{< code tests/CMakeLists.txt >}} | `add_test` | `CUDA` (the `*_cuda` rows are `DISABLED` without it) |
+| 8 rows: one gtest executable launched through `torchrun --no-python --nproc-per-node=<cores>`, named like `setup_test` (`test_x1_seam_split_mp.release`) | {{< code cmake/macros/macro_setup_parallel_test.cmake >}} | `setup_parallel_test` | `CMAKE_BUILD_TYPE` |
+| 8 rows: one entry per arm of the x1 seam-split test, a `GTEST_FILTER` on a single case plus the arm's environment, passing only on `[  PASSED  ] 1 test.`; named `test_x1_seam_split<arm>.release` | {{< code tests/CMakeLists.txt >}} | `seam_arm` | `CUDA` (three more arms under `if(CUDA)`) |
+| 3 rows: the two-rank form of the same arms through `torchrun`, the arm being the environment; named `test_x1_seam_split_mp<arm>.release` | {{< code tests/CMakeLists.txt >}} | `seam_arm_mp` | none |
+
+: Registration helpers at the code pin and the rows each one produces. {#tbl-appc-helpers}
+
+The absence of a `PROCESSORS` note does not prove that a command uses only one
+process: the `torchrun` helpers set none, and only one registration records
+`PROCESSORS` at all. Three rows are registered `DISABLED` because this
+configuration has `CUDA=OFF`; a CUDA configure enables them and adds the
+`seam_arm` CUDA arms that `tests/CMakeLists.txt` registers under `if(CUDA)`.
 
 **How to use this index.** Copy the full name, including its suffix, and first
 check that it exists in your own configured build. For example, from the build
@@ -91,11 +104,13 @@ The anchored expression selects that command only. Build the corresponding
 binaries before the second command. Inspect the JSON command and environment
 when reproducing a run: the compact table deliberately omits machine paths and
 most execution properties. For Python tests, set `SNAPY_TEST_PYTHONPATH` when
-configuring to the installation built from the intended source; otherwise CMake
-warns that tests import the installed snapy and do not constrain the checkout:
-`SNAPY_TEST_PYTHONPATH` ([`CMakeLists.txt:546-560`](https://github.com/chengcli/snapy/blob/68f4e066974ede87e4379285c4fba895b970b7f1/tests/CMakeLists.txt#L546-L560)).
-A skipped command is not a pass. In particular, some entries use exit code 125
-as their skip condition, shown in Notes.
+configuring to the installation built from the intended source: it is a cache
+path that `tests/CMakeLists.txt` prepends to `PYTHONPATH` for every test that
+`snapy_add_python_test` enrolled; when it is empty, CMake warns that those tests
+import the installed snapy and do not constrain the checkout
+({{< code tests/CMakeLists.txt >}}). A skipped command is not a pass: 31 rows use
+exit code 125 as their skip condition, shown in Notes, and the generated table
+does not say which of them skip on a CPU-only machine.
 
 ### Tests
 
@@ -105,9 +120,9 @@ are integer counts, names and generated text.
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| [C1] CTest JSON and plain listing | Both listings contain the same 1089 distinct names; the reduced fixture has 162 snapy entries and 927 dependency entries | exact | Integer partition of one configured registry |
+| [C1] CTest JSON and plain listing | Both listings contain the same 1176 distinct names; the reduced fixture has 238 snapy entries and 938 dependency entries | exact | Integer partition of one configured registry |
 | [C2] `python tools/gen_test_index.py --check`, in the report directory (@sec-appa-refresh) | The committed fragment equals the generator output from the committed fixture | byte-for-byte | Deterministic generation contract |
-| [C3] Registration citations | Each row's helper occurs at its cited line in the pinned source | exact | CMake backtrace from the clean checkout |
+| [C3] Registration citations | Each row's helper name occurs on its cited line of `tests/CMakeLists.txt` in the pinned source | exact | CMake backtrace from the clean checkout |
 | [C4] SymPy snippet below | Inclusion–exclusion, rearrangement and measured count substitution agree | symbolic zero | Exact integer arithmetic, no floating-point tolerance |
 
 : Inventory checks; [C1]–[C4] are report checks, not CTest command names. {#tbl-appc-checks}
@@ -126,8 +141,8 @@ ns, nd, overlap = sp.symbols("ns nd overlap", integer=True, nonnegative=True)
 union = ns + nd - overlap
 assert sp.simplify(union.subs(overlap, 0) - (ns + nd)) == 0
 assert sp.simplify((ns + nd) - nd - ns) == 0
-assert sp.Integer(1089) - sp.Integer(927) == sp.Integer(162)
-assert sp.Integer(162) + sp.Integer(927) == sp.Integer(1089)
+assert sp.Integer(1176) - sp.Integer(938) == sp.Integer(238)
+assert sp.Integer(238) + sp.Integer(938) == sp.Integer(1176)
 print("[C4] PASS: 4 exact identities")
 ```
 
@@ -136,21 +151,23 @@ print("[C4] PASS: 4 exact identities")
 This is the CPU configuration's registration inventory, not evidence of CPU or
 CUDA execution. CUDA-only registrations and other switch combinations require a
 separate configure and listing; none were checked here. Dependency counts can
-also change with the compiler and available dependencies. The table does not
-record individual numerical tolerances: follow each test's assertions and the
-chapter's Tests layer for those. For measured verification see @sec-ch16, and for
-configuration combinations see @sec-ch12-matrix.
+also change with the compiler and available dependencies: the Eigen count differs
+between CMake releases because the fetched Eigen registers its suite through its
+own CMake logic. The table does not record individual numerical tolerances: follow
+each test's assertions and the chapter's Tests layer for those. For measured
+verification see @sec-ch16, and for configuration combinations see @sec-ch12-matrix.
 
-[^appc-provenance]: Inventory refreshed from a clean checkout of chengcli/snapy
-    `68f4e066974ede87e4379285c4fba895b970b7f1` with `cmake -S snapy-pin -B snapy-pin-build -G Ninja
-    -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON -DBUILD_EXAMPLES=OFF -DCUDA=OFF -DFULL_TESTS=OFF
-    -DNETCDF=ON -DPNETCDF=OFF -DUCX=ON`, then
-    `python3 tools/gen_test_index.py --refresh snapy-pin-build` (the listing reads the configure
-    step only); CMake/CTest 4.4.4, torch 2.10.0, kintera 2.6.6, commux 0.2.1 found (so `UCX=ON`). Recorded switches: Release, `BUILD_TESTS=ON`,
+[^appc-provenance]: Inventory refreshed from a clean checkout of chengcli/snapy at the code pin
+    of `code_pin.yml` with `cmake -S <source> -B <build> -G Ninja -DCMAKE_BUILD_TYPE=Release
+    -DBUILD_TESTS=ON -DBUILD_EXAMPLES=OFF -DCUDA=OFF -DFULL_TESTS=OFF -DNETCDF=ON -DPNETCDF=OFF
+    -DUCX=ON`, then `python3 tools/gen_test_index.py --refresh <build>` (the listing reads the
+    configure step only; nothing was built). CMake/CTest 3.22.1, torch 2.10.0, kintera 2.6.13,
+    commux 0.2.1 found (so `UCX=ON`), NetCDF found. Recorded switches: Release, `BUILD_TESTS=ON`,
     `BUILD_EXAMPLES=OFF`, `CUDA=OFF`, `FULL_TESTS=OFF`, `NETCDF=ON`, `UCX=ON`. The committed
-    `tools/ctest-index.json` records the reduced registration data; the table
-    fragment is its generated output. [C1] is `ctest --show-only=json-v1` (1089 entries, 1089
-    distinct names) against `ctest -N` (`Total Tests: 1089`) in that build directory. [C1]–[C4]
-    were run with Python 3.11.13 and SymPy 1.14.0. No solver test verdict is claimed.
+    `tools/ctest-index.json` records the reduced registration data; the table fragment is its
+    generated output. [C1] is `ctest --show-only=json-v1` (1176 entries, 1176 distinct names)
+    against `ctest -N` (`Total Tests: 1176`) in that build directory; [C3] read every fixture
+    row's cited line in the checkout. [C1]–[C4] were run with Python 3.12.6 and SymPy 1.14.0.
+    No solver test verdict is claimed.
 
 {{< include 17-appendices/_appc-test-index.qmd >}}
