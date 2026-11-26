@@ -272,6 +272,8 @@
 
 *conversion-order*, see **cell average to point value, x1 conversion**.
 
+*conversion-order 4*, see **hydrostatic reference, fourth order**.
+
 **`coriolis`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
 **Coriolis force**: Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch07-coriolis; The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
@@ -1694,7 +1696,7 @@
 
 *SNAP_* variables*, see **environment switches**.
 
-*SNAP_WB_REF4*, see **environment switches, reference**; **hydrostatic reference, fourth order**.
+*SNAP_WB_REF4*, see **environment switches, reference**.
 
 *SNAP_X1_CENTROID_EXACT*, see **environment switches, centroid**; **spherical grid, exact vertical maps**.
 
@@ -2068,7 +2070,7 @@
 
 **$W^{\mathrm{wallc}}_i$**: [5. Gravity, potential energy and gravity work](#sec-appa-5).
 
-**wall ghosts, isentropic (legacy)**: Legacy $x_1$ wall routines: isentropic wall ghosts and the wall-face state copy (no switch), @sec-ch05-legacy.
+**wall ghosts, isentropic (legacy)**: Legacy $x_1$ wall routine: the wall-face state copy (no switch), @sec-ch05-legacy.
 
 **wall temperature, prescribed**: Viscosity and heat conduction on the cubed sphere, @sec-ch07-csdiffusion.
 

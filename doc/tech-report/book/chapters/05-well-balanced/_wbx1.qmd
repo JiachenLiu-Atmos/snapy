@@ -230,7 +230,7 @@ cell, $i_s$ and $i_u$):
    ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
 4. The even-parity ghosts are written where `is_outflow` is false at a physical wall
    ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
-5. Under `SNAP_X1_MASS_COVARIANCE` the velocity row is corrected before the reconstruction (@sec-ch04).
+5. Under `dynamics/x1-mass-covariance: true` the velocity row is corrected before the reconstruction (@sec-ch04).
 6. `precon1` reconstructs with `floor=false`
    ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
 7. The rows of `wx1` are restored, `psf_lo` is added to both pressure states with its fallback

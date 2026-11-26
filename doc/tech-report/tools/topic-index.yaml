@@ -243,7 +243,7 @@ sections:
     - well-balanced scheme at walls: [wb-wall-clamp]
     - bottom and top boundary, hydrostatic
   sec-ch05-wbref4:
-    - hydrostatic reference, fourth order: [SNAP_WB_REF4]
+    - hydrostatic reference, fourth order: [conversion-order 4]
   sec-ch05-wbx1:
     - well-balanced scheme: [hydrostatic balance, atmosphere at rest, well-balancing]
     - atmosphere at rest, staying at rest

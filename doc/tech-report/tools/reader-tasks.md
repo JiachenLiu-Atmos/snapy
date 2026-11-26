@@ -180,7 +180,7 @@ anchored row it starts with the rendered section number. A literal `|` inside a 
 | DO-ch05-seam | Split a column into two x1 blocks so the reference relay runs | DO ch05-seam | sec-ch05-seam | §5.4; card class multi-rank; deck examples/straka_single.yaml |
 | DO-ch05-hsmode | Turn on hydrostatic mode in the constant-gravity block | DO ch05-hsmode | sec-ch05-hsmode | §5.5; card class CPU-seconds; deck examples/straka_single.yaml |
 | DO-ch05-balcol | Project an initial column onto the discrete balance with balance_column | DO ch05-balcol | sec-ch05-balcol | §5.6; card class CPU-seconds; deck examples/bryan.yaml |
-| DO-ch05-wbref4 | Turn on the fourth-order density reference (SNAP_WB_REF4) | DO ch05-wbref4 | sec-ch05-wbref4 | §5.7; card class CPU-seconds; deck examples/straka_single.yaml |
+| DO-ch05-wbref4 | Turn on the fourth-order density reference (conversion-order 4) | DO ch05-wbref4 | sec-ch05-wbref4 | §5.7; card class CPU-seconds; deck examples/straka_single.yaml |
 | DO-ch05-x1cent | Turn on r^2-exact x1 maps on a spherical-polar block (SNAP_X1_CENTROID_EXACT) | DO ch05-x1cent | sec-ch05-x1cent | §5.8; card class CPU-seconds; deck examples/straka_single.yaml |
 | DO-ch05-oneoverr | Run the spherical-polar column that shows the 1/r remainder | DO ch05-oneoverr | sec-ch05-oneoverr | §5.9; card class CPU-minutes+; deck examples/straka_single.yaml |
 | DO-ch05-legacy | See that no deck reaches the legacy x1 wall routines | DO ch05-legacy | sec-ch05-legacy | §5.10; card class CPU-seconds; deck examples/straka_single.yaml |

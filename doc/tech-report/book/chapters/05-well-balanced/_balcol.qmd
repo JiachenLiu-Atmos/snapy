@@ -38,7 +38,7 @@ $\epsilon_{\mathrm m}$ are defined in @sec-appa.
 
 A column of unequal widths, or one passed with `stretched=true`, is balanced against the stretched cell pressure
 of @eq-ch05-refkernel-stretched, built from its widths exactly as a block builds it; equal widths take the uniform
-rows. `SNAP_WB_REF4` changes no cell pressure (@sec-ch05-wbref4), so it does not change the fixed point. Under
+rows. The key-4 face density changes no cell pressure (@sec-ch05-wbref4), so it does not change the fixed point. Under
 `SNAP_X1_CENTROID_EXACT` it balances only a column declared Cartesian.
 
 *Aliases.* "the balance-ic projection" (the bryan example's `balance-ic`[^rg-204491bad492]).[^ch05-bal-src]
@@ -218,8 +218,8 @@ stored $1/\chi_i$.
 2. The column length `nc1` must be at least 5 and $p$, $\rho$ positive; $1/\chi_i$ is stored
    ({{< code src/hydro/balance_column.cpp balance_column >}}).
 3. The grid kind `x1_grid` is decided from `stretched` and the widths, and for a stretched column the rows of
-   @eq-ch05-refkernel-stretched are built once with `hydro_ref_x1_stretched_rows`
-   ({{< code src/hydro/balance_column.cpp balance_column >}}).
+   @eq-ch05-refkernel-stretched are built once with `six_face_rows` when the operator is constructed
+   ({{< code src/hydro/balance_column.cpp balance_column >}}, {{< code src/recon/x1_reference.hpp HydroReferenceX1Operator >}}).
 4. The loop runs @eq-ch05-balcol-res and @eq-ch05-balcol-iter, counting `sweeps`, and raises if the pressure turns
    non-positive
    ({{< code src/hydro/balance_column.cpp balance_column >}}).
@@ -244,8 +244,8 @@ saturation loop for moist columns.
 | same, `a_balanced_column_is_a_fixed_point`, `a_block_thinner_than_its_ghosts_keeps_its_columns_apart`, `it_refuses_what_it_cannot_deliver` | zero updates on a balanced column; column independence; refusals | exact | contract |
 | same, `x1_centroid_switch_implies_the_ref4_predicate`, `x1_centroid_switch_balances_only_a_cartesian_column` | switch predicates and the geometry refusal | exact | contract |
 | same, `a_moist_column_with_one_condensable_comes_out_at_rest` | moist column balanced and at rest after one step | $<10^{-10}$; marched $>10^{-6}$ | `rtol`; non-vacuity |
-| `test_balance_column_wb_ref4`, `test_balance_column_x1_centroid` | the same tests with each switch set | as above | as above |
-| `tests/test_stretched_x1_ref.cpp` (`test_stretched_x1_ref.release`), `keyed_column_balances_to_1e13`; `balance_column_wb_ref4_runs` in `test_stretched_x1_ref_wb_ref4.release` | a geometric column ($n_1=128$, ratio 1.02) with `stretched=true` converges, with and without `SNAP_WB_REF4` | residual $<10^{-13}$ | test bound |
+| `test_balance_column_x1_centroid` | the same tests with `SNAP_X1_CENTROID_EXACT` set | as above | as above |
+| `tests/test_stretched_x1_ref.cpp` (`test_stretched_x1_ref.release`), `keyed_column_balances_to_1e13` | a geometric column ($n_1=128$, ratio 1.02) with `stretched=true` converges | residual $<10^{-13}$ | test bound |
 | `test_bryan_balance_ic` | one allowed pass fails with the cap error; the default converges; the dry case projects once | exit status, output match | contract |
 
 : Tests of `balance_column`. {#tbl-ch05-balcol-tests}
@@ -260,9 +260,10 @@ $1.5\times10^{-16}$.[^ch05-bal-chk]
     sympy 1.14.0]. Output `src/snapy_report/ch05/checks/wbref_check.out`, line `[C15]`.
 
 ::: {.callout-important title="Test"}
-**Evidence.** All pass at the pin.[^ch05-bal-run68] The moist test prints audit residual $3.357\times10^{-1}$ before
+**Evidence.** All passed in the recorded run of the footnote, which predates the code pin and is not rerun
+here.[^ch05-bal-run68] The moist test prints audit residual $3.357\times10^{-1}$ before
 and $8.896\times10^{-11}$ after, in 13 sweeps, and $\max\lvert v_1\rvert/(g\Delta t)$ after one step
-$2.57\times10^{-11}$ balanced against $2.05\times10^{-2}$ marched, identical in the plain and `_wb_ref4` arms. The
+$2.57\times10^{-11}$ balanced against $2.05\times10^{-2}$ marched, identical in the two arms of that run. The
 bryan default case stops after pass 6 with saturation changes falling from $8.75\times10^{-8}$ to $1.38\times10^{-14}$
 (@fig-ch05-balcol-passes). The keyed stretched column reaches a residual of $7.25\times10^{-15}$ after 20 sweeps. The
 fixed point is checked by `[C15]`.

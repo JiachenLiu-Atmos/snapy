@@ -24,7 +24,7 @@ remainder, its signature, and what evidence exists for it; it has no code of its
 
 **Placement.** The $x_1$ reconstruction in `HydroImpl::forward`, through the velocity it is fed.
 
-**Activation.** Always present on spherical-polar grids; `SNAP_X1_MASS_COVARIANCE` subtracts its velocity part.
+**Activation.** Always present on spherical-polar grids; `dynamics/x1-mass-covariance: true` subtracts its velocity part.
 
 **Guarantee / limits.** $O(\Delta x_1^2/r)$; the $T=p/\rho$ and $\chi$ ratios keep it, with no switch.
 
@@ -68,8 +68,8 @@ where the first term is the Cartesian covariance of a density-weighted mean, who
 @sec-ch04-x1masscov, and the second the centroid offset of the $r^2$ measure ($\partial_1$ is the radial derivative
 here, $x_1=r$; derived for linear $\rho$ and $v_1$ in `[C21]`, exact in sympy). The conversion of @eq-ch05-x1cent-conv
 treats $\tilde v_1$ as an $r^2$ mean and so removes the $\delta_i\partial_1 v_1$ part; the covariance part stays
-unless `SNAP_X1_MASS_COVARIANCE` is set, which subtracts $\tfrac{1}{12}\Delta x_{1,i}^2\,\partial_1\rho\,\partial_1 v_1/\rho$
-from the reconstructed velocity ({{< code src/hydro/hydro.cpp HydroImpl::x1_mass_covariance >}},
+unless `dynamics/x1-mass-covariance` is `true` (default `false`), which subtracts $\tfrac{1}{12}\Delta x_{1,i}^2\,\partial_1\rho\,\partial_1 v_1/\rho$
+from the reconstructed velocity (`x1_mass_covariance`, {{< code src/hydro/hydro.hpp HydroImpl::x1_mass_covariance >}},
 @sec-ch04-x1masscov).
 Reconstructing the converted value with weights for plain means therefore leaves an $O(\Delta x_1^2)$ face error,
 which the $2/r$ of the radial divergence turns into an $O(\Delta x_1^2/r)$ tendency. The
@@ -90,7 +90,7 @@ $\Delta x_1^2/r$.[^ch05-1r-src]
 3. *The reconstruction takes it for a plain mean.* WENO5 maps cell values to face values as if they were plain means,
    so the covariance term reaches the face velocity, and with it the mass flux, at $O(\Delta x_1^2)$.
 4. *The divergence divides by $r$.* The radial flux difference carries the face areas $r^2_{i\pm1/2}$ over $V_i$,
-   which turns that face error into an $O(\Delta x_1^2/r)$ tendency. `SNAP_X1_MASS_COVARIANCE` removes the velocity's
+   which turns that face error into an $O(\Delta x_1^2/r)$ tendency. `dynamics/x1-mass-covariance` removes the velocity's
    share of step 3 only.
 
 *Exact and truncated.* The remainder is $O(\Delta x_1^2/r)$ and vanishes for $r\to\infty$ (Cartesian).
@@ -115,11 +115,16 @@ spherical-polar counterpart of the Cartesian one-step harness `test_horizontal_f
 isentropic column of depth $L_z$ at radius $r_0$ with an anelastic roll in the azimuth $\varphi$[^rg-60f320595305], runs one RK3 step with cell gravity work
 and `SNAP_FLUX_COVARIANCE` on, and projects the entropy tendency on the seeded $v_1$ with unit weight per cell. The quantity
 is $D=(r_0/L_z)[\varepsilon_{\mathrm{eff}} n_1^2(r_0)-\varepsilon_{\mathrm{eff}} n_1^2(\infty)]$, where $\varepsilon_{\mathrm{eff}} n_1^2(\infty)$ is the same column in
-Cartesian geometry with the same switches; the switch implies `SNAP_WB_REF4`, which acts in Cartesian too. With the
+Cartesian geometry with the same switches.[^ch05-1r-wb4] With the
 switch on, the $1/r$ content is $+0.0004$ to $+0.0006$ for $r_0/L_z = 5$ to $160$ and $n_1 = 64$ to $256$. It is
 constant in $r_0$, so the remainder is $O(1/r)$, and it changes little with $n_1$, so it is $O(\Delta x_1^2)$; it decreases slowly
 toward $+0.0004$ as $n_1$ grows. With the switch off it is $-0.027$ to $-0.031$ for $r_0/L_z \ge 40$ and $n_1 \ge 64$,
 fifty to eighty times larger, and it shrinks at small $r_0/L_z$ through a term of higher order in $1/r$.
+
+[^ch05-1r-wb4]: In the recorded run `SNAP_X1_CENTROID_EXACT` also switched on the fourth-order face density of
+    @sec-ch05-wbref4, which acts in Cartesian too. At snapy@73c45a7c8c991209924e1137992352c335575062 that density is
+    `dynamics/conversion-order: 4` and the centroid switch keeps only its $n_g\ge3$ check (`HydroImpl::reset`), so the
+    numbers of this paragraph are to be rerun at the pin.
 
 *Round-off of $D$.* $D$ is a difference of two values, each carrying a round-off $\eta_{\mathrm{ro}}$, multiplied by
 $r_0/L_z$, so its round-off is at most $2(r_0/L_z)\,\eta_{\mathrm{ro}}$. It grows linearly with the radius, while $D$ itself
@@ -144,7 +149,7 @@ make_fig()
 No dedicated code. The pieces it depends on are listed in their own sections.
 
 **A minimal input.** The remainder needs a spherical-polar column with gravity along $x_1$. The closure run's card,
-trimmed, at $r_0/L_z=40$; the environment switch `SNAP_X1_MASS_COVARIANCE=1` removes the velocity part:
+trimmed, at $r_0/L_z=40$; the deck key `dynamics/x1-mass-covariance: true` removes the velocity part:
 
 <!-- reader glossary keys -->Keys in this fragment: `gravity-work`[^rg-01bd369fc2df], `gravity-work-fixer`[^rg-b4cb71f17b56].
 ```yaml
@@ -156,7 +161,7 @@ forcing:
   const-gravity: {grav1: -1., gravity-work: cell, gravity-work-fixer: false}
 ```
 
-**What it refuses, and why.** With gravity on, setup refuses `SNAP_X1_MASS_COVARIANCE` on a block with fewer than
+**What it refuses, and why.** With gravity on, setup refuses `dynamics/x1-mass-covariance: true` on a block with fewer than
 three $x_1$ cells ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}): the one-sided density slope at a wall spans
 three cells, and fewer would read the ghost. Nothing else is refused; the remainder itself has no switch.
 
@@ -179,7 +184,7 @@ and the subtracted term is $\tfrac1{12}\Delta x_{1,i}^2\,\partial_1\rho\,\partia
 |--------|----------|----------|------|
 | the plain-mean view the maps read | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `x1_plain_means` | `SNAP_X1_CENTROID_EXACT` |
 | the radial source | {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::forward >}} | `src1` | |
-| the velocity covariance correction | {{< code src/hydro/hydro.cpp HydroImpl::x1_mass_covariance >}} | `x1_mass_covariance` | `SNAP_X1_MASS_COVARIANCE` |
+| the velocity covariance correction | {{< code src/hydro/hydro.hpp HydroImpl::x1_mass_covariance >}} | `x1_mass_covariance` | `dynamics/x1-mass-covariance` |
 
 : Code map of the $1/r$ remainder. {#tbl-ch05-oneoverr-code}
 
@@ -212,7 +217,7 @@ $5\times10^{-5}$ to $9\times10^{-4}$ for $n_1 \ge 64$. The derivation note's one
 
 ### Limits
 
-1. **Removed only in part.** The remainder is a known $O(\Delta x_1^2/r)$ term of the scheme. `SNAP_X1_MASS_COVARIANCE`
+1. **Removed only in part.** The remainder is a known $O(\Delta x_1^2/r)$ term of the scheme. `dynamics/x1-mass-covariance`
    (off by default) subtracts the covariance term of the velocity (@eq-ch05-oneoverr-favre); the $T=p/\rho$ and
    $\chi$ ratios have no correction. The closure run leaves the switch off, so how much of the measured remainder
    it removes is not measured at the pin.

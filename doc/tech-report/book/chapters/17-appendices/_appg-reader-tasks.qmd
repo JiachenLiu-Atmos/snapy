@@ -80,10 +80,10 @@
 - Split a column into two x1 blocks so the reference relay runs. See Reference continuity across $x_1$ seams: anchor relay and ghost-row exchange ($x_1$ block split), @sec-ch05-seam.
 - Turn on hydrostatic mode in the constant-gravity block. See Hydrostatic mode: gravity replaced by the cell's own pressure difference, @sec-ch05-hsmode.
 - Project an initial column onto the discrete balance with balance_column. See `balance_column`: projection of ghost-free columns onto the scheme's discrete balance (C++ and Python API), @sec-ch05-balcol.
-- Turn on the fourth-order density reference (SNAP_WB_REF4). See Fourth-order, cell-consistent face density reference, @sec-ch05-wbref4.
+- Turn on the fourth-order density reference (conversion-order 4). See Fourth-order, cell-consistent face density reference, @sec-ch05-wbref4.
 - Turn on r^2-exact x1 maps on a spherical-polar block (SNAP_X1_CENTROID_EXACT). See $r^2$-exact $x_1$ maps on spherical-polar grids, @sec-ch05-x1cent.
 - Run the spherical-polar column that shows the 1/r remainder. See The $1/r$ remainder on spherical-polar grids: what is left after the corrections (no switch), @sec-ch05-oneoverr.
-- See that no deck reaches the legacy x1 wall routines. See Legacy $x_1$ wall routines: isentropic wall ghosts and the wall-face state copy (no switch), @sec-ch05-legacy.
+- See that no deck reaches the legacy x1 wall routines. See Legacy $x_1$ wall routine: the wall-face state copy (no switch), @sec-ch05-legacy.
 - Select the cell form of the gravity work. See Constant gravity and the cell form of the gravity work, @sec-ch06-cell.
 - Use the default face form of the gravity work. See Face form of the gravity work, @sec-ch06-face.
 - Turn on the gravity-work fixer. See Gravity-work fixer, @sec-ch06-fixer.

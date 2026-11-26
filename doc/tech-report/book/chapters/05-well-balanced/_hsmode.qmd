@@ -72,8 +72,8 @@ in three steps:
 1. *At rest the two states of every face agree.* With $v_1=0$ and a resting reconstruction (@sec-ch05-wbx1),
    $p^{L}=p^{R}$ and $v^{L}_1=v^{R}_1=0$ at each face.
 2. *The Riemann solver then returns that state.* LMARS[^rg-8e54b2da008f] forms
-   `pbar = 0.5 * (wli[IPR] + wri[IPR]) + 0.5 * (rhobar * cbar) * (wli[IVX] - wri[IVX])`
-   ({{< code src/riemann/lmars_impl.h lmars_impl >}});
+   `pbar = T(0.5) * (wli[IPR] + wri[IPR]) + T(0.5) * (rhobar * cbar) * (wli[IVX] - wri[IVX])`
+   ({{< code src/riemann/riemann_kernels.h lmars_impl >}});
    the velocity difference is exactly 0, and $\tfrac12(a+a)=a$ exactly in floating point, so $p^{*}=p^{L}=p^{R}$ bit for bit.
 3. *So both jumps are zero.* $p^{*}-p^{L}$ and $p^{*}-p^{R}$ vanish at both faces, and the force is zero for any
    column, balanced or not, exactly and not only to a round-off bound (`[C19]` reads $0.0$).

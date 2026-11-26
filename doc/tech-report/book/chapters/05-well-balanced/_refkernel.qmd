@@ -40,7 +40,8 @@ $w^{\mathrm c}_{l_{\mathrm f}}$ the six cell-average weights (the superscript ke
 weights $w^{(s)}_k$); $\eta_{\rho,f}$ [$\mathrm{kg\,m^{-3}}$] the face-density offset; $\psi$ a function sampled at cell
 centres. $\chi$, $\chi^s$, $p_{\mathrm{sf}}$, $\rho_{\mathrm{sf}}$, $\Delta x_1$ and $\epsilon_{\mathrm m}$ are defined in @sec-appa.
 
-The kernel has a C++ implementation shared by the CPU and CUDA paths and a tensor implementation for MPS[^rg-0d33d67506bd]. The wall
+The kernel has one C++ implementation, shared by the CPU and CUDA paths; on MPS[^rg-0d33d67506bd] the CPU loop runs on the host
+({{< code src/hydro/hydro_dispatch.cpp hydro_ref_x1_cpu >}}). The wall
 closure of the smoothed ratio and of the six-face rows is @sec-ch05-wallclamp; the anchor relay across $x_1$ seams
 is @sec-ch05-seam; the fourth-order replacement of the density reference is @sec-ch05-wbref4.
 
@@ -127,8 +128,8 @@ $$ {#eq-ch05-refkernel-stretched}
 evaluated by three-point Gauss–Legendre on $[0,1]$, which is exact for the degree-5 integrand. The window start $s$ is
 the uniform one: $i-2$ in the interior, the six owned faces next to a clamped wall in its two cells, the six array-end
 faces at a seam end (`hydro_ref_x1_six_face_start`); a cell with no window keeps the face mean. The rows are built
-once per block in long double and cached (`hydro_ref_x1_stretched_rows`,
-{{< code src/hydro/hydro_dispatch.cpp hydro_ref_x1_stretched_rows >}}), and the kernel applies them with the same
+once per grid in long double, on the host, and moved to the grid's device by the operator that caches them (`six_face_rows`,
+{{< code src/recon/x1_rows.cpp six_face_rows >}}; {{< code src/recon/x1_reference.hpp HydroReferenceX1Operator >}}), and the kernel applies them with the same
 $[\min,\max]$ guard as `w6` (`kX1RefStretched`, {{< code src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_cell_impl >}}).
 On equal widths the rows are `w6` and `w6e` to $4\epsilon_{\mathrm m}$, and on a geometric adiabat column the cell
 error of every cell is within a factor 2 of that of a uniform patch of its own width (worst ratio 1.363,
@@ -243,9 +244,9 @@ make_fig()
 
 **Paths.** CPU and CUDA run the same header functions: one CPU loop over columns, one CUDA block per column whose
 thread 0 scans and whose threads then fill the cells; a block has $\min(256,\ 32\lceil n_{c1}/32\rceil)$ threads, so a
-short column does not launch idle warps ({{< code src/hydro/hydro_dispatch.cu hydro_ref_x1_cuda >}}). The MPS path
-is refused on a stretched $x_1$ (@sec-ch03-globalgrid). The MPS path rebuilds the same quantities with tensor
-operations (cumulative sums, a padded binomial), and `test_hydro_ref_x1` compares it with the CPU path.
+short column does not launch idle warps ({{< code src/hydro/hydro_dispatch.cu hydro_ref_x1_cuda >}}). MPS runs
+the CPU loop on the host, so it has no implementation of its own; `test_hydro_ref_x1` compares the CPU path with a
+torch re-implementation written in the test (`tensor_reference`).
 
 **Order.** As in the Derivation layer, interior; at walls see @sec-ch05-wallclamp; at seams the reference is the
 neighbour's (@sec-ch05-seam).
@@ -308,7 +309,7 @@ line keeps the result only inside the cell's own two face pressures, otherwise `
 | what | code link | symbol | switch |
 |--------|----------|----------|------|
 | the call and the uniform test | {{< code src/hydro/hydro.cpp HydroImpl::_hydro_ref_x1 >}} | `x1_uniform_` | spread $<10^{-10}$ |
-| stretched rows | {{< code src/hydro/hydro_dispatch.cpp hydro_ref_x1_stretched_rows >}} | `hydro_ref_x1_stretched_rows` | `geometry/x1f`, `geometry/cells/x1rat` |
+| stretched rows | {{< code src/recon/x1_rows.cpp six_face_rows >}} | `six_face_rows` | `geometry/x1f`, `geometry/cells/x1rat` |
 | window start | {{< code src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_six_face_start >}} | `hydro_ref_x1_six_face_start` | `wb-wall-clamp` |
 | grid kinds | {{< code src/hydro/hydro_dispatch.hpp X1RefGrid >}} | `kX1RefStretched` | |
 | scan and anchor | {{< code src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_scan_impl >}} | `hydro_ref_x1_scan_impl` | |
@@ -317,7 +318,7 @@ line keeps the result only inside the cell's own two face pressures, otherwise `
 | thin-block and fit guards | {{< code src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_cell_impl >}} | `fits` | |
 | density references | {{< code src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_cell_impl >}} | `dsf` | |
 | CPU path | {{< code src/hydro/hydro_dispatch.cpp hydro_ref_x1_cpu >}} | `hydro_ref_x1_cpu` | |
-| MPS tensor path | {{< code src/hydro/hydro_dispatch.cpp hydro_ref_x1_mps >}} | `hydro_ref_x1_mps` | |
+| MPS: the CPU loop on the host | {{< code src/hydro/hydro_dispatch.cpp hydro_ref_x1_cpu >}} | `hydro_ref_x1_cpu` | MPS device |
 | CUDA kernel | {{< code src/hydro/hydro_dispatch.cu hydro_ref_x1_cuda_kernel >}} | `hydro_ref_x1_cuda_kernel` | CUDA build |
 | CUDA launch | {{< code src/hydro/hydro_dispatch.cu hydro_ref_x1_cuda >}} | `threads` | CUDA build |
 
@@ -345,7 +346,7 @@ the one-sided rows unusable (`fits` false), and the face mean is kept.
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |----------------|-------------|-----|-----|
-| `tests/test_hydro_ref_x1.cpp` (`test_hydro_ref_x1.release`), `cpu_matches_tensor_reference` | the CPU path equals the MPS tensor implementation run on CPU | $2\times10^{-12}$ double, $2\times10^{-5}$ float | round-off of two summation orders |
+| `tests/test_hydro_ref_x1.cpp` (`test_hydro_ref_x1.release`), `cpu_matches_tensor_reference` | the CPU path equals a torch re-implementation written in the test (`tensor_reference`) | $2\times10^{-12}$ double, $2\times10^{-5}$ float | round-off of two summation orders |
 | same, `wall_clamp_keeps_the_interior_free_of_the_ghosts` and its control | with the clamp, changing ghosts leaves interior references unchanged; without, they change | exact (`torch::equal`) | the property is structural |
 | same, `a_thin_block_keeps_the_interior_free_of_the_ghosts` and control | as above on a block of fewer than five cells | exact | structural |
 | same, `the_wall_reference_does_not_depend_on_the_blocks_x1_size` | the wall-cell reference is the same on blocks of different $x_1$ size | $10^{-14}$ relative | round-off |
@@ -377,8 +378,8 @@ At the pin `test_stretched_x1_ref.release` (18 passed, 4 skipped that need a swi
 `test_hydro_ref_x1_rf_wall.release` (4 passed) pass; `keyed_column_balances_to_1e13` prints a residual of
 $7.25\times10^{-15}$ after 20 sweeps at $n_1=128$, ratio 1.02.[^ch05-ref-run68]
 **Coverage.** CPU in the runs above; CUDA cases exist but were not run (**pending: a CUDA run at the pin**; the CPU
-build has no CUDA, and `test_hydro_ref_x1_stretched_cuda.release` is registered disabled there); the MPS path itself
-is compared only through its CPU execution and is refused on a stretched $x_1$; multi-rank through @sec-ch05-seam.
+build has no CUDA, and `test_hydro_ref_x1_stretched_cuda.release` is registered disabled there); MPS runs the CPU loop
+on the host and was not run (no MPS device); multi-rank through @sec-ch05-seam.
 :::
 
 [^ch05-ref-run68]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the tests' own columns; run:
