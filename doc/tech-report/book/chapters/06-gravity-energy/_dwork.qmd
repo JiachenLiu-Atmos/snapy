@@ -701,8 +701,9 @@ nothing beyond the face form; and every $E_{\mathrm{tot}}+\mathrm{PE}_d$ check m
    as one, with its $O(h^2)$ accuracy;
    (d) *the remainder of the note's eq. (4) is overstated*: not used here; this chapter quotes the note's eq. (2),
    whose $O(h^4)$ form the source confirms;
-   (e) *the face form's residual at $R=1000H$ is called round-off*: not used here; this chapter quotes no residual at
-   that radius and does not re-measure it.
+   (e) *the face form's residual at $R=1000H$ is called round-off*: not used here; this chapter quotes no face-form
+   residual at that radius and does not re-measure it. The $r/H$ = 1000 values of `[CS1]` and `[C7]` are
+   $E_{\mathrm{tot}}+P$ residuals of the corrected-PE work, and `[CS1]` places its value at the cancellation floor.
 10. **Untested combinations.** See the switch coverage matrix, @sec-ch12-matrix.
 
 <!-- reader glossary notes -->
