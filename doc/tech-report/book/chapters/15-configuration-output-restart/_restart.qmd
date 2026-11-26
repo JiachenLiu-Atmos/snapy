@@ -18,8 +18,9 @@ A restart file is the saved state of a run: every variable each block holds, the
 schedules, and, with anomaly storage, the reference the anomalies are measured from. A run resumes from it by
 reading its own block's part, checking that the file was written for this grid and this state layout, restoring
 the schedules by position and by key, and continuing from the saved time. The restart writer exists so that a
-long run can be cut into legs, and the metadata checks exist so that a file written for another grid, another
-precision or another storage form is refused instead of silently reinterpreted.
+long run can be cut into legs, and the metadata checks exist so that a file written with anomaly storage on is
+refused, instead of silently reinterpreted, when it was written for another grid or when its stored dtype
+disagrees with its own metadata; a file without that metadata is read as a legacy file.
 
 ::: {.callout-note title="At a glance"}
 **Purpose.** Saves each block's state and output schedule, bundles the blocks' parts into one file, and resumes a
@@ -230,12 +231,13 @@ The resumed run continues the file numbers of every output from the saved schedu
 | `test_restart_key_collision` | editing one output's interval to equal another's does not renumber the other (its own slot is kept first) | exact file numbers | the driver's docstring ({{< code tests/run_restart_key_collision.py >}}) |
 | `test_restart_output_schedule` | appended and inserted output streams preserve the restart schedules and file counters | exact file numbers | the driver's docstring ({{< code tests/run_restart_output_schedule.py >}}) |
 | `test_restart_multiblock` | a multi-block run resumes from its bundle | the driver test's own comparison (not read for this chapter) | its registration in {{< code tests/CMakeLists.txt >}} |
+| `test_restart_cycle_limit` | a base run limited by `nlim` to 120 cycles and a run resumed from its restart end at the same termination time, the resumed run's first cycle line matching the base's line for that cycle (step 2 of the resume: the saved cycle, no extra step) | the matching cycle's fields within the driver's `assert_close` and the termination time within $10^{-9}$ s | the driver's docstring and assertions ({{< code tests/run_restart_cycle_limit.py >}}) |
 
 : Tests of the restart writer and reader and the tolerance each uses. {#tbl-ch15-restart-tests}
 
 Every ctest entry of this table passed at the pin on a serial CPU run: 16 of the 16 tests selected for this
 chapter, among them `test_restart_bundle.release`, `test_fp32_restart_python`, `test_restart_resume_schedule`
-and the five `test_restart_*` driver tests, which ran the `straka` executable through
+and the six `test_restart_*` driver tests, which ran the `straka` executable through
 `torchrun`.[^ch15-restart-run]
 
 [^ch15-restart-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own decks; run: `ctest -j 1 --timeout 1800 -R 'test_options_table|test_options_defaults|test_yaml_keys|test_user_output|test_combine_parts|test_restart_bundle|test_netcdf_cubed_lonlat|test_fp32_restart|test_restart_resume_schedule|test_restart_|test_netcdf_axis_attrs'` from the build directory of a CPU build (`-DCUDA=OFF -DNETCDF=ON -DPNETCDF=ON -DBUILD_EXAMPLES=ON -DCMAKE_BUILD_TYPE=Release`), one process, the driver tests through `torchrun`; torch 2.10.0+cu128, kintera 2.6.13, pyharp 2.7.17, snapy 2.14.4] All 16 passed. The driver tests (`test_restart_*`) run the `straka` executable through `torchrun`; on a host whose

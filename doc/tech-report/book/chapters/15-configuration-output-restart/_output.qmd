@@ -127,8 +127,11 @@ small-sample correction, and $q^{\mathrm{sd}}$ is its square root.
 4. *Hence* after $N_{\mathrm{acc}}$ updates $|e| \le 4.5\, N_{\mathrm{acc}}\, 2^{-53} \max|q|$, a bound
    that is loose because the roundings do not all carry one sign.
 
-Each state is weighted by the step that ends at it (a right-endpoint rule in time); the statistics are averages of
-the accepted states, not of the stage states inside a step.
+The bound is in the unit round-off of the dtype the statistics are kept in, which is `hydro_w`'s (the running
+mean is allocated as `zeros_like(value)`); the numbers above are for a float64 state, and a run that keeps
+`hydro_w` in float32 has $2^{-24}$ in place of $2^{-53}$. Each state is weighted by the step that ends at it (a
+right-endpoint rule in time); the statistics are averages of the accepted states, not of the stage states inside
+a step.
 
 **Storage precision.** A frame is copied to the host as float64 by `Frame::to_host`
 ({{< code src/output/writer_core.cpp Frame::to_host >}}) and, unless `double_precision: true`, cast to float32
@@ -179,8 +182,9 @@ every name is made NetCDF-legal by `sanitize_netcdf_name`
 `axis` (`Z`, `X`, `Y`), `units` and `long_name` from `axis_text` ({{< code src/output/writer_core.cpp axis_text >}});
 the horizontal units are `radian` on the gnomonic-equiangle and spherical-polar coordinates and `m` otherwise,
 by `horizontal_axis_units` ({{< code src/output/output_utils.hpp horizontal_axis_units >}}). Each coordinate
-variable also carries `domain_decomposition`, the four 1-based integers `{first, last, start, end}` that place
-this block's range in the global axis, which `NetcdfSink::write`
+variable also carries `domain_decomposition`, the four integers `{first, last, start, end}` that place
+this block's range in the global axis (1-based on the cell variables; on the face variable of an unsliced
+axis `first` and `start` are one less, so a face axis starts at 0), which `NetcdfSink::write`
 ({{< code src/output/netcdf.cpp NetcdfSink::write >}}) computes from the block's place in the layout; on the cubed
 sphere the six panels are laid out $3 \times 2$ in $(x_2, x_3)$, so a panel's horizontal ranges are offset by its
 column and row, and its coordinate values are shifted by $\pi/2$ per column and per row, from

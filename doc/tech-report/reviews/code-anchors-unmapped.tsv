@@ -642,3 +642,4 @@ chapters/15-configuration-output-restart/_restart.qmd	223	a driver script whose 
 chapters/15-configuration-output-restart/_restart.qmd	224	a driver script whose claim is its docstring, no enclosing definition	{{< code tests/run_restart_key_collision.py >}}
 chapters/15-configuration-output-restart/_restart.qmd	225	a driver script whose claim is its docstring, no enclosing definition	{{< code tests/run_restart_output_schedule.py >}}
 chapters/15-configuration-output-restart/_restart.qmd	226	a ctest registration, not a symbol	{{< code tests/CMakeLists.txt >}}
+chapters/15-configuration-output-restart/_restart.qmd	234	a driver script whose claim is its docstring and assertions, no enclosing definition	{{< code tests/run_restart_cycle_limit.py >}}
