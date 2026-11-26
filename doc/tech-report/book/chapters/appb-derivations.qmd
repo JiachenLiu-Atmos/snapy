@@ -30,7 +30,7 @@ there is no accumulated round-off term to bound. Exact regeneration tests the re
 
 ## How to use and refresh the index
 
-There is no simulation YAML for this appendix: neither generator configures snapy.
+There is no simulation YAML for this appendix: the generator does not configure snapy.
 From the report directory (@sec-appa-refresh), run:
 
 ```bash
