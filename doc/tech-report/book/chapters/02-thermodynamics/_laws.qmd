@@ -1,142 +1,195 @@
-## Conservation laws and stage ordering (`none`) {#sec-ch02-laws}
+## Conservation laws and variables (`equation-of-state`) {#sec-ch02-laws}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: OUTLINE.md section 2; src/hydro/hydro_forward.cpp, src/coord/coordinate.cpp, src/mesh/meshblock.cpp,
-         src/snap.h at the pin
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md section 6, chapter 2.1; src/eos/equation_of_state.cpp, src/eos/moist_base.cpp,
+         src/coord/coord_utils_impl.h, src/coord/coordinate.cpp, src/hydro/hydro_forward.cpp, src/hydro/hydro.cpp
+         at the pin
 status: draft
+author: chengcli
+reviewer: XinyueWang05
 -->
 
 ### Summary
 
-snapy advances cell averages of mass, momentum and energy. Each stage turns face fluxes into a change of every
-cell, adds the sources, and then hands the result to the time integrator. The one property this section owns is
-that mass, momentum and energy only move between cells: a face flux leaves one cell and enters its neighbour with
-the same value, so the sum over the domain changes only through the outer faces. The section also fixes where in
-the last stage the phase adjustment sits, because that decides what the wall ghost cells see.
+snapy solves the compressible Euler equations for dry air and any number of species. It stores the state as cell
+averages of conserved quantities and converts them to primitive quantities (density, velocity, pressure, mass
+fractions) whenever a scheme needs them. This section fixes what the stored rows mean and how the two forms map
+into each other. It matters because three choices are easy to get wrong: the density row holds dry air only, the
+momentum rows are covariant on a skewed grid, and with anomaly storage two rows hold a difference from a reference.
 
 ::: {.callout-note title="At a glance"}
-**Purpose.** Forms the flux-only stage increment, @eq-ch02-laws-increment, whose volume-weighted sum telescopes.
+**Purpose.** Defines $\mathbf U$ and $\mathbf W$ and the maps between them, @eq-ch02-laws-state and @eq-ch02-laws-metric.
 
-**Data.** Reads face fluxes, face areas, cell volumes $V_i$[^rg-6dfd3fd44de6] and $\Delta t$[^rg-6e8706cff990]; writes the stage increment `du`.
+**Data.** `hydro_u` holds $\mathbf U$, `hydro_w` holds $\mathbf W$; SI units; species rows are partial densities.
 
-**Placement.** Every RK[^rg-f31b5cad787a] stage, in `HydroImpl::forward`; the phase solve and boundary fill end the last stage.
+**Placement.** Every stage: `"U->W"` after each update, `"W->U"` when a state is set from primitives.
 
-**Activation.** Always on; no switch. The integrator sets the number of stages.
+**Activation.** Always on; the closure is `dynamics/equation-of-state/type`. Anomaly storage is `dynamics: anomaly`.
 
-**Guarantee / limits.** Interior faces cancel exactly in exact arithmetic; round-off below $\tfrac32\epsilon_{\mathrm m}\Delta t\sum_i\lvert\Delta_i[A\mathbf F_1]\rvert$.
+**Guarantee / limits.** The maps are exact inverses in exact arithmetic; the flux increment telescopes.
 
-**Evidence.** @tbl-ch02-laws-tests: one ctest by source reading, `laws_check.py` `[C1]`–`[C3]`.
+**Evidence.** @tbl-ch02-laws-tests: `test_eos.release`, `test_anomaly_storage_python`, `v3_relations_check.py`.
 :::
 
-Local symbols: $\Delta\mathbf U^{\mathrm{flux}}_i$ the flux-only increment of
-cell $i$[^rg-9fe3deae45f9]; $A_{i+1/2}$ the area of face $i+1/2$ [m$^2$]; $[A\mathbf F_1]_{i+1/2}=A_{i+1/2}\mathbf F_{1,i+1/2}$ the face product,
-area times flux [units of $\mathbf U$[^rg-8ef399e5745d] times m$^3$ s$^{-1}$]; $\eta_j$ the relative error of one rounding.
+Local symbols: $g_{ab}$ the metric of the cell's coordinate directions, dimensionless [-]; $\cos\vartheta$ the
+cosine of the angle between the $x_2$ and $x_3$ directions of a cell [-]; $A_{i+1/2}$ the area of face
+$i+\tfrac12$ [m$^2$]; $[A\mathbf F_1]_{i+1/2}=A_{i+1/2}\mathbf F_{1,i+1/2}$ the face product.
 
 ### Derivation
 
-#### From the conservation law to the flux-only increment
+#### The conservation laws
 
-Density $\rho$[^rg-549e5380ddb0] is in kg m$^{-3}$, momentum density $m_a$ in kg m$^{-2}$ s$^{-1}$ and total energy density $E$[^rg-360f6f825688] in
-J m$^{-3}$. On the nonorthogonal grid the primitive velocities are contravariant and the conserved momenta
-covariant. Dry density and every species partial density obey their own continuity equation; their sum is total
-continuity. For an inviscid Cartesian cell without phase change,
+Dry air and every species obey their own continuity equation, and their sum is total continuity. Without
+sources and phase change, the inviscid equations in a fixed frame are
 
 $$
 \begin{aligned}
-\partial_t\rho_{\mathrm d}+\boldsymbol\nabla\cdot(\rho_{\mathrm d}\mathbf v)&=0,\\
-\partial_t\rho_n+\boldsymbol\nabla\cdot(\rho_n\mathbf v)&=0,\\
-\partial_t\mathbf m+\boldsymbol\nabla\cdot(\mathbf m\mathbf v+p\mathsf I)&=\rho\mathbf g,\\
-\partial_t E+\boldsymbol\nabla\cdot[(E+p)\mathbf v]&=\rho\mathbf v\cdot\mathbf g.
+\partial_t\rho_{\mathrm d}+\nabla\cdot(\rho_{\mathrm d}\mathbf v)&=0,\\
+\partial_t\rho_n+\nabla\cdot(\rho_n\mathbf v)&=0,\\
+\partial_t(\rho\mathbf v)+\nabla\cdot(\rho\mathbf v\mathbf v+p\mathsf I)&=\rho\mathbf g,\\
+\partial_tE+\nabla\cdot[(E+p)\mathbf v]&=\rho\mathbf v\cdot\mathbf g,
 \end{aligned}
 $$
 
-Here $\mathbf g=(g_1,g_2,g_3)$ is the acceleration in m s$^{-2}$. Coriolis, diffusion and the configured sources
-add their own terms (@sec-ch07); the geometric momentum terms enter through the coordinate operator (@sec-ch03).
+with $\rho=\rho_{\mathrm d}+\sum_n\rho_n$ in kg m$^{-3}$, $\mathbf v$ in m s$^{-1}$, $p$ in Pa, $E$ in J m$^{-3}$
+and $\mathbf g$ in m s$^{-2}$. Gravity work, Coriolis, diffusion and the other sources add their own terms
+(@sec-ch06, @sec-ch09); the geometric terms enter through the coordinate operator (@sec-ch03). The vertical
+momentum equation is kept in full, so sound waves are resolved.
 
-The equations above keep the full vertical momentum equation, so the vertical velocity is prognostic and sound
-waves are resolved; the explicit step is then bounded by the acoustic time-step limit (@sec-ch09-cfl) unless the
-vertically implicit correction removes it in $x_1$[^rg-88d9f77d83d1] (@sec-ch09-vic-options). A side-by-side list of the
-differences from a hydrostatic primitive-equation core is answered at @sec-ch02-pecore.
-
-The flux-only increment follows in three steps.
-
-1. *Integrate over a fixed cell.* The cell does not move, so the time derivative passes outside the integral and
-   gives $V_i\,\mathrm d\mathbf U_i/\mathrm dt$ for the cell average $\mathbf U_i$.
-2. *Turn the divergence into faces.* Gauss's theorem makes the volume integral of $\boldsymbol\nabla\cdot\mathbf F$
-   the outward flux through the faces. The scheme replaces each face integral by the face area times one numerical
-   flux, giving the face product $[A\mathbf F_1]_{i+1/2}$.
-3. *Multiply by $\Delta t$ and divide by $V_i$.* With only the $x_1$ faces written out, this is
+For smooth solutions the energy flux $(E+p)\mathbf v$ is the one that makes these equations equivalent to the
+primitive form. In one Cartesian dimension, eliminate $\partial_t\rho$ with the continuity equation and
+$\partial_tv$ with the momentum equation, then substitute both into the energy equation with
+$E=p/(\gamma-1)+\tfrac12\rho v^2$:
 
 $$
-\Delta\mathbf U^{\mathrm{flux}}_i=-\frac{\Delta t}{V_i}\Delta_i[A\mathbf F_1]
+\begin{aligned}
+\partial_tv+v\,\partial_xv+\frac{1}{\rho}\partial_xp&=0,\\
+\partial_tp+v\,\partial_xp+\gamma p\,\partial_xv&=0.
+\end{aligned}
+$$
+
+Here $\gamma$ is held constant. Check `[V1]` of `v3_relations_check.py` repeats this elimination in sympy.
+
+#### The stored state and its inverse
+
+The conserved vector is $\mathbf U=(\rho_{\mathrm d},m_1,m_2,m_3,E,\rho_1,\dots,\rho_{N_y})$ and the primitive
+vector is $\mathbf W=(\rho,v_1,v_2,v_3,p,y_1,\dots,y_{N_y})$, with $\rho_n=\rho y_n$. Row `IDN` of $\mathbf U$ is
+the **dry** density; row `IDN` of $\mathbf W$ is the **total** density. Going from $\mathbf W$ to $\mathbf U$ and
+back:
+
+$$
+\begin{aligned}
+\rho_{\mathrm d}&=\rho\Bigl(1-\sum_ny_n\Bigr),\\
+\rho_n&=\rho\,y_n,\\
+\rho&=\rho_{\mathrm d}+\sum_n\rho_n,\\
+y_n&=\rho_n/\rho,\\
+\rho e&=E-\tfrac12\sum_{a=1}^{3}v_a\,m_a.
+\end{aligned}
+$$ {#eq-ch02-laws-state}
+
+The first two rows are formed in `MoistEOSImpl::_prim2cons`
+({{< code src/eos/moist_base.cpp MoistEOSImpl::_prim2cons >}}), the next three in
+`MoistEOSImpl::_cons2prim_layout` ({{< code src/eos/moist_base.cpp MoistEOSImpl::_cons2prim_layout >}}), which
+returns $\rho e$ to the closure. The closures of @sec-ch02-ideal-gas and @sec-ch02-ideal-moist then turn $\rho e$
+into $p$. A dry ideal gas has no species rows, so $\rho_{\mathrm d}=\rho$. Substituting the first two rows into
+the third gives $\rho$ back exactly (`[V8]`).
+
+#### Covariant momentum and the kinetic energy
+
+On the cubed-sphere panels the $x_2$ and $x_3$ directions of a cell are not orthogonal. The primitive velocity is
+contravariant, the stored momentum is covariant. With $c=\cos\vartheta$ the metric of the $(x_2,x_3)$ pair is
+$g=\begin{pmatrix}1&c\\c&1\end{pmatrix}$, and $x_1$ is orthogonal to both:
+
+$$
+\begin{aligned}
+m_1&=\rho v_1,\\
+m_2&=\rho\,(v_2+c\,v_3),\\
+m_3&=\rho\,(v_3+c\,v_2),\\
+v_2&=\frac{m_2-c\,m_3}{\rho\,(1-c^2)},\\
+v_3&=\frac{m_3-c\,m_2}{\rho\,(1-c^2)},\\
+\tfrac12\sum_{a}v_am_a&=\tfrac12\rho\,g_{ab}v_av_b .
+\end{aligned}
+$$ {#eq-ch02-laws-metric}
+
+The lowering is `coord_vec_lower_impl` ({{< code src/coord/coord_utils_impl.h coord_vec_lower_impl >}}) and the
+raising is `coord_vec_raise_impl` ({{< code src/coord/coord_utils_impl.h coord_vec_raise_impl >}}); the velocity
+to momentum map that calls the lowering is `EquationOfStateImpl::_mom_from_vel_`
+({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::_mom_from_vel_ >}}). The derivation of the last row
+has three steps.
+
+1. *Lower.* $m_a=\rho g_{ab}v_b$, which is the first three rows.
+2. *Raise.* $g^{-1}=\frac{1}{1-c^2}\begin{pmatrix}1&-c\\-c&1\end{pmatrix}$, so $v_a=g^{ab}m_b/\rho$, which is the
+   next two rows. The determinant $1-c^2$ is positive for $\lvert c\rvert<1$ (`[V2]`).
+3. *Contract.* $\tfrac12 v_am_a=\tfrac12\rho\,v_ag_{ab}v_b$, the kinetic energy in the metric. Written with the
+   momenta only it is $\tfrac12 m_ag^{ab}m_b/\rho$, which is what the conserved-side kinetic energy
+   `EquationOfStateImpl::cons_kinetic_energy_`
+   ({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::cons_kinetic_energy_ >}}) computes. Both forms are
+   the same number in exact arithmetic (`[V2]`).
+
+On a Cartesian or spherical-polar grid $c=0$ and the maps reduce to $m_a=\rho v_a$.
+
+#### The flux-only increment and why it conserves
+
+Integrate the conservation law over a fixed cell of volume $V_i$, turn the divergence into face integrals with
+Gauss's theorem, and replace each face integral by the face area times one numerical flux. Multiplying by the
+stage step $\Delta t$ and keeping only the $x_1$ faces,
+
+$$
+\Delta\mathbf U^{\mathrm{flux}}_i=-\frac{\Delta t}{V_i}\Delta_i[A\mathbf F_1],
 $$ {#eq-ch02-laws-increment}
 
-with $\Delta_i[A\mathbf F_1]=[A\mathbf F_1]_{i+1/2}-[A\mathbf F_1]_{i-1/2}$. @eq-ch02-laws-increment is built in `HydroImpl::forward`
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}) from the divergence of
-`CoordinateImpl::divergence` ({{< code src/coord/coordinate.cpp CoordinateImpl::divergence >}}).
+with $\Delta_i[A\mathbf F_1]=[A\mathbf F_1]_{i+1/2}-[A\mathbf F_1]_{i-1/2}$. The face difference is
+`CoordinateImpl::x1_face_difference`
+({{< code src/coord/coordinate.cpp CoordinateImpl::x1_face_difference >}}), the division by $V_i$ is in
+`CoordinateImpl::divergence` ({{< code src/coord/coordinate.cpp CoordinateImpl::divergence >}}), and the
+product with $-\Delta t$ on interior cells is in `HydroImpl::forward`
+({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
 
-#### Why the sum over cells telescopes
+The sum $\sum_iV_i\Delta\mathbf U^{\mathrm{flux}}_i$ telescopes. Both products of face $i+\tfrac12$, the one
+cell $i$ subtracts and the one cell $i+1$ adds, are one element of one tensor product of the same area and flux
+tensors, so they are the same number. Every interior face then appears once with each sign, and only the two
+outer faces remain. Conservation is therefore algebra, not accuracy; how accurate the flux is belongs to
+@sec-ch04.
 
-1. *The same number on both sides of a face.* `CoordinateImpl::divergence` forms the face products twice, once
-   for the right faces of all cells and once for the left faces (the excerpt in the Code layer). For face $i+1/2$
-   the two products, in cell $i$ and in cell $i+1$, multiply the same area element by the same flux element: both
-   `face_area1` calls slice one element-wise formula on the same grid tensors
-   ({{< code src/coord/coordinate.hpp CoordinateImpl::face_area1 >}}), and both flux slices read one tensor. IEEE multiplication is correctly rounded, so identical operands give identical products, bit for bit.
-   Cell $i$ subtracts that number and cell $i+1$ adds it.
-2. *Weight by volume and sum.* $\sum_iV_i\Delta\mathbf U^{\mathrm{flux}}_i=-\Delta t\sum_i\Delta_i[A\mathbf F_1]$.
-3. *Interior faces cancel.* Let $N$ be the number of cells in this column. Every interior face product
-   appears once with each sign, so the sum is
-   $-\Delta t([A\mathbf F_1]_{N+1/2}-[A\mathbf F_1]_{1/2})$: only the outer faces remain.
-4. *Hence conservation is algebra, not accuracy.* The cancellation needs only that both neighbours use the same
-   number; how accurate that flux is belongs to @sec-ch04.
+#### Anomaly storage
 
-Round-off is where the identity can fail. One rounding returns $\mathrm{fl}(a\circ b)=(a\circ b)(1+\eta_j)$ with
-$\lvert\eta_j\rvert\le\epsilon_{\mathrm m}/2$, where $\epsilon_{\mathrm m}=2^{-52}$ in double precision. Each cell
-rounds three times: the face difference, the division by $V_i$ and the product with $-\Delta t$ (the negation is
-exact). So the computed increment is
+With anomaly storage the block keeps a static FP64 reference $\mathbf U_{\mathrm{ref}}$, the initial state at
+rest, and stores rows `IDN` and `IPR` as differences from it. Every other row stays a total:
 
 $$
-\widehat{\Delta\mathbf U}{}^{\mathrm{flux}}_i
-=-\frac{\Delta t}{V_i}\,\Delta_i[A\mathbf F_1]\,(1+\eta_1)(1+\eta_2)(1+\eta_3).
-$$
+\begin{aligned}
+\rho_{\mathrm d}^{\mathrm{stored}}&=\rho_{\mathrm d}-\rho_{\mathrm d,\mathrm{ref}},\\
+E^{\mathrm{stored}}&=E-E_{\mathrm{ref}}.
+\end{aligned}
+$$ {#eq-ch02-laws-anomaly}
 
-The rounding of each face product carries no error into the sum: by step 1 both neighbours hold the same
-rounded number, so it cancels exactly.
-Subtract the exact increment, drop the products of two rounding errors, multiply by $V_i$ and sum:
+`HydroImpl::sub_reference_` ({{< code src/hydro/hydro.cpp HydroImpl::sub_reference_ >}}) subtracts the two
+reference rows and `HydroImpl::total_u` ({{< code src/hydro/hydro.cpp HydroImpl::total_u >}}) adds them back.
+In exact arithmetic the round trip is the identity (`[V7]`). In floating point, `total_u` promotes an FP32 stored
+state to FP64 **before** adding the reference, so the small difference kept in FP32 is not rounded against the
+large reference. `EquationOfStateImpl::forward`
+({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::forward >}}) picks the key `"U'->W"` when the block
+has a reference and `"U->W"` otherwise. In FP64 the anomaly form is an exact rewrite, so a run with it on must
+match the run with it off to round-off; that is what `test_anomaly_storage_python` tests.
 
-$$
-\Bigl\lvert\sum_iV_i\widehat{\Delta\mathbf U}{}^{\mathrm{flux}}_i+\Delta t\,([A\mathbf F_1]_{N+1/2}-[A\mathbf F_1]_{1/2})\Bigr\rvert
-\le\tfrac32\,\epsilon_{\mathrm m}\,\Delta t\sum_i\bigl\lvert\Delta_i[A\mathbf F_1]\bigr\rvert .
-$$
-
-The defect scales with the face differences, not with the size of the state, so a nearly uniform flux field
-conserves to well below one unit in the last place of the domain total.
-
-#### Why the phase adjustment comes before the wall fill
-
-Phase adjustment changes the interior composition after transport. A wall ghost copied before the adjustment
-keeps the pre-adjustment composition, and the reconstruction of the next stage sees a jump that the interior does not have.
-Copying afterwards makes the reflected thermodynamic state equal to the adjusted interior again. The code does it
-in that order: the last `apply_boundaries` call of `MeshBlockImpl::advance_local` follows the saturation block
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}).
+Exact and truncated: @eq-ch02-laws-state, @eq-ch02-laws-metric and @eq-ch02-laws-anomaly are exact inverses
+in exact arithmetic, and the telescoping of @eq-ch02-laws-increment is exact up to the rounding of the per-cell
+division and product. The accuracy of the flux itself is not part of this section.
 
 ### Numerical method
 
-@fig-ch02-laws-flow shows one stage. `MeshBlockImpl::advance_local` runs it in this order:
+The conversions have no spatial stencil: each cell is converted from its own rows. @fig-ch02-laws-flow shows
+where they sit in a stage.
 
-1. `HydroImpl::forward`: reconstruct face states, solve the Riemann problems, limit the fluxes, form the divergence
-   `_div`, start `du` from $-\Delta t$ times `_div` on interior cells, add the forcing modules (@sec-ch07) and the
-   vertical implicit correction if it is on (@sec-ch09);
-2. the user stage forcings, after `HydroImpl::forward` returns;
-3. the RK averaging of `pintg->forward` and the conserved limiter;
-4. the solid refill, if there are solids;
-5. on the last stage only: the phase adjustment (@sec-ch02-saturation) when the thermo carries reactions, then the
-   gravity-work fixer when it is on (@sec-ch06);
-6. `apply_boundaries`, which fills the physical ghosts.
+1. The stage forms $\Delta\mathbf U$ from the face fluxes, @eq-ch02-laws-increment, and adds the sources.
+2. The integrator combines the stages and the conserved limiter applies its floors.
+3. `"U->W"`, or `"U'->W"` with anomaly storage, refreshes $\mathbf W$ for the next stage.
 
-The EOS conversions inside these steps have no spatial stencil. Ghost exchange and seam flux agreement belong to
-@sec-ch03 and @sec-ch09.
+The conserved limiter ({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}})
+floors the dry density and the energy before the conversion. With anomaly storage it floors the stored
+difference against the floor minus the reference, never a total written back, so it does not re-round the
+anomaly. The floors are @sec-ch08's.
 
 ```{python}
 #| label: fig-ch02-laws-flow
@@ -149,125 +202,82 @@ make_fig()
 
 ### Code
 
-**A minimal input.** The laws have no switch; any deck runs them. This one is the wall-saturation test deck
-without its species, reduced to the keys that set the stage:
+**A minimal input.** Any deck runs the laws; this one also turns on anomaly storage:
 
-<!-- reader glossary keys -->Keys in this fragment: `dynamics`[^rg-e0f7416a96dd], `equation-of-state`[^rg-40c7b90c688a], `reconstruct`[^rg-f601adb778fa], `vertical`[^rg-24c421484b56], `horizontal`[^rg-578716044c42], `riemann-solver`[^rg-b4a63e1af281], `integration`[^rg-db8b48077d05], `cfl`[^rg-7b32cac9c821].
 ```yaml
 dynamics:
-  equation-of-state: {type: ideal-gas}
-  reconstruct:
-    vertical: {type: weno5}
-    horizontal: {type: weno5}
-  riemann-solver: {type: lmars}
-integration: {type: rk3, cfl: 0.9}   # three stages; the phase solve runs after the third
+  equation-of-state: {type: ideal-moist}
+  anomaly: true
 ```
 
 **What is refused, and why.**
 
-1. *A legacy row layout.* Compiling with `NMASS>0` stops at the `static_assert` in `src/snap.h`
-   ({{< code src/snap.h >}}) with "species rows must start right after the 5 hydro rows; NMASS>0 is not
-   supported". Every species count in the EOS is `size - ICY`, which holds only when the species rows follow
-   the five hydro rows.
-2. *A stage outside the integrator.* `MeshBlockImpl::advance_local` refuses a stage index outside
-   $[0,N_{\mathrm{stage}})$ with "Invalid stage: " and the index, before it touches the state.
+1. *Anomaly storage with another closure or grid.* `HydroImpl::reset`
+   ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}) refuses `anomaly` unless the closure is `ideal-moist`
+   ("dynamics: anomaly is implemented for the ideal-moist equation of state only") and the grid is Cartesian
+   ("dynamics: anomaly supports cartesian grids only in Step 1"). On a curved grid the ghosts are interpolated, so
+   the reference's ghosts would not match those of the anomaly.
+2. *A primitive key on stored anomalies.* `"U->W"` on a stored anomaly state raises, because its rows `IDN` and
+   `IPR` are not totals; the primed keys read stored anomalies (`test_anomaly_storage_python`, arm `keys`).
+3. *A partial state.* `HydroImpl::u_ref_like` ({{< code src/hydro/hydro.cpp HydroImpl::u_ref_like >}}) refuses a
+   state that is not a full block, with "a sub-array cannot be converted with the anomaly keys".
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| face products and divergence | {{< code src/coord/coordinate.cpp CoordinateImpl::divergence >}} | `dflx` | |
-| face-area slice | {{< code src/coord/coordinate.hpp CoordinateImpl::face_area1 >}} | `face_area1` | |
-| flux-only increment | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `du` | |
-| implicit correction | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `dt_corr` | `implicit-scheme`[^rg-4c9e26614577] |
-| stage order and last stage | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `apply_boundaries` | |
-| row layout | {{< code src/snap.h >}} | `ICY` | |
+| conversion keys | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::convert_ >}} | `convert_` | |
+| stored to primitive | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::forward >}} | `forward` | `anomaly` |
+| dry and species rows | {{< code src/eos/moist_base.cpp MoistEOSImpl::_prim2cons >}} | `_prim2cons` | |
+| back to primitives | {{< code src/eos/moist_base.cpp MoistEOSImpl::_cons2prim_layout >}} | `_cons2prim_layout` | |
+| metric lower | {{< code src/coord/coord_utils_impl.h coord_vec_lower_impl >}} | `coord_vec_lower_impl` | |
+| metric raise | {{< code src/coord/coord_utils_impl.h coord_vec_raise_impl >}} | `coord_vec_raise_impl` | |
+| face difference | {{< code src/coord/coordinate.cpp CoordinateImpl::x1_face_difference >}} | `x1_face_difference` | |
+| anomaly rows | {{< code src/hydro/hydro.cpp HydroImpl::sub_reference_ >}} | `sub_reference_` | `anomaly` |
 
-: Code map of the conservation laws and the stage order. {#tbl-ch02-laws-code}
+: Code map of the conservation laws and variables. {#tbl-ch02-laws-code}
 
-**The excerpt.** The $x_1$ part of `CoordinateImpl::divergence` and the start of the increment in
-`HydroImpl::forward`:
-
-```cpp
-dflx.slice(DIM1, si, ei) +=
-    face_area1(si + 1, ei + 1) * flux1.slice(DIM1, si + 1, ei + 1) -
-    face_area1(si, ei) * flux1.slice(DIM1, si, ei);
-// ...
-return dflx / vol;
-
-auto du = torch::zeros_like(_div);
-auto interior = pmb->part({0, 0, 0}, PartOptions().exterior(false));
-du.index(interior) = -dt * _div.index(interior);
-```
-
-The two products are $[A\mathbf F_1]_{i+1/2}$ and $[A\mathbf F_1]_{i-1/2}$, formed separately from the same
-area and flux tensors, so a face's product in its two cells is the same number (step 1); `dflx / vol` is the division by
-$V_i$; the last line is @eq-ch02-laws-increment on interior cells, with ghosts left at zero.
+In the code the rows are `IDN`, `IVX`, `IVY`, `IVZ`, `IPR` and then `ICY` onward for the species, so math
+species $n$ is row `ICY + n - 1`. The base `EquationOfStateImpl::compute`
+({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::compute >}}) refuses every key; each closure
+overrides it and answers the keys it supports.
 
 ### Tests
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| {{< code tests/test_wall_saturation.cpp WallSaturation.phase_change_preserves_energy_and_water >}} (`test_wall_saturation.release`) | energy and water totals at both reflecting walls through phase change | relative $10^{-12}$ | the test's threshold; no round-off derivation in the test |
-| `laws_check.py` `[C1]`–`[C3]` (this report) | telescoping, symbolic and numeric; conservation defect inside the derived bound | exact; bound above | stated in the check |
+| {{< code tests/test_eos.cpp DeviceTest.moist_mixture >}} (`test_eos.release`) | `"W->U"` then `"U->W"` then `"W->U"` returns the conserved state | rtol $10^{-6}$, atol $10^{-6}$ | `torch::allclose(cons, cons2, 1.E-6, 1.E-6)` in the test |
+| {{< code tests/test_anomaly_storage.py arm_match >}} (`test_anomaly_storage_python`) | anomaly on and off agree in totals, primitives and $\Delta t$ | relative $10^{-10}$ | `tol = 1.0e-10` in `arm_match` |
+| {{< code tests/test_anomaly_storage.py arm_restart >}} (`test_anomaly_storage_python`) | a restarted run continues bit for bit | bitwise | `torch.equal` |
+| `v3_relations_check.py` `[V1]`, `[V2]`, `[V7]`, `[V8]` (this report) | primitive form, metric, anomaly and density identities | exact | sympy simplifies the difference to 0 |
 
-: Tests of the conservation laws and the stage order. {#tbl-ch02-laws-tests}
+: Tests of the conservation laws and variables. {#tbl-ch02-laws-tests}
 
-The check is independent algebra plus a numpy port of the increment.[^laws-run] `[C1]`: four cells with
-unequal volumes telescope with residual 0. `[C2]`: sympy confirms the six-cell sum leaves only the outer faces.
-`[C3]`: over 200 random rows of 32 cells, the exact-arithmetic defect of the float64 increment is at most 0.304
-of the derived bound.
+`DeviceTest` runs on CPU FP32, CPU FP64, CUDA FP32 and CUDA FP64; its MPS row is commented out
+({{< code tests/device_testing.hpp >}}). `test_anomaly_storage` is registered once on CPU and once with
+`--device cuda`. At the pin every test of the table passes.[^laws-run] In `arm_match` over 10 steps, the largest
+relative difference between anomaly on and off is below $10^{-12}$ for totals, primitives and $\Delta t$, on CPU
+and on CUDA, against the threshold $10^{-10}$; this is round-off and is quoted against the threshold. The check
+`v3_relations_check.py` is independent algebra, not snapy runtime.[^laws-check]
 
-The ctest case runs on CPU[^rg-d5c518c05d4f] and CUDA[^rg-6f633b2ccc44] where available, one rank. It has not been run for this report at the pin:
-**pending a pinned ctest run**.
+[^laws-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs
+    (`tests/test_eos.yaml`, `tests/test_anomaly_storage.yaml`, `tests/test_eos_temp2inteng.yaml` and the decks the other
+    tests build); run: `ctest -j1 -V -R <name>` for the eight ctests `test_eos.release`, `test_aneos_gamma.release`,
+    `test_anomaly_storage_python`, `test_anomaly_storage_cuda_python`, `test_eos_temp2inteng_python`,
+    `test_eos_species_sum_layout_python`, `test_sk1_failure_counter_python` and `test_sk1_failure_counter_cuda_python`,
+    run together with one anchored `-R` pattern, in the `tests` directory of a README CUDA Release build at the pin; CPU
+    and one CUDA GPU, FP32 and FP64 as each test sets them, 1 rank; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6,
+    kintera 2.6.13, pyharp 2.8.2]. 8 of 8 ctests passed; `test_eos.release` ran 43 gtest cases, 18 of them on CUDA.
 
-[^laws-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; deck: the check itself, seed 2; run:
-    `python3 src/snapy_report/ch02/checks/laws_check.py`,
-    CPU, double, 1 process; Python 3.11.13, numpy 2.4.6, sympy 1.14.0; output identical to the committed file].
-    Output `laws_check.out`, lines `[C1]`–`[C3]`.
+[^laws-check]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062 (the relations are read from the code there);
+    deck: none; run: `python3 src/snapy_report/ch02/checks/v3_relations_check.py`, CPU, exact symbolic arithmetic;
+    Python 3.11.13, sympy 1.14.0]. Output `v3_relations_check.out`.
 
 ### Limits
 
 1. **Limiters and sources change the budget.** The conserved limiter and the forcing modules add or remove mass
    and energy by design; the telescoping statement covers the flux-only increment.
-2. **No measured convergence order** for the complete stage is given here; @sec-ch04 and @sec-ch09 own the
-   spatial and temporal orders.
-3. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
-
-<!-- reader glossary notes -->
-[^rg-6dfd3fd44de6]: $V_i$ — cell volume
-
-[^rg-6e8706cff990]: $\Delta t$ — the step
-
-[^rg-f31b5cad787a]: RK — Runge–Kutta
-
-[^rg-9fe3deae45f9]: $i, j, k$ — cell indices in $x_1, x_2, x_3$
-
-[^rg-8ef399e5745d]: $\mathbf U$ — conserved state vector $(\rho_d, m_1, m_2, m_3, E, \rho_1..\rho_{N_y})$
-
-[^rg-549e5380ddb0]: $\rho$ — total density, dry plus every species that carries mass [kg m$^{-3}$]
-
-[^rg-360f6f825688]: $E$ — total energy density, internal plus kinetic, $\rho e + \tfrac12\rho\lvert\mathbf v\rvert^2$ [J m$^{-3}$]; excludes potential energy
-
-[^rg-88d9f77d83d1]: $x_1, x_2, x_3$ — the three coordinate directions; $x_1$ is always the vertical (radial) direction
-
-[^rg-e0f7416a96dd]: dynamics — hydrodynamic options block
-
-[^rg-40c7b90c688a]: equation-of-state — equation-of-state options
-
-[^rg-f601adb778fa]: reconstruct — reconstruction options
-
-[^rg-24c421484b56]: vertical — options for the vertical reconstruction
-
-[^rg-578716044c42]: horizontal — options for the horizontal reconstruction
-
-[^rg-b4a63e1af281]: riemann-solver — Riemann-solver options within the enclosing dynamics or scalar block
-
-[^rg-db8b48077d05]: integration — time-integration options
-
-[^rg-7b32cac9c821]: cfl — Courant-number limit for the time step
-
-[^rg-4c9e26614577]: implicit-scheme — implicit time-integration scheme selector
-
-[^rg-d5c518c05d4f]: CPU — central processing unit
-
-[^rg-6f633b2ccc44]: CUDA — NVIDIA's parallel computing platform
-<!-- end reader glossary notes -->
+2. **The metric needs $\lvert\cos\vartheta\rvert<1$.** The raise divides by $1-c^2$; a degenerate cell would
+   divide by zero. No test drives $c$ toward $\pm1$; not measured.
+3. **Anomaly storage covers two rows, one closure and one grid.** Momentum and species rows are always totals,
+   so an FP32 anomaly run keeps its precision gain only in density and energy; the setup refuses any closure but
+   `ideal-moist` and any grid but Cartesian (Code layer).
+4. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.

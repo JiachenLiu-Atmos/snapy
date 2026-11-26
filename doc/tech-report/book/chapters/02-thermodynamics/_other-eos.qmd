@@ -1,0 +1,145 @@
+## Other equations of state and the capture allow-list (`moist-mixture`, `aneos`, `shallow-water`) {#sec-ch02-other-eos}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md section 6, chapter 2.4; src/eos/moist_mixture.cpp, src/eos/aneos.cpp,
+         src/eos/shallow_water.cpp, src/eos/equation_of_state.cpp, src/mesh/stage_executor.cpp at the pin
+status: draft
+author: chengcli
+reviewer: XinyueWang05
+-->
+
+### Summary
+
+Besides the ideal gas and the ideal-moist closure, snapy has three more closures. `moist-mixture` hands the
+whole thermodynamics to kintera, including a nonideal gas. `aneos` reads a tabulated equation of state for
+condensed matter from a file. `shallow-water` is not a gas at all: it has no energy row. This section gives each
+closure in one paragraph, says which keys it answers, and records the one property they share at the pin: a
+CUDA graph refuses all three, so a block that uses one runs eager. The full closures follow in
+@sec-ch02-moist-mixture, @sec-ch02-aneos and @sec-ch02-shallow-water.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** The three closures other than @sec-ch02-ideal-gas and @sec-ch02-ideal-moist.
+
+**Data.** As in @eq-ch02-laws-state; `shallow-water` has no `IPR` row and no species.
+
+**Placement.** The same keys as every closure: `"U->W"`, `"W->U"`, the sound-speed keys.
+
+**Activation.** `dynamics/equation-of-state/type`; capture refuses all three (default execution runs them eager).
+
+**Guarantee / limits.** No anomaly storage; no CUDA graph.
+
+**Evidence.** @tbl-ch02-other-eos-tests: `test_eos.release` (moist-mixture), `test_aneos_gamma.release`.
+:::
+
+### Derivation
+
+#### moist-mixture
+
+The state keys are kintera's. From $\rho$ and $y_n$, `"DY->V"` forms the molar concentrations $\tilde c_n$;
+`"VU->T"` inverts the internal energy for $T$; `"VT->P"` gives $p=\mathcal RT\sum_{\mathrm{gas}}Z_n\tilde c_n$.
+`MoistMixtureImpl::_cons2prim` ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_cons2prim >}}) runs these
+three after the shared density and velocity step of @eq-ch02-laws-state. The ratio of specific heats is
+$\gamma=\sum_n\tilde c_nc_{p,n}/\sum_n\tilde c_nc_{v,n}$ in molar form, from
+`MoistMixtureImpl::_adiabatic_index`
+({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_adiabatic_index >}}). The sound speed is
+$c_s=\sqrt\gamma\,c_T$ with the isothermal speed
+
+$$
+c_T^2=\frac{\mathcal RT}{\rho}\sum_{\mathrm{gas}}\Bigl(Z_n+\tilde c_n\frac{\partial Z_n}{\partial\tilde c_n}\Bigr)\tilde c_n,
+$$
+
+from `MoistMixtureImpl::_isothermal_sound_speed`
+({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_isothermal_sound_speed >}}), the closure's
+@eq-ch02-moist-mixture-speed. This is $(\partial p/\partial\rho)$ at fixed $T$ and composition when each $Z_n$
+depends on its own $\tilde c_n$ only: scale every $\tilde c_n$ by $\lambda$ and differentiate $p$ at
+$\lambda=1$ (`[V10]` of `v3_relations_check.py`, under that assumption). The keys are answered by
+`MoistMixtureImpl::compute` ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::compute >}}).
+
+#### aneos
+
+`ANEOSImpl` reads a table from `eos_file` and asks it for $(p,T,c_s)$ from $(\rho,e)$ (`"DU->PTL"`), for
+$(T,e,c_s)$ from $(\rho,p)$ (`"DP->TUL"`) and for $(p,e,c_s)$ from $(\rho,T)$ (`"DT->PUL"`)
+({{< code src/eos/aneos.cpp ANEOSImpl::_cons2prim >}}). It has no species. The adiabatic index is defined from the
+table's sound speed, $\gamma=c_s^2\rho/p$ (`"WL->A"` in {{< code src/eos/aneos.cpp ANEOSImpl::compute >}}), the
+closure's @eq-ch02-aneos-gamma. Its conversions form $m_a=\rho v_a$ and $v_a=m_a/\rho$ with no metric: they do
+not call the lower and raise of @eq-ch02-laws-metric.
+
+#### shallow-water
+
+`ShallowWaterImpl` has rows `IDN` and the three momenta, and no energy row. `"U->W"` divides the momenta by `IDN`
+and raises them with the metric ({{< code src/eos/shallow_water.cpp ShallowWaterImpl::_cons2prim >}});
+`"W->U"` multiplies and lowers ({{< code src/eos/shallow_water.cpp ShallowWaterImpl::_prim2cons >}}). The wave
+speed is $\sqrt{w_{\mathrm{IDN}}}$ (`"WA->L"` in
+{{< code src/eos/shallow_water.cpp ShallowWaterImpl::compute >}}), the closure's @eq-ch02-shallow-water-speed;
+`"W->A"` and `"W->T"` return an undefined tensor.
+
+Exact and truncated: the shared density and velocity maps are exact inverses as in @sec-ch02-laws. The accuracy
+of `moist-mixture` and `aneos` is that of kintera's inversion and of the table interpolation; this section does
+not measure it.
+
+### Numerical method
+
+All three are pointwise, like the other closures. `EquationOfStateImpl::create`
+({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::create >}}) builds the closure from
+`dynamics/equation-of-state/type`; an unknown type stops with "EquationOfState: Unknown type".
+
+A CUDA graph captures a stage only for `ideal-gas` and `ideal-moist`. `StageExecutor::config_reasons`
+({{< code src/mesh/stage_executor.cpp StageExecutor::config_reasons >}}) lists every reason a block cannot be
+captured; for the closure it checks the type against the set `capture_eos` and, for any other type, adds the
+reason "equation of state is `<type>`; capture allows ideal-gas, ideal-moist". In default execution such a
+block then runs eager (@sec-ch11). The flow of each closure is drawn in its own section
+(@fig-ch02-moist-mixture-flow, @fig-ch02-shallow-water-flow, @fig-ch02-aneos-flow); this overview has no figure
+of its own.
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| closure factory | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::create >}} | `create` | `equation-of-state/type` |
+| moist-mixture keys | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::compute >}} | `compute` | `moist-mixture` |
+| aneos keys | {{< code src/eos/aneos.cpp ANEOSImpl::compute >}} | `compute` | `aneos` |
+| shallow-water keys | {{< code src/eos/shallow_water.cpp ShallowWaterImpl::compute >}} | `compute` | `shallow-water` |
+| capture refusal | {{< code src/mesh/stage_executor.cpp StageExecutor::config_reasons >}} | `capture_eos` | `integration/execution` |
+
+: Code map of the other closures. {#tbl-ch02-other-eos-code}
+
+**What is refused, and why.**
+
+1. *Capture.* The reason above; under default execution the block runs eager (@sec-ch11).
+2. *Anomaly storage.* `HydroImpl::reset` allows it for `ideal-moist` only (@sec-ch02-laws).
+3. *An ideal gas with species.* `EquationOfStateImpl::create` refuses `ideal-gas` with species or reactions
+   and names `ideal-moist` and `moist-mixture` as the closures that support them.
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| {{< code tests/test_eos.cpp DeviceTest.moist_mixture >}} (`test_eos.release`) | conserved round trip; $\gamma=1.4$ for the deck; $T$ changes and matches its reference | rtol $10^{-6}$, atol $10^{-6}$ | `torch::allclose(..., 1.E-6, 1.E-6)`, four calls |
+| {{< code tests/test_aneos_gamma.cpp AneosGamma.implicit_index_takes_the_solved_state >}} (`test_aneos_gamma.release`) | the implicit solve takes its sound speed from the solid-filled state | exact | `rho.masked_select(solid) == 2.` |
+| `v3_relations_check.py` `[V10]` (this report) | $c_T^2$ is the isothermal derivative, if $Z_n$ depends on $\tilde c_n$ only | exact | sympy, under that assumption |
+
+: Tests of the other closures. {#tbl-ch02-other-eos-tests}
+
+Of the four `allclose` calls in `DeviceTest.moist_mixture`, the one on $T$ before and after a change is an
+`EXPECT_FALSE`: it asserts that the two temperatures are **not** close. No ctest of the chapter-2 set exercises
+`shallow-water`. At the pin both ctests of the table pass.[^other-eos-run]
+
+[^other-eos-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs
+    (`tests/test_eos.yaml`, `tests/test_anomaly_storage.yaml`, `tests/test_eos_temp2inteng.yaml` and the decks the other
+    tests build); run: `ctest -j1 -V -R <name>` for the eight ctests `test_eos.release`, `test_aneos_gamma.release`,
+    `test_anomaly_storage_python`, `test_anomaly_storage_cuda_python`, `test_eos_temp2inteng_python`,
+    `test_eos_species_sum_layout_python`, `test_sk1_failure_counter_python` and `test_sk1_failure_counter_cuda_python`,
+    run together with one anchored `-R` pattern, in the `tests` directory of a README CUDA Release build at the pin; CPU
+    and one CUDA GPU, FP32 and FP64 as each test sets them, 1 rank; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6,
+    kintera 2.6.13, pyharp 2.8.2]. 8 of 8 ctests passed; `test_eos.release` ran 43 gtest cases, 18 of them on CUDA.
+
+### Limits
+
+1. **No CUDA graph.** All three closures run eager under default execution (Numerical method).
+2. **aneos has no metric.** Its conversions do not lower or raise the momenta; no test runs `aneos` on a
+   skewed grid. Not measured.
+3. **moist-mixture sound speed.** `[V10]` holds only if each $Z_n$ depends on its own $\tilde c_n$; kintera's
+   `eval_czh_ddC` was not read for this section.
+4. **No shallow-water test** in the chapter-2 set.
+5. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
