@@ -288,7 +288,7 @@ Kinetics exists only in drivers that implement it. A user driver that calls only
 
 [^rg-bbb838859464]: $\tilde c_n$ — molar concentration of species $n$ [mol m$^{-3}$]; the tilde separates it from the specific heats $c_{v,n}, c_{p,n}$ and the sound speed $c_s$
 
-[^rg-cd51099e912b]: $K_k$ — equilibrium constant of reaction $k$ [units stated per reaction]; never $K_f$, a face diffusion coefficient (§8), and never $\mathcal K$, the curvature flux (§3); [source](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/equilibrium/phase_equilibrate_tp.h#L16-L35)
+[^rg-cd51099e912b]: $K_k$ — equilibrium constant of reaction $k$ [units stated per reaction]; never $K_f$, a face diffusion coefficient (§8), and never $\mathcal K$, the curvature flux (§3); `equilibrium_max_error` [source](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/equilibrium/phase_equilibrate_tp.h#L16-L35)
 
 [^rg-78e31ef7a580]: diff_c — reference diffusivity in the reaction-rate model
 

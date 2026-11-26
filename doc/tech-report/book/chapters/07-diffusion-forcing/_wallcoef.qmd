@@ -238,7 +238,7 @@ solids are read as fluid by the diffusion module, with a face heat capacity abou
 [^env-wallcoef]: Recorded run environment: Python 3.11.13, numpy 2.4.6, sympy 1.14.0.
 
 <!-- reader glossary notes -->
-[^rg-ddc618468224]: $H$ — a density or pressure scale height [m]; in the cell-volume test it is $p_0/(\rho_0g)$, with `rho0`; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/tests/test_cubed_sphere_cell_volume.py#L70-L74)
+[^rg-ddc618468224]: $H$ — a density or pressure scale height [m]; in the cell-volume test it is $p_0/(\rho_0g)$, with `rho0`; {{< code tests/test_cubed_sphere_cell_volume.py rest >}}
 
 [^rg-7b3481082f8e]: boundary-condition — boundary options: `external` boundary-function names for the domain faces and `internal` solid-cell settings
 

@@ -185,9 +185,9 @@ registered in that build and were not run.
 <!-- reader glossary notes -->
 [^rg-9e3adb4b852c]: EOS — equation of state
 
-[^rg-ebaaad5c5b2c]: $B$ — the binomial weights $(1,4,6,4,1)/16$; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_ref_x1_impl.h#L126-L130)
+[^rg-ebaaad5c5b2c]: $B$ — the binomial weights $(1,4,6,4,1)/16$; {{< code src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_rop_smooth >}}
 
-[^rg-174847516220]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14)
+[^rg-174847516220]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); {{< code src/hydro/flux_positivity.cpp machine_epsilon >}}
 
 [^rg-2f2c2c76b677]: $T$ — temperature [K]
 <!-- end reader glossary notes -->

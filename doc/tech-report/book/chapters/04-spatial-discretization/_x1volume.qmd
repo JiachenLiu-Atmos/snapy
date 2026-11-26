@@ -376,15 +376,15 @@ of a curved grid.
 <!-- reader glossary notes -->
 [^rg-7f2dd536f238]: $r$ — $x_1$ on a spherical-polar grid (radius) [m]
 
-[^rg-aec49c6157b4]: $V^{(1)}_i$ — the $x_1$ factor of the cell volume, $V_{ijk}=\varpi_{jk}V^{(1)}_i$: $\tfrac13(x_{1,i+1/2}^3-x_{1,i-1/2}^3)$ on spherical-polar, $h_i$ on Cartesian; the radial factor of `cell_volume`; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/spherical_polar.cpp#L200-L211)
+[^rg-aec49c6157b4]: $V^{(1)}_i$ — the $x_1$ factor of the cell volume, $V_{ijk}=\varpi_{jk}V^{(1)}_i$: $\tfrac13(x_{1,i+1/2}^3-x_{1,i-1/2}^3)$ on spherical-polar, $h_i$ on Cartesian; the radial factor of `cell_volume`; {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::cell_volume >}}
 
 [^rg-e2902a1873a5]: $\langle q\rangle_{V_i}$ — volume average of a function $q(x)$ over cell $i$ on its own measure, $\tfrac{1}{V_i}\int_{V_i}q\,dV$; notation only; see @sec-appa
 
 [^rg-03001039acf8]: $h_i$ — $x_1$ width of cell $i$, $x_{1,i+1/2}-x_{1,i-1/2}$; written $\Delta x_1$ where the direction must be explicit
 
-[^rg-5cf4b88ae6fa]: $\varpi_{jk}$ — horizontal factor of a cell volume, $V_{ijk}=\varpi_{jk}V^{(1)}_i$: the solid angle on spherical-polar ($V^{(1)}_i=\tfrac13(r_{+}^3-r_{-}^3)$), $\Delta x_2\Delta x_3$ on Cartesian ($V^{(1)}_i=h_i$); the angular factors of `cell_volume`; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/spherical_polar.cpp#L200-L211)
+[^rg-5cf4b88ae6fa]: $\varpi_{jk}$ — horizontal factor of a cell volume, $V_{ijk}=\varpi_{jk}V^{(1)}_i$: the solid angle on spherical-polar ($V^{(1)}_i=\tfrac13(r_{+}^3-r_{-}^3)$), $\Delta x_2\Delta x_3$ on Cartesian ($V^{(1)}_i=h_i$); the angular factors of `cell_volume`; {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::cell_volume >}}
 
-[^rg-c6d6c0a00a4a]: $x^{\mathrm{m}}_{1,i}$ — cell midpoint $\tfrac12(x_{1,i-1/2}+x_{1,i+1/2})$ ($r^{\mathrm{m}}_i$ on spherical-polar); it is not the cell average of $x_1$, which is the centroid $x_{1,i}$; the half-sum of `x1f`; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/coordinate.cpp#L439)
+[^rg-c6d6c0a00a4a]: $x^{\mathrm{m}}_{1,i}$ — cell midpoint $\tfrac12(x_{1,i-1/2}+x_{1,i+1/2})$ ($r^{\mathrm{m}}_i$ on spherical-polar); it is not the cell average of $x_1$, which is the centroid $x_{1,i}$; the half-sum of `x1f`; {{< code src/coord/coordinate.cpp CoordinateImpl::x1_metrics_ >}}
 
 [^rg-8185c9cafa62]: $P$ — corrected discrete potential energy $\sum_iV_i[\rho_i\phi_i - g_1\sigma_i^2s_i[\rho]]$, exact to $O(h^4)$
 

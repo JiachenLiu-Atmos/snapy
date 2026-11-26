@@ -205,7 +205,7 @@
       "kind": "acronym",
       "term": "NCCL",
       "meaning": "NVIDIA Collective Communications Library",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/external/gloo/README.md#L43-L56",
+      "source": "external/gloo/README.md",
       "section": "sec-ch14-backends",
       "not_defined_here": true
     },
@@ -844,7 +844,7 @@
       "kind": "symbol",
       "term": "$\\xi, \\eta$",
       "notation_group": "1",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/gnomonic_equiangle.cpp#L56-L69",
+      "source": "src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::reset",
       "meaning_by_file": {
         "chapters/03-grids-geometry/_gnomonic.qmd": "the two gnomonic-equiangle panel coordinates of a cubed-sphere block ($x_2, x_3$) [rad]; their cell centres are `x2v` and `x3v` in the code"
       },
@@ -891,7 +891,7 @@
       "kind": "symbol",
       "term": "$x^{\\mathrm{m}}_{1,i}$",
       "notation_group": "1",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/coordinate.cpp#L439",
+      "source": "src/coord/coordinate.cpp CoordinateImpl::x1_metrics_",
       "section": "sec-appa-1"
     },
     {
@@ -904,7 +904,7 @@
       "kind": "symbol",
       "term": "$\\Delta_\\pm$",
       "notation_group": "1",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/gravity_work_radial.hpp#L66-L71",
+      "source": "src/hydro/gravity_work.hpp centroid_slope_stencil",
       "meaning_by_file": {
         "chapters/06-gravity-energy/_dwork.qmd": "centroid spacings $x_{1,i+1}-x_{1,i}$ ($+$) and $x_{1,i}-x_{1,i-1}$ ($-$), used in non-uniform stencils; never $h_\\pm$, which would read as cell widths; `hm` and `hp` in the code"
       },
@@ -930,7 +930,7 @@
       "kind": "symbol",
       "term": "$\\delta_i$",
       "notation_group": "1",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/gravity_work_radial.hpp#L95-L105",
+      "source": "src/hydro/gravity_work.hpp x1_centroid_offset",
       "meaning_by_file": {
         "chapters/03-grids-geometry/_facemoments.qmd": "centroid offset $x_{1,i}-x^{\\mathrm{m}}_{1,i}$ (zero on Cartesian); `x1_centroid_offset` in the code",
         "chapters/06-gravity-energy/_dwork.qmd": "centroid offset $x_{1,i}-x^{\\mathrm{m}}_{1,i}$ (zero on Cartesian); `x1_centroid_offset` in the code"
@@ -953,14 +953,14 @@
       "kind": "symbol",
       "term": "$\\varpi_{jk}$",
       "notation_group": "1",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/spherical_polar.cpp#L200-L211",
+      "source": "src/coord/spherical_polar.cpp SphericalPolarImpl::cell_volume",
       "section": "sec-appa-1"
     },
     {
       "kind": "symbol",
       "term": "$V^{(1)}_i$",
       "notation_group": "1",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/spherical_polar.cpp#L200-L211",
+      "source": "src/coord/spherical_polar.cpp SphericalPolarImpl::cell_volume",
       "section": "sec-appa-1"
     },
     {
@@ -1049,7 +1049,7 @@
       "kind": "symbol",
       "term": "$e$",
       "notation_group": "2",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L278-L281",
+      "source": "src/eos/ideal_moist.cpp IdealMoistImpl::species_enthalpy",
       "meaning_by_file": {
         "chapters/07-diffusion-forcing/_x1profile.qmd": "specific internal energy [J kg$^{-1}$]; its per-species heat-capacity ratio is `cv_ratio_m1` in the code"
       },
@@ -1084,7 +1084,7 @@
       "kind": "symbol",
       "term": "$\\hat h$",
       "notation_group": "2",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L278-L281",
+      "source": "src/eos/ideal_moist.cpp IdealMoistImpl::species_enthalpy",
       "section": "sec-appa-2"
     },
     {
@@ -1133,7 +1133,7 @@
       "kind": "symbol",
       "term": "$R_{\\mathrm{d}}$, $R_n$",
       "notation_group": "2",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L40-L43",
+      "source": "src/eos/ideal_moist.cpp IdealMoistImpl::reset",
       "meaning_by_file": {
         "chapters/07-diffusion-forcing/_viscosity.qmd": "specific gas constants of dry air and species $n$ [J kg$^{-1}$ K$^{-1}$]; `Rd` and `Ri` in the code"
       },
@@ -1181,14 +1181,14 @@
       "kind": "symbol",
       "term": "$\\theta_p$",
       "notation_group": "2",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/output/load_diag_output_data.cpp#L98-L104",
+      "source": "src/output/load_diag_output_data.cpp OutputType::loadDiagOutputData",
       "section": "sec-appa-2"
     },
     {
       "kind": "symbol",
       "term": "$\\theta_v$",
       "notation_group": "2",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/output/load_diag_output_data.cpp#L98-L104",
+      "source": "src/output/load_diag_output_data.cpp OutputType::loadDiagOutputData",
       "section": "sec-appa-2"
     },
     {
@@ -1201,7 +1201,7 @@
       "kind": "symbol",
       "term": "$H$",
       "notation_group": "2",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/tests/test_cubed_sphere_cell_volume.py#L70-L74",
+      "source": "tests/test_cubed_sphere_cell_volume.py rest",
       "meaning_by_file": {
         "chapters/07-diffusion-forcing/_wallcoef.qmd": "a density or pressure scale height [m]; in the cell-volume test it is $p_0/(\\rho_0g)$, with `rho0`"
       },
@@ -1217,7 +1217,7 @@
       "kind": "symbol",
       "term": "$R_n = \\mathcal R/\\mu_n$",
       "notation_group": "2a",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L40-L43",
+      "source": "src/eos/ideal_moist.cpp IdealMoistImpl::reset",
       "section": "sec-appa-2a",
       "meaning_by_file": {
         "chapters/02-thermodynamics/_ideal-moist.qmd": "specific gas constant of species $n$ [J kg$^{-1}$ K$^{-1}$]; defined for gases only, a condensate has no $R_n$ and contributes no pressure; `Ri` in the code"
@@ -1258,7 +1258,7 @@
       "kind": "symbol",
       "term": "$K_k$",
       "notation_group": "2a",
-      "source": "https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/equilibrium/phase_equilibrate_tp.h#L16-L35",
+      "source": "https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/equilibrium/phase_equilibrate_tp.h#L16-L35 equilibrium_max_error",
       "section": "sec-appa-2a"
     },
     {
@@ -1307,7 +1307,7 @@
       "kind": "symbol",
       "term": "$G_{i+1/2}$",
       "notation_group": "3",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/coordinate.cpp#L731-L748",
+      "source": "src/coord/coordinate.cpp CoordinateImpl::divergence",
       "section": "sec-appa-3"
     },
     {
@@ -1378,21 +1378,21 @@
       "kind": "symbol",
       "term": "$\\Delta_i[q]$",
       "notation_group": "4",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/coordinate.cpp#L731-L748",
+      "source": "src/coord/coordinate.cpp CoordinateImpl::divergence",
       "section": "sec-appa-4"
     },
     {
       "kind": "symbol",
       "term": "$\\nabla_{\\!1}\\!\\cdot G$",
       "notation_group": "4",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/coordinate.cpp#L731-L748",
+      "source": "src/coord/coordinate.cpp CoordinateImpl::divergence",
       "section": "sec-appa-4"
     },
     {
       "kind": "symbol",
       "term": "$\\mathcal N_i$",
       "notation_group": "4",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/gravity_work_radial.hpp#L60-L87",
+      "source": "src/hydro/gravity_work.hpp centroid_slope_stencil",
       "meaning_by_file": {
         "chapters/06-gravity-energy/_dwork.qmd": "the stencil set of the centroid slope of cell $i$ (stencil cells indexed by $l$); built by `centroid_slope_stencil` in the code"
       },
@@ -1402,21 +1402,21 @@
       "kind": "symbol",
       "term": "$s_i[q]$",
       "notation_group": "4",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/gravity_work_radial.hpp#L60-L92",
+      "source": "src/hydro/gravity_work.hpp centroid_slope",
       "section": "sec-appa-4"
     },
     {
       "kind": "symbol",
       "term": "$\\tilde s_i[q]$",
       "notation_group": "4",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/implicit/implicit_hydro.cpp#L349-L374",
+      "source": "src/hydro/gravity_work.hpp GravityWork::update_rows",
       "section": "sec-appa-4"
     },
     {
       "kind": "symbol",
       "term": "$\\mathsf S$",
       "notation_group": "4",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/implicit/implicit_hydro.cpp#L349-L374",
+      "source": "src/hydro/gravity_work.hpp GravityWork::update_rows",
       "meaning_by_file": {
         "chapters/06-gravity-energy/_dwork.qmd": "the matrix of $s$: $(\\mathsf S q)_i = s_i[q] = \\sum_l\\mathsf S_{il}q_l$ (row $i$: the weights of the cells $l$ in the slope of $i$); its bands are the implicit rows, `rx_lo` in the code"
       },
@@ -1426,7 +1426,7 @@
       "kind": "symbol",
       "term": "$\\operatorname{cov}_i(a,b)$",
       "notation_group": "4",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_forward.cpp#L45-L54",
+      "source": "src/hydro/hydro_forward.cpp HydroImpl::_flux_covariance",
       "section": "sec-appa-4"
     },
     {
@@ -1497,7 +1497,7 @@
       "kind": "symbol",
       "term": "$W_i$",
       "notation_group": "5",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/const_gravity.cpp#L48-L51",
+      "source": "src/hydro/hydro_forward.cpp HydroImpl::forward",
       "section": "sec-appa-5"
     },
     {
@@ -1522,7 +1522,6 @@
       "kind": "symbol",
       "term": "$W^{\\mathrm{wallc}}_i$",
       "notation_group": "5",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_forward.cpp#L1193-L1200",
       "section": "sec-appa-5"
     },
     {
@@ -1562,28 +1561,28 @@
       "kind": "symbol",
       "term": "$\\rho_{\\mathrm{sf}}, p_{\\mathrm{sf}}$",
       "notation_group": "6",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_forward.cpp#L470-L476",
+      "source": "src/hydro/hydro_forward.cpp HydroImpl::forward",
       "section": "sec-appa-6"
     },
     {
       "kind": "symbol",
       "term": "$\\rho' = \\rho - \\rho_{\\mathrm{ref}}$",
       "notation_group": "6",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_forward.cpp#L470-L476",
+      "source": "src/hydro/hydro_forward.cpp HydroImpl::forward",
       "section": "sec-appa-6"
     },
     {
       "kind": "symbol",
       "term": "$\\chi^s_i$",
       "notation_group": "6",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_ref_x1_impl.h#L89-L130",
+      "source": "src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_rop_smooth",
       "section": "sec-appa-6"
     },
     {
       "kind": "symbol",
       "term": "$B$",
       "notation_group": "6",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_ref_x1_impl.h#L126-L130",
+      "source": "src/hydro/hydro_ref_x1_impl.h hydro_ref_x1_rop_smooth",
       "meaning_by_file": {
         "chapters/03-grids-geometry/_seamreg.qmd": "the binomial weights $(1,4,6,4,1)/16$, written over `T(16)` in the code"
       },
@@ -1612,7 +1611,7 @@
       "kind": "symbol",
       "term": "$\\mathbf U^{(s)}$",
       "notation_group": "7",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/mesh/meshblock.cpp#L817-L825",
+      "source": "src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine",
       "section": "sec-appa-7"
     },
     {
@@ -1701,14 +1700,14 @@
       "kind": "symbol",
       "term": "$\\epsilon_{\\mathrm{piv}}$",
       "notation_group": "7",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/math/ludcmp.h#L28-L35",
+      "source": "src/math/ludcmp.h ludcmp",
       "section": "sec-appa-7"
     },
     {
       "kind": "symbol",
       "term": "$\\epsilon_{\\mathrm{m}}$",
       "notation_group": "7",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14",
+      "source": "src/hydro/flux_positivity.cpp machine_epsilon",
       "meaning_by_file": {
         "chapters/03-grids-geometry/_globalgrid.qmd": "machine epsilon of the working precision (never bare $\\epsilon$, which is $\\epsilon_{\\mathrm{piv}}$); `machine_epsilon` in the code",
         "chapters/08-positivity/_borrow.qmd": "machine epsilon of the working precision (never bare $\\epsilon$, which is $\\epsilon_{\\mathrm{piv}}$), `machine_epsilon` in the code",
@@ -1720,14 +1719,13 @@
       "kind": "symbol",
       "term": "$\\mathsf I$",
       "notation_group": "7",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/implicit/implicit_hydro.cpp#L349-L355",
       "section": "sec-appa-7"
     },
     {
       "kind": "symbol",
       "term": "$\\mu$, $\\nu$",
       "notation_group": "8",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/diffusion.cpp#L621-L626",
+      "source": "src/forcing/diffusion.cpp DiffusionImpl::cartesian_fluxes",
       "section": "sec-appa-8",
       "meaning_by_file": {
         "chapters/08-positivity/_sed.qmd": "dynamic and kinematic viscosity; the diffusion module calls the kinematic one `nu_iso`",
@@ -1738,7 +1736,7 @@
       "kind": "symbol",
       "term": "$\\kappa$",
       "notation_group": "8",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/diffusion.cpp#L631-L665",
+      "source": "src/forcing/diffusion.cpp DiffusionImpl::cartesian_fluxes",
       "meaning_by_file": {
         "chapters/07-diffusion-forcing/_viscosity.qmd": "thermal diffusivity (or conductivity, stated); `kappa_iso` in the code"
       },
@@ -1748,28 +1746,28 @@
       "kind": "symbol",
       "term": "$K_f$",
       "notation_group": "8",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/diffusion.cpp#L164-L184",
+      "source": "src/forcing/diffusion.cpp face_coefficient",
       "section": "sec-appa-8"
     },
     {
       "kind": "symbol",
       "term": "$w_{{\\mathrm{s}},n}$",
       "notation_group": "8",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/sedimentation/sed_hydro.cpp#L18-L31",
+      "source": "src/sedimentation/sed_hydro.cpp SedHydroImpl::forward",
       "section": "sec-appa-8"
     },
     {
       "kind": "symbol",
       "term": "$\\Omega$",
       "notation_group": "8",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/coriolis.cpp#L83-L90",
+      "source": "src/forcing/coriolis.cpp CoriolisImpl::reset",
       "section": "sec-appa-8"
     },
     {
       "kind": "symbol",
       "term": "$\\tau$",
       "notation_group": "8",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/relax_bot_temp.cpp#L102-L105",
+      "source": "src/forcing/relax_bot_temp.cpp RelaxBotTempImpl::add",
       "meaning_by_file": {
         "chapters/07-diffusion-forcing/_viscosity.qmd": "a relaxation time scale (named); it scales the bottom-temperature relaxation `heating` in the code"
       },
@@ -1813,21 +1811,21 @@
       "kind": "symbol",
       "term": "$d_q = q_i - q_{\\mathrm{bg},i}$",
       "notation_group": "8a",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/bc/bc_func.cpp#L172-L176",
+      "source": "src/bc/bc_func.cpp radiating",
       "section": "sec-appa-8a"
     },
     {
       "kind": "symbol",
       "term": "$Z = \\rho_{\\mathrm{bg}}c_{s,\\mathrm{bg}}$",
       "notation_group": "8a",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/bc/bc_func.cpp#L172-L178",
+      "source": "src/bc/bc_func.cpp radiating",
       "section": "sec-appa-8a"
     },
     {
       "kind": "symbol",
       "term": "$\\alpha_{\\mathrm{adm}}$",
       "notation_group": "8a",
-      "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/bc/bc_func.cpp#L187-L203",
+      "source": "src/bc/bc_func.cpp radiating",
       "section": "sec-appa-8a"
     },
     {

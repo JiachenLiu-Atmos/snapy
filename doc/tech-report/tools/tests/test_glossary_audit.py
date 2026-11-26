@@ -55,17 +55,20 @@ def test_unsourced_audit_disposition():
     data = json.loads((REPORT / 'tools/reader-glossary.json').read_text())['entries']
     linked = [e for e in data if e.get('source')]
     notation = [e for e in data if e.get('notation_only')]
-    assert len(linked) == 42
+    assert len(linked) == 40
     assert len(notation) == 27
     entries = {e['term']: e for e in g.glossary_entries(REPORT)}
     for e in linked:
-        assert e['source'] in entries[e['term']]['meaning']
+        assert e['source'].split(' ')[0] in entries[e['term']]['meaning']
     for e in notation:
         assert 'notation only; see @sec-appa' in entries[e['term']]['meaning']
 
 
 @pytest.mark.parametrize('metadata', [
     {'source': 'https://github.com/chengcli/snapy/blob/main/src/snap.h#L1'},
+    {'source': 'https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/snap.h#L1'},
+    {'source': 'https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/a.h#L1'},
+    {'source': 'src/snap.h Snap::x', 'notation_only': True},
     {'source': 'https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/snap.h#L1',
      'notation_only': True},
 ])
@@ -83,10 +86,45 @@ def test_glossary_source_refuses_ambiguous_provenance(tmp_path, metadata):
 def test_theta_diagnostic_source(term):
     entries = {e['term']: e for e in g.glossary_entries(REPORT)}
     meaning = entries[term]['meaning']
-    assert ('https://github.com/chengcli/snapy/blob/'
-            '919936da07d80a310b98ab11da184972a3203274/'
-            'src/output/load_diag_output_data.cpp#L98-L104') in meaning
+    assert '{{< code src/output/load_diag_output_data.cpp OutputType::loadDiagOutputData >}}' in meaning
     assert 'notation only' not in meaning
     if term == r'$\theta_p$':
         assert 'the book uses dry constants' in meaning
         assert 'code computes `theta` from entropy' in meaning
+
+
+@pytest.mark.parametrize('source, rendered', [
+    ('src/hydro/hydro.cpp HydroImpl::reset', '; {{< code src/hydro/hydro.cpp HydroImpl::reset >}}'),
+    ('tests/test_x.py main', '; {{< code tests/test_x.py main >}}'),
+])
+def test_glossary_snapy_source_is_cited_by_symbol(tmp_path, source, rendered):
+    """A snapy source is a path and a symbol, rendered as the code shortcode code_anchors.py resolves at the pin."""
+    import json
+    (tmp_path / 'tools').mkdir()
+    (tmp_path / 'NOTATION.md').write_text((REPORT / 'NOTATION.md').read_text())
+    (tmp_path / 'tools/package-pins.json').write_text((REPORT / 'tools/package-pins.json').read_text())
+    data = json.loads((REPORT / 'tools/reader-glossary.json').read_text())
+    for e in data['entries']:  # the per-file senses name book files this temporary report does not have
+        e.pop('meaning_by_file', None)
+    cpu = next(e for e in data['entries'] if e['term'] == 'CPU')
+    cpu['source'] = source
+    (tmp_path / 'tools/reader-glossary.json').write_text(json.dumps(data))
+    entry = {e['term']: e for e in g.glossary_entries(tmp_path)}['CPU']
+    assert entry['meaning'] == cpu['meaning'] + rendered
+
+
+def test_glossary_kintera_source_is_at_the_package_pin(tmp_path):
+    import json
+    (tmp_path / 'tools').mkdir()
+    (tmp_path / 'NOTATION.md').write_text((REPORT / 'NOTATION.md').read_text())
+    pins = json.loads((REPORT / 'tools/package-pins.json').read_text())
+    (tmp_path / 'tools/package-pins.json').write_text(json.dumps(pins))
+    url = f"https://github.com/chengcli/kintera/blob/{pins['kintera']}/src/a.h#L1-L2"
+    sym = 'equilibrium_max_error'
+    data = json.loads((REPORT / 'tools/reader-glossary.json').read_text())
+    for e in data['entries']:
+        e.pop('meaning_by_file', None)
+    next(e for e in data['entries'] if e['term'] == 'CPU')['source'] = url + ' ' + sym
+    (tmp_path / 'tools/reader-glossary.json').write_text(json.dumps(data))
+    entry = {e['term']: e for e in g.glossary_entries(tmp_path)}['CPU']
+    assert entry['meaning'].endswith(f'; `{sym}` [source]({url})')

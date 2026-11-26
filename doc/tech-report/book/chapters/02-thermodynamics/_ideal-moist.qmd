@@ -386,7 +386,7 @@ $10^{-10}$; these are round-off, so the text quotes them against the threshold, 
 
 [^rg-fa067cae2716]: u0_R — reference internal energy in the species gas-constant normalisation
 
-[^rg-8291c2d31ed0]: $R_n = \mathcal R/\mu_n$ — specific gas constant of species $n$ [J kg$^{-1}$ K$^{-1}$]; defined for gases only, a condensate has no $R_n$ and contributes no pressure; `Ri` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L40-L43)
+[^rg-8291c2d31ed0]: $R_n = \mathcal R/\mu_n$ — specific gas constant of species $n$ [J kg$^{-1}$ K$^{-1}$]; defined for gases only, a condensate has no $R_n$ and contributes no pressure; `Ri` in the code; {{< code src/eos/ideal_moist.cpp IdealMoistImpl::reset >}}
 
 [^rg-e37071e794ae]: grav1 — gravity component along the first coordinate
 

@@ -44,7 +44,7 @@
   },
   "apph": {
    "history": 0,
-   "offpin": 42,
+   "offpin": 0,
    "status": 0,
    "xref": 0
   },
@@ -68,55 +68,55 @@
   },
   "ch02": {
    "history": 0,
-   "offpin": 1,
+   "offpin": 0,
    "status": 0,
    "xref": 0
   },
   "ch03": {
    "history": 0,
-   "offpin": 6,
+   "offpin": 0,
    "status": 0,
    "xref": 0
   },
   "ch04": {
    "history": 0,
-   "offpin": 107,
+   "offpin": 99,
    "status": 0,
    "xref": 0
   },
   "ch05": {
    "history": 0,
-   "offpin": 60,
+   "offpin": 54,
    "status": 0,
    "xref": 0
   },
   "ch06": {
    "history": 0,
-   "offpin": 10,
+   "offpin": 6,
    "status": 0,
    "xref": 0
   },
   "ch07": {
    "history": 0,
-   "offpin": 14,
+   "offpin": 7,
    "status": 0,
    "xref": 0
   },
   "ch08": {
    "history": 0,
-   "offpin": 7,
+   "offpin": 5,
    "status": 0,
    "xref": 0
   },
   "ch09": {
    "history": 0,
-   "offpin": 39,
+   "offpin": 36,
    "status": 0,
    "xref": 0
   },
   "ch10": {
    "history": 0,
-   "offpin": 72,
+   "offpin": 67,
    "status": 0,
    "xref": 0
   },
@@ -134,13 +134,13 @@
   },
   "ch13": {
    "history": 0,
-   "offpin": 19,
+   "offpin": 15,
    "status": 0,
    "xref": 0
   },
   "ch14": {
    "history": 0,
-   "offpin": 137,
+   "offpin": 135,
    "status": 0,
    "xref": 0
   },
@@ -152,13 +152,13 @@
   },
   "ch16": {
    "history": 0,
-   "offpin": 24,
+   "offpin": 23,
    "status": 0,
    "xref": 0
   },
   "ch17": {
    "history": 0,
-   "offpin": 13,
+   "offpin": 11,
    "status": 0,
    "xref": 0
   },

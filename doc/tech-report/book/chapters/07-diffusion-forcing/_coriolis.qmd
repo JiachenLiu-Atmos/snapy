@@ -291,7 +291,7 @@ spherical-polar `xyz` branches or the `123` form through the solver; the check c
 
 [^rg-137c6809df4d]: $\varphi$ — $x_3$ on a spherical-polar grid (azimuth) [rad]; never the potential
 
-[^rg-a91ad47fcc7b]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); `machine_epsilon` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14)
+[^rg-a91ad47fcc7b]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); `machine_epsilon` in the code; {{< code src/hydro/flux_positivity.cpp machine_epsilon >}}
 
 [^rg-5a0ce8082ce9]: type — implementation selector for the enclosing options block
 

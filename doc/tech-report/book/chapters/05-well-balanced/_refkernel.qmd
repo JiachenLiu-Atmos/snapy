@@ -418,7 +418,7 @@ for isothermal cells.
 <!-- reader glossary notes -->
 [^rg-93ea0f4be52f]: $\chi$ — the ratio $\rho/p$ used by the default reference and its wall continuation [s$^2$ m$^{-2}$]
 
-[^rg-4458a2825c29]: $H$ — a density or pressure scale height [m]; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/tests/test_cubed_sphere_cell_volume.py#L70-L74)
+[^rg-4458a2825c29]: $H$ — a density or pressure scale height [m]; {{< code tests/test_cubed_sphere_cell_volume.py rest >}}
 
 [^rg-0d33d67506bd]: MPS — Metal Performance Shaders
 

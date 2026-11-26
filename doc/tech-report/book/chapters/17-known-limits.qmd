@@ -361,7 +361,7 @@ from the Limits layer of any single section.[^ch17-round]
 
 [^rg-bd04339abc78]: $\mathsf A^{\pm}$ — the Roe dissipation matrices $\mathsf R\lvert\Lambda\rvert\mathsf R^{-1}$ at faces $i\pm\tfrac12$
 
-[^rg-b4e1129059b5]: $\mathsf I$ — the identity matrix, sized by context; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/implicit/implicit_hydro.cpp#L349-L355)
+[^rg-b4e1129059b5]: $\mathsf I$ — the identity matrix, sized by context
 
 [^rg-bfa19626b4df]: $\Delta t_c$ — the time step handed to the implicit solve: $w_{2,s}\Delta t$ under rk3 and rk3s4, $\Delta t$ under rk1 and rk2
 
@@ -371,7 +371,7 @@ from the Limits layer of any single section.[^ch17-round]
 
 [^rg-78b321f1b001]: MPI — Message Passing Interface
 
-[^rg-ddd592ca2259]: NCCL — NVIDIA Collective Communications Library; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/external/gloo/README.md#L43-L56)
+[^rg-ddd592ca2259]: NCCL — NVIDIA Collective Communications Library; {{< code external/gloo/README.md >}}
 
 [^rg-9be65707d30c]: GPU — graphics processing unit
 

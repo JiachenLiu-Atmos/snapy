@@ -218,7 +218,7 @@ reader or a test that parses the log.
 
 [^rg-1443f7d5a753]: $x_{1,i}$ — cell volume centroid ($r_{c,i}$ on spherical-polar)
 
-[^rg-3eba0bd97326]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14)
+[^rg-3eba0bd97326]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); {{< code src/hydro/flux_positivity.cpp machine_epsilon >}}
 
 [^rg-9750bb6bd4f2]: $E$ — total energy density, internal plus kinetic, $\rho e + \tfrac12\rho\lvert\mathbf v\rvert^2$ [J m$^{-3}$]; excludes potential energy
 

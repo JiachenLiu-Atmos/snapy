@@ -71,7 +71,7 @@ The limits this chapter states are collected with those of the other chapters in
 
 [^rg-cd3a4587f5d3]: WB — well-balanced
 
-[^rg-db3b2c69533d]: $\rho_{\mathrm{sf}}, p_{\mathrm{sf}}$ — face ("scan face") reference density and pressure; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_forward.cpp#L470-L476)
+[^rg-db3b2c69533d]: $\rho_{\mathrm{sf}}, p_{\mathrm{sf}}$ — face ("scan face") reference density and pressure; {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}
 
 [^rg-5826c2f5cd26]: wb-wall-clamp — whether to clamp the well-balanced wall continuation
 

@@ -196,11 +196,11 @@ diagnostic of the cell velocities. It is not the divergence the scheme saw.
 
 [^rg-d9f96c5fa407]: $A_{i\pm1/2}$ — $x_1$ face area
 
-[^rg-7e07c18edc42]: $\theta_p$ — dry potential temperature, $\theta_p = T(p_\star/p)^{R_{\mathrm{d}}/c_{p,\mathrm{d}}}$ [K], referred to the thermodynamic reference pressure $p_\star$ of §2a and formed with the **dry** constants whatever the composition; the book uses dry constants, while the code computes `theta` from entropy; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/output/load_diag_output_data.cpp#L98-L104)
+[^rg-7e07c18edc42]: $\theta_p$ — dry potential temperature, $\theta_p = T(p_\star/p)^{R_{\mathrm{d}}/c_{p,\mathrm{d}}}$ [K], referred to the thermodynamic reference pressure $p_\star$ of §2a and formed with the **dry** constants whatever the composition; the book uses dry constants, while the code computes `theta` from entropy; {{< code src/output/load_diag_output_data.cpp OutputType::loadDiagOutputData >}}
 
-[^rg-be1e000c42a0]: $\theta_v$ — virtual potential temperature: $\theta_p$ of the dry-equivalent state with the same density [K]; defined in the chapter that first uses it; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/output/load_diag_output_data.cpp#L98-L104)
+[^rg-be1e000c42a0]: $\theta_v$ — virtual potential temperature: $\theta_p$ of the dry-equivalent state with the same density [K]; defined in the chapter that first uses it; {{< code src/output/load_diag_output_data.cpp OutputType::loadDiagOutputData >}}
 
-[^rg-4834974d2c99]: $R_{\mathrm{d}}$, $R_n$ — specific gas constants of dry air and species $n$ [J kg$^{-1}$ K$^{-1}$]; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L40-L43)
+[^rg-4834974d2c99]: $R_{\mathrm{d}}$, $R_n$ — specific gas constants of dry air and species $n$ [J kg$^{-1}$ K$^{-1}$]; {{< code src/eos/ideal_moist.cpp IdealMoistImpl::reset >}}
 
 [^rg-966b0b16a265]: $p$ — pressure [Pa]
 

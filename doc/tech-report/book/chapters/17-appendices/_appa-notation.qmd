@@ -145,8 +145,8 @@ the symbol in math, and never let the two touch.
 | $\nabla_{\!1}\!\cdot G$ | discrete $x_1$ divergence, $\Delta_i[AF]/V_i$ |  | {{< generated appa first-699e43059203 >}} |  |
 | $\mathcal N_i$ | the stencil set of the centroid slope of cell $i$ (stencil cells indexed by $l$) |  | {{< generated appa first-2d51d9b95c26 >}} |  |
 | $s_i[q]$ | centroid slope: the $x_1$ derivative at $x_{1,i}$ of the quadratic through $(x_{1,k}, q_k)$, $k\in\{i-1,i,i+1\}$ inside a block and the three cells next to the end at each $x_1$ end of a block (`centroid_slope`) |  | {{< generated appa first-59efe0c5eb23 >}} |  |
-| $\tilde s_i[q]$ | the tridiagonal (lumped) form of $s_i$ held by the implicit matrix: identical inside, the third end weight added to the neighbour's |  | {{< generated appa first-9f1d50684aba >}} |  |
-| $\mathsf S$ | the matrix of $s$: $(\mathsf S q)_i = s_i[q] = \sum_l\mathsf S_{il}q_l$ (row $i$: the weights of the cells $l$ in the slope of $i$; the code stores the transpose); $\tilde{\mathsf S}$ likewise for $\tilde s$ | matrix | {{< generated appa first-40602667c615 >}} |  |
+| $\tilde s_i[q]$ | the tridiagonal part of $s_i$ held by the implicit matrix: its three bands; the two one-sided wall third points are solved separately (Woodbury), so no end weight is lumped into a neighbour's |  | {{< generated appa first-9f1d50684aba >}} |  |
+| $\mathsf S$ | the matrix of $s$: $(\mathsf S q)_i = s_i[q] = \sum_l\mathsf S_{il}q_l$ (row $i$: the weights of the cells $l$ in the slope of $i$; the code stores each row's three cells and weights, `CentroidSlopeStencil`); $\tilde{\mathsf S}$ likewise for $\tilde s$ | matrix | {{< generated appa first-40602667c615 >}} |  |
 | $\operatorname{cov}_i(a,b)$ | the in-cell covariance $\langle ab\rangle_{V_i} - \langle a\rangle_{V_i}\langle b\rangle_{V_i}$; to leading order $\sigma_i^2\,\partial_1a\,\partial_1b$ |  | {{< generated appa first-0c7dd095cc79 >}} |  |
 | $\dot q$ | time derivative of a cell average produced by one operator (stated each time) |  | {{< generated appa first-ab1d267d62e7 >}} |  |
 | $[q]_{\mathrm{walls}}$ | $q$ at the top wall minus $q$ at the bottom wall |  | {{< generated appa first-77d5d1015296 >}} |  |
@@ -170,7 +170,7 @@ the symbol in math, and never let the two touch.
 | $W^{\mathrm{cell}}_i$ | cell form $\rho_iv_{1,i}g_1$ |  | {{< generated appa first-95701923a723 >}} | `original_gravity_work` |
 | $W^{\mathrm{face}}_i$ | face form $\tfrac{1}{V_i}[\phi_i\Delta_i[AF]-\Delta_i[A\phi F]]$ |  | {{< generated appa first-c64a97064cf8 >}} | `face_gravity_work` |
 | $W^{\mathrm{D}}_i$ | corrected-PE face work $W^{\mathrm{face}}_i + g_1\sigma_i^2s_i[\dot\rho]$ |  | {{< generated appa first-0f4e2c72a135 >}} | `face_gravity_work += corrected_pe_work(...)` |
-| $W^{\mathrm{wallc}}_i$ | the `face-wallc` work: $W^{\mathrm{face}}_i$ in interior cells, $W^{\mathrm{cell}}_i$ in the two $x_1$ wall cells |  | {{< generated appa first-a18e0345cc30 >}} |  |
+| $W^{\mathrm{wallc}}_i$ | the `face-wallc` work: $W^{\mathrm{face}}_i$ in interior cells, $W^{\mathrm{cell}}_i$ in the two $x_1$ wall cells; not a form of the code at the pin, where `const-gravity` accepts only `gravity-work: face` |  | {{< generated appa first-a18e0345cc30 >}} |  |
 | $\mathcal E$ | the conserved energy functional of a scheme, named each time ($\mathcal E = \sum_iV_iE_i+P$ under D, $\sum_iV_iE_i+\mathrm{PE}_d$ under the plain face form) |  | {{< generated appa first-9611bfce4c39 >}} | (logged `ie=` + `pe=`) |
 | $M$, $M_{\mathrm{wall}}$ | total mass of the domain, and total mass of the $x_1$ wall cells |  | {{< generated appa first-c63ae6dd4fc9 >}} |  |
 | $\mathcal D$ | the $E+\mathrm{PE}_d$ defect of a step, the quantity the gravity-work fixer removes | [J] | {{< generated appa first-0a02714260e9 >}} | `gravity_work_defect()` |

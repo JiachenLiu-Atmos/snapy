@@ -302,13 +302,13 @@ but not at the discrete fixed point @eq-ch05-wbx1-rest is not at rest.
 
 [^rg-7bfed2e4a7ce]: $\rho_{\mathrm{ref}}, p_{\mathrm{ref}}$ — cell reference density and pressure of the well-balanced $x_1$ reconstruction
 
-[^rg-7eba2e5ebc97]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14)
+[^rg-7eba2e5ebc97]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); {{< code src/hydro/flux_positivity.cpp machine_epsilon >}}
 
 [^rg-60342f74735c]: $g_1, g_2, g_3$ — constant gravity components [m s$^{-2}$]; $g_1<0$ points to decreasing $x_1$
 
 [^rg-c9df73a27c40]: $i, j, k$ — cell indices in $x_1, x_2, x_3$
 
-[^rg-c69c1e876cbc]: $\rho' = \rho - \rho_{\mathrm{ref}}$ — the perturbation the reconstruction acts on; the prime means "minus the reference", never a derivative; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_forward.cpp#L470-L476)
+[^rg-c69c1e876cbc]: $\rho' = \rho - \rho_{\mathrm{ref}}$ — the perturbation the reconstruction acts on; the prime means "minus the reference", never a derivative; {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}
 
 [^rg-7b95d3cca137]: WENO — weighted essentially non-oscillatory
 

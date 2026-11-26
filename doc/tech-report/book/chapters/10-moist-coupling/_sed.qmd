@@ -243,7 +243,7 @@ settling speed can over-drain a cell, and only the positivity limiter catches it
 - Not in the switch coverage matrix (@sec-ch12-matrix).
 
 <!-- reader glossary notes -->
-[^rg-e36e3b696e97]: $\mu$, $\nu$ — dynamic and kinematic viscosity; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/diffusion.cpp#L621-L626)
+[^rg-e36e3b696e97]: $\mu$, $\nu$ — dynamic and kinematic viscosity; {{< code src/forcing/diffusion.cpp DiffusionImpl::cartesian_fluxes >}}
 
 [^rg-41e2c46cc4d2]: forcing — forcing options block: a map with one sub-block per forcing component
 
@@ -257,7 +257,7 @@ settling speed can over-drain a cell, and only the positivity limiter catches it
 
 [^rg-e24cc2e272ce]: const-vsed — prescribed sedimentation velocities indexed by species
 
-[^rg-51287c24f565]: $\Omega$ — planetary rotation rate; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/coriolis.cpp#L83-L90)
+[^rg-51287c24f565]: $\Omega$ — planetary rotation rate; {{< code src/forcing/coriolis.cpp CoriolisImpl::reset >}}
 
 [^rg-7722eb7d31ba]: MPS — Metal Performance Shaders
 
