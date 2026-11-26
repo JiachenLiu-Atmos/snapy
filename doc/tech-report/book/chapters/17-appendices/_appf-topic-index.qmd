@@ -66,6 +66,8 @@
 
 *bindings*, see **Python interface**.
 
+**bitwise gate**: The bitwise gates, @sec-ch16-gates.
+
 *bitwise reproducibility*, see **reproducibility**.
 
 **BLAS**: The notation index, @sec-appa-index.
@@ -144,6 +146,8 @@
 
 **building a simulation object**: Construct a MeshBlock and its modules, @sec-ch01-construction.
 
+*byte-for-byte comparison*, see **bitwise gate**.
+
 ## C {.unnumbered .unlisted}
 
 **$C$**: [7. Time integration and the implicit solver](#sec-appa-7).
@@ -159,6 +163,12 @@
 **calling snapy from Python**: Expose the C++ API to Python, @sec-ch01-python.
 
 *capture allow-list*, see **equation of state, which can be captured**.
+
+**capture sweep**: The capture sweep, @sec-ch16-capture.
+
+*captured*, see **capture sweep**.
+
+*captures*, see **execution report**.
 
 **Cartesian grid**: Cartesian and stretched $x_1$ grids, @sec-ch03-cartesian.
 
@@ -302,6 +312,8 @@
 
 **CPU**: Driver loop and accepted steps, @sec-ch01-driver.
 
+*CPU and CUDA agreement*, see **reproducibility, across devices**.
+
 **CPU and GPU agreement**: Reproducibility: what is shown bit for bit and what is not, @sec-ch14-repro.
 
 *crash*, see **blow-up, NaN and negative density**.
@@ -327,6 +339,8 @@
 *cuda-graph*, see **execution key**.
 
 *CUDA graph and EOS*, see **equation of state, which can be captured**.
+
+**CUDA graph, which tests capture**: The capture sweep, @sec-ch16-capture.
 
 *CUDA kernels*, see **GPU kernels, CPU and CUDA dispatch**.
 
@@ -486,6 +500,8 @@
 
 *dtype*, see **precision**.
 
+*dump set*, see **bitwise gate**.
+
 **`dynamic`**: Isotropic viscosity and heat conduction, @sec-ch07-viscosity.
 
 *dynamical-core test cases*, see **test problems**.
@@ -503,6 +519,8 @@
 **$e$**: [2. State, thermodynamics and species](#sec-appa-2).
 
 *eager*, see **execution key**.
+
+*eager segments*, see **execution report**.
 
 **edges and corners**: Cross-panel ghost interpolation, @sec-ch03-csinterp.
 
@@ -592,6 +610,8 @@
 
 **execution key**: Options schema and YAML keys (the deck file), @sec-ch15-options.
 
+**execution report**: The capture sweep, @sec-ch16-capture.
+
 **`external`**: Construct a MeshBlock and its modules, @sec-ch01-construction.
 
 **external components**: External component interfaces, @sec-appe-components.
@@ -607,6 +627,8 @@
 **face averages, lateral correction**: The $x_2$ and $x_3$ face-flux covariance and centroid terms, @sec-ch04-fluxcov.
 
 **face averages, vertical mass flux correction**: The $x_1$ mass-flux covariance, @sec-ch04-x1masscov.
+
+*face-deck harness*, see **bitwise gate**.
 
 *fall speed*, see **sedimentation**.
 
@@ -978,6 +1000,8 @@
 
 **`kappa_scale_x1`**: x1 profiles of the diffusion coefficients and the mean-of-products face coefficient, @sec-ch07-x1profile.
 
+*kernel launches per step*, see **launch counting**.
+
 *key defaults*, see **default of a YAML key**.
 
 *kinetics*, see **condensation and evaporation, rates**.
@@ -1017,6 +1041,8 @@
 **latent heat**: Saturation adjustment in the step, @sec-ch10-satadj.
 
 **latent heat, temperature-dependent**: Temperature-dependent moist thermodynamics, @sec-ch02-moist-mixture.
+
+**launch counting**: Launch counting and the S4 table, @sec-ch16-launches.
 
 **Lax-Friedrichs fallback**: Roe, with a Lax–Friedrichs positivity fallback, @sec-ch04-roe.
 
@@ -1181,6 +1207,10 @@
 *MPI launch*, see **multiple processes, launching**.
 
 **MPS**: Dispatch tensor kernels by device, @sec-ch01-dispatch.
+
+*MPS tolerance*, see **reproducibility, across devices**.
+
+**MPS, what is compared**: CPU, CUDA and MPS reproducibility, @sec-ch16-devices.
 
 **$\mu_n$**: [2a. Species thermodynamics, phase change and reactions](#sec-appa-2a).
 
@@ -1494,6 +1524,8 @@
 
 **processes, how blocks are assigned**: Layouts and rank maps, @sec-ch03-layouts.
 
+*profiler trace*, see **launch counting**.
+
 *prototype forcing*, see **forcing, from Python**.
 
 **PVRS**: HLLC, @sec-ch04-hllc.
@@ -1584,11 +1616,15 @@
 
 **reconstruction, WENO**: WENO3 and WENO5, @sec-ch04-weno.
 
+*RED and GREEN commits*, see **regression test, which defect it pins**.
+
 *red test*, see **break test**.
 
 *redo*, see **step rejection and redo**.
 
 *redo causes*, see **log messages, rejected steps**.
+
+**refactor, checking it changes no result**: The bitwise gates, @sec-ch16-gates.
 
 *reference grid mismatch*, see **restart, refused files**.
 
@@ -1598,7 +1634,11 @@
 
 *reflecting*, see **boundary condition, wall**.
 
+*refused or failed tests*, see **capture sweep**.
+
 *registered tests*, see **test index**.
+
+**regression test, which defect it pins**: Regression provenance, @sec-ch16-regressions.
 
 **`relax-bot-comp`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
@@ -1608,6 +1648,8 @@
 
 **relaxation at the bottom**: Bottom relaxation of temperature, velocity and composition, @sec-ch07-relax.
 
+*replays*, see **execution report**.
+
 *report text*, see **defaults, where they are defined**.
 
 *repository layout*, see **source tree**.
@@ -1615,6 +1657,10 @@
 *reproduce a documented test*, see **test case, reproducing**.
 
 **reproducibility**: Reproducibility: what is shown bit for bit and what is not, @sec-ch14-repro.
+
+**reproducibility, across devices**: CPU, CUDA and MPS reproducibility, @sec-ch16-devices.
+
+**reproducibility, between two builds**: The bitwise gates, @sec-ch16-gates.
 
 *resolution*, see **grid definition**.
 
@@ -1729,6 +1775,8 @@
 **$S_n = y_n/y_{\mathrm{sat},n}$**: [2. State, thermodynamics and species](#sec-appa-2).
 
 **$s^{\star}_n$**: [2. State, thermodynamics and species](#sec-appa-2).
+
+**S4 table, where it is**: Launch counting and the S4 table, @sec-ch16-launches.
 
 **saturation adjustment**: Saturation adjustment in the step, @sec-ch10-satadj.
 
@@ -1969,6 +2017,8 @@
 **test index**: Test index, @sec-appc.
 
 **test problems**: Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk; Reading verification evidence, @sec-ch16-metrics; Test index, @sec-appc.
+
+**test provenance**: Regression provenance, @sec-ch16-regressions.
 
 **test suite, running**: [Install and run](#sec-preface-install); Build options and test registration, @sec-ch12-build.
 

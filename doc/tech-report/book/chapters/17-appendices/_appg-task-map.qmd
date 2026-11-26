@@ -93,9 +93,9 @@
 
 **Q-030.** What are the known limits of validity: Mach-number range and low-Mach accuracy, grid aspect ratio, deep vs shallow atmosphere, curvature terms on spherical grids? See Known limits, @sec-ch17. Not covered: grid aspect ratio; deep vs shallow atmosphere.
 
-**Q-031.** What is the formal order of accuracy in space and time? Where is a convergence test that shows the measured order against resolution? See 15.1 Reading verification evidence (chapters/16-verification/_metrics.qmd) has no {#sec-} label, in Verification catalogue, @sec-ch16. Not covered: a full-solver convergence test with an error table.
+**Q-031.** What is the formal order of accuracy in space and time? Where is a convergence test that shows the measured order against resolution? See 15.1 Reading verification evidence (chapters/16-verification/_metrics.qmd) has no {#sec-} label, in Verification and reproducibility, @sec-ch16. Not covered: a full-solver convergence test with an error table.
 
-**Q-032.** When I double the resolution, how much should the answer change, and how do I measure convergence myself? See 15.1 Reading verification evidence (chapters/16-verification/_metrics.qmd) has no {#sec-} label (subsection 15.1.2.4), in Verification catalogue, @sec-ch16. Not covered: an L1/L2-against-exact-solution recipe; expected change on refinement.
+**Q-032.** When I double the resolution, how much should the answer change, and how do I measure convergence myself? See 15.1 Reading verification evidence (chapters/16-verification/_metrics.qmd) has no {#sec-} label (subsection 15.1.2.4), in Verification and reproducibility, @sec-ch16. Not covered: an L1/L2-against-exact-solution recipe; expected change on refinement.
 
 **Q-033.** How are source terms (gravity, Coriolis, geometric terms) discretized? How do they interact with the well-balanced reconstruction, and is total energy conserved with gravity on? See Gravity and energy, @sec-ch06. Not covered: how Coriolis and geometric sources interact with well-balancing.
 
@@ -117,7 +117,7 @@
 
 **Q-046.** Which standard benchmarks (density current, rising bubble, global tests) has snapy been validated on? Which reference numbers and tolerances were used? See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk. Not covered: bubble/global benchmarks; scaling results; fair benchmarking.
 
-**Q-047.** How do I compare my run against a published result or an analytic solution, and what counts as agreement? See 15.1 Reading verification evidence (chapters/16-verification/_metrics.qmd) has no {#sec-} label, in Verification catalogue, @sec-ch16. Not covered: a procedure to compare with a published or analytic result.
+**Q-047.** How do I compare my run against a published result or an analytic solution, and what counts as agreement? See 15.1 Reading verification evidence (chapters/16-verification/_metrics.qmd) has no {#sec-} label, in Verification and reproducibility, @sec-ch16. Not covered: a procedure to compare with a published or analytic result.
 
 **Q-048.** My run stopped with negative density or NaN. What do I check first, and which settings usually fix it? See Redo causes and termination status: what the log says about a rejected step and the end of a run, @sec-ch13-redo-view. Not covered: first-check order and usual fixes.
 

@@ -1,0 +1,127 @@
+## CPU, CUDA and MPS reproducibility {#sec-ch16-devices}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (code_pin.yml)
+sources: tests/test_mps_matches_cpu.py, tests/test_weno5_cuda_line.cpp, tests/CMakeLists.txt, read at the pin;
+         the device rule of the bitwise gates from docs/v3/closing/tools/dumpset349/README.md and
+         harness348/README.md on cshsgy/snapy branch v3/closing-dryrun-plan at be267b70;
+         src/snapy_report/ch16/figures/fig_evidence.py
+status: draft
+author: Linfeng Li
+-->
+
+### Summary
+
+The same deck on two devices does not give the same bits. The order in which a reduction adds its terms, the
+fused operations a compiler emits, and the kernels a library picks all differ between a CPU and a GPU, so a
+CPU run and a CUDA run of one build agree to round-off, not bit for bit. The report therefore states device
+agreement in three tiers. Within one device, two runs of one build are compared bit for bit, and that is what
+the bitwise gates rest on (@sec-ch16-gates). Between CUDA and the CPU, the shipped test compares a reconstruction
+line by line to a fixed absolute tolerance, and the CUDA path's batched launch against its own one-variable
+launch bit for bit. Between MPS and the CPU, which differ also in precision (MPS has no float64), every arm is
+held to a relative tolerance tied to the CPU's own float32 error. @fig-ch16-evidence places these checks among
+the two kinds of evidence the report uses.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** State what is compared across CPU, CUDA and MPS, and to what tolerance.
+
+**Data.** Reads nothing; each test builds its own state on the devices it compares.
+
+**Placement.** ctest entries: the CUDA line test only in a CUDA build, the MPS test in any build (it skips
+without MPS).
+
+**Activation.** The device of the block (`DEVICE`, or the tensors' device in a Python driver). Default: CPU.
+
+**Guarantee / limits.** Bit for bit within one device and build; CUDA against CPU per reconstruction line to
+$10^{-12}$ absolute; MPS against CPU to $\max(10^{-4}, 3\,\mathrm{err}_{64})$ relative per arm, and exactly for the
+reconstruction arms. No test compares a whole CUDA run with a whole CPU run.
+
+**Evidence.** `test_weno5_cuda_line.release` and `test_mps_matches_cpu_python` (@tbl-ch16-devices-tests).
+:::
+
+Local symbols of this section: $\mathrm{err}$ the relative error of one arm; $\mathrm{err}_{64}$ the same error of the CPU
+float32 run against the CPU float64 run; $\mathrm{tol}$ the fixed floor $10^{-4}$.
+
+### Derivation
+
+**The MPS tolerance.** For one arm, with $q$ ranging over the arm's variables,
+
+$$
+\mathrm{err} = \max_q \frac{\max |q_{\mathrm{mps}} - q_{\mathrm{cpu}}|}{\max |q_{\mathrm{cpu}}|}, \qquad
+\text{pass} \iff \mathrm{err} \le \max(\mathrm{tol},\ 3\,\mathrm{err}_{64}), \quad \mathrm{tol} = 10^{-4},
+$$ {#eq-ch16-mps}
+
+and both runs must be finite. MPS computes in float32, so it cannot be held to the CPU's float64 answer more
+tightly than the CPU's own float32 run is: $\mathrm{err}_{64}$ measures that, on the same arm, and the factor 3 leaves room
+for a different but equally valid order of float32 operations. The floor $\mathrm{tol}$ covers arms where $\mathrm{err}_{64}$ is
+tiny. The reconstruction arms run the CPU kernel on MPS data, so they are held to $\mathrm{err} = 0$. The ripple arms compare
+the tendency $u(n) - u(0)$ instead of the state, so that a small tendency is not hidden behind a large
+background.
+
+**The CUDA line tolerance.** One reconstruction call on the CPU and on CUDA, on the same float64 input, must agree
+to $\max|r_{\mathrm{cuda}} - r_{\mathrm{cpu}}| < 10^{-12}$, an absolute bound. Within
+CUDA, a call on many variables must equal, bit for bit, the same call on each variable alone, which is a
+within-device statement and so exact.
+
+### Numerical method
+
+**CUDA.** `test_weno5_cuda_line.cpp` exists because a CUDA reconstruction launches one thread block per line, and
+a line of more than 1024 cells must take a tiled path. It checks WENO5, WENO3 and the degree 3 and 5 polynomial
+reconstructions on lines of 32, 1024, 1025, 1030 and 1280 cells against the CPU, and the many-variable launch
+against single-variable launches, on uniform and stretched $x_1$ grids. It is registered only in a CUDA build and
+skips its cases when no device is visible.
+
+**MPS.** `test_mps_matches_cpu.py` runs each arm in float32 on the CPU and on MPS, and in float64 on the CPU for
+$\mathrm{err}_{64}$: the reconstruction arms, a solid-cell arm, and deck arms: a dry state at rest and a dry bubble (with the
+LMARS, HLLC and Roe solvers, other reconstructions, both implicit schemes and the face form of the gravity work),
+two rippled states, and a moist column. The moist column stops before its last stage, where the saturation adjustment calls the thermodynamics
+library, which has no MPS kernel. Two configurations must be refused on MPS with their messages: a stretched $x_1$
+grid ("not supported on MPS") and anomaly storage ("MPS does not have", float64). Without MPS the test exits with
+the skip code 125.
+
+**Between CPU and CUDA runs of a whole deck.** No test, and no gate: the bitwise gates compare CPU with CPU and
+CUDA with CUDA only, and their tools record a CPU-against-CUDA comparison as information.[^ch16-dev-src]
+
+### Code
+
+**How to use it.**
+
+```sh
+ctest -R 'test_weno5_cuda_line|test_mps_matches_cpu' --output-on-failure   # from the build directory
+```
+
+**What is refused, and why.** On MPS, a stretched $x_1$ grid and anomaly storage stop with an error instead of
+falling back; @sec-ch17 lists both as limits and gives their homes. The MPS test checks that both refusals happen
+and carry their messages.
+
+The two tests are cited by file: {{< code tests/test_weno5_cuda_line.cpp >}} and
+{{< code tests/test_mps_matches_cpu.py >}}; their registrations, the CUDA-only one and the skip code of the MPS
+one, are in {{< code tests/CMakeLists.txt >}}.
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `test_weno5_cuda_line.release` (CUDA builds only) | `recon_cuda.line_above_1024_matches_cpu`: each reconstruction on lines up to 1280 cells matches the CPU; `recon_cuda.many_variables_match_one_at_a_time` and its stretched-$x_1$ twin: a many-variable launch equals single-variable launches | `EXPECT_LT(diff, 1e-12)` (max absolute difference); `torch::equal` on the bit patterns | `expect_matches_cpu` and `expect_each_as_alone` ({{< code tests/test_weno5_cuda_line.cpp >}}) |
+| `test_mps_matches_cpu_python` | every arm of @eq-ch16-mps passes and both runs are finite; the stretched-$x_1$ and anomaly configurations are refused with their messages; skipped (code 125) without MPS | $\mathrm{err} \le \max(10^{-4}, 3\,\mathrm{err}_{64})$ per arm; $\mathrm{err} = 0$ for the reconstruction arms | `TOL` and `main` ({{< code tests/test_mps_matches_cpu.py >}}) |
+
+: Tests of device agreement and the tolerance each uses. {#tbl-ch16-devices-tests}
+
+The MPS test's floor carries the comment that its worst arm measured $\mathrm{err} = 6.2\times10^{-6}$ on one Apple machine
+with torch 2.10; this chapter did not rerun it (no MPS device was available).
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- No shipped test compares a whole CPU run with a whole CUDA run; agreement across those devices is stated per
+  reconstruction line only.
+- MPS runs float32 only and runs eager only; the moist column is compared before its saturation stage.
+- The CUDA line test needs a CUDA device at run time; in a CUDA build on a machine without one its cases skip.
+- Bit-for-bit agreement within a device assumes the same build, machine and library versions; another CPU (other
+  SIMD paths) or another GPU may give the same build other bits.[^ch16-dev-src]
+:::
+
+[^ch16-dev-src]: [source: cshsgy/snapy branch `v3/closing-dryrun-plan` at `be267b70`,
+    `docs/v3/closing/tools/dumpset349/README.md` ("compare CPU with CPU and CUDA with CUDA only, never across
+    devices") and `docs/v3/closing/tools/harness348/README.md` (CUDA against CPU "information only"; another CPU
+    or GPU "may give other bits for main itself")]

@@ -40,7 +40,7 @@ machine epsilon and $h_i$[^rg-e3bacc65c5d8] the cell width [m].
 
 The catalogue is selective and organised by chapter. The generated test index, @sec-appc, lists every registered
 test with its provenance; a test missing from a catalogue section is not a test that does not exist. No section
-of this chapter adds a compiled CPU[^rg-8c5110e2586a], CUDA[^rg-5a7220aa0c8b] or multi-rank run at the code pin: each states what the source asserts
+of this chapter adds a compiled CPU, CUDA or multi-rank run at the code pin: each states what the source asserts
 and how to reproduce it.
 
 **Test problems.** The dynamical-core test problem registered at the pin is the Straka density current,
@@ -86,7 +86,7 @@ $$
 $$
 
 Assume the lateral boundary carries no mass flux. Let $F_{i\pm1/2}$ be the numerical total-mass flux density
-[$\mathrm{kg\,m^{-2}\,s^{-1}}$] through the $x_1$[^rg-01fadbe6e8ea] faces, positive toward increasing $x_1$. Replace each face
+[$\mathrm{kg\,m^{-2}\,s^{-1}}$] through the $x_1$ faces, positive toward increasing $x_1$. Replace each face
 integral by the face area times the numerical face flux. With fixed volumes, $\bar\rho_i$ is the stored cell
 average and a dot is its semi-discrete time derivative:
 
@@ -308,13 +308,7 @@ before reading such a difference as a broken identity.
 
 [^rg-e3bacc65c5d8]: $h_i$ — $x_1$ width of cell $i$, $x_{1,i+1/2}-x_{1,i-1/2}$; written $\Delta x_1$ where the direction must be explicit
 
-[^rg-8c5110e2586a]: CPU — central processing unit
-
-[^rg-5a7220aa0c8b]: CUDA — NVIDIA's parallel computing platform
-
 [^rg-f90946172193]: $\rho$ — total density, dry plus every species that carries mass [kg m$^{-3}$]
-
-[^rg-01fadbe6e8ea]: $x_1, x_2, x_3$ — the three coordinate directions; $x_1$ is always the vertical (radial) direction
 
 [^rg-3d59402c8d8e]: $i, j, k$ — cell indices in $x_1, x_2, x_3$
 

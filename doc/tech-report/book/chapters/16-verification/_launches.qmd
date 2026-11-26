@@ -1,0 +1,120 @@
+## Launch counting and the S4 table {#sec-ch16-launches}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (code_pin.yml)
+sources: on cshsgy/snapy branch v3/closing-dryrun-plan at be267b70: docs/v3/closing/tools/speed/bench.py (the
+         --profile block and the report it writes), docs/v3/closing/s4_eager_gap.md sections 1-4 and 6;
+         src/mesh/stage_executor.cpp (StageExecutor::report, StageExecutor::capability) at the pin
+status: draft
+author: Linfeng Li
+-->
+
+### Summary
+
+The eager step of V3 is launch-bound: its cost on a GPU[^rg-d1be4fb0f62d] follows the number of kernels, copies and fills it asks
+the device to run, more than the arithmetic inside them. @sec-ch11 compares that cost with the pre-V3 code and
+with the graph path, and it needs a count that two people can take the same way. This section gives that
+procedure: profile a few steps after a timed run, export the profiler's trace, and count the device events of
+three kinds per step. The S4 table that applies the procedure, and the bound ruled from it, are committed in the
+S4 record on the closing-plan branch; this chapter cites them and repeats none of their numbers.[^ch16-s4-src]
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Count the device launches of one step, the same way on every build and every cell of the S4 table.
+
+**Data.** Reads one run of a deck; writes the run's JSON report, `OUT.prof.txt` (the profiler tables) and, with
+`SPEED_PROF_TRACE` set, `OUT.trace.json` (the profiler's chrome trace).
+
+**Placement.** Outside the solver: `bench.py` drives the block or Mesh, times its steps, then profiles a few more.
+
+**Activation.** `bench.py --deck <deck> --device cuda --profile <n>` with `SPEED_PROF_TRACE=1`. Default: not run.
+
+**Guarantee / limits.** A count, not a time: exact for the trace it is taken from, with no tolerance; it can
+differ by a few events between a host and driver pair and another (the S4 record notes such an offset).
+
+**Evidence.** No ctest at the pin (@tbl-ch16-launches-tests); the record is the S4 file.
+:::
+
+Local symbols of this section: $n_{\mathrm{prof}}$ the number of profiled steps; $N_{\mathrm{ev}}$ the events counted in
+the trace; $L_{\mathrm{step}}$ the launches per step.
+
+### Derivation
+
+None: the count is a definition. Over $n_{\mathrm{prof}}$ profiled steps,
+
+$$
+L_{\mathrm{step}} = \frac{N_{\mathrm{ev}}}{n_{\mathrm{prof}}}, \qquad
+N_{\mathrm{ev}} = \#\{\text{trace events of category } \texttt{kernel}, \texttt{gpu\_memcpy} \text{ or } \texttt{gpu\_memset}\}.
+$$ {#eq-ch16-launches}
+
+@eq-ch16-launches counts what the device ran, not what the host issued. On the graph path the kernels replayed
+inside a graph appear in the trace one by one, so $L_{\mathrm{step}}$ on that path is the work of a step, comparable with the
+eager count; the number of calls the host makes per step is much smaller, and is a different quantity that the
+S4 record reports separately.
+
+### Numerical method
+
+**One count.** `bench.py` builds the deck's block (or Mesh), runs `--warmup` steps, times `--steps` steps, and
+then, with `--profile n`, runs $n_{\mathrm{prof}} = n$ more steps inside `torch.profiler` with CPU and CUDA activities,
+synchronising before and after. With `SPEED_PROF_TRACE` set it exports the chrome trace; in every case it writes
+the profiler's tables sorted by device time and by host time. The count of @eq-ch16-launches is taken from the
+trace by event category; at the cited commit no script that does that count is committed with the tool, so the
+count is a filter over the trace's `cat` field.
+
+**Which path ran.** A count is only meaningful with the path that produced it. The run's JSON report carries
+the block's `execution_report()` counters (captures, replays, eager segment runs;
+{{< code src/mesh/stage_executor.cpp StageExecutor::report >}}) and its capability, whose `eager_reasons` say why
+any segment ran eager ({{< code src/mesh/stage_executor.cpp StageExecutor::capability >}}). A graph-path count
+with eager runs in its report is a mixed count and is labelled so.
+
+**The S4 cells.** The S4 record applies this to four cells: the Straka case with HLLC in float64, the shipped
+Straka deck, a six-panel moist cubed sphere, and the same with the implicit solve and a varying step. Each cell
+is counted with the pre-V3 build and the V3 build, eager and default; the record states the device each column
+was counted on.
+
+### Code
+
+**How to use it.**
+
+```sh
+SPEED_PROF_TRACE=1 python bench.py --deck cubed6_moist.yaml --device cuda \
+    --warmup 5 --steps 100 --threads 8 --profile 4 --out c3_default.json
+# then count the kernel, gpu_memcpy and gpu_memset events of c3_default.json.trace.json and divide by 4
+```
+
+**What is refused, and why.** Nothing: the procedure reads a trace. A deck the executor cannot capture still
+gives a count, of the eager path, and its report says so.
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| the path a counted step took | {{< code src/mesh/stage_executor.cpp StageExecutor::report >}} | `StageExecutor::report` | `execution` |
+| why a segment ran eager | {{< code src/mesh/stage_executor.cpp StageExecutor::capability >}} | `StageExecutor::capability` | none |
+
+: Code map of launch counting; the profiler itself is `bench.py` on the closing-plan branch. {#tbl-ch16-launches-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| none at the pin | the procedure is a tool on the closing-plan branch, not a ctest entry | a count (none) | @eq-ch16-launches |
+
+: Tests of launch counting. {#tbl-ch16-launches-tests}
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- The count depends on the host, driver and device: the S4 record notes the same build counting a few events
+  apart on two cards, so two counts are compared only when taken on one machine.
+- The trace counts events, not their cost: two steps with the same count can take different times.
+- No script for the count itself is committed; the filter over the trace is part of the procedure as written,
+  not of a tool.
+- The S4 numbers belong to the commits the record names; they are cited, not re-measured, at this chapter's pin.
+:::
+
+[^ch16-s4-src]: [source: cshsgy/snapy branch `v3/closing-dryrun-plan` at `be267b70`,
+    `docs/v3/closing/s4_eager_gap.md`: section 1 (the bound as ruled), section 2 (the counting method), section 3
+    (the cells), section 4 (launches per step) and section 6 (the reading); the profiler is
+    `docs/v3/closing/tools/speed/bench.py` (`--profile`, `SPEED_PROF_TRACE`) at the same commit]
+
+<!-- reader glossary notes -->
+[^rg-d1be4fb0f62d]: GPU — graphics processing unit
+<!-- end reader glossary notes -->

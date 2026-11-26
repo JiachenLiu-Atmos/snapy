@@ -1,8 +1,58 @@
-# Verification catalogue {#sec-ch16}
+# Verification and reproducibility {#sec-ch16}
 
-Run the two-rank test selections serially (`ctest -j1`): their launchers can share rendezvous port 29500.
-Concurrent independent launches need distinct free ports set in each launcher's `--master-port` argument;
-`ctest -j` alone does not assign ports ({{< code tests/CMakeLists.txt >}}).
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (code_pin.yml)
+sources: STRUCTURE.md chapter 16 (16.1-16.5); tests/CMakeLists.txt and the tests named in each Tests layer,
+         src/mesh/stage_executor.{hpp,cpp}, src/mesh/meshblock.{hpp,cpp}, src/mesh/mesh.cpp,
+         python/csrc/pymesh.cpp, all read at the pin; the closing-plan tools and the S4 record on cshsgy/snapy
+         branch v3/closing-dryrun-plan at be267b70 (docs/v3/closing/tools/harness348, tools/dumpset349,
+         tools/gates.sh, tools/speed/bench.py, s4_eager_gap.md), read at that commit
+status: draft
+author: Linfeng Li
+-->
+
+The chapters before this one each end with a Tests layer: the ctest entries that check that chapter's claims,
+with the tolerance each one uses. This chapter is about the checks that sit above any single chapter. Some of
+them change no line of `src/`; they are rules for deciding whether two builds compute the same thing, whether a
+shipped test still passes when the stage executor captures it, how many launches a step costs, and which test
+holds which past defect. The tools behind the first and third of these are committed on the closing-plan branch,
+not in the snapy tree at the pin; the chapter names them by path and cites that branch in its footnotes.
+
+@sec-ch16-gates describes the two bitwise gates, which compare the state of two builds byte for byte on a fixed
+set of decks. @sec-ch16-capture describes the capture sweep: every shipped test run under the default execution
+on CUDA[^rg-5a7220aa0c8b], sorted into captured, refused and failed. @sec-ch16-launches gives the launch-counting procedure that
+@sec-ch11 cites for its cost table. @sec-ch16-regressions lists the regression tests with the defect each one
+pins. @sec-ch16-devices says what is compared across CPU[^rg-8c5110e2586a], CUDA and MPS[^rg-5a8fdd30db1b], and to what tolerance.
+
+The sections from @sec-ch16-metrics on are the verification catalogue: how to read the evidence of a test
+(@sec-ch16-metrics), the invariant checks (@sec-ch16-invariants), and one evidence section per chapter it covers.
+Their PROVENANCE blocks name the commit each was read at; each per-chapter section moves into the Tests layer of
+the chapter it covers when that chapter is written at the code pin, and the chapters cite them until then.
+
+The multi-rank test selections run serially (`ctest -j 1`). Several registrations start `torchrun` without
+`--standalone`, so they meet at its default rendezvous port 29500, and `ctest -j` does not assign ports;
+concurrent launches need a distinct `--master-port` each ({{< code tests/CMakeLists.txt >}}).
+
+| scheme | switch | default | order | main test |
+|---|---|---|---|---|
+| Bitwise gates (@sec-ch16-gates) | none (a tool run on two builds) | not run by ctest | exact (byte for byte), same device | none at the pin |
+| Capture sweep (@sec-ch16-capture) | `integration/execution` | `auto` (cuda-graph on CUDA) | exact against eager | `test_stage_executor_capture_python` |
+| Launch counting (@sec-ch16-launches) | `bench.py --profile` | not run by ctest | a count, no tolerance | none at the pin |
+| Regression provenance (@sec-ch16-regressions) | none (a record) | not applicable | per test (@tbl-ch16-regressions) | the tests listed there |
+| Device reproducibility (@sec-ch16-devices) | the device | CPU | exact within a device; $10^{-12}$ CUDA against CPU per line; $\max(10^{-4}, 3\,e_{64})$ MPS against CPU | `test_mps_matches_cpu_python` |
+
+: The sections of this chapter, the switch each one turns on, its default, the precision it asks for, and the
+test that carries it. The tolerances are stated in each section's Tests layer. {#tbl-ch16-schemes}
+
+{{< include 16-verification/_gates.qmd >}}
+
+{{< include 16-verification/_capture.qmd >}}
+
+{{< include 16-verification/_launches.qmd >}}
+
+{{< include 16-verification/_regressions.qmd >}}
+
+{{< include 16-verification/_devices.qmd >}}
 
 {{< include 16-verification/_metrics.qmd >}}
 
@@ -23,3 +73,11 @@ Concurrent independent launches need distinct free ports set in each launcher's 
 {{< include 16-verification/_ch11.qmd >}}
 
 {{< include 16-verification/_ch12-configuration.qmd >}}
+
+<!-- reader glossary notes -->
+[^rg-5a7220aa0c8b]: CUDA — NVIDIA's parallel computing platform
+
+[^rg-8c5110e2586a]: CPU — central processing unit
+
+[^rg-5a8fdd30db1b]: MPS — Metal Performance Shaders
+<!-- end reader glossary notes -->

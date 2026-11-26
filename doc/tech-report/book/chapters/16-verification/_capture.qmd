@@ -1,0 +1,136 @@
+## The capture sweep {#sec-ch16-capture}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (code_pin.yml)
+sources: src/mesh/stage_executor.{hpp,cpp} (StageExecutor::mode, log_eager, check_strict, capability, report),
+         src/mesh/meshblock.{hpp,cpp} (execution, execution_strict, execution_report, execution_capability),
+         python/csrc/pymesh.cpp (the bound report and capability), tests/test_stage_executor_capture.py,
+         tests/CMakeLists.txt, all read at the pin
+status: draft
+author: Linfeng Li
+-->
+
+### Summary
+
+On a CUDA device the default execution captures each stage as a CUDA graph and replays it (@sec-ch11). A test
+written for the eager path can therefore run, unchanged, through a path it was never written for. The capture
+sweep runs every shipped test on a CUDA build with no execution key and sorts each one into three bins:
+*captured* (its blocks replayed graphs and the test passed), *refused* (the executor ran some or all of it eager
+for a logged reason and the test passed), and *failed* (the test failed under the default). A refusal is not a
+failure: the executor is non-strict by default and falls back to eager, naming the reason once per block. A
+failure under the default that does not occur under `execution: eager` is a capture defect. The sweep exists to
+find those defects across the whole suite instead of in the few tests written for the graph path.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Classify every shipped test, run under the default execution on CUDA, as captured, refused (with
+its reason) or failed.
+
+**Data.** Reads each test's log and, where the test exposes it, the block's `execution_report()` counters;
+writes one row per test.
+
+**Placement.** Outside the solver: a full ctest run of a CUDA build, read afterwards.
+
+**Activation.** A CUDA build and no `integration/execution` key (the default `auto`). Default: not run by ctest
+as a sweep; its one ctest is the capture test below.
+
+**Guarantee / limits.** A captured stage equals its eager run bit for bit (the capture test's assertion). The
+sweep is CUDA only: on a CPU block `auto` resolves to eager and nothing is captured.
+
+**Evidence.** `test_stage_executor_capture_python` (@tbl-ch16-capture-tests); the sweep's own table is not
+committed at the pin.
+:::
+
+Local symbols of this section: none.
+
+### Derivation
+
+None: the sweep is a method. The bins follow from how the executor decides, in this order:
+
+1. `StageExecutor::mode` ({{< code src/mesh/stage_executor.cpp StageExecutor::mode >}}) returns the deck's
+   `execution`[^rg-e5e558d3a04b] when it is not `auto`; with `auto` it returns cuda-graph when `execution-strict` is set or the
+   block's coordinates live on a CUDA device, and eager otherwise. The default is `auto`
+   ({{< code src/mesh/meshblock.hpp MeshBlockOptionsImpl >}}).
+2. In cuda-graph mode a segment whose operations carry eager reasons, or a case with case-wide reasons, runs
+   eager. Without `execution-strict`, `StageExecutor::log_eager`
+   ({{< code src/mesh/stage_executor.cpp StageExecutor::log_eager >}}) warns once per block and reason:
+   "integration/execution: block *n* runs eager where it cannot be captured: *reason*". With it,
+   `StageExecutor::check_strict` ({{< code src/mesh/stage_executor.cpp StageExecutor::check_strict >}}) stops
+   the run instead, naming the first eager segment and its reasons.
+3. The counters of `StageExecutor::report` ({{< code src/mesh/stage_executor.cpp StageExecutor::report >}}),
+   exposed as `execution_report()` on a block or a Mesh, count `captures`, `replays`, `eager` and `host`
+   segment runs, the `graphs` held and the eager `cuts` inside them, and the seam copies' own captures and
+   replays.
+
+So a test is *captured* when its counters show replays and no eager runs, *refused* when the warning of step 2
+appears (or the counters show eager runs) and it passes, and *failed* when it fails.
+
+### Numerical method
+
+**One sweep.** Build with CUDA, run the full suite serially (`ctest -j 1`, for the port reason given at the
+start of this chapter) with no `execution` key added to any deck, and keep the output of every test
+(`--output-on-failure` is not enough: a refusal warning is printed by tests that pass). Then, per test:
+
+1. a failed test is rerun with `execution: eager` set in its deck, or under its own eager arm where it has
+   one; a test that fails both ways is an ordinary failure, not a capture defect;
+2. a passing test is *refused* when its log carries the warning of step 2 above, and the reason is copied into
+   the row as printed;
+3. a passing test with no warning is *captured* when its blocks run on the CUDA device, and *eager by device*
+   when they run on the CPU: a CUDA build still runs many tests on CPU tensors, and those never reach the
+   executor's capture path.
+
+`StageExecutor::capability` ({{< code src/mesh/stage_executor.cpp StageExecutor::capability >}}) gives the same
+reasons without running a step: per segment, whether it would capture and why not, and the case-wide reasons
+(`execution_capability(vars)` in Python, with `eager_reasons` and one row per segment).
+
+### Code
+
+**How to use it.** Read one block's state after a test step:
+
+```python
+report = block.execution_report()      # captures, replays, eager, host, graphs, cuts, ...
+caps = block.execution_capability(vars)
+print(report["replays"], report["eager"], caps["eager_reasons"])
+```
+
+**What is refused, and why.** The executor refuses capture for the reasons that `StageExecutor::config_reasons`
+({{< code src/mesh/stage_executor.cpp StageExecutor::config_reasons >}}) and `StageExecutor::vars_reasons`
+({{< code src/mesh/stage_executor.cpp StageExecutor::vars_reasons >}}) return; @sec-ch11 lists them and @sec-ch17
+holds the ones that are lasting limits. The sweep reports them; it adds no refusal of its own.
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| the mode a block runs in | {{< code src/mesh/stage_executor.cpp StageExecutor::mode >}} | `StageExecutor::mode` | `execution` |
+| the once-per-reason warning | {{< code src/mesh/stage_executor.cpp StageExecutor::log_eager >}} | `StageExecutor::log_eager` | `execution-strict` off |
+| the strict refusal | {{< code src/mesh/stage_executor.cpp StageExecutor::check_strict >}} | `StageExecutor::check_strict` | `execution-strict` on |
+| the counters | {{< code src/mesh/stage_executor.cpp StageExecutor::report >}}, {{< code src/mesh/meshblock.cpp MeshBlockImpl::execution_report >}} | `report`, `execution_report` | none |
+| the reasons without a step | {{< code src/mesh/stage_executor.cpp StageExecutor::capability >}} | `StageExecutor::capability` | none |
+
+: Code map of the capture sweep. {#tbl-ch16-capture-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `test_stage_executor_capture_python` | on the dry Straka case in float64 and float32, a cuda-graph block equals an eager block after every stage, with a changing step, rebound state tensors (which recapture), an in-place edit and a forced retry; captures and replays never synchronise the host; one capture per stage serves six step sizes (`captures` = `graphs` = stages, `replays` = stages × 6, `eager` = 0); on CPU only the setup refusals are checked, and the capture part ends with the skip code when the build has no CUDA | `torch.equal` (bitwise), 5 calls | `assert_equal` and `check_one_capture_many_dt` ({{< code tests/test_stage_executor_capture.py >}}) |
+
+: Tests of the capture sweep. {#tbl-ch16-capture-tests}
+
+The sweep's table, one row per shipped test with its bin and reason, is not committed at the pin. This section
+gives the procedure that produces it; the table is a to-do of this section, to be cited here from its committed
+record when that lands.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- CUDA only: on a CPU build, and for tests whose tensors stay on the CPU in a CUDA build, `auto` resolves to
+  eager and the sweep has nothing to classify.
+- A *captured* row says the test passed through the graph path; it is as strong as that test's own tolerance,
+  which may be looser than bitwise.
+- The refusal warning is printed once per block and reason, so a test that builds many blocks prints it once
+  per block, and a reason that appears only after the first step still appears once.
+- Multi-rank tests are refused for capture (@sec-ch17), so the sweep classifies them as refused, not captured.
+:::
+
+<!-- reader glossary notes -->
+[^rg-e5e558d3a04b]: execution — run mode of the integrator: auto, eager or cuda-graph
+<!-- end reader glossary notes -->
