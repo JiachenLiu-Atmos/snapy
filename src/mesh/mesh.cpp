@@ -71,26 +71,6 @@ void check_same_variables(MeshVariables const& vars, char const* caller) {
 
 }  // namespace
 
-#ifdef USE_CUDA
-namespace {
-// the block worker streams of a device, created on demand and kept for the
-// process, as torch keeps its shared pool's: that pool hands its 32 streams
-// out in turn, so a 33rd block would launch on another block's stream
-c10::cuda::CUDAStream worker_stream(int device, size_t index) {
-  static std::mutex m;
-  static std::map<int, std::vector<cudaStream_t>> owned;
-  std::lock_guard<std::mutex> lock(m);
-  auto& streams = owned[device];
-  while (streams.size() <= index) {
-    cudaStream_t s = nullptr;
-    C10_CUDA_CHECK(cudaStreamCreateWithFlags(&s, cudaStreamNonBlocking));
-    streams.push_back(s);
-  }
-  return c10::cuda::getStreamFromExternal(streams[index], device);
-}
-}  // namespace
-#endif
-
 class MeshImpl::BlockWorkerPool {
  public:
   BlockWorkerPool(size_t count, torch::Device device, int64_t mesh_id)
@@ -101,7 +81,9 @@ class MeshImpl::BlockWorkerPool {
       streams_.reserve(count);
       done_events_.reserve(count);
       for (size_t i = 0; i < count; ++i) {
-        streams_.push_back(worker_stream(device_.index(), i));
+        owned_.push_back(std::make_unique<OwnedStream>(device_.index()));
+        streams_.push_back(c10::cuda::getStreamFromExternal(
+            static_cast<cudaStream_t>(owned_.back()->stream), device_.index()));
         done_events_.push_back(std::make_unique<at::cuda::CUDAEvent>());
       }
       caller_ready_event_ = std::make_unique<at::cuda::CUDAEvent>();
@@ -253,6 +235,7 @@ class MeshImpl::BlockWorkerPool {
   bool stopping_ = false;
 
 #ifdef USE_CUDA
+  std::vector<std::unique_ptr<OwnedStream>> owned_;
   std::vector<c10::cuda::CUDAStream> streams_;
   std::vector<std::unique_ptr<at::cuda::CUDAEvent>> done_events_;
   std::unique_ptr<at::cuda::CUDAEvent> caller_ready_event_;

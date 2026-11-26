@@ -37,6 +37,19 @@ using Variables = std::map<std::string, torch::Tensor>;
 torch::Tensor global_phase_sum(std::vector<torch::Tensor> const& partials,
                                LayoutImpl const& layout);
 
+//! a CUDA stream (cudaStream_t) of `device` lent to one owner at a time, not
+//! from torch's shared pool (it hands its 32 out in turn): the Mesh's worker
+//! streams, a block's capture stream, the seam copies'. Given back when the
+//! owner dies, never destroyed: a graph's outputs can outlive it, and the
+//! caching allocator may record events on the stream they were captured on
+struct OwnedStream {
+  explicit OwnedStream(int device);
+  ~OwnedStream();
+  OwnedStream(OwnedStream const&) = delete;
+  int device;
+  void* stream = nullptr;
+};
+
 //! Everything a captured stage depends on; any change recaptures it.
 struct GraphKey {
   int device_index = -1;
@@ -209,8 +222,8 @@ class StageExecutor {
   //! (a block's graphs replay one after another on one stream); {0, 0}
   //! until its first capture
   std::vector<std::pair<uint64_t, uint64_t>> _pools;
-  //! per block, its own capture stream (a cudaStream_t), never destroyed
-  std::vector<void*> _capture_streams;
+  //! per block, its own capture stream
+  std::vector<std::unique_ptr<OwnedStream>> _capture_streams;
   int _config_generation = 0;
   //! run_stage runs on the block worker pool
   std::atomic<int64_t> _captures{0}, _replays{0}, _eager{0};

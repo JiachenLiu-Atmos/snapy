@@ -50,6 +50,30 @@ bool GraphKey::operator==(GraphKey const& other) const {
          thermo_epoch == other.thermo_epoch;
 }
 
+// the given-back streams per device; never destroyed (no exit order)
+struct FreeStreams {
+  std::mutex m;
+  std::map<int, std::vector<void*>> free;
+}& g_free_streams = *new FreeStreams;
+OwnedStream::OwnedStream(int device) : device(device) {
+#ifdef USE_CUDA
+  std::lock_guard<std::mutex> lock(g_free_streams.m);
+  auto& free = g_free_streams.free[device];
+  if (!free.empty()) {
+    stream = free.back();
+    free.pop_back();
+    return;
+  }
+  c10::cuda::CUDAGuard guard(device);
+  C10_CUDA_CHECK(cudaStreamCreateWithFlags(
+      reinterpret_cast<cudaStream_t*>(&stream), cudaStreamNonBlocking));
+#endif
+}
+OwnedStream::~OwnedStream() {
+  std::lock_guard<std::mutex> lock(g_free_streams.m);
+  if (stream) g_free_streams.free[device].push_back(stream);
+}
+
 #ifdef USE_CUDA
 namespace {
 // a CUDAGraph registers with the CUDA generator's state at capture_begin and
@@ -129,7 +153,7 @@ StageExecutor::StageExecutor(std::vector<MeshBlockImpl*> blocks)
   _schedule_sig.assign(_blocks.size(), -1);
   _schedule_rebuilt.assign(_blocks.size(), 0);
   _pools.assign(_blocks.size(), {0, 0});
-  _capture_streams.assign(_blocks.size(), nullptr);
+  _capture_streams.resize(_blocks.size());
   for (int b = 0; b < num_blocks(); ++b) build_schedule(b);
 }
 StageExecutor::~StageExecutor() = default;
@@ -456,17 +480,15 @@ void run_seam_copies(std::shared_ptr<SeamCopies>& cache,
     {
       // captured on a stream of its own, one per device (these captures take
       // turns on it): the current stream at a replay is the block's worker
-      // stream, which other work may be queued on. Never destroyed, as a
-      // block's own capture stream
+      // stream, which other work may be queued on
       static std::mutex turns;
       std::lock_guard<std::mutex> lock(turns);
-      static std::map<int, cudaStream_t> own;
+      static std::map<int, OwnedStream> own;
       int dev = c10::cuda::current_device();
-      if (!own[dev])
-        C10_CUDA_CHECK(
-            cudaStreamCreateWithFlags(&own[dev], cudaStreamNonBlocking));
+      auto s = static_cast<cudaStream_t>(
+          own.try_emplace(dev, dev).first->second.stream);
       c10::cuda::CUDAStreamGuard on_own(
-          at::cuda::getStreamFromExternal(own[dev], dev));
+          at::cuda::getStreamFromExternal(s, dev));
       // its own pool: the copies allocate nothing
       g = begin_capture(at::cuda::graph_pool_handle(),
                         cudaStreamCaptureModeThreadLocal);
@@ -901,16 +923,11 @@ void StageExecutor::capture(int block, int segment, Variables& vars, double dt,
   auto current = at::cuda::getCurrentCUDAStream(device);
   // the block's own capture stream: the shared pool hands its streams out in
   // turn (also to the Mesh's worker streams), so with many blocks two
-  // concurrent captures could get one stream. Created once, never destroyed:
-  // a graph's outputs can outlive the executor, and the caching allocator
-  // may still record events on the stream they were captured on
-  if (!_capture_streams[block]) {
-    cudaStream_t s = nullptr;
-    C10_CUDA_CHECK(cudaStreamCreateWithFlags(&s, cudaStreamNonBlocking));
-    _capture_streams[block] = s;
-  }
+  // concurrent captures could get one stream
+  if (!_capture_streams[block])
+    _capture_streams[block] = std::make_unique<OwnedStream>(device);
   auto side = at::cuda::getStreamFromExternal(
-      static_cast<cudaStream_t>(_capture_streams[block]), device);
+      static_cast<cudaStream_t>(_capture_streams[block]->stream), device);
   // the device dt, set on the current stream before the side stream waits;
   // a segment with an op that still reads the host dt captures that dt (and
   // keeps it in its key), every other one the block's device dt (V3 D)
