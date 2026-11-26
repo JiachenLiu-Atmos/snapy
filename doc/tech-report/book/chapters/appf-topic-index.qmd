@@ -6,7 +6,8 @@ the book appears under at least one term; a word in italics is another name for 
 ::: {.callout-note title="At a glance"}
 **Purpose.** Find the section for a topic by the words a reader would use.
 
-**Data.** `tools/topic-index.yaml`, which lists terms and aliases for every section.
+**Data.** `tools/topic-index.yaml`, which lists terms and aliases for every section; the concept registry
+`tools/reader-glossary.json`, which adds one line per acronym, deck key and symbol; and the section titles.
 
 **Placement.** Report preparation, outside the solver.
 

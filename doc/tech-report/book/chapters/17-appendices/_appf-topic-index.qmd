@@ -274,7 +274,7 @@
 
 *conversion-order*, see **cell average to point value, x1 conversion**.
 
-*conversion-order 4*, see **hydrostatic reference, fourth order**.
+*conversion-order 4*, see **deck switches, well-balanced reference**; **hydrostatic reference, fourth order**.
 
 **`coriolis`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
@@ -349,6 +349,14 @@
 **deck keys, full list**: Deck key reference, @sec-appi.
 
 *deck option reference*, see **deck keys, full list**.
+
+**deck switches, flux covariance**: Lateral face covariance and centroid correction, @sec-ch12-flux-covariance.
+
+**deck switches, gravity work**: Corrected potential-energy face work, @sec-ch12-radial-exact.
+
+**deck switches, mass covariance**: Radial velocity mean correction, @sec-ch12-mass-covariance.
+
+**deck switches, well-balanced reference**: Cell-consistent face reference, @sec-ch12-wb-reference.
 
 **decomposition into blocks**: Layouts and rank maps, @sec-ch03-layouts.
 
@@ -518,14 +526,6 @@
 
 **environment switches, centroid**: Spherical cell-to-plain-mean conversion, @sec-ch12-centroid.
 
-**environment switches, flux covariance**: Lateral face covariance and centroid correction, @sec-ch12-flux-covariance.
-
-**environment switches, gravity work**: Corrected potential-energy face work, @sec-ch12-radial-exact.
-
-**environment switches, mass covariance**: Radial velocity mean correction, @sec-ch12-mass-covariance.
-
-**environment switches, reference**: Cell-consistent face reference, @sec-ch12-wb-reference.
-
 *environment variables*, see **environment switches**.
 
 *environment variables index*, see **environment switches**.
@@ -631,6 +631,8 @@
 **`flux`**: Body heating, top cooling and bottom heating, @sec-ch07-heating.
 
 *flux covariance*, see **face averages, lateral correction**.
+
+*flux-covariance*, see **face averages, lateral correction**.
 
 **flux divergence**: The finite-volume update and the flux divergence, @sec-ch04-divergence.
 
@@ -747,6 +749,8 @@
 **`gravity-work`**: Constant gravity and the cell form of the gravity work, @sec-ch06-cell.
 
 **gravity work**: Face form of the gravity work, @sec-ch06-face.
+
+*gravity-work*, see **energy conservation with gravity, corrected face form**.
 
 *gravity-work face*, see **energy conservation with gravity, face form**.
 
@@ -1516,6 +1520,8 @@
 
 **$R_n = \mathcal R/\mu_n$**: [2a. Species thermodynamics, phase change and reactions](#sec-appa-2a).
 
+*radial exact gravity work*, see **energy conservation with gravity, corrected face form**.
+
 *radial order*, see **reconstruction on a curved grid, radial**.
 
 *radiating boundary*, see **boundary condition, open**.
@@ -1794,17 +1800,9 @@
 
 *smallest GPU case*, see **running on a GPU**.
 
-*SNAP_FLUX_COVARIANCE*, see **environment switches, flux covariance**; **face averages, lateral correction**.
-
-*SNAP_GRAVITY_WORK_RADIAL_EXACT*, see **energy conservation with gravity, corrected face form**; **environment switches, gravity work**.
-
 *SNAP_* variables*, see **environment switches**.
 
-*SNAP_WB_REF4*, see **environment switches, reference**.
-
 *SNAP_X1_CENTROID_EXACT*, see **environment switches, centroid**; **spherical grid, exact vertical maps**.
-
-*SNAP_X1_MASS_COVARIANCE*, see **environment switches, mass covariance**; **face averages, vertical mass flux correction**.
 
 **`solid-density`**: Rectify a mask and close fluid faces against solids, @sec-ch11-solids.
 
@@ -2241,6 +2239,8 @@
 **`x1`**: x1 profiles of the diffusion coefficients and the mean-of-products face coefficient, @sec-ch07-x1profile.
 
 **`x1-inner`**: YAML scheme selection and setup guards, @sec-ch12-yaml.
+
+*x1-mass-covariance*, see **face averages, vertical mass flux correction**.
 
 **`x1-outer`**: Construct a MeshBlock and its modules, @sec-ch01-construction.
 

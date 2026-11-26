@@ -182,7 +182,7 @@ sections:
     - flux divergence
     - mass conservation, why the update conserves
   sec-ch04-fluxcov:
-    - face averages, lateral correction: [SNAP_FLUX_COVARIANCE, flux covariance]
+    - face averages, lateral correction: [flux-covariance, flux covariance]
     - second-order face error, lateral faces
   sec-ch04-framework:
     - reconstruction: [interpolation to faces, reconstruct block]
@@ -224,7 +224,7 @@ sections:
     - reconstruction, WENO: [WENO5, WENO3, high order]
     - high-order reconstruction
   sec-ch04-x1masscov:
-    - face averages, vertical mass flux correction: [SNAP_X1_MASS_COVARIANCE]
+    - face averages, vertical mass flux correction: [x1-mass-covariance]
   sec-ch04-x1volume:
     - reconstruction on a curved grid, radial: [volume coordinate, r^2 dr average, radial order]
     - reconstruction, per-face weights: [non-uniform weights, stretched vertical weights]
@@ -265,7 +265,7 @@ sections:
     - energy conservation with gravity: [total energy, potential energy]
     - which form conserves what
   sec-ch06-dwork:
-    - energy conservation with gravity, corrected face form: [SNAP_GRAVITY_WORK_RADIAL_EXACT]
+    - energy conservation with gravity, corrected face form: [gravity-work, radial exact gravity work]
   sec-ch06-face:
     - energy conservation with gravity, face form: [gravity-work face]
     - gravity work
@@ -469,21 +469,21 @@ sections:
   sec-ch12-environment:
     - environment switches: [SNAP_* variables, environment variables]
   sec-ch12-flux-covariance:
-    - environment switches, flux covariance: [SNAP_FLUX_COVARIANCE]
+    - deck switches, flux covariance
   sec-ch12-layout:
     - environment for ranks and devices: [BACKEND, MASTER_PORT, DEVICE]
   sec-ch12-macros:
     - compile-time definitions: [configure.h]
   sec-ch12-mass-covariance:
-    - environment switches, mass covariance: [SNAP_X1_MASS_COVARIANCE]
+    - deck switches, mass covariance
   sec-ch12-matrix:
     - supported combinations of options: [switch combinations, compatibility]
   sec-ch12-radial-exact:
-    - environment switches, gravity work: [SNAP_GRAVITY_WORK_RADIAL_EXACT]
+    - deck switches, gravity work
   sec-ch12-test-environment:
     - tests, environment
   sec-ch12-wb-reference:
-    - environment switches, reference: [SNAP_WB_REF4]
+    - deck switches, well-balanced reference: [conversion-order 4]
   sec-ch12-yaml:
     - input file keys: [YAML keys, scheme keys, configuration keys]
     - defaults, scheme settings
