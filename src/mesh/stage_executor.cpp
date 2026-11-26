@@ -530,11 +530,9 @@ void refuse_in_segment_capture(char const* what) {
 
 void StageExecutor::run_local(int block, Variables& vars, double dt,
                               int stage) {
-  StageContext ctx{block, stage, dt};
-  auto const& s = schedule(block);
-  for (auto const& seg : s.segments())
-    if (!runs_on_host(seg.kind))
-      for (int i : seg.ops) s.ops()[i].run(vars, ctx);
+  auto const& segs = schedule(block).segments();
+  for (int i = 0; i < static_cast<int>(segs.size()); ++i)
+    if (!runs_on_host(segs[i].kind)) run_eager(block, vars, dt, stage, i);
 }
 
 void StageExecutor::refresh(int block) {
