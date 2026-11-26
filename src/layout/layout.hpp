@@ -166,6 +166,10 @@ struct SyncOptions {
 
 using Variables = std::map<std::string, torch::Tensor>;
 
+//! A Mesh block worker's "a block job of this Mesh failed" (its pool's error,
+//! stored, then wake_local_exchanges): its same-process waits then throw
+extern thread_local std::function<bool()> g_local_job_failed;
+void wake_local_exchanges();
 //! Cache key of the send/receive buffers of one exchange.
 std::string exchange_buffer_key(SyncOptions const& opts, Variables const& vars);
 

@@ -130,6 +130,17 @@ std::map<std::tuple<int64_t, int, int>, torch::Tensor> g_x1_anchors;
 //! keyed by (mesh, process, sender block rank, receiver block rank, tag)
 std::map<std::tuple<int64_t, int, int, int, int>, torch::Tensor> g_local_mail;
 
+//! every same-process wait; throws once a block job of the Mesh failed
+template <class Ready>
+bool local_wait(std::unique_lock<std::mutex>& lock, Ready ready,
+                std::chrono::minutes cap = std::chrono::hours(24 * 365)) {
+  bool done = g_local_exchange_cv.wait_for(lock, cap, [&]() {
+    return ready() || (g_local_job_failed && g_local_job_failed());
+  });
+  TORCH_CHECK(!done || ready(), "same-process wait left: a block job failed");
+  return done;
+}
+
 std::pair<int, int> exchange_dz_bounds(LayoutImpl const& layout,
                                        SyncOptions const& opts) {
   if (layout.num_exchange_buffers() < 27) return {0, 0};
@@ -179,6 +190,12 @@ LocalExchangeKey make_local_exchange_key(LayoutImpl const& layout,
 }
 
 }  // namespace
+
+thread_local std::function<bool()> g_local_job_failed;
+void wake_local_exchanges() {
+  std::lock_guard<std::mutex> lock(g_local_exchange_mutex);
+  g_local_exchange_cv.notify_all();
+}
 
 std::string exchange_buffer_key(SyncOptions const& opts,
                                 Variables const& vars) {
@@ -380,8 +397,8 @@ void LayoutImpl::_prepare_local_exchange(MeshBlockImpl const* pmb,
     state.released = expected;
     g_local_exchange_cv.notify_all();
   } else {
-    g_local_exchange_cv.wait(
-        lock, [&]() { return state.ready && state.generation == generation; });
+    local_wait(lock,
+               [&]() { return state.ready && state.generation == generation; });
   }
 
 #ifdef USE_CUDA
@@ -403,8 +420,7 @@ void LayoutImpl::_prepare_local_exchange(MeshBlockImpl const* pmb,
       state.generation += 1;
       g_local_exchange_cv.notify_all();
     } else {
-      g_local_exchange_cv.wait(
-          lock, [&]() { return state.generation != generation; });
+      local_wait(lock, [&]() { return state.generation != generation; });
     }
     std::rethrow_exception(error);
   }
@@ -417,8 +433,7 @@ void LayoutImpl::_prepare_local_exchange(MeshBlockImpl const* pmb,
     state.generation += 1;
     g_local_exchange_cv.notify_all();
   } else {
-    g_local_exchange_cv.wait(lock,
-                             [&]() { return state.generation != generation; });
+    local_wait(lock, [&]() { return state.generation != generation; });
   }
 }
 
@@ -783,13 +798,13 @@ torch::Tensor LayoutImpl::gather_x1(torch::Tensor const& piece) {
   if (nlocal > 1) {
     std::unique_lock<std::mutex> lock(g_local_exchange_mutex);
     auto& board = g_column_boards[{options->mesh_id(), proc, rx, ry}];
-    g_local_exchange_cv.wait(lock, [&]() { return !board.full; });
+    local_wait(lock, [&]() { return !board.full; });
     board.pieces[rz] = pieces[rz];
     if (++board.posted == nlocal) {
       board.full = true;
       g_local_exchange_cv.notify_all();
     } else {
-      g_local_exchange_cv.wait(lock, [&]() { return board.full; });
+      local_wait(lock, [&]() { return board.full; });
     }
     for (int k : local) pieces[k] = board.pieces.at(k);
   }
@@ -858,8 +873,8 @@ torch::Tensor LayoutImpl::take_x1_anchor(int above, torch::Tensor const& like,
   std::tuple<int64_t, int, int> key = {
       options->mesh_id(), options->process_rank(), options->rank()};
   std::unique_lock<std::mutex> lock(g_local_exchange_mutex);
-  bool posted = g_local_exchange_cv.wait_for(
-      lock, std::chrono::minutes(5), [&]() { return g_x1_anchors.count(key); });
+  bool posted = local_wait(
+      lock, [&]() { return g_x1_anchors.count(key); }, std::chrono::minutes(5));
   TORCH_CHECK(posted, "[Layout:take_x1_anchor] block ", options->rank(),
               " waited 5 min for the x1 reference of block ", above,
               " above it in this process; local blocks must run concurrently "
@@ -907,9 +922,9 @@ void LayoutImpl::post_to_local_block(int block_rank, torch::Tensor const& t,
   std::unique_lock<std::mutex> lock(g_local_exchange_mutex);
   // one message per (sender, receiver, tag) in flight: wait for the previous
   // one to be taken
-  bool free =
-      g_local_exchange_cv.wait_for(lock, std::chrono::minutes(5),
-                                   [&]() { return !g_local_mail.count(key); });
+  bool free = local_wait(
+      lock, [&]() { return !g_local_mail.count(key); },
+      std::chrono::minutes(5));
   TORCH_CHECK(free, "[Layout:post_to_local_block] block ", options->rank(),
               " waited 5 min for block ", block_rank,
               " to take its previous message, tag ", tag);
@@ -926,8 +941,8 @@ torch::Tensor LayoutImpl::take_from_local_block(int block_rank, int tag) {
       options->mesh_id(), options->process_rank(), block_rank, options->rank(),
       tag};
   std::unique_lock<std::mutex> lock(g_local_exchange_mutex);
-  bool posted = g_local_exchange_cv.wait_for(
-      lock, std::chrono::minutes(5), [&]() { return g_local_mail.count(key); });
+  bool posted = local_wait(
+      lock, [&]() { return g_local_mail.count(key); }, std::chrono::minutes(5));
   TORCH_CHECK(posted, "[Layout:take_from_local_block] block ", options->rank(),
               " waited 5 min for block ", block_rank, ", tag ", tag,
               "; local blocks must run concurrently");

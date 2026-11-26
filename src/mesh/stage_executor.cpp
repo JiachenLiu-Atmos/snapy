@@ -835,8 +835,15 @@ void StageExecutor::run_segments(int block, Variables& vars, double dt,
       continue;
     }
     auto g = graph_at({block, stage, i});
-    if (!g || g->key != make_key(block, i, vars, dt, stage))
-      capture(block, i, vars, dt, stage);
+    if (!g || g->key != make_key(block, i, vars, dt, stage)) try {
+        capture(block, i, vars, dt, stage);
+      } catch (c10::Error const& e) {  // OutOfMemoryError, cudaGraphInstantiate
+        if (!strstr(e.what(), "out of memory")) throw;
+        TORCH_CHECK_WITH(OutOfMemoryError, false, "block ", block,
+                         ": a capture ran out of device memory; execution: "
+                         "eager runs this deck. ",
+                         e.what_without_backtrace());
+      }
     replay(block, i, vars, dt, stage);
   }
 #endif

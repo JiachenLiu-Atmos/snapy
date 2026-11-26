@@ -193,6 +193,10 @@ class MeshImpl::BlockWorkerPool {
 
   void run_loop(size_t index) {
     size_t seen_generation = 0;
+    g_local_job_failed = [this]() {
+      std::lock_guard<std::mutex> lock(mutex_);
+      return error_ != nullptr;
+    };
     while (true) {
       std::function<void(size_t)> func;
       {
@@ -213,10 +217,10 @@ class MeshImpl::BlockWorkerPool {
       try {
         func(index);
       } catch (...) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (error_ == nullptr) {
-          error_ = std::current_exception();
-        }
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (error_ == nullptr) error_ = std::current_exception();
+        lock.unlock();
+        wake_local_exchanges();  // a block waiting for this one leaves
       }
 
 #ifdef USE_CUDA
