@@ -97,8 +97,8 @@ def prose_uses(report):
     uses = {}
     for path in topics.book_order(report / 'book'):
         rel = path.relative_to(report / 'book').as_posix()
-        m = re.match(r'chapters/(\d\d)-', rel)
-        if not m or int(m[1]) > 16:
+        m = re.match(r'chapters/(\d\d)-(?!appendices)', rel)  # a chapter, not the appendices' directory
+        if not m:
             continue
         chapter = 'ch' + m[1]
         raw = path.read_text(encoding='utf-8')
@@ -324,8 +324,8 @@ def concept_uses(report, data=None):
             continue
         rx = re.compile(r'\b%s\b' % r'[-–‐]'.join(map(re.escape, re.split(r'[–-]', item['term']))), re.I)
         for s in order:
-            m = re.match(r'chapters/(\d\d)-', book_labels.get(s, {}).get('file', ''))
-            if m and int(m[1]) <= 16 and any(rx.search(p) for p in paras.get(s, [])):
+            m = re.match(r'chapters/(\d\d)-(?!appendices)', book_labels.get(s, {}).get('file', ''))
+            if m and any(rx.search(p) for p in paras.get(s, [])):
                 out.setdefault(('concept', item['term']), []).append(('ch' + m[1], s))
     return out
 

@@ -203,8 +203,8 @@ def glossary_outputs(report):
     seen, outputs, uses = {}, {}, 0
     for path in topics.book_order(report / 'book'):
         rel = path.relative_to(report / 'book').as_posix()
-        m = re.match(r'chapters/(\d\d)-', rel)
-        if not m or int(m[1]) > 16:
+        m = re.match(r'chapters/(\d\d)-(?!appendices)', rel)  # a chapter, not the appendices' directory
+        if not m:
             continue
         chapter = m[1]
         used = seen.setdefault(chapter, set())
