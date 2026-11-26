@@ -160,7 +160,7 @@ the first derivation; the last line is $p^{\mathrm{sh}}$ of step 3 of the second
 : Tests of the spherical-polar source placement. {#tbl-ch04-sphsrc-tests}
 
 `[C2]` gives $3.6\times10^{-15}$ and `[C3]` shows the midpoint volume would be short by $h^3/12$ per unit solid
-angle.[^sph-run] Both ctest entries pass at the pin on CPU, one rank (@tbl-ch04-ctest-run). The source's own
+angle.[^sph-run] Both ctest entries passed in the recorded run on CPU, one rank (@tbl-ch04-ctest-run). The source's own
 derivation checks are those of @sec-ch03-sphpolar.
 
 [^sph-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; deck: the check itself; run:

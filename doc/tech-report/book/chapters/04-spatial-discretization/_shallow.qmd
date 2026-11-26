@@ -164,7 +164,7 @@ step 4.
 
 `[C11]` and `[C12]` hold symbolically; `solvers_check.py` `[C6]` gives $0$ for equal states and
 $4.8\times10^{-16}$ for the supercritical case.[^sw-run] The shallow-water example ctests are not registered in the
-pin build used for this report, which was configured without `FULL_TESTS`: **missing evidence**. Two default
+build of @tbl-ch04-ctest-run, which was configured without `FULL_TESTS`: **missing evidence**. Two default
 ctests run `shallow-roe` with `dir: yz` on the gnomonic grid: `test_riemann.release`
 (`g_r8_riemann_central_on_the_aam_decks`) and `test_axial_momentum_flux_form_python`. The only test that sets
 `plume-roe` is arm (d) of `test_axial_momentum_flux_form_python`, which expects it to be refused with exact axial

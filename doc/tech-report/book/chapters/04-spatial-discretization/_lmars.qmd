@@ -166,7 +166,7 @@ $v_\perp$.
 `[C8]` holds symbolically. `operator_check.py` `[C5]` gives a consistent flux to $8.9\times10^{-16}$; `[C6]`
 shows a pressure jump of $0.2$ alone driving $v_f = -0.080582$, and two states converging at $0.3$ raising $p_f$
 to $1.354965$ above the mean $1.0$; `[C7]` gives the mass split to $1.1\times10^{-16}$.[^lmars-run]
-`test_riemann.release` passes at the pin on CPU, one rank (@tbl-ch04-ctest-run); `test_straka` was not run for
+`test_riemann.release` passed in the recorded run on CPU, one rank (@tbl-ch04-ctest-run); `test_straka` was not run for
 this report.
 
 [^lmars-run]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the checks themselves; run:

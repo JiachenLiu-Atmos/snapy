@@ -340,7 +340,7 @@ of the point value $\bar q - \mathsf Q\bar q$ against the exact one: 4.00 on a u
 stretched grid the test uses, and 2.89 on a grid with a one-cell $1\!:\!2$ width jump, where the error is carried
 by the two cells at the jump.[^conv4-chk]
 
-All seven arms pass at the pin on CPU.[^conv4-ctest] The measured numbers are: the $L_1$ order of the acoustic
+All seven arms passed on CPU at the sha the footnote records.[^conv4-ctest] The measured numbers are: the $L_1$ order of the acoustic
 pulse 4.50 (uniform) and 4.80 (stretched) with the key, against 2.81 and 2.75 without it, with the key's own
 tracer ratio at $1.5\times10^{-14}$ and $5.1\times10^{-14}$; the radial order 4.00 on both spherical-polar and
 gnomonic-equiangle against 2.00 without the key, and a rewritten `x1f` giving the fresh block's $\mathbf W$

@@ -121,7 +121,7 @@ $q^{\mathrm L}_{i+1} = \bar q_i$, placed by @eq-ch04-framework-map.
 
 : Tests of donor cell. {#tbl-ch04-dc-tests}
 
-`[C2]` holds symbolically and `[C7]` fits order 1.00.[^dc-run] Both ctest entries pass at the pin on CPU, one
+`[C2]` holds symbolically and `[C7]` fits order 1.00.[^dc-run] Both ctest entries passed in the recorded run on CPU, one
 rank (@tbl-ch04-ctest-run).
 
 [^dc-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: the checks themselves; run:

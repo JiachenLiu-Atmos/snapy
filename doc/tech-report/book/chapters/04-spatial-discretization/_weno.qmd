@@ -198,7 +198,7 @@ the test of the `shock: true` case.
 
 `[C5]`, `[C6]` and `[C17]` hold symbolically; `[C7]` prints the straddling weight $3.3\times10^{-13}$,
 $5.7\times10^{-2}$, $0.1$ at magnitudes $1$, $10^{-3}$, $10^{-6}$ with `scale` off and $2.2\times10^{-12}$ at all
-three with it on.[^weno-run] `test_weno.release` passes at the pin on CPU, one rank (@tbl-ch04-ctest-run). Its
+three with it on.[^weno-run] `test_weno.release` passed in the recorded run on CPU, one rank (@tbl-ch04-ctest-run). Its
 `interp_weno3_smooth_limit` case is step 2 of the `scale` derivation seen from the other side: its differences
 are below the floor, so WENO3 must equal cp3.
 

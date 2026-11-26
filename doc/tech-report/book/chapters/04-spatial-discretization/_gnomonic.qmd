@@ -155,14 +155,14 @@ faces.
 
 : Tests of the gnomonic source and frame placement. {#tbl-ch04-gnomonic-tests}
 
-`test_hydrostatic.release` gives $6.8\times10^{-15}$ at the pin.[^gn-run] `gnomonic_check.py` `[C1]` sums the cells of
+`test_hydrostatic.release` gives $6.8\times10^{-15}$ at the sha the footnote records.[^gn-run] `gnomonic_check.py` `[C1]` sums the cells of
 a panel to $4\pi/6$ within $3.6\times10^{-15}$, `[C2]` matches a 64-point quadrature to $3.0\times10^{-15}$ relative,
-and `[C3]` the shell volume to $3.3\times10^{-16}$. The ctest entries pass at the pin on CPU, one rank
+and `[C3]` the shell volume to $3.3\times10^{-16}$. The ctest entries passed in the recorded run on CPU, one rank
 (@tbl-ch04-ctest-run).
 
 [^gn-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; deck: the test's own six-panel shell; run:
     `tests/test_hydrostatic.release` of a
-    Release build of the pin, CPU, double, 1 process, torch 2.10.0, kintera 2.6.2.dev4+g914389b40
+    Release build of that sha, CPU, double, 1 process, torch 2.10.0, kintera 2.6.2.dev4+g914389b40
     (a development build four commits past v2.6.1; the kintera pin c55b13b2 is tag v2.6.2); and
     `python3 src/snapy_report/ch04/checks/gnomonic_check.py`, Python 3.12.10, numpy 2.5.3, output identical to the
     committed file].

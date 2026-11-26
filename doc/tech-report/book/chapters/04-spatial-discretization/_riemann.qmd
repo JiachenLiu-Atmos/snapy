@@ -125,7 +125,7 @@ dynamics:
 6. *A solver without face pressure is refused on the first $x_1$ sweep* of a compressible deck (the second
    derivation above).
 
-The probe against the pin build confirms items 1 to 4 and 6 (@sec-ch04-framework).
+The probe of @sec-ch04-framework, on the build its footnote records, confirms items 1 to 4 and 6.
 
 **The excerpt.** The defaults and the factory ({{< code src/riemann/riemann.cpp RiemannSolverOptionsImpl::from_yaml overload=2 >}},
 {{< code src/riemann/riemann.cpp RiemannSolverImpl::create >}}) and the row map of every solver body, here
@@ -169,7 +169,7 @@ The first two lines are item 3; the factory is item 4; the last two lines (`face
 : Tests of the Riemann framework. {#tbl-ch04-riemann-tests}
 
 `[C8]` lists the rows: `dim` 3 gives normal row 1 and tangential 2, 3; `dim` 2 gives 2 and 3, 1; `dim` 1 gives 3
-and 1, 2.[^rs-run] `test_riemann.release` passes at the pin on CPU, one rank (@tbl-ch04-ctest-run).
+and 1, 2.[^rs-run] `test_riemann.release` passed in the recorded run on CPU, one rank (@tbl-ch04-ctest-run).
 
 [^rs-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; deck: the check itself; run:
     `python3 src/snapy_report/ch04/checks/operator_check.py`, CPU,

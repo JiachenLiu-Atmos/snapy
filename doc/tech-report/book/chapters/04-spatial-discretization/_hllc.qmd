@@ -159,8 +159,9 @@ dynamics:
 
 `pmid` is $p_{\mathrm{pv}}$; `al`, `ar` are $\lambda^{\mathrm L}, \lambda^{\mathrm R}$; `bp`, `bm` the clipped speeds; `am`, `cp` are
 @eq-ch04-hllc-contact; `sl`, `sm` and the two `FLX` lines are @eq-ch04-hllc-flux for the normal momentum and
-energy rows ($\mathbf D$ has $1$ and $\lambda_{\mathrm c}$ there). No other intermediate is computed: `rhoa` and `ca`
-only enter `pmid`.
+energy rows ($\mathbf D$ has $1$ and $\lambda_{\mathrm c}$ there). The kernel also computes `pl`, `pr`, `shock_l`, `shock_r`,
+`ql`, `qr`, `vxl`, `vxr`, `tl`, `tr`, `ml`, `mr`, `rdl`, `rdr`, `fl`, `fr`, `sr`, `cp_total`, `fln` and `frn`, and adds
+the kinetic energy to `el` and `er`. Each of them enters `FLX`; `rhoa` and `ca` enter it only through `pmid`.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
@@ -186,7 +187,7 @@ only enter `pmid`.
 
 `[C9]` holds symbolically. On a line-for-line numpy port for a dry ideal gas, `solvers_check.py` `[C1]` finds the
 physical flux to $4.7\times10^{-14}$ relative over 200 random states and `[C2]` the contact to
-$5.3\times10^{-16}$.[^hllc-run] `test_riemann.release` passes at the pin on CPU, one rank (@tbl-ch04-ctest-run);
+$5.3\times10^{-16}$.[^hllc-run] `test_riemann.release` passed in the recorded run on CPU, one rank (@tbl-ch04-ctest-run);
 no ctest asserts the contact property.
 
 [^hllc-run]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the checks themselves; run:
