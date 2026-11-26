@@ -47,7 +47,8 @@ changes the requested transfer, rather than flooring the final density.
 When a dry transfer is clipped, `MASS(IPR, donor)` is set to 1. The maximum copied into
 `_dry_clamp_step` by {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}}
 is therefore a binary flag, not a mass magnitude. The redo detector tests whether it is
-positive ({{< code src/mesh/meshblock.cpp MeshBlockImpl::vic_dry_clamp_hit >}}).
+positive, as `dry_clamp_step()[0] > 0.` in the flag vector of `local_redo_flag_tensor`
+({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}}).
 The accessor and reset are {{< code src/implicit/implicit_hydro.hpp ImplicitHydroImpl::dry_clamp_step >}}
 and {{< code src/implicit/implicit_hydro.hpp ImplicitHydroImpl::reset_dry_clamp_step >}}.
 
@@ -117,12 +118,12 @@ and `MASS(IPR, ...)` the flag the redo detector reads.
 The registration is in {{< code tests/CMakeLists.txt >}}. The chapter's check is a counter-example and not a port of
 the solver.[^ch08-vic-run] `[C8]`: over 2000 columns the limited explicit update never goes negative. A synthetic
 redistribution on the same state drives a cell dry in 1999 of them, worst $-1.4$. A pointwise floor would invent up to
-$2.2$ of mass. The ctest has not been run for this report at the pin: **pending a pinned ctest run**.
+$2.2$ of mass. The ctest passes at the pin, on CPU (the run record of @sec-ch08-theta).
 
 [^ch08-vic-run]: [sha: snapy@ccf40f9565642c32be69f4b9ef0cfa6daff3f201; deck: the check itself, synthetic numpy states;
     run: `python3 src/snapy_report/ch08/checks/positivity_check.py`, CPU, double, 1 process; Python 3.14.7, numpy 2.5.1;
     output identical to the committed file]. Output
-    `positivity_check.out`, line `[C8]`.
+    `positivity_check.out`, line `[C8]`. Re-run at the code pin with Python 3.13.15, numpy 2.4.6, sympy 1.14.0: output identical to the committed file. The ported code was not re-read at the code pin, so the sha above is the one the port was written against; in the V3 outline this section moves to @sec-ch06.
 
 ### Limits
 

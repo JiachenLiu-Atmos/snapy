@@ -116,7 +116,7 @@ fallback is not checked: **missing evidence**.
 [^ch08-wbface-run]: [sha: snapy@ccf40f9565642c32be69f4b9ef0cfa6daff3f201; deck: the check itself, synthetic numpy
     states; run: `python3 src/snapy_report/ch08/checks/floors_check.py`, CPU, double, 1 process; Python 3.14.7, numpy 2.5.1;
     output identical to the committed file]. Output
-    `floors_check.out`, line `[C6]`.
+    `floors_check.out`, line `[C6]`. Re-run at the code pin with Python 3.13.15, numpy 2.4.6, sympy 1.14.0: output identical to the committed file. The ported code was not re-read at the code pin, so the sha above is the one the port was written against; in the V3 outline this section moves to @sec-ch05.
 
 ### Limits
 

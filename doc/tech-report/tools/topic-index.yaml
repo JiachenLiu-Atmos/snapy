@@ -329,6 +329,16 @@ sections:
     - tracer mass, limiters and fixers
   sec-ch08-carry:
     - positivity limiter, energy carried
+  sec-ch08-satadj:
+    - saturation adjustment, in the step
+    - phase equilibrium, once per step
+  sec-ch08-sed:
+    - sedimentation, settling flux
+    - terminal velocity, of condensates
+  sec-ch08-efstatus:
+    - EfStatus
+    - positivity census
+    - limiter meters
   sec-ch08-drycarry:
     - passive scalars, with dry-mass sources
   sec-ch08-eoslimiter:

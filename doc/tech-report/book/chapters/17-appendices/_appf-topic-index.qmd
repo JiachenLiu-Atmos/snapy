@@ -470,6 +470,8 @@
 
 **edges and corners**: Cross-panel ghost interpolation, @sec-ch03-csinterp.
 
+**EfStatus**: The equation-of-state and positivity status of a block, @sec-ch08-efstatus.
+
 **end time and number of steps**: Driver loop and accepted steps, @sec-ch01-driver.
 
 *energy budget*, see **conservation budget, measured drift**.
@@ -980,6 +982,8 @@
 
 *limiter key*, see **positivity limiter**.
 
+**limiter meters**: The equation-of-state and positivity status of a block, @sec-ch08-efstatus.
+
 **limiter, slope**: PLM, the van Leer harmonic-mean slope, @sec-ch04-plm.
 
 *limits of validity*, see **known limits, restricted applicability**.
@@ -1314,6 +1318,8 @@
 
 *performance*, see **known limits, performance and usability**.
 
+**phase equilibrium, once per step**: Saturation adjustment in the step, @sec-ch08-satadj.
+
 **$\Phi$**: [7. Time integration and the implicit solver](#sec-appa-7).
 
 **$\phi$**: [5. Gravity, potential energy and gravity work](#sec-appa-5).
@@ -1356,13 +1362,15 @@
 
 *positivity*, see **negative density or pressure**.
 
+**positivity census**: The equation-of-state and positivity status of a block, @sec-ch08-efstatus.
+
 *positivity floor list*, see **floor, what it changes**.
 
 **positivity limiter**: The tracer flux positivity limiter, @sec-ch08-theta.
 
 **positivity limiter across seams**: Donor factor across seams: raw copy, @sec-ch03-thetacopy.
 
-**positivity limiter, energy carried**: The carry of energy and momentum with withheld mass, @sec-ch08-carry.
+**positivity limiter, energy carried**: The carry of energy and momentum with withheld mass, and the settling carry on a prescribed face, @sec-ch08-carry.
 
 **positivity limiter, how much it acted**: Positivity-limiter meters: `limcut`, `thetamin`, `thetasevere`, @sec-ch13-limiter-meters.
 
@@ -1620,6 +1628,8 @@
 
 **saturation adjustment**: Saturation adjustment in the step, @sec-ch10-satadj.
 
+**saturation adjustment, in the step**: Saturation adjustment in the step, @sec-ch08-satadj.
+
 **saturation adjustment, when in a step**: Operator-split pieces at the step boundary: saturation adjustment and kinetics, @sec-ch09-split.
 
 **saturation, phase equilibrium**: Fixed-volume fixed-energy phase equilibrium, @sec-ch02-saturation.
@@ -1651,6 +1661,8 @@
 **`sedimentation`**: Sedimentation of condensates, @sec-ch10-sed.
 
 **sedimentation**: Sedimentation of condensates, @sec-ch10-sed.
+
+**sedimentation, settling flux**: Sedimentation of condensates, @sec-ch08-sed.
 
 *settling*, see **sedimentation**.
 
@@ -1843,6 +1855,8 @@
 **tensor layout**: Locate tensor rows, faces and ghost slabs, @sec-ch01-layout.
 
 *tensor rows*, see **state vector layout**.
+
+**terminal velocity, of condensates**: Sedimentation of condensates, @sec-ch08-sed.
 
 *terrain*, see **immersed solids**.
 

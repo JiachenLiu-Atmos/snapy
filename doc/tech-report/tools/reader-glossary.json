@@ -1676,7 +1676,10 @@
       "term": "$\\epsilon_{\\mathrm{m}}$",
       "notation_group": "7",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14",
-      "section": "sec-appa-7"
+      "section": "sec-appa-7",
+      "meaning_by_file": {
+        "chapters/08-positivity/_borrow.qmd": "machine epsilon of the working precision (never bare $\\epsilon$, which is $\\epsilon_{\\mathrm{piv}}$), `machine_epsilon` in the code"
+      }
     },
     {
       "kind": "symbol",
@@ -1690,7 +1693,10 @@
       "term": "$\\mu$, $\\nu$",
       "notation_group": "8",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/diffusion.cpp#L621-L626",
-      "section": "sec-appa-8"
+      "section": "sec-appa-8",
+      "meaning_by_file": {
+        "chapters/08-positivity/_sed.qmd": "dynamic and kinematic viscosity; the diffusion module calls the kinematic one `nu_iso`"
+      }
     },
     {
       "kind": "symbol",
