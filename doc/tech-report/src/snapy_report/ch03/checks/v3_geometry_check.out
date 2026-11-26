@@ -1,0 +1,8 @@
+[G1] PASS x1rat faces: first face x1min, last x1max, width ratio q (3 identities)
+[G2] PASS mirrored ghost faces repeat the interior widths in reverse (2 identities)
+[G3] PASS Cartesian volume is the product of the widths (1 identities)
+[G4] PASS panel angle: cos = -XY/(CD), sin = Q/(CD), |du/dX| = D/Q^2, |du/dY| = C/Q^2 (4 identities)
+[G5] PASS solid angle: d2/dXdY atan(XY/Q) = 1/Q^3 = |du/dX x du/dY|; a panel is 2 pi/3 (3 identities)
+[G6] PASS radial measures: volume dr(rp^2+rp rm+rm^2)/3, x2/x3 face rbar dr (2 identities)
+[G7] PASS x2 source coefficient Delta_j(A sin psi)/V tends to -X/(r D) (per 1/r) (1 identities)
+[G8] PASS contra -> Cartesian -> contra is the identity on a panel (3 identities)

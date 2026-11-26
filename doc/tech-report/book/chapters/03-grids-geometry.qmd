@@ -26,9 +26,11 @@ sources (@sec-ch03-sphpolar), and the cubed sphere has non-orthogonal panel fram
 | scheme | switch | default | order | main test |
 |---|---|---|---|---|
 | global grid, sliced per block (@sec-ch03-globalgrid) | YAML[^rg-a13a7908fab9] `geometry`[^rg-acca5c2fc359], `distribute`[^rg-6bfdf84625d7] | on | exact | `test_coordinate` |
-| Cartesian metric (@sec-ch03-cartesian) | `type: cartesian` | default type | exact | `test_coordinate` |
+| Cartesian metric and stretched $x_1$ (@sec-ch03-cartesian) | `type: cartesian`, `x1rat`, `x1f` | default type, uniform $x_1$ | exact | `test_coordinate`, `test_stretched_x1` |
 | spherical-polar metric (@sec-ch03-sphpolar) | `type: spherical-polar` | off | exact metric | `test_coordinate` |
 | gnomonic cubed sphere (@sec-ch03-gnomonic) | `type: gnomonic-equiangle` | off | exact metric | `test_cubed_sphere_cell_volume_python` |
+| panel seam register (@sec-ch03-seamreg) | none | on (cubed sphere) | exact (mass, energy); round-off (momentum) | `test_cubed_sphere_seams` |
+| seam rotation cache (@sec-ch03-seamcache) | none | on (cubed sphere) | exact | `test_seam_rotation_cache_python` |
 | radial face moments (@sec-ch03-facemoments) | `SNAP_FLUX_COVARIANCE` | on | exact | `test_radial_face_moments` |
 | layouts and rank maps (@sec-ch03-layouts) | `distribute: layout` | `slab` | n/a | `test_exchange_decomp` |
 | physical and internal faces (@sec-ch03-physfaces) | `boundary-condition`[^rg-b3b0eed8c75a] | `reflecting` | n/a | `test_exchange_decomp` |
@@ -52,6 +54,10 @@ the defining integral or copy up to round-off. Test names omit the `.release` su
 {{< include 03-grids-geometry/_sphpolar.qmd >}}
 
 {{< include 03-grids-geometry/_gnomonic.qmd >}}
+
+{{< include 03-grids-geometry/_seamreg.qmd >}}
+
+{{< include 03-grids-geometry/_seamcache.qmd >}}
 
 {{< include 03-grids-geometry/_facemoments.qmd >}}
 
