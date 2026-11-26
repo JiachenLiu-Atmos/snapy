@@ -27,7 +27,7 @@ source by writing one module.
 
 **Data.** Reads $\mathbf W$[^rg-f6181b776a7d], $T$[^rg-a94787de567c] and $\Delta t$[^rg-f051bcdbce20] of the stage; writes $\Delta\mathbf U$ and `_forcing_dry`.
 
-**Placement.** Every RK[^rg-1c18af462152] stage, in `HydroImpl::forward`: the pre-implicit phase right after the flux divergence, the post-implicit phase (Coriolis only) after the implicit solve.
+**Placement.** Every RK[^rg-1c18af462152] stage, in `HydroImpl::forward`: the pre-implicit phase right after the flux divergence, the post-implicit phase (Coriolis only) after the implicit solve, under the $x_1$ mass-flux gate.
 
 **Activation.** One module per key under `forcing:`; no key, no module. Default: no forcing.
 
@@ -357,7 +357,8 @@ for (auto const& r : sources.runs(SourcePhase::pre_implicit))
 
 The first three lines are $\Delta\mathbf U^{[0]}$; `temp` is $T$; gravity and the `for` line are the recursion for
 $m = 1, \dots, M$. After it the code forms $\Delta\rho_{\mathrm{d}}^{\mathrm{forc}}$ as `_forcing_dry`, with `IDN`
-the dry-density row. The post-implicit phase is the same loop over `SourcePhase::post_implicit` with the stage's
+the dry-density row. The post-implicit phase, run only under the $x_1$ mass-flux gate (`if (mass_w)`), is the same loop over
+`SourcePhase::post_implicit` with the stage's
 `wc2` in place of `wc1`.
 
 ### Tests

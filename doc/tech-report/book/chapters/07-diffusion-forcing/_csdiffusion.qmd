@@ -437,7 +437,11 @@ stretched and implicit arms of `radial_conductive_equilibrium` passed on CPU and
     '^(test_diffusion_cubed_sphere|test_diffusion_cubed_sphere_two_gpu_ucx)\.release$'` in the `tests` directory of a
     README CUDA Release build at the pin, with two CUDA GPUs (Quadro RTX 4000) visible; CPU and CUDA, double
     precision; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 18 of 18 cases of
-    `test_diffusion_cubed_sphere` pass, and the UCX two-GPU case passes on two ranks. The printed numbers quoted
+    `test_diffusion_cubed_sphere` pass. The UCX two-GPU arm was rerun alone with `ctest -j1 -V -R
+    '^test_diffusion_cubed_sphere_two_gpu_ucx\.release$'` (`CUDA_VISIBLE_DEVICES=0,1`), which runs `torchrun
+    --standalone --no-python --nproc-per-node=2 test_diffusion_cubed_sphere_two_gpu.release` with `BACKEND=ucx`,
+    `DEVICE=cuda` and `UCX_TLS=self,tcp,cuda_copy,cuda_ipc` on a build with `CUDA=ON` and `UCX=ON`: both ranks ran
+    `full_mesh_conserves_mass_and_energy` to OK (none skipped), and the ctest passed. The printed numbers quoted
     above are those of this run. Slopes are least-squares fits of $\log$ error on $\log n$ (or $\log$ steps).
 
 ::: {.callout-important title="Check"}

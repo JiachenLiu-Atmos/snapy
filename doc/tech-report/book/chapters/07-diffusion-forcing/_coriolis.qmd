@@ -121,10 +121,10 @@ set to `exact`, the same call also adds the flux-form torque of @sec-ch07-axial 
 
 *The $x_1$ mass-flux gate.* `X1Momentum` decides once, when the hydro is built, whether the gate applies: not
 shallow water, more than one $x_1$ cell, and a gnomonic-equiangle grid or a spherical-polar grid with Coriolis
-({{< code src/forcing/x1_momentum.cpp X1Momentum::X1Momentum >}}). Under the gate the Coriolis module is registered
-twice, as a pre-implicit and as a post-implicit source
-({{< code src/hydro/register_forcing_modules.cpp HydroImpl::_register_forcings_module >}}), and the two calls read
-different inputs ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}):
+({{< code src/forcing/x1_momentum.cpp X1Momentum::X1Momentum >}}). Whenever `forcing.coriolis` is set, the Coriolis
+module is registered twice, as a pre-implicit and as a post-implicit source
+({{< code src/hydro/register_forcing_modules.cpp HydroImpl::_register_forcings_module >}}); the post-implicit run
+happens only under the gate. Under the gate the two calls read different inputs ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}):
 
 1. Before the solve, `before_solve` hands Coriolis $(\rho, 0, v_2, v_3)$: the rows that do not depend on $w$
    ({{< code src/forcing/x1_momentum.cpp X1Momentum::before_solve >}}).
