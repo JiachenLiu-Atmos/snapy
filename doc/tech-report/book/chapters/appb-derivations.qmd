@@ -30,7 +30,7 @@ there is no accumulated round-off term to bound. Exact regeneration tests the re
 
 ## How to use and refresh the index
 
-There is no simulation YAML for this appendix: neither generator configures snapy.
+There is no simulation YAML for this appendix: the generator does not configure snapy.
 From the report directory (@sec-appa-refresh), run:
 
 ```bash
@@ -45,9 +45,12 @@ with a nonzero exit status. Edit the inputs and regenerate; do not repair indivi
 The selection step in `gen_derivation_index.py` is:
 
 ```python
-scripts = sorted({c for c in _CHECK.findall(whole)
-                  if chk_dir and (chk_dir / c).exists()})
+scripts = sorted({c for c in _CHECK.findall(whole) if c not in tagged_scripts
+                  and chk_dir and (chk_dir / c).exists()})
 ```
+
+A script that an `<!-- equation-check: ... -->` comment ties to particular equations is left out of this list
+and listed, with its claim tag, only on those equations' rows.
 
 This excerpt implements step 4 above. It maps text to an index entry; there is no solver equation or timestep attached to it.
 The generator implementation is part of the report revision, separate from the solver code pin.[^appb-source]
@@ -67,12 +70,12 @@ they do not execute a snapy simulation.[^appb-run]
 
 The index does not verify algebra, code correspondence or check success. “Exists” classifies a reference to a derivation source; “re-derived” classifies its absence. Neither is a review verdict.
 
-[^appb-source]: Report implementation: `tools/gen_derivation_index.py` in the current report revision. Solver claims must be checked separately at `919936da07d80a310b98ab11da184972a3203274`.
+[^appb-source]: Report implementation: `tools/gen_derivation_index.py` in the current report revision. Solver claims must be checked separately, at the code pin of `code_pin.yml`.
 
 [^appb-run]: Run from the report directory (@sec-appa-refresh) with `python tools/gen_derivation_index.py --check` and `PYTHONPATH=src python -m pytest -q tools/tests`. The PR evidence records base/head results and Python/pytest versions. These are report checks, with no CPU, CUDA or MPI solver execution claimed.
 
 {{< include 17-appendices/_appb-derivation-index.qmd >}}
 
-Printed floating-point residuals in the ch04 gnomonic, ch05 WB-reference, ch09 round-off and ch10 repair/kinetics checks
+Printed floating-point residuals in the ch04 gnomonic, ch05 WB-reference, ch07 round-off and ch10 repair/kinetics checks
 can differ in their last digits by host and library version. Compare each executable assertion against its stated
 threshold; the committed outputs record one execution, not portable decimal constants.
