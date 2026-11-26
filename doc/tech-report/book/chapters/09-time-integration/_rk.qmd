@@ -271,7 +271,7 @@ assertion on the weights.
 
 [^rg-14d76ead90d3]: YAML — YAML Ain't Markup Language, the structured input format used for decks
 
-[^rg-5f595edd062e]: $\mathbf U^{(s)}$ — state after RK stage $s$; {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::advance_local >}}
+[^rg-5f595edd062e]: $\mathbf U^{(s)}$ — state after RK stage $s$; {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}}
 
 [^rg-6e268ff2bb5e]: implicit_radial — whether radial heat conduction on the cubed sphere is solved implicitly, split around the explicit step (default false)
 

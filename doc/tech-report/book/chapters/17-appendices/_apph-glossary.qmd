@@ -287,7 +287,7 @@
 - $m_1, m_2, m_3$: momentum density $\rho v_a$. Defined in [2. State, thermodynamics and species](#sec-appa-2).
 - $\mathbf F_a$: the numerical flux vector through faces normal to $x_a$. Defined in [3. Fluxes, reconstruction and Riemann solver](#sec-appa-3).
 - $\mathbf U$: conserved state vector $(\rho_d, m_1, m_2, m_3, E, \rho_1..\rho_{N_y})$. Defined in [2. State, thermodynamics and species](#sec-appa-2).
-- $\mathbf U^{(s)}$: state after RK stage $s$; {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::advance_local >}}. Defined in [7. Time integration and the implicit solver](#sec-appa-7).
+- $\mathbf U^{(s)}$: state after RK stage $s$; {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}}. Defined in [7. Time integration and the implicit solver](#sec-appa-7).
 - $\mathbf v = (v_1,v_2,v_3)$: velocity [m s$^{-1}$]. Defined in [2. State, thermodynamics and species](#sec-appa-2).
 - $\mathbf W$: primitive state vector $(\rho, v_1, v_2, v_3, p, y_1..y_{N_y})$. Defined in [2. State, thermodynamics and species](#sec-appa-2).
 - $\mathcal D$: the $E+\mathrm{PE}_d$ defect of a step, the quantity the gravity-work fixer removes [J]. Defined in [5. Gravity, potential energy and gravity work](#sec-appa-5).
@@ -369,7 +369,7 @@
 - $\vartheta$: local phase $\pi h/\lambda_w$ of a wave of wavelength $\lambda_w$ in a Fourier error estimate; notation only; see @sec-appa. Defined in [1. Coordinates and grids](#sec-appa-1).
 - $V_i$: cell volume. Defined in [1. Coordinates and grids](#sec-appa-1).
 - $w_0^{(s)}, w_1^{(s)}, w_2^{(s)}$: the weights of RK stage $s$: $\mathbf U \leftarrow w_0^{(s)}\mathbf U^n + w_1^{(s)}\mathbf U + w_2^{(s)}\Delta t\,\mathcal L(\mathbf U)$. Defined in [7. Time integration and the implicit solver](#sec-appa-7).
-- $W_i$: $x_1$ gravity work per unit volume and time booked into $E$ in cell $i$ [W m$^{-3}$]; {{< code src/forcing/const_gravity.cpp ConstGravityImpl::forward >}}. Defined in [5. Gravity, potential energy and gravity work](#sec-appa-5).
+- $W_i$: $x_1$ gravity work per unit volume and time booked into $E$ in cell $i$ [W m$^{-3}$]; {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}. Defined in [5. Gravity, potential energy and gravity work](#sec-appa-5).
 - $W^{\mathrm{cell}}_i$: cell form $\rho_iv_{1,i}g_1$. Defined in [5. Gravity, potential energy and gravity work](#sec-appa-5).
 - $W^{\mathrm{D}}_i$: corrected-PE face work $W^{\mathrm{face}}_i + g_1\sigma_i^2s_i[\dot\rho]$. Defined in [5. Gravity, potential energy and gravity work](#sec-appa-5).
 - $W^{\mathrm{face}}_i$: face form $\tfrac{1}{V_i}[\phi_i\Delta_i[AF]-\Delta_i[A\phi F]]$. Defined in [5. Gravity, potential energy and gravity work](#sec-appa-5).

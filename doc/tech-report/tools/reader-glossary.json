@@ -1497,7 +1497,7 @@
       "kind": "symbol",
       "term": "$W_i$",
       "notation_group": "5",
-      "source": "src/forcing/const_gravity.cpp ConstGravityImpl::forward",
+      "source": "src/hydro/hydro_forward.cpp HydroImpl::forward",
       "section": "sec-appa-5"
     },
     {
@@ -1611,7 +1611,7 @@
       "kind": "symbol",
       "term": "$\\mathbf U^{(s)}$",
       "notation_group": "7",
-      "source": "src/mesh/meshblock_advance.cpp MeshBlockImpl::advance_local",
+      "source": "src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine",
       "section": "sec-appa-7"
     },
     {
