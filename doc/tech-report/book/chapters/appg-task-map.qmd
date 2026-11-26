@@ -1,4 +1,56 @@
-# Task map {#sec-appg}
+# V3 lane map and task map {#sec-appg}
+
+This appendix has two parts. The lane map says which V3 design lane owns each part of the code, which design
+document describes it, where that code lives at the pin, and which chapters of this book cover it. The task map
+lists each task a reader wants to do with snapy and the section that answers it, or the reason the book does not.
+
+## V3 lanes and design documents {.unnumbered .unlisted}
+
+V3 was designed in lanes. Each lane has one design document, whose sections 3 (target design) and 4 (register
+contract) are its contract, and a skeleton of declarations under `docs/v3/skeleton/<lane>/` on its branch, in no
+build.[^appg-design] @tbl-appg-lanes lists the nine lanes with the classes that carry each one at the code pin
+and the chapters that describe them. The chapter numbers are those of the outline; a chapter not yet written at
+the pin may still carry the title it had before the outline.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Find the design document, the code and the chapters of a V3 lane.
+
+**Data.** The lane table of the V3 design summary (scope, document, skeleton), the code at the pin, and the
+chapter plan of the report outline.
+
+**Placement.** Report preparation, outside the solver.
+
+**Activation.** None; hand-written, with each code entry cited by symbol and checked at the pin by
+`code_anchors.py`.
+
+**Guarantee / limits.** Each named class or function exists at the pin; a lane's design document may describe
+more than the pin implements.
+
+**Evidence.** `tools/code_anchors.py check` resolves every code entry of @tbl-appg-lanes.
+:::
+
+| lane | scope | design document | at the pin | chapters |
+|---|---|---|---|---|
+| R | flux register, monitor, hydro stage | `R.rst`[^appg-r] | `FluxRegister` ({{< code src/hydro/flux_register.hpp FluxRegister >}}), `RegisterMonitor` ({{< code src/hydro/flux_register.hpp RegisterMonitor >}}) | @sec-ch04 (the sweep), @sec-ch10 |
+| C | reconstruction, Riemann solvers, well-balanced reference, conversion order | `C.rst`[^appg-c] | `ReconstructImpl` ({{< code src/recon/reconstruct.hpp ReconstructImpl >}}), `RiemannSolverImpl` ({{< code src/riemann/riemann.hpp RiemannSolverImpl >}}), `X1Reference` ({{< code src/recon/x1_reference.hpp X1Reference >}}) | @sec-ch04, @sec-ch05, @sec-ch12 (its precision rows) |
+| I | vertical implicit solver, gravity work | `I.rst`[^appg-i] | `ImplicitHydroImpl` ({{< code src/implicit/implicit_hydro.hpp ImplicitHydroImpl >}}), `GravityWork` ({{< code src/hydro/gravity_work.hpp GravityWork >}}) | @sec-ch06, @sec-ch09 (the FP64 retry flag), @sec-ch12 |
+| EF | EOS, floors, positivity, tracers, sedimentation | `EF.rst`[^appg-ef] | `EfStatus` ({{< code src/eos/ef_status.hpp EfStatus >}}), `PositivityLimiter` ({{< code src/hydro/flux_positivity.hpp PositivityLimiter >}}) | @sec-ch02, @sec-ch08, @sec-ch12 |
+| S | seams, coordinates, layout, exchange, boundaries | `S.rst`[^appg-s] | `Exchange` ({{< code src/layout/exchange.hpp Exchange >}}), `reconcile_panel_seams` ({{< code src/layout/seam_register.hpp reconcile_panel_seams >}}) | @sec-ch03, @sec-ch13, @sec-ch14 |
+| A | rotation, axial angular momentum, sources, diffusion | `A.rst`[^appg-a] | `AxialMomentum` ({{< code src/forcing/axial_momentum.hpp AxialMomentum >}}) | @sec-ch07 |
+| O | output, input, utilities, diagnostics, options schema | `O.rst`[^appg-o] | `GriddedWriter` ({{< code src/output/writer_core.hpp GriddedWriter >}}), `RestartOutput` ({{< code src/output/output_type.hpp RestartOutput >}}), `BudgetSeries` ({{< code src/output/budget_series.hpp BudgetSeries >}}) | @sec-ch10 (the budget series), @sec-ch15, @sec-appd, @sec-appi |
+| X | execution: precision, CUDA graphs, mesh, integrator | `X.rst`[^appg-x] | `StageExecutor` ({{< code src/mesh/stage_executor.hpp StageExecutor >}}), `PrecisionPolicy` ({{< code src/mesh/precision_policy.hpp PrecisionPolicy >}}), `StateStore` ({{< code src/mesh/state_store.hpp StateStore >}}), `MeshImpl` ({{< code src/mesh/mesh.hpp MeshImpl >}}) | @sec-ch09 (the integrator), @sec-ch11, @sec-ch12, @sec-ch13 (the Mesh), @sec-appd |
+| K | kintera thermodynamics and chemistry contracts | `K.rst`, in the kintera repository[^appg-k] | the kintera package at its pinned version; in snapy, the chemistry slot of the stage schedule, `StageExecutor::chemistry_slot` ({{< code src/mesh/stage_executor.cpp StageExecutor::chemistry_slot >}}) | @sec-ch02, @sec-ch08, @sec-appe |
+
+: The V3 lanes: scope and design document from the V3 design summary, the classes that carry each lane at the
+code pin, and the chapters that describe it. {#tbl-appg-lanes}
+
+Three pieces of closing work cut across the lanes. B3 (multi-block capture, exchange cuts and the Mesh's
+agreement on capture) is described in @sec-ch11 and @sec-ch13. S4 (the eager-path launch reduction) is spread
+over the chapters that own the kernels it changed (@sec-ch04, @sec-ch06, @sec-ch09 and @sec-ch10), with its cost
+catalogue in @sec-ch11 and its counting method in @sec-ch16. The capture rules, allow-lists and the capture sweep
+are @sec-ch11 and @sec-ch16. Chapters 1, 16 and 17 and appendix J draw on every lane.[^appg-outline]
+
+## Reader tasks {.unnumbered .unlisted}
 
 Each task a reader wants to do with snapy is listed here once, under what the book says about it: answered,
 partly documented, undocumented, unsupported by the code, or outside the scope of this report. An answered or
@@ -23,3 +75,20 @@ on a missing reason; the rendered gate checks every destination in the PDF build
 :::
 
 {{< include 17-appendices/_appg-reader-tasks.qmd >}}
+
+[^appg-design]: [source: `docs/v3/DESIGN.rst` on happysky19/snapy branch `v3-design/DESIGN` at `449636b3`,
+    Table 1 (the converged head of each lane) and Table 7 (lanes, scopes and skeletons)]
+[^appg-r]: [source: happysky19/snapy branch `v3-design/R` at `9c711ba3`, revision 2.6]
+[^appg-c]: [source: happysky19/snapy branch `v3-design/C` at `5dc4d002`, revision 6.3]
+[^appg-i]: [source: zoeyzyhu/snapy branch `v3-design/I` at `1092aef9`, revision 2.5, a documents-only mirror with no
+    common history with the pin]
+[^appg-ef]: [source: zoeyzyhu/snapy branch `v3-design/EF` at `5b3f18d2`, revision 3.8, a documents-only mirror with
+    no common history with the pin]
+[^appg-s]: [source: jihenghu/snapy branch `v3-design/S` at `76204d46`, revision 2.4]
+[^appg-a]: [source: JiachenLiu-Atmos/snapy branch `v3-design/A` at `c405d491`]
+[^appg-o]: [source: JiachenLiu-Atmos/snapy branch `v3-design/O` at `36b61c40`, revision 5.3]
+[^appg-x]: [source: UCzhangxi/snapy branch `v3-design/X` at `07d4eedf`]
+[^appg-k]: [source: UCzhangxi/kintera branch `v3-design/K` at `8d962405`; the kintera version the report uses is
+    the one `tools/package-pins.json` names]
+[^appg-outline]: [source: STRUCTURE.md of this report, sections 2 (the chapter plan, with each chapter's lanes)
+    and the header's list of closing work]
