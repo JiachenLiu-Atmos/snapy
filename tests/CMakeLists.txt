@@ -452,6 +452,9 @@ snapy_add_python_test(test_flux_positivity_cubedsphere_moist TIMEOUT 300
                       LABELS "python;positivity;cubed-sphere")
 snapy_add_python_test(test_roe_cubed_sphere_rest TIMEOUT 120
                       LABELS "python;riemann;cubed-sphere")
+# UCzhangxi/snapy#319: shallow-roe on the cubed sphere refuses dir: xy
+snapy_add_python_test(test_shallow_roe_cubed_sphere_dir TIMEOUT 120
+                      LABELS "python;riemann;cubed-sphere")
 snapy_add_python_test(test_cubed_sphere_cell_volume TIMEOUT 120
                       LABELS "python;coordinate;cubed-sphere")
 snapy_add_python_test(test_wall4_sphere TIMEOUT 300 LABELS "python;cubed-sphere")
