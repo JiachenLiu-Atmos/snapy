@@ -1,0 +1,196 @@
+## Axial angular momentum: flux form and closure (`conserve-axial-momentum`) {#sec-ch07-axial}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 7.2; src/forcing/axial_momentum.hpp, src/forcing/axial_momentum.cpp, src/forcing/coriolis.cpp,
+         src/hydro/hydro_forward.cpp, src/hydro/hydro.hpp, src/mesh/mesh.cpp, src/mesh/meshblock_advance.cpp,
+         src/options/hydro.yaml, tests/test_axial_momentum.cpp, tests/test_axial_momentum_flux_form.py,
+         tests/test_global_phase_closure.cpp at the pin
+status: draft
+author: chengcli
+reviewer: zoeyzyhu
+-->
+
+### Summary
+
+On the cubed sphere the momentum rows are covariant components in each panel's basis, and the finite-volume update
+conserves them face by face only in that basis. The axial angular momentum (AAM) about the rotation axis is not one
+of the rows, so a plain update lets it drift. The key `dynamics.conserve-axial-momentum` repairs this in two
+levels. `transport` rewrites the AAM component of each cell's flux divergence as the divergence of face AAM
+fluxes, so transport changes the global AAM only through physical boundary faces. `exact` adds the Coriolis torque
+of the solver's dissipative lateral mass flux in the same flux form, and a closure that removes, once per stage, the
+global AAM residual of the cell-form Coriolis force as one solid-body increment.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Keeps the global AAM about the $\Omega_1$ axis to round-off, @eq-ch07-axial-flux and @eq-ch07-axial-closure.
+
+**Data.** Reads the face fluxes, the Coriolis force and the flux register's kept central flux; writes the momentum rows $m_2$, $m_3$.
+
+**Placement.** `transport`: the divergence phase and the $x_1$ metric source of `HydroImpl::forward`. `exact`: also the pre-implicit Coriolis call, and the global phase after each stage.
+
+**Activation.** `dynamics.conserve-axial-momentum`: `off` (default), `transport` or `exact`; acts on `gnomonic-equiangle` only.
+
+**Guarantee / limits.** `transport` without rotation, and `exact`, keep the global AAM to $10^{-12}$ relative in the tests; with rotation `transport` leaves the exchange with the planetary AAM open.
+
+**Evidence.** @tbl-ch07-axial-tests.
+:::
+
+Local symbols: $\mathbf k$ the rotation field about the $\Omega_1$ axis on the unit sphere, with $|\mathbf k|^2$ the squared cosine of the latitude;
+$\mathbf K=r\mathbf k$; $s=r|\mathbf k|$ the distance from the axis [m]; $L$ the AAM of a set of cells
+[$\mathrm{kg\,m^2\,s^{-1}}$]; $\mathcal A_i$ a target AAM rate of cell $i$ per volume; $A_f$ the area of face $f$;
+$r_f$ the AAM radius of face $f$; $M_f$ the outward mass flux through face $f$ times $A_f$ [$\mathrm{kg\,s^{-1}}$];
+$\mathcal Q$, $\mathcal J$ the closure's residual and moment of inertia; $w_2^{(s)}$ the stage weight of the increment
+(@sec-ch09-rk).
+
+### Derivation
+
+**The AAM of the rows.** With $m_2$, $m_3$ the covariant momentum rows and $k^2$, $k^3$ the contravariant components of
+$\mathbf k$, the AAM of a set of cells is
+
+$$
+L=\sum_iV_i\,r_i\,(k^2m_2+k^3m_3)_i=\sum_iV_i\,\mathbf K_i\cdot\mathbf m_i .
+$$
+
+**Transport in flux form.** The AAM rate of cell $i$ from the fluxes is the divergence of the face AAM fluxes
+$A_f\,r_f\,\mathbf F_f\cdot\mathbf k_f$, with $\mathbf F_f$ the momentum flux of face $f$:
+
+$$
+\mathcal A_i=\frac{1}{V_i}\sum_{f\in\partial i}\pm A_f\,r_f\,\mathbf F_f\cdot\mathbf k_f ,
+\qquad
+r_f=\begin{cases}x_{1f} & x_1\text{ faces},\\[2pt]
+\dfrac{2\,(r_+^3-r_-^3)}{3\,(r_+^2-r_-^2)} & x_2,\,x_3\text{ faces}.\end{cases}
+$$ {#eq-ch07-axial-flux}
+
+On a lateral face $r_f$ is the area-weighted radius, so $r_f\mathbf k_f$ is the face average of $\mathbf K$. Each face
+value enters its two cells with opposite signs, so wherever $\mathbf F_f$ and $\mathbf k_f$ are single-valued the sum
+$\sum_iV_i\mathcal A_i$ telescopes to the physical boundary faces. On an $x_1$ face $\mathbf K$ is tangent to the face,
+so the pressure part of the flux carries no AAM.
+
+**Setting the AAM component of a row pair.** Given a target $\mathcal A_i$, the code changes the rows
+$(d_2,d_3)$ only along $\mathbf K$, the direction of a zonal acceleration, so that $\mathbf K\cdot\mathbf d=\mathcal A$:
+
+$$
+\lambda=\frac{\mathcal A-r\,(k^2d_2+k^3d_3)}{r^2|\mathbf k|^2},\qquad d_a\leftarrow d_a+\lambda\,r\,k_a ,
+$$
+
+which gives $r\,k^a(d_a+\lambda rk_a)=r\,k^ad_a+\lambda r^2|\mathbf k|^2=\mathcal A$. The component of the rows
+across $\mathbf K$ is unchanged. A cell centred on the axis has $\mathbf K_i=0$ and holds no AAM; its target is handed
+to its four lateral neighbours in equal shares, so the sum still telescopes.
+
+**The Coriolis torque in flux form (`exact`).** The cell-form Coriolis force does no work but exchanges AAM with the
+planetary AAM, $\Omega s^2$ per unit mass. A mass flux $M_f$ through a lateral face moves planetary AAM
+$\Omega M_fs_f^2$; relative to the cell's own $\Omega s_c^2$ its torque is
+
+$$
+\mathcal A^{\mathrm{cor}}_i=-\frac{\Omega}{V_i}\sum_{f\in\partial i}M_f\,(s_f^2-s_{c,i}^2) .
+$$
+
+`exact` evaluates it on the dissipative part of the lateral mass flux, $M_f-M_f^{\mathrm{central}}$, where
+$M^{\mathrm{central}}=\tfrac12(F(w_L)+F(w_R))$ is the solver's pre-limiter central flux kept in the flux register,
+and adds it along $\mathbf K$ to the cell-form force. The $x_1$ faces are left out: in 3-D their exchange is carried by
+the Coriolis rows that take $\rho w$ from the stage's $x_1$ mass transfer (@sec-ch07-coriolis).
+
+**The closure (`exact`).** What remains is the residual of the cell-form force against the torque of the central
+flux, summed over the whole mesh:
+
+$$
+\begin{aligned}
+\mathcal Q&=\sum_iV_i\Big(\mathbf K_i\cdot\mathbf F^{\mathrm{cor}}_i-\mathcal A_i^{\mathrm{cor}}(M^{\mathrm{central}})\Big),
+\qquad \mathcal J=\sum_iV_i\,\rho_i\,s_i^2 ,\\
+\mathbf K_i\cdot\Delta\mathbf m_i&=-\,w_2^{(s)}\,\Delta t\,\frac{\mathcal Q}{\mathcal J}\,\rho_i\,s_i^2 ,
+\end{aligned}
+$$ {#eq-ch07-axial-closure}
+
+a solid-body increment. Summing $V_i$ times the second line gives $\sum_iV_i\mathbf K_i\cdot\Delta\mathbf m_i=-w_2^{(s)}\Delta
+t\,\mathcal Q$: the closure removes the residual exactly, and each block's share is $\mathcal J_b/\mathcal J$ of it.
+$\mathcal Q$ is built from the Coriolis force and the mass fluxes only, so a physical torque (viscosity, a sponge,
+a drag) is not part of it and is kept.
+
+### Numerical method
+
+Per stage, with `transport` or `exact` in force:
+
+1. after the divergence, `AxialMomentum::flux_form` sets the $\mathbf K$ component of the momentum rows of `_div` to
+   @eq-ch07-axial-flux from the $x_1$, $x_2$ and $x_3$ fluxes of the stage
+   ({{< code src/forcing/axial_momentum.cpp AxialMomentum::flux_form >}});
+2. `exact` only: `HydroImpl::forward` arms the torque for the pre-implicit Coriolis call, where `CoriolisImpl::add`
+   calls `add_torque`, which adds $\mathcal A^{\mathrm{cor}}$ of the dissipative flux and records this block's
+   $\{\mathcal Q_b,\mathcal J_b\}$ on the device; the torque is disarmed before the post-implicit call
+   ({{< code src/forcing/axial_momentum.cpp AxialMomentum::add_torque >}});
+3. in the post-implicit step, the $x_1$ metric source's $\mathbf K$ component is set so that the tangential momentum
+   the implicit solve moved between two cells sits at the face radius (`x1_source`);
+4. `exact` only, in the global phase after the blocks' stage: the partial sums of all blocks are added in one
+   reduction, and every block applies @eq-ch07-axial-closure with the stage's $w_2$
+   ({{< code src/forcing/axial_momentum.cpp AxialClosureFixer::apply >}}). A non-finite $\mathcal Q$ or
+   $\mathcal J\le0$ is masked on the device and leaves the state unchanged. The increment is booked in the flux
+   register as the fixer amount `aam.closure`.
+
+`Mesh::forward` runs step 4 over its blocks; a single block run through `MeshBlockImpl::forward` runs it on its own.
+
+**What switches it off.** The option does nothing on a grid other than `gnomonic-equiangle`. With a Coriolis force
+that is not `type: xyz` with $\Omega_2=\Omega_3=0$ it warns once and stays off. `exact` is refused at setup
+without `geometry.cells.interp_order: 4`, in FP32 or with `perturbation-flux`, and with a Riemann solver that
+writes no central flux (allowed: `hllc`, `lmars`, `roe`, `shallow-roe`).
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| mode, warnings and refusals | {{< code src/forcing/axial_momentum.cpp AxialMomentum::AxialMomentum >}} | `mode_` | `conserve-axial-momentum` |
+| flux form of the divergence | {{< code src/forcing/axial_momentum.cpp AxialMomentum::flux_form >}} | `reff` | `transport`, `exact` |
+| setting the $\mathbf K$ component, axis cell | {{< code src/forcing/axial_momentum.cpp AxialMomentum::rate_to_rows >}} | `on_axis_` | |
+| torque of the dissipative flux and partial sums | {{< code src/forcing/axial_momentum.cpp AxialMomentum::add_torque >}} | `sums_` | `exact` |
+| the torque inside the Coriolis call | {{< code src/forcing/coriolis.cpp CoriolisImpl::add >}} | `add_torque` | `exact` |
+| closure increment | {{< code src/forcing/axial_momentum.cpp AxialClosureFixer::apply >}} | `stage_weight` | `exact` |
+| global phase over the blocks | {{< code src/mesh/mesh.cpp MeshImpl::forward >}} | `apply_axial_closure` | `exact` |
+| the deck key | {{< code src/options/hydro.yaml >}} | `conserve-axial-momentum` | `dynamics`[^rg-23a88146575b] |
+
+: Code map of the axial angular momentum. {#tbl-ch07-axial-code}
+
+**The deck switch.** Under `dynamics`, set `conserve-axial-momentum` to `exact` (or `transport`); on a
+`gnomonic-equiangle` grid with `geometry.cells.interp_order: 4`, and, if the deck has a Coriolis force, with
+`forcing.coriolis` of `type: xyz` about $\Omega_1$ only. `transport` needs neither the interpolation order nor the
+Coriolis form.
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| {{< code tests/test_axial_momentum.cpp Closure.declared_change_is_the_measured_one >}} (`test_axial_momentum.release`) | on six panels, nx 8 and 9 (axis cell), the closure's declared AAM change is $-w_2\Delta t\,\mathcal Q$ and equals the measured one; only $m_2$, $m_3$ change; booked as fixer `aam.closure` | $10^{-13}$ and $10^{-12}$ rel. | `EXPECT_LE` |
+| {{< code tests/test_axial_momentum.cpp ClosureMask.bad_sums_change_nothing >}} (`test_axial_momentum.release`) | a non-finite $\mathcal Q$ leaves the state unchanged | exact | `torch::equal` |
+| {{< code tests/test_axial_momentum.cpp ViscousTorque.the_closure_keeps_it >}} (`test_axial_momentum.release`) | `exact` with `nu_iso`[^rg-68e1ae201205]: $\{\mathcal Q,\mathcal J\}$ are the same bits as without, so the closure removes none of the viscous torque | bitwise | `torch::equal` |
+| {{< code tests/test_axial_momentum.cpp SourceShare.sponge_and_drag_torque_is_the_aam_change >}} (`test_axial_momentum.release`) | a sponge's and a velocity relaxation's AAM share is the AAM change they make | $10^{-15}\,\lvert L\rvert$ | `EXPECT_LE` |
+| {{< code tests/test_axial_momentum_flux_form.py >}} (`test_axial_momentum_flux_form_python`) | `transport` without rotation and `exact` keep $L$; `off` drifts; rest stays at rest; with slow rotation `transport` and `exact` without closure drift `GAIN` times less than `off`; refusals | $10^{-12}$ rel.; `GAIN` 10 | `TOL`, `GAIN`, `REST_TOL` |
+| {{< code tests/test_global_phase_closure.cpp GlobalPhase.axial_closure_partial_sums_stay_on_the_device >}} (`test_global_phase_closure.release`) | the blocks' $\{\mathcal Q_b,\mathcal J_b\}$ are two FP64 numbers on the CUDA device | exact | a placement contract |
+
+: Tests of the axial angular momentum. {#tbl-ch07-axial-tests}
+
+The ctests pass at the pin.[^axial-run]
+
+[^axial-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>`, with anchored patterns over the 25 ctests this chapter cites, in the `tests`
+    directory of a README CUDA Release build at the pin; CPU, and two visible CUDA GPUs (Quadro RTX 4000) for the CUDA
+    and two-device arms; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 24 of the 25
+    ctests passed; `test_diffusion_cubed_sphere_two_gpu.release`, registered as one process, skipped by design, and
+    its two-rank registration passed.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+1. **`transport` with rotation.** The Coriolis force stays in cell form and its exchange with the planetary AAM is
+   left open; the absolute AAM is not exact. The test asks only that the drift be `GAIN` times below `off` at slow
+   rotation.
+2. **Cubed sphere only.** On every other grid the key is read and does nothing.
+3. **The deck text and the code differ on viscosity.** The key's description in `hydro.yaml` says `exact` needs no
+   `forcing.diffusion.nu_iso`; the constructor refuses no viscosity, and `ViscousTorque` runs `exact` with
+   `nu_iso`. The code is what runs.
+4. **`traditional: true`.** The Coriolis rows that carry the $x_1$ exchange are absent, so the $x_1$ part of the
+   exchange is not closed by them.
+5. **Not measured in a GCM configuration** at the pin; the tests are six-panel test decks and Williamson 2.
+:::
+
+<!-- reader glossary notes -->
+[^rg-23a88146575b]: dynamics — hydrodynamic options block
+
+[^rg-68e1ae201205]: nu_iso — isotropic viscosity coefficient, interpreted according to dynamic
+<!-- end reader glossary notes -->

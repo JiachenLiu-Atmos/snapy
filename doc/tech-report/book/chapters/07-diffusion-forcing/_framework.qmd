@@ -1,31 +1,37 @@
 ## The forcing loop: parsing, registration and the stage increment (`forcing:`) {#sec-ch07-framework}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: OUTLINE.md 9.1; src/hydro/register_forcing_modules.cpp, src/hydro/hydro_options.cpp, src/hydro/hydro.cpp,
-         src/hydro/hydro_forward.cpp, src/mesh/meshblock.cpp, src/forcing/*.cpp at the pin
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 7.4; src/forcing/source_term.hpp, src/hydro/register_forcing_modules.cpp,
+         src/hydro/hydro_options.cpp, src/hydro/hydro.cpp, src/hydro/hydro_forward.cpp,
+         src/mesh/meshblock_advance.cpp, tests/test_source_registry.cpp at the pin
 status: draft
+author: chengcli
+reviewer: zoeyzyhu
 -->
 
 ### Summary
 
 A *forcing* in snapy is any physical source term that is not a flux through cell faces: gravity, the Coriolis
-force, viscosity, heating, relaxation towards a target state, a sponge layer. Each forcing is a small module.
-The forcing loop reads the `forcing:` block of the input file, builds one module per key, and lets every module
-add its contribution to the change of the state in each time-step stage. The loop exists so that every source
-term enters the model in the same way, in the same place, and in an order that does not matter. With it, a user
-switches sources on and off from the input file, and a developer adds a new source by writing one module.
+force, viscosity, heating, relaxation towards a target state, a sponge layer. Each forcing is a small module, a
+`SourceTerm` that declares its deck key, its phase, the rows of $\mathbf U$[^rg-15d7eb0a1f99] it writes and the region of the
+column it acts on. The forcing loop reads the `forcing:` block of the input file, builds one module per key into
+the block's source registry, and lets every module add its contribution to the change of the state in each
+time-step stage: all of them before the vertical implicit solve, and the Coriolis force once more after it. The
+registry exists so that every source term enters the model in the same way, in the same place, and in an order
+that does not matter. With it, a user switches sources on and off from the input file, and a developer adds a new
+source by writing one module.
 
 ::: {.callout-note title="At a glance"}
 **Purpose.** Adds $\Delta t\,\mathbf S^{m}$ of every module $m$ to the stage increment, @eq-ch07-framework-stage.
 
 **Data.** Reads $\mathbf W$[^rg-f6181b776a7d], $T$[^rg-a94787de567c] and $\Delta t$[^rg-f051bcdbce20] of the stage; writes $\Delta\mathbf U$ and `_forcing_dry`.
 
-**Placement.** Every RK[^rg-1c18af462152] stage, in `HydroImpl::forward`, right after the flux divergence.
+**Placement.** Every RK[^rg-1c18af462152] stage, in `HydroImpl::forward`: the pre-implicit phase right after the flux divergence, the post-implicit phase (Coriolis only) after the implicit solve, under the $x_1$ mass-flux gate.
 
 **Activation.** One module per key under `forcing:`; no key, no module. Default: no forcing.
 
-**Guarantee / limits.** Sum independent of module order up to round-off; each term first order in a stage.
+**Guarantee / limits.** Sum independent of module order up to round-off; each term first order in a stage; a wall module runs only on a block that has its wall.
 
 **Evidence.** The Tests layer below, @tbl-ch07-framework-tests.
 :::
@@ -35,7 +41,8 @@ module $m$; $(\nabla\cdot\mathbf F)_i$ the discrete flux divergence of cell $i$[
 increment after module $m$; $\Delta\rho_{\mathrm{d}}^{\mathrm{forc}}$ the dry-density increment of the modules;
 $b_k$, $B_k$, $\delta_k$, $\delta_{\mathrm{mach}}$ the terms, partial sums and rounding errors of a floating-point sum.
 
-Twelve keys are accepted under `forcing:`. Eleven install a module; `plume-forcing` is accepted but never
+Twelve keys are accepted under `forcing:`. Eleven install a module: `const-gravity`[^rg-fdb90fff9fd8] as the gravity module of
+@sec-ch06, which runs just before the registry, and ten into the registry. `plume-forcing` is accepted but never
 installed (@sec-ch07-plume). The key `fric-heat` is refused, because the gravity work of @sec-ch06 already
 contains the energy it would add.
 
@@ -52,7 +59,7 @@ $$
 \frac{\partial\mathbf U}{\partial t} = -\nabla\cdot\mathbf F + \mathbf S .
 $$
 
-$\mathbf F$ is the flux of $\mathbf U$[^rg-15d7eb0a1f99] [units of $\mathbf U$ times $\mathrm{m\,s^{-1}}$], and $\mathbf S$ is the
+$\mathbf F$ is the flux of $\mathbf U$ [units of $\mathbf U$ times $\mathrm{m\,s^{-1}}$], and $\mathbf S$ is the
 source [units of $\mathbf U$ per second]. A source changes $\mathbf U$ inside a cell without moving anything
 through its faces.
 
@@ -117,9 +124,14 @@ argument has five steps.
    its start, before the loop. No module writes into $\mathbf W$.
 2. *Every module reads the same $T$.* $T$ is computed once from that $\mathbf W$, as `temp`, just before the loop.
    No module writes into `temp`.
-3. *No module reads the increment.* Each module receives the increment array `du` only to add to it: every write
-   in every module's `forward` is a `+=` or `-=` on `du`. So the term $\Delta t\,\mathbf S^{m}_i$ depends only on
-   $\mathbf W$, $T$, $\Delta t$ and the module's fixed data (grid, options), never on another module's output.
+3. *No module reads the increment.* Each module receives the increment array `du` only to add to it: the
+   contract of `SourceTerm::add` is to add the increment over $\Delta t$, writing each element at most once
+   ({{< code src/forcing/source_term.hpp SourceTerm >}}). The registry has a second path, given a budget sink, that
+   hands each module a zeroed scratch array instead of `du` and adds the scratch to `du` afterwards;
+   `test_source_registry` checks that the two paths give the same `du` bit for bit, which they could not if a module
+   read what the modules before it wrote. So the
+   term $\Delta t\,\mathbf S^{m}_i$ depends only on $\mathbf W$, $T$, $\Delta t$, the Coriolis input `wc` and the
+   module's fixed data (grid, options), never on another module's output.
 4. *Hence each term is the same number whatever its position in the loop.* Steps 1 to 3 say that the inputs of
    module $m$ do not change when the modules before it change.
 5. *Hence the result is a sum of $M + 1$ fixed terms.* In exact arithmetic addition is commutative and
@@ -196,9 +208,11 @@ $$
 
 The subscript $\rho_{\mathrm{d}}$[^rg-a3c1b56ee687] selects the dry-density row. The first equality is what the code computes
 (`dry_before` is the row after the divergence, before the loop). The second follows from the recursion above. The
-array is formed only when the block carries tracers and has at least one module; otherwise it is left undefined and
-nothing is carried. `MeshBlockImpl::advance_local` adds $r_n\,\Delta\rho_{\mathrm{d}}^{\mathrm{forc}}$ to the tracer
-increment with `carry_dry_source` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}). For removal,
+array is formed only when the block carries tracers and has gravity or at least one registered module; otherwise it
+is left undefined and nothing is carried. With FP32 storage the modules add into an FP64 scratch, and the array is
+that scratch's dry row. After the tracer transport, `MeshBlockImpl::stage_advance` adds
+$r_n\,\Delta\rho_{\mathrm{d}}^{\mathrm{forc}}$ to the tracer increment with
+`carry_dry_source` ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}}). For removal,
 $\Delta\rho_{\mathrm{d}}^{\mathrm{forc}} < 0$, it uses the ratio of the stage result without the source in place of
 $r_n$, so that a removal cannot take more tracer than transport has left; @sec-ch10-tracer derives that choice.
 
@@ -218,15 +232,30 @@ make_fig()
 **Where the loop runs.** `HydroImpl::forward` does one RK stage of the fluid in this order:
 
 1. compute $\mathbf W$ from $\mathbf U$, and mark the solid cells if there are any;
-2. reconstruct face states, solve the Riemann problems and limit the fluxes (@sec-ch04);
+2. reconstruct face states, solve the Riemann problems and limit the fluxes (@sec-ch04); the modules with face
+   fluxes (diffusion) post them into the flux register here, through `post_fluxes`;
 3. form the discrete flux divergence `_div`;
-4. start $\Delta\mathbf U$ from $-\Delta t$ times `_div` on interior cells, compute $T$, run the module loop and
-   record `_forcing_dry`;
+4. start $\Delta\mathbf U$ from $-\Delta t$ times `_div` on interior cells, compute $T$, run gravity and then the
+   pre-implicit runs of the registry, and record `_forcing_dry`;
 5. add the gravity-work bookkeeping and the hydrostatic correction, which are not modules (@sec-ch06);
-6. run the vertical implicit correction, if it is on (@sec-ch09).
+6. run the vertical implicit correction, if it is on (@sec-ch09);
+7. under the $x_1$ mass-flux gate, run the post-implicit runs of the registry (Coriolis) with $m_1$[^rg-9987252cf6c3] built from the
+   stage's $x_1$ face mass transfer (@sec-ch07-coriolis).
 
-Step 4 is this section. After `HydroImpl::forward` returns, `MeshBlockImpl::advance_local` carries the tracers, adds
-the user stage forcings (@sec-ch07-user) and hands $\Delta\mathbf U$ to the integrator.
+Steps 4 and 7 are this section. After `HydroImpl::forward` returns, `MeshBlockImpl::stage_advance` carries the
+tracers, and `MeshBlockImpl::stage_forcing` adds the user stage forcings (@sec-ch07-user) before the stage
+increment goes to the integrator.
+
+**Runs.** The registry keeps the modules of each phase in registration order and cuts them into maximal runs of
+equal `capturable` flag; a run is either recorded into a CUDA[^rg-2238129cb896] graph or executed eagerly, and the runs never
+reorder the modules ({{< code src/forcing/source_term.hpp SourceRegistry >}}). `diffusion` and `relax-bot-comp`
+are not capturable (host reads of the profiles, and kintera's state conversion), so a deck with all ten registry
+modules has five pre-implicit runs.
+
+**Split sources.** A module that declares `split` is not run in the stages. `MeshBlockImpl::stage_advance` calls
+its `begin_split` at the start of the step, before the backup of the step-entry state, and its `finish_split` after
+the last stage; a redo restores it with `restore_split`. The radial conduction of @sec-ch07-csdiffusion uses these
+hooks.
 
 **Time accuracy within a stage.** Each module is explicit: its term is $\Delta t$ times a source evaluated on the
 stage-entry state. That is one forward-Euler step. To see its order, take one module alone,
@@ -249,8 +278,11 @@ sponges multiply by $\Delta t/\tau$, not by $1 - e^{-\Delta t/\tau}$), so this h
 enter the RK combination of stages through the same $\Delta\mathbf U$ as the divergence term (@sec-ch09-rk).
 
 **Which cells a module touches.** Each module decides. `body-heat` writes interior cells only; the diffusion
-module adds a divergence of face fluxes; the boundary modules (`top-cool`, `bot-heat`, the three relaxations, the
-two sponges) act only on a block that owns the physical $x_1$ boundary they name. Increments a module writes into
+module adds a divergence of face fluxes; the wall modules declare the region `bottom` or `top`, and the registry
+skips them on a block that does not own that physical $x_1$ boundary (`on_block`,
+{{< code src/hydro/register_forcing_modules.cpp HydroImpl::_register_forcings_module >}}). They are the three
+relaxations, the two sponges, and `top-cool` and `bot-heat` when the layer is given in cells (`depth`[^rg-87531eb32068]); a layer given
+as an $x_1$ length (`thickness`[^rg-fe78e3763b4a]) is `interior` and runs on every block of the column. Increments a module writes into
 ghost cells do not survive, because the ghosts are refilled after the stage (@sec-ch11).
 
 ### Code
@@ -258,7 +290,7 @@ ghost cells do not survive, because the ghosts are refilled after the stage (@se
 **A minimal input.** Two keys install two modules, constant gravity (@sec-ch06) and a body heating
 (@sec-ch07-heating):
 
-<!-- reader glossary keys -->Keys in this fragment: `forcing`[^rg-35bd573cb171], `const-gravity`[^rg-fdb90fff9fd8], `grav1`[^rg-6fce2ccff9c4], `dTdt`[^rg-458dd8b336a4], `pmin`[^rg-4993729f8f55], `pmax`[^rg-74bfe7b87ec3].
+<!-- reader glossary keys -->Keys in this fragment: `forcing`[^rg-35bd573cb171], `grav1`[^rg-6fce2ccff9c4], `dTdt`[^rg-458dd8b336a4], `pmin`[^rg-4993729f8f55], `pmax`[^rg-74bfe7b87ec3].
 ```yaml
 forcing:
   const-gravity:
@@ -283,21 +315,23 @@ order:
 3. *Parse each module's options* with that module's own `from_yaml`, which refuses unknown keys inside its block in
    the same way. `plume-forcing` is parsed only when the equation of state is `plume-eos`.
 
-**Installation.** `HydroImpl::reset` calls `_register_forcings_module`, which appends one module per parsed key in
-the order of @fig-ch07-framework-order
-({{< code src/hydro/register_forcing_modules.cpp HydroImpl::_register_forcings_module >}}). `HydroImpl::reset` then
-registers each module as a submodule under its key ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
+**Installation.** `HydroImpl::reset` calls `_register_forcings_module`
+({{< code src/hydro/hydro.cpp HydroImpl::reset >}}), which registers each parsed key's module as a torch submodule
+under its key and adds it to the registry `sources` in the order of @fig-ch07-framework-order; Coriolis is added a
+second time to the post-implicit phase
+({{< code src/hydro/register_forcing_modules.cpp HydroImpl::_register_forcings_module >}}).
 
 | what | code link | symbol | switch |
 |---|---|---|---|
 | refuse `fric-heat` | {{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}} | `fric-heat` | refused key |
 | the twelve keys | {{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}} | `check_keys` | `forcing:` |
 | per-module parsing | {{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}} | `from_yaml` | each key |
-| install in fixed order | {{< code src/hydro/register_forcing_modules.cpp HydroImpl::_register_forcings_module >}} | `_register_forcings_module` | each key |
-| register as submodules | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `register_module` | |
-| increment and loop | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `forcings` | |
+| the module interface | {{< code src/forcing/source_term.hpp SourceTerm >}} | `add` | |
+| the registry, its runs and the region skip | {{< code src/forcing/source_term.hpp SourceRegistry >}} | `on_block` | |
+| install in fixed order, as submodules | {{< code src/hydro/register_forcing_modules.cpp HydroImpl::_register_forcings_module >}} | `register_module` | each key |
+| increment and the two phases | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `sources.runs` | |
 | dry increment for tracers | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `_forcing_dry` | scalars present |
-| tracer carry | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `carry_dry_source` | scalars present |
+| tracer carry | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}} | `carry_dry_source` | scalars present |
 
 : Code map of the forcing loop. {#tbl-ch07-framework-code}
 
@@ -312,14 +346,20 @@ du.index(interior) = -dt * _div.index(interior);
 auto temp = peos->compute("W->T", {w});
 // only a block carrying tracers needs the forcings' dry-density increment
 bool track_dry =
-    pmb->pscalar && pmb->pscalar->nvar() > 0 && !forcings.empty();
+    pmb->pscalar && pmb->pscalar->nvar() > 0 && (pgrav || !sources.empty());
 auto dry_before = track_dry ? du[IDN].clone() : torch::Tensor();
-for (auto& f : forcings) f.forward(du, w, temp, dt);
-_forcing_dry = track_dry ? du[IDN] - dry_before : torch::Tensor();
+// ... the x1 mass-flux gate's wc1 and the FP32 scratch forcing_du ...
+  pgrav->forward(forcing_du, w, temp, dt);
+StageState stage{w, temp, dt, wc1};
+for (auto const& r : sources.runs(SourcePhase::pre_implicit))
+  sources.run(r, forcing_du, stage);
 ```
 
-The first three lines are $\Delta\mathbf U^{[0]}$; `temp` is $T$; the `for` line is the recursion for
-$m = 1, \dots, M$; the last line is $\Delta\rho_{\mathrm{d}}^{\mathrm{forc}}$, with `IDN` the dry-density row.
+The first three lines are $\Delta\mathbf U^{[0]}$; `temp` is $T$; gravity and the `for` line are the recursion for
+$m = 1, \dots, M$. After it the code forms $\Delta\rho_{\mathrm{d}}^{\mathrm{forc}}$ as `_forcing_dry`, with `IDN`
+the dry-density row. The post-implicit phase, run only under the $x_1$ mass-flux gate (`if (mass_w)`), is the same loop over
+`SourcePhase::post_implicit` with the stage's
+`wc2` in place of `wc1`.
 
 ### Tests
 
@@ -328,7 +368,9 @@ $m = 1, \dots, M$; the last line is $\Delta\rho_{\mathrm{d}}^{\mathrm{forc}}$, w
 | {{< code tests/test_hydro_options.cpp hydro_options.reject_removed_and_unknown_forcing_keys >}} (`test_hydro_options.release`) | a `const-gravity` block parses; `fric-heat` and an unknown key throw | exact (throws) | a parser contract |
 | the twelve `*_refuses_an_unknown_key` cases of `tests/test_yaml_keys.cpp` (`test_yaml_keys.release`) | a misspelt key inside any forcing block throws "unknown key" | exact (throws) | a parser contract |
 | {{< code tests/test_forcing.cpp forcing.meshblock_registers_parent_dependent_modules >}} (`test_forcing.release`) | a MeshBlock with `body-heat` and the three relaxations constructs | exact (no throw) | a registration contract |
-| {{< code tests/test_forcing.cpp forcing.boundary_fluxes_scale_with_timestep >}} (`test_forcing.release`) | `top-cool`, `bot-heat`: $\Delta\mathbf U(2\Delta t) = 2\,\Delta\mathbf U(\Delta t)$ | rel. $10^{-5}$, abs. $10^{-8}$ | `torch::allclose` defaults |
+| {{< code tests/test_source_registry.cpp SourceRegistry.a_deck_declares_its_sources_in_deck_order >}} (`test_source_registry.release`) | a deck with the ten registry keys runs them in registration order, in five runs; Coriolis is the one post-implicit module; no split module | exact | a registration contract |
+| {{< code tests/test_source_registry.cpp SourceRegistry.budgets_on_give_the_budgets_off_du >}} (`test_source_registry.release`) | the same `du` with and without the per-module scratch, and the scratches sum to the increment | bitwise (`torch::equal`); sum $10^{-12}$ | `torch::allclose(..., 1.e-12, 1.e-12)` |
+| {{< code tests/test_source_registry.cpp SourceRegistry.wall_sources_skip_a_block_without_that_wall >}} (`test_source_registry.release`) | with no top wall, `top-cool` and `top-sponge-lyr` are skipped | exact | a registration contract |
 | `framework_check.py` `[C1]`–`[C3]` (this report) | order independence, linearity in $\Delta t$, `_forcing_dry` | per claim | stated in the check |
 
 : Tests of the forcing loop. {#tbl-ch07-framework-tests}
@@ -338,11 +380,17 @@ orders agree to $4.4\times10^{-16}$ of the largest $\lvert\Delta\mathbf U\rvert$
 `[C2]`: doubling $\Delta t$ doubles $\Delta\mathbf U$ exactly. `[C3]`: `_forcing_dry` equals the modules' dry
 increment to $2.8\times10^{-17}$, and is not formed without tracers.
 
-The four ctest cases run on CPU[^rg-9dfff25f07b9], one rank; there is no CUDA[^rg-2238129cb896] or multi-rank arm. They have not been run for this
-report at the pin: **pending a pinned ctest run**.
+The ctest cases run on CPU[^rg-9dfff25f07b9], one rank; there is no CUDA or multi-rank arm. They pass at the pin.[^fw-ctest]
 
-[^fw-run]: [sha: snapy@919936da07d80a310b98ab11da184972a3203274; deck: the check itself, seed 21; run: `python3 src/snapy_report/ch07/checks/framework_check.py`,
-    CPU, double, 1 process; Python 3.12.3, numpy 2.2.4, sympy 1.14.0; output identical to the committed file]. Output `framework_check.out`, lines `[C1]`–`[C3]`.
+[^fw-ctest]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>`, with anchored patterns over the 25 ctests this chapter cites, in the `tests`
+    directory of a README CUDA Release build at the pin; CPU, and two visible CUDA GPUs (Quadro RTX 4000) for the CUDA
+    and two-device arms; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 24 of the 25
+    ctests passed; `test_diffusion_cubed_sphere_two_gpu.release`, registered as one process, skipped by design, and
+    its two-rank registration passed.
+
+[^fw-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the check itself, seed 21; run: `python3 src/snapy_report/ch07/checks/framework_check.py`,
+    CPU, double, 1 process; Python 3.11.13, numpy 2.4.6, sympy 1.14.0; output identical to the committed file]. Output `framework_check.out`, lines `[C1]`–`[C3]`.
     Re-run of the committed numpy port from the report directory; this does not execute snapy.
 
 ### Limits
@@ -354,10 +402,14 @@ report at the pin: **pending a pinned ctest run**.
    before it ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). The diffusion module is the worked case
    (@sec-ch07-wallcoef); the relaxations and `body-heat` read the same state and are not measured.
 3. **`plume-forcing`** is accepted by the parser and never installed (@sec-ch07-plume).
-4. **Untested combinations.** No ctest steps two boundary modules together through the solver. See the switch
+4. **No per-module budgets in a run.** `HydroImpl::forward` passes no budget sink to the registry at the pin, so a
+   run does not report each module's increment; the sink path is exercised by `test_source_registry` only.
+5. **Untested combinations.** No ctest steps two boundary modules together through the solver. See the switch
    coverage matrix, @sec-ch12-matrix.
 
 <!-- reader glossary notes -->
+[^rg-15d7eb0a1f99]: $\mathbf U$ — conserved state vector $(\rho_d, m_1, m_2, m_3, E, \rho_1..\rho_{N_y})$
+
 [^rg-f6181b776a7d]: $\mathbf W$ — primitive state vector $(\rho, v_1, v_2, v_3, p, y_1..y_{N_y})$
 
 [^rg-a94787de567c]: $T$ — temperature [K]
@@ -370,11 +422,11 @@ report at the pin: **pending a pinned ctest run**.
 
 [^rg-7f2b700e0b40]: $i, j, k$ — cell indices in $x_1, x_2, x_3$
 
+[^rg-fdb90fff9fd8]: const-gravity — constant-gravity forcing component
+
 [^rg-071a0a3e4354]: $E$ — total energy density, internal plus kinetic, $\rho e + \tfrac12\rho\lvert\mathbf v\rvert^2$ [J m$^{-3}$]; excludes potential energy
 
 [^rg-216a5cf9b341]: $\rho_n$ — partial density of species $n$, $\rho y_n$ [kg m$^{-3}$]
-
-[^rg-15d7eb0a1f99]: $\mathbf U$ — conserved state vector $(\rho_d, m_1, m_2, m_3, E, \rho_1..\rho_{N_y})$
 
 [^rg-eeb1953951ea]: $V_i$ — cell volume
 
@@ -386,9 +438,15 @@ report at the pin: **pending a pinned ctest run**.
 
 [^rg-a3c1b56ee687]: $\rho_{\mathrm{d}}$ — dry-air density [kg m$^{-3}$]
 
-[^rg-35bd573cb171]: forcing — forcing options block: a map with one sub-block per forcing component
+[^rg-9987252cf6c3]: $m_1, m_2, m_3$ — momentum density $\rho v_a$
 
-[^rg-fdb90fff9fd8]: const-gravity — constant-gravity forcing component
+[^rg-2238129cb896]: CUDA — NVIDIA's parallel computing platform
+
+[^rg-87531eb32068]: depth — number of cells over which boundary heating or cooling is distributed
+
+[^rg-fe78e3763b4a]: thickness — the layer next to an x1 domain end that boundary heating or cooling is spread over, in x1 length units; given instead of depth
+
+[^rg-35bd573cb171]: forcing — forcing options block: a map with one sub-block per forcing component
 
 [^rg-6fce2ccff9c4]: grav1 — gravity component along the first coordinate
 
@@ -401,6 +459,4 @@ report at the pin: **pending a pinned ctest run**.
 [^rg-a9aa1f1e2fb2]: relax-bot-velo — bottom velocity-relaxation options
 
 [^rg-9dfff25f07b9]: CPU — central processing unit
-
-[^rg-2238129cb896]: CUDA — NVIDIA's parallel computing platform
 <!-- end reader glossary notes -->

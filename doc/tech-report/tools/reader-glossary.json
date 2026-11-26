@@ -1046,6 +1046,9 @@
       "term": "$e$",
       "notation_group": "2",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L278-L281",
+      "meaning_by_file": {
+        "chapters/07-diffusion-forcing/_x1profile.qmd": "specific internal energy [J kg$^{-1}$]; its per-species heat-capacity ratio is `cv_ratio_m1` in the code"
+      },
       "section": "sec-appa-2"
     },
     {
@@ -1127,6 +1130,9 @@
       "term": "$R_{\\mathrm{d}}$, $R_n$",
       "notation_group": "2",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L40-L43",
+      "meaning_by_file": {
+        "chapters/07-diffusion-forcing/_viscosity.qmd": "specific gas constants of dry air and species $n$ [J kg$^{-1}$ K$^{-1}$]; `Rd` and `Ri` in the code"
+      },
       "section": "sec-appa-2"
     },
     {
@@ -1192,6 +1198,9 @@
       "term": "$H$",
       "notation_group": "2",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/tests/test_cubed_sphere_cell_volume.py#L70-L74",
+      "meaning_by_file": {
+        "chapters/07-diffusion-forcing/_wallcoef.qmd": "a density or pressure scale height [m]; in the cell-volume test it is $p_0/(\\rho_0g)$, with `rho0`"
+      },
       "section": "sec-appa-2"
     },
     {
@@ -1692,7 +1701,8 @@
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14",
       "meaning_by_file": {
         "chapters/03-grids-geometry/_globalgrid.qmd": "machine epsilon of the working precision (never bare $\\epsilon$, which is $\\epsilon_{\\mathrm{piv}}$); `machine_epsilon` in the code",
-        "chapters/08-positivity/_borrow.qmd": "machine epsilon of the working precision (never bare $\\epsilon$, which is $\\epsilon_{\\mathrm{piv}}$), `machine_epsilon` in the code"
+        "chapters/08-positivity/_borrow.qmd": "machine epsilon of the working precision (never bare $\\epsilon$, which is $\\epsilon_{\\mathrm{piv}}$), `machine_epsilon` in the code",
+        "chapters/07-diffusion-forcing/_coriolis.qmd": "machine epsilon of the working precision (never bare $\\epsilon$, which is $\\epsilon_{\\mathrm{piv}}$); `machine_epsilon` in the code"
       },
       "section": "sec-appa-7"
     },
@@ -1710,7 +1720,8 @@
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/diffusion.cpp#L621-L626",
       "section": "sec-appa-8",
       "meaning_by_file": {
-        "chapters/08-positivity/_sed.qmd": "dynamic and kinematic viscosity; the diffusion module calls the kinematic one `nu_iso`"
+        "chapters/08-positivity/_sed.qmd": "dynamic and kinematic viscosity; the diffusion module calls the kinematic one `nu_iso`",
+        "chapters/07-diffusion-forcing/_viscosity.qmd": "dynamic and kinematic viscosity; `nu_iso` in the code"
       }
     },
     {
@@ -1718,6 +1729,9 @@
       "term": "$\\kappa$",
       "notation_group": "8",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/diffusion.cpp#L631-L665",
+      "meaning_by_file": {
+        "chapters/07-diffusion-forcing/_viscosity.qmd": "thermal diffusivity (or conductivity, stated); `kappa_iso` in the code"
+      },
       "section": "sec-appa-8"
     },
     {
@@ -1746,6 +1760,9 @@
       "term": "$\\tau$",
       "notation_group": "8",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/relax_bot_temp.cpp#L102-L105",
+      "meaning_by_file": {
+        "chapters/07-diffusion-forcing/_viscosity.qmd": "a relaxation time scale (named); it scales the bottom-temperature relaxation `heating` in the code"
+      },
       "section": "sec-appa-8"
     },
     {

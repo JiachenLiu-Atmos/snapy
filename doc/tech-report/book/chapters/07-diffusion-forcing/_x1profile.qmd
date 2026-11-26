@@ -1,11 +1,13 @@
 ## x1 profiles of the diffusion coefficients and the mean-of-products face coefficient (`nu_scale_x1`, `kappa_scale_x1`) {#sec-ch07-x1profile}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: OUTLINE.md 9.6; src/forcing/diffusion.cpp, docs/derivations/diffusion-face-coefficient.md,
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 7.3; src/forcing/diffusion.cpp, docs/derivations/diffusion-face-coefficient.md,
          docs/derivations/diffusion_face_coefficient.py, tests/test_diffusion_x1_scale.cpp,
          tests/test_diffusion_x1_scale.py at the pin
 status: draft
+author: chengcli
+reviewer: zoeyzyhu
 -->
 
 
@@ -34,7 +36,7 @@ $x_1$ face coefficient as the mean of the two cells' products; @eq-ch07-x1profil
 **Guarantee / limits.** Zero tendency for a constant product; second-order face flux; a per-cell profile is refused
 when $x_1$ is split; a profile changed after construction is refused.
 
-**Evidence.** Report checks and source-test assertions are listed below; solver ctests were not run at the pin.
+**Evidence.** @tbl-ch07-x1profile-tests; the ctests pass at the pin, and the report check ports the formulas.
 :::
 
 **Data details.** In: a table of knots $(x_1, \varsigma)$ from YAML or Python (at least two, finite, strictly
@@ -47,8 +49,7 @@ and 256, the table on knots and between them.
 {{< code tests/test_diffusion_x1_scale.cpp diffusion_x1_scale.constant_dynamic_coefficient_column_has_no_tendency >}}
 ($10^{-12}$); the face flux of a smooth profile converges at order above 1.85,
 {{< code tests/test_diffusion_x1_scale.cpp diffusion_x1_scale.smooth_profile_flux_converges_at_second_order >}}; the
-YAML table equals the per-cell profile bit for bit, {{< code tests/test_diffusion_x1_scale.py main >}}; these ctests
-were not run at the pin. Check: `python3 src/snapy_report/ch07/checks/x1profile_check.py`, output `x1profile_check.out` lines `[C1]`–`[C5]`, re-run at the pin: all PASS, output identical [^env-x1profile].
+YAML table equals the per-cell profile bit for bit, {{< code tests/test_diffusion_x1_scale.py main >}}. Check: `python3 src/snapy_report/ch07/checks/x1profile_check.py`, output `x1profile_check.out` lines `[C1]`–`[C5]`, re-run at the pin: all PASS, output identical [^env-x1profile].
 
 Local symbols: $\varsigma(x_1)$ [-] the $x_1$ profile of a coefficient (`nu_scale_x1`,
 `kappa_scale_x1`; $s$ is the centroid slope of appendix A); $q$ the cell field it multiplies ($\rho$ or $\rho c_v$);
@@ -148,7 +149,7 @@ make_fig()
 
 The profile is stored per $x_1$ cell centre, ghosts included, in float64 on the CPU when the module is built, by
 `profile` ({{< code src/forcing/diffusion.cpp DiffusionImpl::reset >}}), and copied once to the state's device and
-dtype on first use, by `on_state` ({{< code src/forcing/diffusion.cpp DiffusionImpl::forward >}}). A profile of ones
+dtype on first use, by `on_state` ({{< code src/forcing/diffusion.cpp DiffusionImpl::profiles_on >}}). A profile of ones
 gives the coefficient without a profile bit for bit, because $q\times1=q$. The time-step bound uses the largest
 profile value (@eq-ch07-viscosity-dt). The stencil is that of @sec-ch07-viscosity; only the face coefficient
 changes.
@@ -199,7 +200,7 @@ if (idir == 0) {
 | frozen after build | {{< code src/forcing/diffusion.cpp DiffusionImpl::check_profiles >}} | `check_profiles` | |
 | @eq-ch07-x1profile-mp on $x_1$ faces | {{< code src/forcing/diffusion.cpp face_scaled_coefficient >}} | `face_scaled_coefficient` | |
 | $x_2$/$x_3$ faces | {{< code src/forcing/diffusion.cpp face_scaled_coefficient >}} | `face_average` | |
-| use in the fluxes | {{< code src/forcing/diffusion.cpp DiffusionImpl::forward >}} | `face_scaled_coefficient` | profile given |
+| use in the fluxes | {{< code src/forcing/diffusion.cpp DiffusionImpl::cartesian_fluxes >}} | `face_scaled_coefficient` | profile given |
 
 : Code map of the $x_1$ coefficient profiles. {#tbl-ch07-x1profile-code}
 
@@ -209,11 +210,11 @@ if (idir == 0) {
 2. `reset` refuses an inference tensor, a profile given both ways, any profile with `dynamic: true`, and a per-cell
    profile when $x_1$ is split into several blocks, of the wrong length, not float64, or not positive
    ({{< code src/forcing/diffusion.cpp DiffusionImpl::reset >}}).
-3. At every `forward` and `max_time_step`, `check_profiles` refuses a profile set, replaced or changed after the
+3. At every `add`, `post_fluxes` and `max_time_step`, `check_profiles` refuses a profile set, replaced or changed after the
    block was built, by identity, version counter and value
    ({{< code src/forcing/diffusion.cpp DiffusionImpl::check_profiles >}}).
-4. `forward` uses `face_scaled_coefficient` in place of `face_coefficient` when a profile is set
-   ({{< code src/forcing/diffusion.cpp DiffusionImpl::forward >}}).
+4. `cartesian_fluxes` uses `face_scaled_coefficient` in place of `face_coefficient` when a profile is set
+   ({{< code src/forcing/diffusion.cpp DiffusionImpl::cartesian_fluxes >}}).
 
 ### Tests
 
@@ -236,8 +237,9 @@ The derived round-off checks [D6] pass.[^ch07-roundoff]
 ::: {.callout-important title="Check"}
 **Evidence.** The check numbers come from the port named in the footnote. The fitted orders of the solver's own
 face fluxes are printed by no test: a data figure of the solver's convergence at $n_1$ = 32, 64, 128 needs the
-ctest to print them and a pinned run, **pending**. ctest cases: **pending a pinned ctest run**.
-**Coverage.** CPU; the two `_cuda` cases on a device, not run for this report. No multi-rank arm.
+ctest to print them; not drawn. The ctest cases pass at the pin, the two `_cuda` cases on one CUDA
+device.[^x1p-run]
+**Coverage.** CPU, and the two `_cuda` cases on a device. No multi-rank arm.
 :::
 
 ### Limits
@@ -250,12 +252,19 @@ ctest to print them and a pinned run, **pending**. ctest cases: **pending a pinn
 5. **The wall cell keeps the $O(h)$ error** of the normal-stress kernel (@sec-ch07-viscosity).
 
 
+[^x1p-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>`, with anchored patterns over the 25 ctests this chapter cites, in the `tests`
+    directory of a README CUDA Release build at the pin; CPU, and two visible CUDA GPUs (Quadro RTX 4000) for the CUDA
+    and two-device arms; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 24 of the 25
+    ctests passed; `test_diffusion_cubed_sphere_two_gpu.release`, registered as one process, skipped by design, and
+    its two-rank registration passed.
+
 [^env-x1profile]: Recorded run environment: Python 3.11.13, numpy 2.4.6, sympy 1.14.0.
 
 <!-- reader glossary notes -->
 [^rg-2b93cd28ee3b]: $C$ — Courant number (named: acoustic, advective, vertical acoustic)
 
-[^rg-0f12429a3d5d]: $e$ — specific internal energy [J kg$^{-1}$]; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L278-L281)
+[^rg-0f12429a3d5d]: $e$ — specific internal energy [J kg$^{-1}$]; its per-species heat-capacity ratio is `cv_ratio_m1` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L278-L281)
 
 [^rg-4f3551f7ab4e]: $\rho_{\mathrm{ref}}, p_{\mathrm{ref}}$ — cell reference density and pressure of the well-balanced $x_1$ reconstruction
 

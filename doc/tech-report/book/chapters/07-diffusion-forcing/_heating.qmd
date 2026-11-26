@@ -1,10 +1,13 @@
 ## Body heating, top cooling and bottom heating (`body-heat`, `top-cool`, `bot-heat`) {#sec-ch07-heating}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: OUTLINE.md 9.7; src/forcing/body_heat.cpp, top_cool.cpp, bot_heat.cpp, src/forcing/forcing.hpp,
-         tests/test_forcing.cpp, tests/test_stretched_x1_ref.cpp at the pin
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 7.4; src/forcing/body_heat.cpp, src/forcing/layer_heat.cpp, src/forcing/forcing.hpp,
+         src/options/forcing_body_heat.yaml, forcing_top_cool.yaml, forcing_bot_heat.yaml, tests/test_forcing.cpp,
+         tests/test_source_registry.cpp, tests/test_stretched_x1_ref.cpp at the pin
 status: draft
+author: chengcli
+reviewer: zoeyzyhu
 -->
 
 
@@ -13,11 +16,11 @@ status: draft
 These three modules are prescribed heat sources for idealised convection. They touch only the total energy, so
 they change the temperature and, through it, the pressure; mass and momentum are untouched. `body-heat` is a
 volumetric rate; `top-cool` and `bot-heat` stand for a radiative or surface flux at the top or bottom of the
-domain.
+domain; the two are one class, `LayerHeat`, built for one end or the other.
 
-Each boundary flux can name its layer in either of two ways, and they behave differently. `depth`[^rg-87531eb32068] counts cells,
+Each boundary flux can name its layer in either of two ways, and they behave differently. `depth` counts cells,
 so the layer is as thick as whatever cells happen to sit at that end, and only the block that owns the physical
-$x_1$ boundary forces. `thickness`[^rg-fe78e3763b4a] is the length of that layer in $x_1$ units: each cell takes the part of the
+$x_1$ boundary forces. `thickness` is the length of that layer in $x_1$ units: each cell takes the part of the
 layer that lies inside it, and every block does so, so a layer that reaches past one block is continued into the next. On a
 grid whose $x_1$ cells are not all the same width, `depth` delivers the wrong column total and `thickness`
 delivers the right one; on such a grid `depth` is refused outright.
@@ -43,7 +46,7 @@ $\mathrm{Pa}$]; `top-cool: {flux, depth | thickness}`, `flux` $\le0$; `bot-heat:
 cells, with `thickness` on any $x_1$ grid; neither is corrected for a curved cell volume; the default `pmax` of 1
 $\mathrm{Pa}$ heats almost nothing.
 
-**Evidence.** Report checks and source-test assertions are listed below; solver ctests were not run at the pin.
+**Evidence.** @tbl-ch07-heating-tests; the ctests pass at the pin, and the report check ports the formulas.
 :::
 
 **Data details.** In: the interior density $\rho$, pressure $p$[^rg-fc4bf85c1108] [$\mathrm{Pa}$] and mixture $c_v$ (`body-heat`); the
@@ -53,11 +56,9 @@ Out: the energy row of the increment, per unit volume [$\mathrm{J\,m^{-3}}$]. Ch
 $\mathrm{W\,m^{-2}}$ with `depth` 4 on uniform cells and on cells growing upward by 10 %, and the same flux with
 `thickness` 230 m, 7 m and the whole column on three grids.
 
-**Evidence details.** Tests: heating only inside the pressure band with the mixture $c_v$,
-{{< code tests/test_forcing.cpp forcing.body_heat_uses_pressure_mask_and_mixture_cv >}}; linearity of the boundary
-fluxes in $\Delta t$, {{< code tests/test_forcing.cpp forcing.boundary_fluxes_scale_with_timestep >}} (both
-`allclose` defaults); these ctests were not run at the pin. The only solver test of a delivered column total is
-the layer-form one of @tbl-ch07-heating-tests; the `depth` form has none. Check:
+**Evidence details.** Tests: the option refusals and defaults, the wall gate of the `depth` form, and the column
+total of the layer form, @tbl-ch07-heating-tests. No ctest at the pin checks the pressure band and the mixture
+$c_v$ of `body-heat`, or the column total of the `depth` form; the check below covers both. Check:
 `python3 src/snapy_report/ch07/checks/heating_check.py`, output `heating_check.out` lines `[C1]`–`[C5]`, re-run at
 the pin: all five PASS, `[C1]`–`[C3]` with the digits they had before [^env-heating].
 
@@ -80,8 +81,8 @@ $$
 \Delta E_i = \Delta t\,\dot T\,\rho_ic_{v,i} ,
 $$ {#eq-ch07-heating-body}
 
-with $c_v$ the mixture value of the equation of state at the cell's state, in `BodyHeatImpl::forward`
-({{< code src/forcing/body_heat.cpp BodyHeatImpl::forward >}}). For a constant $c_v$ at fixed density this raises
+with $c_v$ the mixture value of the equation of state at the cell's state, in `BodyHeatImpl::add`
+({{< code src/forcing/body_heat.cpp BodyHeatImpl::add >}}). For a constant $c_v$ at fixed density this raises
 $T$ by exactly $\dot T\Delta t$;[^heat-c3] a $c_v$ that depends on $T$ makes it first order in $\Delta t$.
 
 *Boundary fluxes.* A flux $F$ [$\mathrm{W\,m^{-2}}$] spread over the $n_{\mathrm{dep}}$ cells next to the boundary is applied to
@@ -93,9 +94,8 @@ $$ {#eq-ch07-heating-flux}
 
 <!-- equation-check: eq-ch07-heating-flux ch09_dropin_check.py [D2] -->
 
-with $\Delta x_{1,\mathrm b}$ the $x_1$ width of the boundary cell, `dz`, in `TopCoolImpl::forward`
-({{< code src/forcing/top_cool.cpp TopCoolImpl::forward >}}) and `BotHeatImpl::forward`
-({{< code src/forcing/bot_heat.cpp BotHeatImpl::forward >}}). What the column receives follows in three steps.
+with $\Delta x_{1,\mathrm b}$ the $x_1$ width of the boundary cell, `dz`, in `LayerHeatImpl::add`
+({{< code src/forcing/layer_heat.cpp LayerHeatImpl::add >}}), for either end. What the column receives follows in three steps.
 
 1. *Per cell.* Each of the $n_{\mathrm{dep}}$ cells gains @eq-ch07-heating-flux, the same value in every cell.
 2. *Per unit horizontal area.* On a Cartesian grid a cell's energy is $E_i\Delta x_{1,i}$ per unit area, so the column
@@ -119,8 +119,7 @@ $$
 \Delta E_i = \Delta t\,\frac{F}{L}\,\frac{\lambda_i}{\Delta x_{1,i}} ,
 $$ {#eq-ch07-heating-layer}
 
-in `TopCoolImpl::forward` ({{< code src/forcing/top_cool.cpp TopCoolImpl::forward >}}) and `BotHeatImpl::forward`
-({{< code src/forcing/bot_heat.cpp BotHeatImpl::forward >}}). The column total follows in two steps.
+in the layer branch of `LayerHeatImpl::add` ({{< code src/forcing/layer_heat.cpp LayerHeatImpl::add >}}). The column total follows in two steps.
 
 1. *Per unit horizontal area.* On a Cartesian grid cell $i$ contributes $\Delta E_i\,\Delta x_{1,i} =
    \Delta t\,F\lambda_i/L$.
@@ -132,7 +131,7 @@ in `TopCoolImpl::forward` ({{< code src/forcing/top_cool.cpp TopCoolImpl::forwar
    a quarter of the way into the next cell gives it exactly that quarter's share (`[C5]`).
 
 The two forms differ in one more way. @eq-ch07-heating-flux is applied only by the block that owns the physical
-$x_1$ boundary, so a `depth` that reaches past that block is lost; @eq-ch07-heating-layer is applied by every
+$x_1$ boundary (the module declares the region `bottom` or `top`, and the registry skips it elsewhere), so a `depth` that reaches past that block is lost; @eq-ch07-heating-layer is applied by every
 block from the global bounds, so a layer that spans an $x_1$ split is continued. Neither form corrects for the
 cell volume of a curved grid, where $V_i$ is not $\Delta x_{1,i}$ times a fixed area.
 
@@ -148,7 +147,7 @@ delivered power is not $F$ either, in either form; not measured.
 *Exact and truncated.* Both sources are exact pointwise for the stage-entry state; nothing is truncated in space.
 
 [^heat-c3]: `python3 src/snapy_report/ch07/checks/heating_check.py`, output `heating_check.out`, line `[C3]`; a numpy port
-    of the three `forward` functions at the pin, double precision.
+    of the formulas of `BodyHeatImpl::add` and both branches of `LayerHeatImpl::add` at the pin, double precision.
 [^heat-c12]: Same command, lines `[C1]` (uniform cells: $-30$ $\mathrm{W\,m^{-2}}$ delivered for $F=-30$, $n_{\mathrm{dep}}=4$) and
     `[C2]` (ratio 0.871713); `[C4]` and `[C5]` are the layer form, in the same run and the same output file.
 
@@ -195,27 +194,25 @@ forcing:
 **What is refused, and why.**
 
 1. *An unknown key* in each block, by `check_keys`.
-2. *`pmin` > `pmax`*, with "BodyHeatOptions: pmin must not exceed pmax." ({{< code src/forcing/body_heat.cpp >}}): the band would be empty.
-3. *A positive `top-cool` flux*, with "TopCool flux must be negative" ({{< code src/forcing/top_cool.cpp >}}; zero is accepted), and a
-   negative `bot-heat` flux, with "BotHeat flux must be positive" ({{< code src/forcing/bot_heat.cpp >}}; zero is accepted): each
+2. *`pmin` > `pmax`*, with "BodyHeatOptions: pmin must not exceed pmax." ({{< code src/options/forcing_body_heat.yaml >}}): the band would be empty.
+3. *A positive `top-cool` flux*, with "TopCool flux must be negative" ({{< code src/options/forcing_top_cool.yaml >}}; zero is accepted), and a
+   negative `bot-heat` flux, with "BotHeat flux must be positive" ({{< code src/options/forcing_bot_heat.yaml >}}; zero is accepted): each
    module has one direction.
 4. *`depth` $\le0$*, with "TopCool depth must be greater than zero" or "BotHeat depth must be greater than zero"
-   ({{< code src/forcing/top_cool.cpp >}}, {{< code src/forcing/bot_heat.cpp >}}).
+   (same two option tables).
 5. *Both `depth` and `thickness` in one block*, with "TopCool: give depth (cells) or thickness (x1 length), not
-   both" ({{< code src/forcing/top_cool.cpp TopCoolOptionsImpl::from_yaml >}}) and the `BotHeat` mirror
-   ({{< code src/forcing/bot_heat.cpp BotHeatOptionsImpl::from_yaml >}}): the two name the layer in different
-   units and the code would silently take one.
+   both" and the `BotHeat` mirror ({{< code src/forcing/layer_heat.cpp TopCoolOptionsImpl::from_yaml >}},
+   {{< code src/forcing/layer_heat.cpp BotHeatOptionsImpl::from_yaml >}}, which read the option tables): the two
+   name the layer in different units and the code would silently take one.
 6. *A `thickness` that is not finite and positive*, when the key is present, with "TopCool thickness must be
-   finite and greater than zero" ({{< code src/forcing/top_cool.cpp TopCoolOptionsImpl::from_yaml >}}) and the
-   `BotHeat` mirror. An absent key leaves `thickness` at 0, which selects the `depth` form.
+   finite and greater than zero" and the `BotHeat` mirror. An absent key leaves `thickness` at 0, which selects
+   the `depth` form.
 7. *A `thickness` longer than the $x_1$ column*, $L > x_{1,\max}-x_{1,\min}$, with "[TopCool] thickness exceeds
-   the x1 column" ({{< code src/forcing/top_cool.cpp TopCoolImpl::reset >}}) and the `BotHeat` mirror
-   ({{< code src/forcing/bot_heat.cpp BotHeatImpl::reset >}}): otherwise step 2 of the layer derivation fails and
-   the column would receive less than $F$.
+   the x1 column" or its `[BotHeat]` form ({{< code src/forcing/layer_heat.cpp LayerHeatImpl::reset >}}):
+   otherwise step 2 of the layer derivation fails and the column would receive less than $F$.
 8. *`depth` on a grid that declares a stretched $x_1$*, with "an integer depth is not supported on a stretched x1
    ... it counts cells; give thickness, the layer in x1 length units"
-   ({{< code src/forcing/bot_heat.cpp BotHeatImpl::reset >}},
-   {{< code src/forcing/top_cool.cpp TopCoolImpl::reset >}}). The refusal is the setup-time form of the first item
+   ({{< code src/forcing/layer_heat.cpp LayerHeatImpl::reset >}}). The refusal is the setup-time form of the first item
    of the Limits layer: on unequal cells the `depth` form delivers the wrong column total, so the deck must say
    what it means in metres. A curved grid with equal radial widths is **not** caught by this check, because
    `stretched_x1` is a property of the grid key and not of the cell volumes
@@ -224,38 +221,42 @@ forcing:
 **The code, mapped to @eq-ch07-heating-body and @eq-ch07-heating-flux:**
 
 ```cpp
-// BodyHeatImpl::forward
+// BodyHeatImpl::add
 auto mask =
     torch::logical_and(pres >= options->pmin(), pres <= options->pmax());
-du[IPR].index(interior) += torch::where(mask, dt * options->dTdt() * rho * cv,
-                                        torch::zeros_like(pres));
-// TopCoolImpl::forward
-if (!phydro->pmb->options->is_physical_boundary(0, 0, 1)) return du;
-auto dz = pcoord->dx1f[iu];
-du[IPR].slice(-1, iu + 1 - options->depth(), iu + 1) +=
-    dt * options->flux() / (dz * options->depth());
+du[IPR].index(interior) += torch::where(
+    mask, s.dt.value() * options->dTdt() * rho * cv, torch::zeros_like(pres));
+// LayerHeatImpl::add, the depth form
+int i = top_ ? pcoord->iu() : pcoord->il();
+auto dz = pcoord->dx1f[i];
+int i0 = top_ ? i + 1 - options->depth() : i;
+du[IPR].narrow(-1, i0, options->depth()) +=
+    s.dt.value() * options->flux() / (dz * options->depth());
 ```
 
-`mask` is $p_{\min}\le p_i\le p_{\max}$ and the `where` line @eq-ch07-heating-body; `dz` is $\Delta x_{1,\mathrm b}$ of the top cell
-and the last line @eq-ch07-heating-flux on the top $n_{\mathrm{dep}}$ cells. `BotHeatImpl::forward` is the mirror image with
-`narrow(-1, il, depth)` and `dx1f[il]`.
+`mask` is $p_{\min}\le p_i\le p_{\max}$ and the `where` line @eq-ch07-heating-body; `dz` is $\Delta x_{1,\mathrm b}$ of the end
+cell and the last line @eq-ch07-heating-flux on the $n_{\mathrm{dep}}$ cells at that end. The constructor declares the
+region `top` or `bottom` for the `depth` form and `interior` for the layer form, so only the `depth` form is gated on
+the physical boundary ({{< code src/forcing/layer_heat.cpp LayerHeatImpl::LayerHeatImpl overload=2 >}}).
 
-The layer branch runs first and returns, so the `is_physical_boundary` test above is never reached with a
-`thickness` set ({{< code src/forcing/top_cool.cpp TopCoolImpl::forward >}}):
+The layer branch runs first and returns ({{< code src/forcing/layer_heat.cpp LayerHeatImpl::add >}}):
 
 ```cpp
-// TopCoolImpl::forward
+// LayerHeatImpl::add, the layer form
 if (options->thickness() > 0.) {
   int il = pcoord->il(), iu = pcoord->iu();
-  double hi = pcoord->options->global_x1max();
-  double lo = hi - options->thickness();
+  auto const& g = *pcoord->options;
+  double th = options->thickness();
+  double lo = top_ ? g.global_x1max() - th : g.global_x1min();
+  double hi = top_ ? g.global_x1max() : g.global_x1min() + th;
   auto xf = pcoord->x1f.slice(0, il, iu + 2);
   auto overlap =
-      (xf.slice(0, 1).clamp_max(hi) - xf.slice(0, 0, -1).clamp_min(lo)).clamp_min(0.);
-  du[IPR].slice(-1, il, iu + 1) += dt * options->flux() /
+      (xf.slice(0, 1).clamp_max(hi) - xf.slice(0, 0, -1).clamp_min(lo))
+          .clamp_min(0.);
+  du[IPR].slice(-1, il, iu + 1) += s.dt.value() * options->flux() /
                                    options->thickness() * overlap /
                                    pcoord->dx1f.slice(0, il, iu + 1);
-  return du;
+  return;
 }
 ```
 
@@ -265,33 +266,31 @@ if (options->thickness() > 0.) {
 | what | code link | symbol | switch |
 |---|---|---|---|
 | options, `pmin` $\le$ `pmax` | {{< code src/forcing/body_heat.cpp BodyHeatOptionsImpl::from_yaml >}} | `BodyHeatOptionsImpl::from_yaml` | `body-heat` |
-| @eq-ch07-heating-body | {{< code src/forcing/body_heat.cpp BodyHeatImpl::forward >}} | `BodyHeatImpl::forward` | |
-| options, `flux` $\le0$, `depth` xor `thickness` | {{< code src/forcing/top_cool.cpp TopCoolOptionsImpl::from_yaml >}} | `TopCoolOptionsImpl::from_yaml` | `top-cool` |
-| @eq-ch07-heating-flux and @eq-ch07-heating-layer, top | {{< code src/forcing/top_cool.cpp TopCoolImpl::forward >}} | `TopCoolImpl::forward` | `depth`, `thickness` |
-| the setup checks of the layer | {{< code src/forcing/top_cool.cpp TopCoolImpl::reset >}} | `TopCoolImpl::reset` | `thickness` |
-| options, `flux` $\ge0$, `depth` xor `thickness` | {{< code src/forcing/bot_heat.cpp BotHeatOptionsImpl::from_yaml >}} | `BotHeatOptionsImpl::from_yaml` | `bot-heat` |
-| @eq-ch07-heating-flux and @eq-ch07-heating-layer, bottom | {{< code src/forcing/bot_heat.cpp BotHeatImpl::forward >}} | `BotHeatImpl::forward` | `depth`, `thickness` |
-| the setup checks of the layer | {{< code src/forcing/bot_heat.cpp BotHeatImpl::reset >}} | `BotHeatImpl::reset` | `thickness` |
+| @eq-ch07-heating-body | {{< code src/forcing/body_heat.cpp BodyHeatImpl::add >}} | `BodyHeatImpl::add` | |
+| options, `flux` $\le0$, `depth` xor `thickness` | {{< code src/forcing/layer_heat.cpp TopCoolOptionsImpl::from_yaml >}} | `TopCoolOptionsImpl::from_yaml` | `top-cool` |
+| options, `flux` $\ge0$, `depth` xor `thickness` | {{< code src/forcing/layer_heat.cpp BotHeatOptionsImpl::from_yaml >}} | `BotHeatOptionsImpl::from_yaml` | `bot-heat` |
+| the end and the region | {{< code src/forcing/layer_heat.cpp LayerHeatImpl::LayerHeatImpl overload=2 >}} | `top_` | `top-cool`, `bot-heat` |
+| the setup checks of the layer | {{< code src/forcing/layer_heat.cpp LayerHeatImpl::reset >}} | `LayerHeatImpl::reset` | `depth`, `thickness` |
+| @eq-ch07-heating-flux and @eq-ch07-heating-layer | {{< code src/forcing/layer_heat.cpp LayerHeatImpl::add >}} | `LayerHeatImpl::add` | `depth`, `thickness` |
 | the layer length, default 0 | {{< code src/forcing/forcing.hpp TopCoolOptionsImpl >}} | `thickness` | |
 
 : Code map of the heating modules. {#tbl-ch07-heating-code}
 
-1. Each `from_yaml` checks its keys and values: `pmin` $\le$ `pmax` for `body-heat`, the sign of `flux`, a
-   positive `depth`, at most one of `depth` and `thickness`, and a finite positive `thickness` when it is given,
-   for the two boundary fluxes
+1. Each `from_yaml` reads its block through its option table, which checks the keys and values: `pmin` $\le$
+   `pmax` for `body-heat`, the sign of `flux`, a positive `depth`, at most one of `depth` and `thickness`, and a
+   finite positive `thickness` when it is given, for the two boundary fluxes
    ({{< code src/forcing/body_heat.cpp BodyHeatOptionsImpl::from_yaml >}},
-   {{< code src/forcing/top_cool.cpp TopCoolOptionsImpl::from_yaml >}},
-   {{< code src/forcing/bot_heat.cpp BotHeatOptionsImpl::from_yaml >}}).
-2. `TopCoolImpl::reset` and `BotHeatImpl::reset` see the coordinate for the first time and apply the two checks
-   that need it: a stretched $x_1$ must use `thickness`, and `thickness` must fit inside the $x_1$ column
-   ({{< code src/forcing/top_cool.cpp TopCoolImpl::reset >}},
-   {{< code src/forcing/bot_heat.cpp BotHeatImpl::reset >}}).
-3. `BodyHeatImpl::forward` masks the interior by the pressure band and adds @eq-ch07-heating-body
-   ({{< code src/forcing/body_heat.cpp BodyHeatImpl::forward >}}).
-4. `TopCoolImpl::forward` and `BotHeatImpl::forward` add @eq-ch07-heating-layer on every block and return, when a
-   `thickness` is set; otherwise they return at once unless the block's upper or lower $x_1$ face is physical, and
-   then add @eq-ch07-heating-flux ({{< code src/forcing/top_cool.cpp TopCoolImpl::forward >}},
-   {{< code src/forcing/bot_heat.cpp BotHeatImpl::forward >}}).
+   {{< code src/forcing/layer_heat.cpp TopCoolOptionsImpl::from_yaml >}},
+   {{< code src/forcing/layer_heat.cpp BotHeatOptionsImpl::from_yaml >}}).
+2. The `LayerHeat` constructor maps `bot-heat`'s options onto the shared ones, declares the region, and calls
+   `reset`, which sees the coordinate and applies the two checks that need it: a stretched $x_1$ must use
+   `thickness`, and `thickness` must fit inside the $x_1$ column
+   ({{< code src/forcing/layer_heat.cpp LayerHeatImpl::reset >}}).
+3. `BodyHeatImpl::add` masks the interior by the pressure band and adds @eq-ch07-heating-body
+   ({{< code src/forcing/body_heat.cpp BodyHeatImpl::add >}}).
+4. `LayerHeatImpl::add` adds @eq-ch07-heating-layer on every block and returns, when a `thickness` is set;
+   otherwise it adds @eq-ch07-heating-flux, and the registry has already skipped it on a block without that
+   physical $x_1$ face ({{< code src/forcing/layer_heat.cpp LayerHeatImpl::add >}}).
 
 ### Tests
 
@@ -299,20 +298,20 @@ The derived round-off checks [D2] pass.[^ch07-roundoff]
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| `tests/test_forcing.cpp` (`test_forcing.release`), `body_heat_uses_pressure_mask_and_mixture_cv` | heating only inside the band, with the mixture $c_v$ | `allclose` defaults | closed form |
-| same, `boundary_fluxes_scale_with_timestep` | `top-cool` and `bot-heat` are linear in $\Delta t$ | `allclose` defaults | linearity |
-| same, `meshblock_registers_parent_dependent_modules` | a MeshBlock with `body-heat` constructs | exact | registration |
-| same, `reject_invalid_values` | `body-heat` option refusals | exact (throws) | contracts |
+| `tests/test_forcing.cpp` (`test_forcing.release`), `meshblock_registers_parent_dependent_modules` | a MeshBlock with `body-heat` constructs | exact | registration |
+| same, `reject_invalid_values` | `body-heat` with `pmin` > `pmax` is refused | exact (throws) | contracts |
+| `tests/test_source_registry.cpp` (`test_source_registry.release`), `the_options_table_keeps_the_defaults_and_checks` | `top-cool` defaults `depth` 1 and `thickness` 0; `depth` with `thickness` and a negative `bot-heat` flux are refused | exact | contracts |
+| same, `wall_sources_skip_a_block_without_that_wall` | the `depth` form of `top-cool` is skipped on a block without the top wall | exact | registration |
 | `test_stretched_x1_ref.release`, `heat_layer_deposits_flux_dt` | on a stretched 24-cell column, `bot-heat` with `flux` 100 and `thickness` 230 m deposits 25 J m$^{-2}$ in $\Delta t=0.25$ s, and `top-cool` with $-40$ and 7 m removes 10 | $10^{-12}$ abs. | the exact closed form $F\Delta t$ of step 2 |
 | this section's check, `heating_check.py` | `[C1]`–`[C5]` | per claim | stated in the check |
 
 : Tests of the heating modules. {#tbl-ch07-heating-tests}
 
 ::: {.callout-important title="Check"}
-**Evidence.** The check numbers come from the port named in the footnotes. ctest cases: **pending a pinned ctest
-run**.
+**Evidence.** The check numbers come from the port named in the footnotes. The ctest cases pass at the pin.[^heat-run]
 **Coverage.** CPU only. `heat_layer_deposits_flux_dt` is the one solver test of a delivered column total, and it
-covers the layer form only; the `depth` form has no such test. No test of `depth` $>1$ through the solver, of
+covers the layer form only; the `depth` form has no such test, and no ctest checks the pressure band of
+`body-heat`. No test of `depth` $>1$ through the solver, of
 either form under an $x_1$ split, or of either on a curved grid.
 :::
 
@@ -340,12 +339,15 @@ either form under an $x_1$ split, or of either on a curved grid.
 7. **`body-heat` default band** `pmax` = 1 $\mathrm{Pa}$ (above).
 
 
+[^heat-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>`, with anchored patterns over the 25 ctests this chapter cites, in the `tests`
+    directory of a README CUDA Release build at the pin; CPU, and two visible CUDA GPUs (Quadro RTX 4000) for the CUDA
+    and two-device arms; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 24 of the 25
+    ctests passed; `test_diffusion_cubed_sphere_two_gpu.release`, registered as one process, skipped by design, and
+    its two-rank registration passed.
+
 [^env-heating]: Recorded run environment: Python 3.12.11, numpy 2.4.6, sympy 1.14.0.
 
 <!-- reader glossary notes -->
-[^rg-87531eb32068]: depth — number of cells over which boundary heating or cooling is distributed
-
-[^rg-fe78e3763b4a]: thickness — the layer next to an x1 domain end that boundary heating or cooling is spread over, in x1 length units; given instead of depth
-
 [^rg-fc4bf85c1108]: $p$ — pressure [Pa]
 <!-- end reader glossary notes -->
