@@ -1,7 +1,7 @@
 ## The condensate borrow {#sec-ch08-borrow}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: OUTLINE.md 8, lifted out of scheme 8.5 as the outline recommends
 status: draft
 -->
@@ -126,8 +126,8 @@ total changes by at most $0.92$ of the bound, while the same additions with the 
 change it by up to $1.95\times10^{-4}$. No ctest isolates the borrow: **missing evidence**
 for a snapy run.
 
-[^ch08-borrow-run]: [sha: snapy@ccf40f9565642c32be69f4b9ef0cfa6daff3f201; deck: the check itself, synthetic numpy
-    states; run: `python3 src/snapy_report/ch08/checks/floors_check.py`, CPU, double, 1 process; Python 3.14.7, numpy 2.5.1;
+[^ch08-borrow-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the check itself, synthetic numpy
+    states; run: `python3 src/snapy_report/ch08/checks/floors_check.py`, CPU, double, 1 process; Python 3.13.15, numpy 2.4.6, sympy 1.14.0;
     output identical to the committed file]. Output
     `floors_check.out`, lines `[C3]` and `[C8]`.
 
@@ -150,7 +150,7 @@ for a snapy run.
 
 [^rg-ee4e75c3819a]: $\mu_n$ — molar mass of species $n$ [kg mol$^{-1}$]; $\mu_{\mathrm{d}}$ for dry air. Never bare $\mu$, which is dynamic viscosity (§8); the code stores the inverse
 
-[^rg-5922fe4a6c9d]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14)
+[^rg-5922fe4a6c9d]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$), `machine_epsilon` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14)
 
 [^rg-7d2ed75f8ca7]: $k = 1..N_r$ — reaction index and the number of reactions; never the $x_3$ cell index $k$ (§1) — a chapter that needs both renames the reaction index to $\varkappa$ and says so
 <!-- end reader glossary notes -->

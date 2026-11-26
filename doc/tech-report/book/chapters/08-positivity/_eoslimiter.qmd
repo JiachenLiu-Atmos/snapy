@@ -1,7 +1,7 @@
 ## The equation-of-state limiter: two passes, floors and marks {#sec-ch08-eoslimiter}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: OUTLINE.md 8.5, 8.6 and 8.7, merged
 status: draft
 -->
@@ -31,7 +31,7 @@ leaves its density and pressure floors to the detector's own floor test.
 
 Local symbols: $\rho_{\mathrm{fl}}$ [kg m$^{-3}$], $p_{\mathrm{fl}}$ [Pa] and $T_{\mathrm{fl}}$ [K] are the density, pressure and
 temperature floors; $\rho e(T_{\mathrm{fl}})$ [J m$^{-3}$] is the internal energy density of a cell at the temperature
-floor. $E$[^rg-a52517094335], $\rho_i$, $\mathbf v$[^rg-3b3eac691a89] and $V_i$ are defined in @sec-appa.
+floor. $E$, $\rho_i$, $\mathbf v$[^rg-3b3eac691a89] and $V_i$ are defined in @sec-appa.
 
 ### Derivation
 
@@ -81,21 +81,32 @@ floor of $10^{-6}$, a pressure floor of $10^{-3}$ and a temperature floor of $20
 numbers in the deck's own units, not fractions of anything, so whether they are conservative or
 catastrophic depends on the scaling of the problem.
 
-The marks are a two-element device-side boolean buffer, reset at `reset_limiter_marks`
-({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::reset_limiter_marks >}}) and read by the redo detector of
-@sec-ch08-redo. Entry one is the NaN mark and entry zero the patch mark. A limiter call does not write the buffer: it
-queues its 0-d `any()` result with `push_mark_`, and the read `limiter_marks()` ORs each entry's queue into the buffer
-and empties it ({{< code src/eos/equation_of_state.hpp EquationOfStateImpl >}}); the reset empties the queues too. In the
-conserved pass the marks are queued at `push_mark_`
-({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}}): a NaN sets
+The marks are a two-element boolean tensor on the block's device, the slot `kMarks` of the block's `EfStatus`
+(@sec-ch08-efstatus). `reset_limiter_marks` ({{< code src/eos/equation_of_state.hpp EquationOfStateImpl::reset_limiter_marks >}})
+zeroes them in place, or allocates them on first use; stage 0 of a step and the redo decision call it. They are read
+by the redo detector of @sec-ch08-redo through `limiter_marks` ({{< code src/eos/equation_of_state.hpp
+EquationOfStateImpl::limiter_marks >}}). Entry one is the NaN mark and entry zero the patch mark. A limiter call ORs
+its 0-d `any()` result into an entry in place with `status.mark` ({{< code src/eos/ef_status.hpp EfStatus >}}), and
+only while the marks are armed, so nothing reads them back to the host inside a stage. In the conserved pass
+({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}}) a NaN sets
 entry one; entry zero is set by comparing the density and energy rows against a copy taken before the floors, and
 again where a species density was below $-4096\,\epsilon_{\mathrm m}$ times the cell's total gas density before the
 species repairs (`species_before`,
 {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}}). The bound is
 `species_repair_mark` of @sec-ch08-roundoff, and @sec-ch08-fixvapor gives the reason it tests the deficit and not
 the repair. In the primitive pass
-`push_mark_` ({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_primitive_limiter_ >}}) sets entry
-one for a NaN and entry zero for a species fraction below minus that threshold; its floors mark nothing.
+`status.mark` ({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_primitive_limiter_ >}}) sets entry
+one for a NaN and entry zero for a species fraction below $-4096\,\epsilon_{\mathrm m}$ (`positivity_roundoff`); its
+density and pressure floors mark nothing.
+
+**Anomaly storage.** Where the block stores the density and energy rows as anomalies about a hydrostatic reference
+(@sec-ch05), the conserved pass never limits a total and writes it back. It clamps the anomaly row at the floor minus
+the reference, `floor_row_` ({{< code src/eos/equation_of_state.cpp floor_row_ >}}), and forms the totals only to read
+them (the temperature floor's internal energy is computed from the total density). In float32 storage the bound
+$\rho_{\mathrm{fl}} - \rho_{\mathrm{ref}}$ is rounded to float32 and, where that rounded bound plus the reference
+falls below the floor, moved up by one float32 step (`float_anomaly_floor`,
+{{< code src/eos/equation_of_state.cpp float_anomaly_floor >}}), so the total the row reconstructs is not below the
+floor. Re-rounding the anomaly on every call is what this avoids.
 
 **Why this order, and what a floor costs.** Three facts of the code.
 
@@ -117,14 +128,16 @@ one for a NaN and entry zero for a species fraction below minus that threshold; 
 | NaN to zero, marked | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}} | `masked_fill_` | |
 | the dry density floor | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}} | `density_floor` | |
 | the energy floor | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}} | `min_ie` | an energy row exists |
-| the patch mark | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}} | `push_mark_` | interior only |
+| the patch mark | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}} | `dens_energy` | interior only |
+| the floor on an anomaly row | {{< code src/eos/equation_of_state.cpp floor_row_ >}} | `floor_row_` | anomaly storage |
 | the species mark, on the deficit | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}} | `species_before` | species present |
 | the primitive pass | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_primitive_limiter_ >}} | `apply_primitive_limiter_` | `limiter: true` |
 | its density floor | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_primitive_limiter_ >}} | `density_floor` | |
 | its species clamp | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_primitive_limiter_ >}} | `clamp_min_` | species present |
 | its pressure floor | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_primitive_limiter_ >}} | `pressure_floor` | |
 | the floor defaults | {{< code src/eos/equation_of_state.cpp EquationOfStateOptionsImpl::from_yaml >}} | `density_floor` | YAML |
-| the mark buffer | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::reset_limiter_marks >}} | `reset_limiter_marks` | |
+| the marks, reset | {{< code src/eos/equation_of_state.hpp EquationOfStateImpl::reset_limiter_marks >}} | `reset_limiter_marks` | |
+| the marks, read | {{< code src/eos/equation_of_state.hpp EquationOfStateImpl::limiter_marks >}} | `limiter_marks` | |
 
 : Code map of the equation-of-state limiter. {#tbl-ch08-eoslimiter-code}
 
@@ -181,13 +194,11 @@ The repair cases of `test_forcing.<b>` exercise the real passes and their marks 
 `[C1]`. `limiter_species_repair_redoes_the_step` and `limiter_roundoff_species_repair_is_not_redone` exercise
 the species mark on the deficit. Both passed on a CPU build of the pin, with every other CPU case of `test_forcing.<b>`.[^ch08-eoslimiter-ctest]
 
-[^ch08-floors-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: the check itself, synthetic numpy
-    states; run: `python3 src/snapy_report/ch08/checks/floors_check.py`, CPU, double, 1 process; Python 3.11.13, numpy 2.4.6;
+[^ch08-floors-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the check itself, synthetic numpy
+    states; run: `python3 src/snapy_report/ch08/checks/floors_check.py`, CPU, double, 1 process; Python 3.13.15, numpy 2.4.6, sympy 1.14.0;
     output identical to the committed file]. Output
     `floors_check.out`, lines `[C1]`, `[C2]`, `[C4]` and `[C5]`.
-[^ch08-eoslimiter-ctest]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: the cards of
-    `tests/test_forcing.cpp`; run: `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 ctest -R "^test_eos\.release|^test_fix_vapor_volume\.release|^test_forcing\.release|test_cycle_diagnostics\.release" -V`, in the build's `tests` directory of a Release build (`cmake -B build -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DCUDA=OFF`), CPU, double (float32 cases as named), 1 process; GCC 13.3.1, CMake 3.26.5, Python 3.11.13, torch 2.10.0, kintera 2.6.6]: `test_forcing` ran 43 cases from 2 suites, 40 passed and the
-    3 CUDA cases were skipped.
+[^ch08-eoslimiter-ctest]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the cards of `tests/test_forcing.cpp`; run: the command of the run record of @sec-ch08-theta, restricted to the tests named here and with `-V` so that their own printed lines show; same build, CPU, versions as there]. Every CPU case of `test_forcing.release` passed (40 of 40 run); `test_eos.release` passed its 25 CPU cases and skipped its 18 CUDA cases.
 
 ### Limits
 
@@ -207,8 +218,6 @@ the species mark on the deficit. Both passed on a CPU build of the pin, with eve
    one way, and this chapter records which, not which is right.
 
 <!-- reader glossary notes -->
-[^rg-a52517094335]: $E$ — total energy density, internal plus kinetic, $\rho e + \tfrac12\rho\lvert\mathbf v\rvert^2$ [J m$^{-3}$]; excludes potential energy
-
 [^rg-3b3eac691a89]: $\mathbf v = (v_1,v_2,v_3)$ — velocity [m s$^{-1}$]
 
 [^rg-34f4f1938638]: YAML — YAML Ain't Markup Language, the structured input format used for decks
