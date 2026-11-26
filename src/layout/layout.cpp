@@ -197,6 +197,14 @@ void wake_local_exchanges() {
   g_local_exchange_cv.notify_all();
 }
 
+void clear_local_exchange(int64_t mesh_id) {
+  std::lock_guard<std::mutex> lock(g_local_exchange_mutex);
+  auto drop = [&](auto& m) {
+    for (auto it = m.begin(); it != m.end();)
+      it = std::get<0>(it->first) == mesh_id ? m.erase(it) : std::next(it);
+  };
+  drop(g_local_mail), drop(g_x1_anchors), drop(g_column_boards);
+}
 std::string exchange_buffer_key(SyncOptions const& opts,
                                 Variables const& vars) {
   std::ostringstream key;

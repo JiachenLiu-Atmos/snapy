@@ -93,8 +93,8 @@ c10::cuda::CUDAStream worker_stream(int device, size_t index) {
 
 class MeshImpl::BlockWorkerPool {
  public:
-  BlockWorkerPool(size_t count, torch::Device device)
-      : device_(std::move(device)), remaining_(count) {
+  BlockWorkerPool(size_t count, torch::Device device, int64_t mesh_id)
+      : device_(std::move(device)), mesh_id_(mesh_id), remaining_(count) {
 #ifdef USE_CUDA
     if (device_.is_cuda()) {
       c10::cuda::CUDAGuard device_guard(device_.index());
@@ -156,8 +156,9 @@ class MeshImpl::BlockWorkerPool {
 #endif
 
     if (error_ != nullptr) {
-      auto error = error_;
-      error_ = nullptr;
+      auto error = std::exchange(error_, nullptr);
+      lock.unlock();
+      clear_local_exchange(mesh_id_);  // every job ended: nothing takes it
       std::rethrow_exception(error);
     }
   }
@@ -240,6 +241,7 @@ class MeshImpl::BlockWorkerPool {
   }
 
   torch::Device device_;
+  int64_t mesh_id_;
   std::vector<std::thread> workers_;
   std::mutex mutex_;
   std::condition_variable cv_;
@@ -314,7 +316,8 @@ void MeshImpl::reset() {
 
   if (blocks.size() > 1) {
     workers_ = std::make_shared<BlockWorkerPool>(
-        blocks.size(), torch::Device(blocks.front()->options->device_str()));
+        blocks.size(), torch::Device(blocks.front()->options->device_str()),
+        mesh_id);
   }
 }
 

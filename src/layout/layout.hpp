@@ -170,6 +170,7 @@ using Variables = std::map<std::string, torch::Tensor>;
 //! stored, then wake_local_exchanges): its same-process waits then throw
 extern thread_local std::function<bool()> g_local_job_failed;
 void wake_local_exchanges();
+void clear_local_exchange(int64_t mesh_id);  // drops its mail, anchors, boards
 //! Cache key of the send/receive buffers of one exchange.
 std::string exchange_buffer_key(SyncOptions const& opts, Variables const& vars);
 
