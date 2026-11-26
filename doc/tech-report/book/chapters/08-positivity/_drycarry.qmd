@@ -1,7 +1,7 @@
 ## Dry-carry of passive tracers, and the zero-base guard {#sec-ch08-drycarry}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: OUTLINE.md 8.13
 status: draft
 -->
@@ -17,7 +17,7 @@ protects can still go negative, and the repository's own test for it accepts a n
 
 **Data.** In: the dry source, `scalar_r`, the step-start and stage states, the stage weights. Out: an addition to `scalar_ds`.
 
-**Placement.** In `advance_local`, after the native forcings and again after the user callbacks (@sec-ch01-stage).
+**Placement.** `carry_dry_source`: at the end of `stage_advance` for native dry sources, in `stage_forcing` after the user callbacks (@sec-ch01-stage).
 
 **Activation.** Scalars present and a forcing that writes dry mass; no switch of its own.
 
@@ -30,13 +30,13 @@ protects can still go negative, and the repository's own test for it accepts a n
 
 A forcing that writes a dry-mass tendency has to say what happens to the tracers riding on that mass. Addition and
 removal are not symmetric, and the code comment at `carry_dry_source`
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}) gives the reason. An addition carries the ratio as
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}}) gives the reason. An addition carries the ratio as
 it stands at source entry. A removal carries the ratio the stage would have had with no source at all. So the removal
 cannot amplify a ratio that transport or the implicit solve has just changed.
 
 Computing that source-free ratio means dividing the source-free scalar by the source-free density. Nothing prevents
 that density from being zero in a cell that is empty with the source removed. The guard at `rho_base`
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}) substitutes the entry ratio there, which keeps the
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}}) substitutes the entry ratio there, which keeps the
 expression finite.
 
 What the guard does *not* do is bound the result. The repository's own test asserts a finite answer at a
@@ -53,18 +53,18 @@ $-1.4$ [check `src/snapy_report/ch08/checks/positivity_check.py`, output `src/sn
 
 ### Numerical method
 
-The carry is the lambda at `scalar_r` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}). The
+The carry is the method `carry_dry_source` ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}}). The
 source-free density and scalar are rebuilt by running the integrator's own stage combination on the tendency with the
-dry source subtracted at `rho_base` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}). So the
+dry source subtracted at `rho_base` ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}}). So the
 "source-free" state is the one the integrator would have produced. It is not a cell-wise approximation of it. The
 choice between the two ratios is made per cell on the sign of the dry source at `carry_r`
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}).
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}}).
 
 **Why two ratios, and why no bound.** Three facts of the code.
 
 1. An addition carries the ratio at source entry; a removal carries the ratio the stage would have had with no source,
    rebuilt with the integrator's own combination. So a removal cannot amplify a ratio transport has just changed
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}).
+   ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}}).
 2. The source-free ratio divides by the source-free density, which can be zero in an emptied cell; the guard
    substitutes the entry ratio there and the expression stays finite.
 3. Nothing bounds the outcome below: `[C9]` finds $66\,587$ of $2\times10^5$ cells negative under a dry sink, worst
@@ -74,29 +74,29 @@ choice between the two ratios is made per cell on the sign of the dry source at 
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| why addition and removal differ | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `carry_dry_source` | |
-| the carry | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `carry_dry_source` | scalars present, a forcing writes dry mass |
-| the source-free stage state | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `rho_base` | |
-| the zero-base guard | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `remove_r` | source-free density zero |
-| addition against removal | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `carry_r` | |
+| why addition and removal differ | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}} | `carry_dry_source` | |
+| the carry | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}} | `carry_dry_source` | scalars present, a forcing writes dry mass |
+| the source-free stage state | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}} | `rho_base` | |
+| the zero-base guard | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}} | `remove_r` | source-free density zero |
+| addition against removal | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}} | `carry_r` | |
 
 : Code map of the dry-carry guard. {#tbl-ch08-drycarry-code}
 
 **How to use it.** Nothing is set: any forcing that writes a dry-mass increment, native or scripted, goes through
 the carry when scalars exist. The two rules and the guard are these lines
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}):
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}}):
 
 ```cpp
-    auto remove_r =
-        torch::where(rho_base.unsqueeze(0) == 0., vars.at("scalar_r"),
-                     s_base / rho_base.unsqueeze(0));
-    auto carry_r =
-        torch::where(dry.unsqueeze(0) < 0., remove_r, vars.at("scalar_r"));
-    fut_scalar_ds.add_(carry_r * dry.unsqueeze(0));
+  auto remove_r = torch::where(rho_base.unsqueeze(0) == 0., vars.at("scalar_r"),
+                               s_base / rho_base.unsqueeze(0));
+  auto carry_r =
+      torch::where(dry.unsqueeze(0) < 0., remove_r, vars.at("scalar_r"));
+  _stage_ds.add_(carry_r * dry.unsqueeze(0));
 ```
 
-`rho_base` and `s_base` are the source-free stage density and scalar, `dry` the dry source, and the first
-`where` is the zero-base guard.
+`rho_base` and `s_base` are the source-free stage density and scalar, `dry` the dry source, `_stage_ds` the block's
+scalar stage tendency, and the first `where` is the zero-base guard. With anomaly storage `rho_base` is the combined
+anomaly plus the reference density, a total.
 
 ### Tests
 
@@ -111,11 +111,10 @@ The first test is the clearest statement in the repository that this is not a po
 negative value to twelve digits. The chapter's check separates the three statements on synthetic
 cells.[^ch08-drycarry-run] `[C9]`: transport moves the ratio from its entry value by up to $1.46$, the two rules
 differ by up to $1.16$ of scalar. The guard returns the entry ratio at a zero base, and $66\,587$ of $200\,000$ cells
-end negative under a dry sink. The two ctests have not been run for this report at the pin: **pending a pinned ctest
-run**.
+end negative under a dry sink. The two ctests pass at the pin, on CPU (the run record of @sec-ch08-theta).
 
-[^ch08-drycarry-run]: [sha: snapy@ccf40f9565642c32be69f4b9ef0cfa6daff3f201; deck: the check itself, synthetic numpy
-    states; run: `python3 src/snapy_report/ch08/checks/positivity_check.py`, CPU, double, 1 process; Python 3.14.7, numpy 2.5.1; output identical to the committed file]. Output
+[^ch08-drycarry-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the check itself, synthetic numpy
+    states; run: `python3 src/snapy_report/ch08/checks/positivity_check.py`, CPU, double, 1 process; Python 3.13.15, numpy 2.4.6, sympy 1.14.0; output identical to the committed file]. Output
     `positivity_check.out`, line `[C9]`.
 
 ### Limits

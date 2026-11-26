@@ -1,0 +1,149 @@
+## The equation-of-state and positivity status of a block (`EfStatus`) {#sec-ch08-efstatus}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 8.6; src/eos/ef_status.hpp, src/hydro/hydro.cpp, src/scalar/scalar.cpp, src/hydro/flux_positivity.cpp,
+         src/eos/equation_of_state.cpp, src/eos/ideal_moist.cpp, src/mesh/meshblock_advance.cpp, src/mesh/meshblock_redo.cpp,
+         src/mesh/stage_executor.cpp, src/diagnostics/budget.cpp and the tests named in the Tests layer, at the pin
+status: draft
+author: Jiachen Liu
+-->
+
+### Summary
+
+Every mechanism of this chapter leaves a trace: a floor that patched a cell, a NaN that was zeroed, a vapour column
+that could not be repaired, a limiter factor below one. This section is where those traces are kept. Each block owns
+one `EfStatus`, a fixed set of named device tensors, its slots. The equation of state, the tracer and scalar
+limiters and the fourth-order conversion write into the slots in place, during the stages, without reading anything
+back to the host. Two readers use them after the stages: the redo decision of @sec-ch08-redo reads the marks and the
+failure counts in its one device-to-host copy, and the budget's cycle line reads the positivity meters. A captured
+stage (@sec-ch11) runs its segments several times before it records them, so the executor saves every slot before
+those warm-up runs and restores it afterwards; a warm-up therefore leaves no count.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** One record per block of what the floors, repairs and limiters did in the step; @tbl-ch08-efstatus-slots.
+
+**Data.** Ten slots, each a device tensor (bool, int32, int64 or FP64), on the block's device.
+
+**Placement.** Written in the stages; marks and flags reset at stage 0; read by `check_redo` and the cycle line.
+
+**Activation.** Always present; a slot exists once its writer has run or its module has bound it.
+
+**Guarantee / limits.** A record, not a repair. The meters are not rolled back by a redo (Limits).
+
+**Evidence.** @tbl-ch08-efstatus-tests.
+:::
+
+Local symbols: none. The section names slots by their code names (`kMarks`, `kPosHits`, ...).
+
+### Derivation
+
+There is no equation to derive: `EfStatus` is a record. What has to be shown is that the record means the same
+thing however the stage runs. Three properties of the code give that.
+
+1. **No host read inside a stage.** Every writer updates its slot with a tensor operation on the device: `mark` ORs
+   a 0-d boolean into an entry ({{< code src/eos/ef_status.hpp EfStatus >}}), the census adds a sum
+   ({{< code src/hydro/flux_positivity.cpp PositivityLimiter::census_ >}}), the vapour repair adds its failure count
+   on the device on CUDA ({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}}).
+   So a stage that writes the record can be captured as a CUDA graph.
+2. **One owner of each tensor.** A meter slot is the same tensor its module registers as a buffer: `bind` stores
+   the tensor in the slot and returns it for `register_buffer` ({{< code src/hydro/hydro.cpp HydroImpl::reset >}};
+   {{< code src/scalar/scalar.cpp ScalarImpl::reset >}}). The buffer names (`positivity_hits`, `lim_cut`, ...) and
+   the slot are two names of one tensor, so moving the module to another device moves the slot with it.
+3. **Warm-ups leave no count.** The executor's save list holds every defined slot, under the key `efs.<n>`
+   ({{< code src/mesh/stage_executor.cpp StageExecutor::save_list >}}). Before a capture's three eager warm-up runs the
+   listed tensors are cloned, and afterwards the clones are copied back into them, so a count a warm-up added is removed before the
+   recorded run. Without this, a capture would count its segment four times (three warm-ups and the recorded run),
+   which is what the graph test of @tbl-ch08-efstatus-tests was written to catch.
+
+### Numerical method
+
+The slots, their types and their writers and readers at the pin are in @tbl-ch08-efstatus-slots. The order of the
+enumeration is the order of the record; `kNumSlots` is its length.
+
+| slot | type | written by | reset | read by |
+|---|---|---|---|---|
+| `kMarks` | bool $[2]$: [0] a floor patched an interior cell, [1] an interior NaN | the conserved and primitive limiter passes (@sec-ch08-eoslimiter) | stage 0 and after a redo decision (`reset_limiter_marks`) | the redo decision, as the limiter and NaN causes |
+| `kVaporFail` | int32, 0-d | the vapour column repair inside a stage or `check_redo` (@sec-ch08-fixvapor) | stage 0; after `check_redo` reads it | the redo decision, folded into the limiter cause |
+| `kHeatCapacity` | bool, 0-d | the ideal-moist heat-capacity check | stage 0 (`clear_heat_capacity_failure`) | the redo decision, folded into the limiter cause |
+| `kPosHits` | int64 $[1]$ | the tracer limiter's census (@sec-ch08-theta) | never (run-to-date) | the `positivity_hits` buffer |
+| `kPosSevere` | int64 $[1]$ | the same | never | the cycle line, `thetasevere` |
+| `kPosMin` | FP64 $[1]$ (wide dtype) | the same, as a running minimum | never (starts at 1) | the cycle line, `thetamin` |
+| `kLimCut` | FP64 $[1]$ (wide dtype) | the tracer limiter, $x_1$ faces: the flux removed | never | the cycle line, `limcut` as `kLimCut`/`kLimFlux` |
+| `kLimFlux` | FP64 $[1]$ (wide dtype) | the same: the flux offered | never | the same |
+| `kScalarPosHits` | int64 $[1]$ | the passive-scalar limiters (@sec-ch08-scalar) | never | the scalar's `positivity_hits` buffer |
+| `kConvTrips` | int64 $[1]$, defined at conversion order 4 only | the fourth-order conversion, cells that kept the second-order primitives (@sec-ch04) | never | the `conversion_trips` buffer |
+
+: The slots of `EfStatus` at the pin ({{< code src/eos/ef_status.hpp EfStatus >}}). "Wide dtype" is the precision
+policy's wide type, FP64 except on MPS (@sec-ch12). {#tbl-ch08-efstatus-slots}
+
+The marks and the two failure flags describe one step: stage 0 resets them in `stage_advance`
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}}), and `local_redo_flag_tensor`
+({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}}) stacks them with the floor test,
+the implicit clamp and the saturation and solve failures into the flag vector of @sec-ch08-redo. The meters describe
+the run: they are created at zero (`kPosMin` at one) when the hydro module is reset
+({{< code src/hydro/hydro.cpp HydroImpl::reset >}}) and only added to afterwards. `print_cycle_line`
+({{< code src/diagnostics/budget.cpp print_cycle_line >}}) reads `kLimCut`, `kLimFlux` and `kPosSevere` of every local
+block to the host, sums them over blocks and ranks, takes the minimum of `kPosMin`, and prints them under
+"run-to-date" as `limcut=` (removed over offered), `thetamin=` and `thetasevere=`; `limcut` is printed only when
+some flux was offered.
+
+No figure: the record has no geometry, and @tbl-ch08-efstatus-slots is its whole content.
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| the record and its slots | {{< code src/eos/ef_status.hpp EfStatus >}} | `EfStatus` | |
+| the block's one record | {{< code src/mesh/meshblock.hpp MeshBlockImpl >}} | `pefs` | |
+| the hydro meters bound as buffers | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `bind` | `conversion_trips` at conversion order 4 |
+| the scalar census bound as a buffer | {{< code src/scalar/scalar.cpp ScalarImpl::reset >}} | `kScalarPosHits` | scalars present |
+| the census writes | {{< code src/hydro/flux_positivity.cpp PositivityLimiter::census_ >}} | `kPosSevere` | limiter or covariance rows |
+| the $x_1$ cut and offered flux | {{< code src/hydro/flux_positivity.cpp PositivityLimiter::post_ >}} | `kLimCut` | hydro call only |
+| the marks and the vapour count | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}} | `kVaporFail` | `limiter: true` |
+| the EOS's access to the block's record | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::ef_status >}} | `pefs` | |
+| the step-start resets | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}} | `reset_limiter_marks` | |
+| the save list across capture warm-ups | {{< code src/mesh/stage_executor.cpp StageExecutor::save_list >}} | `kNumSlots` | cuda-graph execution |
+| the redo read | {{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}} | `limiter_marks` | |
+| the cycle line read | {{< code src/diagnostics/budget.cpp print_cycle_line >}} | `positivity_severe` | |
+
+: Code map of the block status record. {#tbl-ch08-efstatus-code}
+
+An equation of state that is not attached to a block keeps a record of its own, so a direct call (a test, a Python
+conversion) still has somewhere to write (`own_status_`,
+{{< code src/eos/equation_of_state.cpp EquationOfStateImpl::ef_status >}}). Nothing reads that private record in a
+run.
+
+**How to use it.** Nothing is configured. From Python the meters are the hydro module's buffers
+`positivity_hits`, `positivity_severe`, `positivity_min`, `lim_cut`, `lim_flux` and, at conversion order 4,
+`conversion_trips`, and the scalar module's `positivity_hits`. The cycle line prints the run-to-date summary
+whenever the driver calls `print_cycle_info` ({{< code src/mesh/meshblock_output.cpp MeshBlockImpl::print_cycle_info >}}).
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `tests/test_cycle_diagnostics.cpp` (`test_cycle_diagnostics.release`), case `cycle_info.positivity_meters_read_their_hand_computed_values` | a six-cell column whose cloud settles at $-2$ m s$^{-1}$ for one step of 1 s: $\Theta = 0.5$ in the five draining cells, so `positivity_min` $= 0.5$, `positivity_severe` $= 5$, `lim_flux` $= 5\cdot 2\,\rho_{\mathrm c}$ and `lim_cut`/`lim_flux` $= 0.5$; the cycle line prints `limcut=0.5`, `thetamin=0.5`, `thetasevere=5` | $10^{-9}$ (relative for the fluxes) on the buffers; $10^{-5}$ on the printed tokens | the hand computation is exact; $10^{-9}$ covers the Riemann flux of the column, about $10^{-15}$ of the settling flux, and $10^{-5}$ the printed precision ({{< code tests/test_cycle_diagnostics.cpp cycle_info.positivity_meters_read_their_hand_computed_values >}}) |
+| `tests/test_graph_positivity_meters_match_eager.py` (`test_graph_positivity_meters_match_eager_python`) | a cuda-graph block and an eager block step the same schedule; after every step every meter, the redo result, the state and the cycle line are equal, in FP64 and FP32, for the moist case and the conversion-order-4 case; the eager meters are nonzero (the case is not vacuous) | bitwise (`torch.equal`; the cycle lines compared as strings) | graph and eager must be the same arithmetic ({{< code tests/test_graph_positivity_meters_match_eager.py assert_meters >}}) |
+| `tests/test_fp32_compute.py` (`test_fp32_compute_python`) | in an FP32 block, `positivity_min`, `lim_cut` and `lim_flux` are among the small diagnostics allowed to stay FP64 | exact (a dtype) | the precision policy's wide dtype |
+
+: Tests of the block status record. {#tbl-ch08-efstatus-tests}
+
+The meter test runs its CUDA arm only on a CUDA build; on a CPU build it checks that the cuda-graph setting runs
+eager (no capture, no replay) and that its meters equal eager's, and then skips the graph part. The record of this
+report was made on a CPU build, so the graph = eager claim for the meters rests on the test's CUDA arm, which this
+record did not run.[^ch08-efstatus-run]
+
+[^ch08-efstatus-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own cards; run: see the
+    run record of @sec-ch08-theta, which lists the command, the build and the versions for every ctest of this chapter.]
+
+### Limits
+
+1. **The meters count rejected attempts.** A redo rolls back the flux register and its monitor and restores the
+   state ({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::apply_redo >}}), but nothing restores the
+   `EfStatus` meters, so `positivity_hits`, `positivity_severe`, `positivity_min`, `lim_cut` and `lim_flux` include
+   the census of attempts that were then redone. This is read from the code at the pin; no test asserts it either way.
+2. **`kPosSevere` is a count of entries, not of cells.** A cell with two species below the threshold counts twice.
+3. **The scalar census counts hits only.** There is no severe count, minimum or cut meter for the passive scalars.
+4. **The graph = eager equality of the meters is tested on CUDA only.** On MPS the wide dtype is FP32, and no test
+   of the meters runs on MPS.

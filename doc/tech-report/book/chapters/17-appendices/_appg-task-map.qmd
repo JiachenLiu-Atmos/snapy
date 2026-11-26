@@ -29,7 +29,7 @@
 
 **Q-037.** Which time integrators exist (SSP-RK2, SSP-RK3…)? What are their key names, stage counts and SSP coefficients? See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch07-rk.
 
-**Q-039.** Is positivity of density and pressure guaranteed (a positivity-preserving limiter), and under what CFL? What happens when it fails: a floor, a redo or a refusal? See Positivity, floors and limiters, @sec-ch08.
+**Q-039.** Is positivity of density and pressure guaranteed (a positivity-preserving limiter), and under what CFL? What happens when it fails: a floor, a redo or a refusal? See Moist physics, positivity, floors and limiters, @sec-ch08.
 
 **Q-044.** How is radiation coupled to the dynamics (splitting, how often it is called)? What splitting error does that add to heating rates? See Locate dependencies outside snapy, @sec-ch01-dependencies.
 
@@ -125,7 +125,7 @@
 
 **Q-051.** On curvilinear grids (spherical-polar, cubed sphere), is free-stream preservation (the geometric conservation law) satisfied, and do fluxes match exactly across panel seams? Where is this tested? See Grids and geometry evidence, @sec-ch15-ch03-tests. Not covered: free-stream preservation; grid imprinting; output-coverage check.
 
-**Q-052.** When positivity limiters or vapor fixers act on tracers and condensates, is their mass still conserved? How big can the correction get, and is it logged anywhere? See Positivity, floors and limiters, @sec-ch08. Not covered: a logged amount of floor-invented mass.
+**Q-052.** When positivity limiters or vapor fixers act on tracers and condensates, is their mass still conserved? How big can the correction get, and is it logged anywhere? See Moist physics, positivity, floors and limiters, @sec-ch08. Not covered: a logged amount of floor-invented mass.
 
 **Q-054.** Which boundary conditions are closed and which are open? Do outflow or sponge boundaries leak mass or energy, and is the leak reported? See Select outgoing acoustic and advected perturbations, @sec-ch11-outflow. Not covered: a measured outflow leak.
 

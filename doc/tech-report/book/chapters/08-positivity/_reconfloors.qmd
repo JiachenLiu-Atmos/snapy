@@ -138,17 +138,15 @@ without a `dynamics` or `reconstruct` block both directions keep `shock` true; w
 has `shock` false and $x_2$, $x_3$ keep it true; with both sections both are false.
 
 `test_species_face_clamp` reconstructs along $x_2$ a row of vapour mass fractions $10^{-16}$ with a slot of
-$4.7\times10^{-3}$, $2.5\times10^{-9}$, $1.9\times10^{-5}$, by WENO5 with `scale`[^rg-5ffbb1ee9f71] and `shock` on.[^ch08-reconfloors-ctest]
+$4.7\times10^{-3}$, $2.5\times10^{-9}$, $1.9\times10^{-5}$, by WENO5 with `scale` and `shock` on.[^ch08-reconfloors-ctest]
 The smallest vapour face is $-2.2162\times10^{-5}$ with the limiter off and $0$ with it on, and the test's two
 bitwise comparisons pass.
 
-[^ch08-reconfloors-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: the check itself, synthetic numpy
-    states; run: `python3 src/snapy_report/ch08/checks/floors_check.py`, CPU, double, 1 process; Python 3.11.13, numpy 2.4.6;
+[^ch08-reconfloors-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the check itself, synthetic numpy
+    states; run: `python3 src/snapy_report/ch08/checks/floors_check.py`, CPU, double, 1 process; Python 3.13.15, numpy 2.4.6, sympy 1.14.0;
     output identical to the committed file]. Output
     `floors_check.out`, lines `[C2]` and `[C9]`.
-[^ch08-reconfloors-ctest]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck:
-    `tests/test_species_face_clamp.yaml` and the row set in `tests/test_species_face_clamp.cpp`; run: `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 ctest -R "test_fix_vapor_deficit|test_species_face_clamp" -V`, in the build's `tests` directory of a Release build (`cmake -B build -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DCUDA=OFF`), CPU, double (float32 cases as named), 1 process;
-    GCC 13.3.1, CMake 3.26.5, Python 3.11.13, torch 2.10.0, kintera 2.6.6]. The two numbers are the test's own `printf` line. Source of the test and the clamp: chengcli/snapy#332.
+[^ch08-reconfloors-ctest]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: `tests/test_species_face_clamp.yaml` and the row set in `tests/test_species_face_clamp.cpp`; run: the command of the run record of @sec-ch08-theta, restricted to the tests named here and with `-V` so that their own printed lines show; same build, CPU, versions as there]. The two numbers are the test's own printed line, `vapor faces: min -2.2162e-05 unfloored, 0 with the limiter on`.
 
 ### Limits
 
@@ -167,6 +165,4 @@ bitwise comparisons pass.
 [^rg-345bdb73b555]: reconstruct — reconstruction options
 
 [^rg-549637c96357]: vertical — options for the vertical reconstruction
-
-[^rg-5ffbb1ee9f71]: scale — scaling in the enclosing component: a reconstruction switch or values of a thermal-transport profile
 <!-- end reader glossary notes -->

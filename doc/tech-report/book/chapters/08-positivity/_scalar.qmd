@@ -1,7 +1,7 @@
 ## The passive-scalar limiter and the complement bound {#sec-ch08-scalar}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: OUTLINE.md 8.4; chengcli/snapy#307 PR body; chengcli/snapy#338 (the relaxation)
 status: draft
 -->
@@ -15,11 +15,11 @@ it in the hydro path will not find it.
 ::: {.callout-note title="At a glance"}
 **Purpose.** Apply the limiter of @sec-ch08-theta, with its relaxation, to the passive scalars; optionally limit the complement $b\rho_{\mathrm d} - \rho_n$.
 
-**Data.** In: `scalar_s`, its three fluxes, the hydro dry-mass flux, $\Delta t$. Out: the scalar fluxes scaled in place, a hit count.
+**Data.** In: `scalar_s`, its three fluxes, the hydro dry-mass flux, $\Delta t$. Out: posts to the scalar's register, a hit count.
 
 **Placement.** In `ScalarImpl::forward`, after the scalar fluxes are formed and before their divergence.
 
-**Activation.** `equation-of-state/limiter: true` or the scalar's own covariance row; `scalar/upper-bound` $> 0$ adds the second pass.
+**Activation.** `equation-of-state/limiter: true` or the scalar's own covariance row; `scalar/upper-bound` $> 0$ adds the upper-bound pass.
 
 **Guarantee / limits.** Non-negative scalars per stage where the dry air is not over-drained; the upper bound needs a mass Courant number below one.
 
@@ -31,7 +31,7 @@ density $\rho_n$[^rg-8230405761eb], the dry density $\rho_{\mathrm d}$ and the r
 
 ### Derivation
 
-The first pass uses @sec-ch08-theta to keep scalar density non-negative. The optional second pass applies the same operator to a different conserved quantity.
+The lower-bound pass uses @sec-ch08-theta to keep scalar density non-negative. The optional upper-bound pass applies the same operator to a different conserved quantity.
 
 For a scalar density $\rho_n$, dry density $\rho_{\mathrm d}$, and configured bound $b>0$, the ratio
 $r_n=\rho_n/\rho_{\mathrm d}$ satisfies $r_n\le b$ when the complement $b\rho_{\mathrm d}-\rho_n$ stays non-negative.
@@ -40,98 +40,101 @@ then adds the change in complement flux back to $F_n$. Thus it blends toward the
 bound's advecting flux, rather than stopping a plateau at the bound
 ({{< code src/scalar/scalar.cpp ScalarImpl::forward >}}).
 
-The lower-bound argument of @sec-ch08-theta applies to the first pass, including its relaxation where the dry air
+The lower-bound argument of @sec-ch08-theta applies to the lower-bound pass, including its relaxation where the dry air
 is over-drained (@eq-ch08-theta-relax): the scalar's ratio is $r_n = \rho_n/\rho_{\mathrm d}$, the dry-air factor is
 built from the dry density and the hydro dry-mass fluxes, and the bound there is @eq-ch08-theta-bound-relaxed.
 Unlike the hydro species, the scalar path has no settling flux, so no cell is excluded from the relaxation. With the second
 pass enabled, preserving both bounds requires a mass Courant number below one and dry
 density updated by the same explicit mass-flux divergence. The code explicitly excludes
 implicit corrections and dry-mass forcing from that premise. This chapter's `positivity_check.py` numpy checks
-cover the shared first pass, not this two-pass guarantee.
+cover the shared lower-bound pass, not this two-pass guarantee.
 
 ### Numerical method
 
-The call is `_flux1` ({{< code src/scalar/scalar.cpp ScalarImpl::forward >}}), which builds the factors with the same
-`flux_positivity_theta`, counts the cells it limited, and scales through the synchronised factors. The synchronisation
-is the lambda at `theta_opts` ({{< code src/scalar/scalar.cpp ScalarImpl::forward >}}): it puts the factors into a
-variable map, exchanges them with interpolation switched off, and applies the physical boundary functions. That is
-exactly the fill the limiter's contract requires.
+In `ScalarImpl::forward` ({{< code src/scalar/scalar.cpp ScalarImpl::forward >}}) the scalar fluxes are formed, the
+prescribed faces of the scalar's own flux register are applied (every scalar row is zero on wall and solid faces),
+and then the two passes run in this order.
 
-The call runs when `limiter` is set or `cov` is ({{< code src/scalar/scalar.cpp ScalarImpl::forward >}}); the scalar
-sets `cov` when it added its own covariance row ({{< code src/scalar/scalar.cpp ScalarImpl::forward >}}). That is
-because that row can export tracer a cell does not hold, as for the hydro species (@sec-ch08-theta).
+1. **The upper bound, when `upper-bound`[^rg-56e1479736d6] $>0$.** The complement flux $g=bF_{\mathrm{dry}}-F_n$ gets its own factor from
+   `flux_positivity_theta` on $b\rho_{\mathrm d}-\rho_n$. The factors are ghost-filled by
+   `flux_positivity_sync_theta_`, and the change $g-g\Theta$ is added to the scalar's register total under the name
+   `scalar.upper_bound`. Only the change is added, never $bF_{\mathrm{dry}}-g$, which would perturb every face and in
+   float32 lose $r_n$ near the round-off of $b$.
+2. **The lower bound, last.** The shared `PositivityLimiter` of @sec-ch08-theta runs on the scalar rows, with the dry
+   density and the hydro dry-mass fluxes for the relaxation, under the name `scalar.positivity.withhold`
+   ({{< code src/hydro/flux_positivity.cpp PositivityLimiter::apply >}}). It runs last because the blend of pass 1 can
+   export tracer a donor does not hold. The scalar call has no carry (no species enthalpy) and no settling part.
 
-**Why the same function, and why the second pass is conditional.** Three facts of the code.
+Both passes add their hit count, the interior entries with a factor below one, to the slot `kScalarPosHits` of the
+block's `EfStatus` (@sec-ch08-efstatus). The upper-bound pass counts `(theta.index(cells) < 1.).sum()`; `cells`[^rg-3520b86c4f97] is the
+interior part of the block. The scalar census counts nothing else
+({{< code src/hydro/flux_positivity.cpp PositivityLimiter::census_ >}}).
 
-1. The scalar call builds its factors with `flux_positivity_theta` and then relaxes them exactly as the hydro species
-   are relaxed, @eq-ch08-theta-relax, with $\Theta^{\mathrm d}$ from `rho` and the dry-density rows of the hydro
-   fluxes, and $\Xi$ from `u / rho` through `flux_positivity_share`
-   ({{< code src/scalar/scalar.cpp ScalarImpl::forward >}}). So the per-stage guarantee of @sec-ch08-theta carries
-   over in its relaxed form: @eq-ch08-theta-bound where $\Theta^{\mathrm d} = 1$, @eq-ch08-theta-bound-relaxed where the
-   dry air is over-drained. There is no settling guard on this path, because scalars have no settling flux.
-2. The factors are exchanged with interpolation off and then passed through the boundary functions, which is the ghost
-   fill the limiter's contract requires. An interpolated ghost is not the neighbour's factor.
-3. The complement $b\rho_{\mathrm d} - \rho_n$ has the flux $bF_{\mathrm{dry}} - F_n$. Limiting it keeps $r_n \le b$ only when the dry
-   density is updated by the same explicit mass-flux divergence; the code excludes implicit corrections and dry-mass
-   forcing from that premise.
+The lower-bound pass runs when `limiter` is set or `cov` is; the scalar sets `cov` when it added its own covariance
+row. That is because that row can export tracer a cell does not hold, as for the hydro species (@sec-ch08-theta).
+
+**Why the same function, and why the upper-bound pass is conditional.** Three facts of the code.
+
+1. The lower-bound pass is the hydro species' limiter: `PositivityLimiter::theta` builds the factors with
+   `flux_positivity_theta` and relaxes them, @eq-ch08-theta-relax, with $\Theta^{\mathrm d}$ from the dry density
+   and the dry-density rows of the hydro fluxes and $\Xi$ from `u / rho_dry` through `flux_positivity_share`
+   ({{< code src/hydro/flux_positivity.cpp PositivityLimiter::theta >}}). So the per-stage guarantee of
+   @sec-ch08-theta carries over in its relaxed form: @eq-ch08-theta-bound where $\Theta^{\mathrm d} = 1$,
+   @eq-ch08-theta-bound-relaxed where the dry air is over-drained.
+2. The factors of both passes are ghost-filled with interpolation off and then passed through the boundary functions
+   ({{< code src/hydro/flux_positivity.cpp flux_positivity_sync_theta_ >}}), the fill the limiter's contract requires.
+3. The complement $b\rho_{\mathrm d} - \rho_n$ has the flux $bF_{\mathrm{dry}} - F_n$. Limiting it keeps $r_n \le b$ only
+   when the dry density is updated by the same explicit mass-flux divergence; implicit corrections and dry-mass
+   forcing are outside that premise.
 
 ### Code
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| the scalar limiter call | {{< code src/scalar/scalar.cpp ScalarImpl::forward >}} | `flux_positivity_theta` | limiter on |
-| the relaxation, @eq-ch08-theta-relax | {{< code src/scalar/scalar.cpp ScalarImpl::forward >}} | `td` | $0<\Theta^{\mathrm d}<1$ |
+| the two passes in the stage | {{< code src/scalar/scalar.cpp ScalarImpl::forward >}} | `upper_bound` | `upper-bound` $>0$; `limiter` or the scalar's row |
+| the lower-bound pass, shared | {{< code src/hydro/flux_positivity.cpp PositivityLimiter::apply >}} | `PositivityLimiter` | |
+| the relaxation, @eq-ch08-theta-relax | {{< code src/hydro/flux_positivity.cpp PositivityLimiter::theta >}} | `td` | $0<\Theta^{\mathrm d}<1$ |
 | the repaid share | {{< code src/hydro/flux_positivity.cpp flux_positivity_share >}} | `flux_positivity_share` | |
-| the factor exchange | {{< code src/scalar/scalar.cpp ScalarImpl::forward >}} | `sync_theta` | |
-| the gate, with the scalar's covariance row | {{< code src/scalar/scalar.cpp ScalarImpl::forward >}} | `cov` | `limiter` or the scalar's row |
-| the complement limiter | {{< code src/scalar/scalar.cpp ScalarImpl::forward >}} | `upper_bound` | |
+| the factor fill | {{< code src/hydro/flux_positivity.cpp flux_positivity_sync_theta_ >}} | `interpolate` | |
+| the scalar census slot | {{< code src/scalar/scalar.cpp ScalarImpl::reset >}} | `kScalarPosHits` | |
 
 : Code map of the passive-scalar limiter. {#tbl-ch08-scalar-code}
 
-**How to use it.** The first pass follows the limiter switch; the second pass is set per scalar
+**How to use it.** The lower-bound pass follows the limiter switch; the upper-bound pass is set per scalar
 ({{< code src/scalar/scalar_options.cpp ScalarOptionsImpl::from_yaml >}}):
 
-<!-- reader glossary keys -->Keys in this fragment: `scalar`[^rg-3974a5b369de], `names`[^rg-e2343f3014a2], `upper-bound`[^rg-56e1479736d6].
+<!-- reader glossary keys -->Keys in this fragment: `scalar`[^rg-3974a5b369de], `names`[^rg-e2343f3014a2].
 ```yaml
 dynamics:
   equation-of-state:
     limiter: true    # default false; a positive upper-bound needs it
 scalar:
   names: [dye]
-  upper-bound: 1.0   # default -1: no second pass
+  upper-bound: 1.0   # default -1: no upper-bound pass
 ```
 
 Refused: `upper-bound: 0`, and a positive `upper-bound` without `equation-of-state/limiter: true`
-({{< code src/scalar/scalar.cpp ScalarImpl::reset >}}). The first pass is these lines of `ScalarImpl::forward`
+({{< code src/scalar/scalar.cpp ScalarImpl::reset >}}). The lower-bound pass is these lines of `ScalarImpl::forward`
 ({{< code src/scalar/scalar.cpp ScalarImpl::forward >}}):
 
 ```cpp
-  bool lim = pmb->phydro->options->eos()->limiter();
-  if (lim || cov) {
-    auto theta = flux_positivity_theta(u, _flux1, _flux2, _flux3, pcoord, dt);
-    ...
-    {
-      auto m = [&](torch::Tensor const& f, torch::Tensor const& mass) {
-        return f.defined() ? mass[IDN].unsqueeze(0) : torch::Tensor();
-      };
-      auto ph = pmb->phydro;
-      auto td = flux_positivity_theta(rho, m(_flux1, ph->flux1()),
-                                      m(_flux2, ph->flux2()),
-                                      m(_flux3, ph->flux3()), pcoord, dt);
-      auto phi = flux_positivity_share(u / rho);
-      theta = torch::where((td < 1.) & (td > 0.),
-                           theta + phi * ((theta / td).clamp_max(1.) - theta),
-                           theta);
-    }
-    _positivity_hits += (theta.index(cells) < 1.).sum();
-    flux_positivity_scale_(sync_theta(theta), _flux1, _flux2, _flux3, pcoord);
+  // P5, last (the blend can export tracer a donor lacks): the shared limiter
+  if (ph->options->eos()->limiter() || cov) {
+    PositivityInputs in;
+    in.u = u;
+    in.rho_dry = rho;
+    for (int d = 0; d < 3; ++d)
+      if (flux[d]->defined())
+        in.flux[d] = *flux[d], in.mass[d] = mass[d].unsqueeze(0);
+    in.dt = dt;
+    PositivityLimiter(pmb, pmb->pefs.get(), EfStatus::kScalarPosHits)
+        .apply(freg, in, "scalar", "scalar.positivity.withhold");
   }
 ```
 
-`cov` records that the scalar added its own covariance row, `cells`[^rg-3520b86c4f97] is the interior, and `sync_theta` is the
-exchange-and-fill of the factors. `m` takes the dry-density row of the hydro flux on each face the scalar has, `td` is
-$\Theta^{\mathrm d}$ and `phi` is $\Xi$. The hit count is taken after the relaxation, so it counts the cells whose
-relaxed factor is below one.
+`cov` records that the scalar added its own covariance row, `rho` is the dry density and `mass[d]` the hydro
+dry-mass flux of direction $d$. The hit count is taken after the relaxation, so it counts the cells whose relaxed
+factor is below one.
 
 ### Tests
 
@@ -144,9 +147,9 @@ relaxed factor is below one.
 : Tests of the passive-scalar limiter. {#tbl-ch08-scalar-tests}
 
 The registrations are in {{< code tests/CMakeLists.txt >}}. No report check covers the scalar call: the shared
-first pass and its relaxation are covered by the checks of @sec-ch08-theta (`positivity_check.py`,
+lower-bound pass and its relaxation are covered by the checks of @sec-ch08-theta (`positivity_check.py`,
 `relative_check.py`), and the two-pass bound is **missing evidence**. The
-ctests have not been run for this report at the pin: **pending a pinned ctest run**.
+ctests pass at the pin, on CPU (the run record of @sec-ch08-theta); the CUDA arm of `test_tracer_ratio` was not run.
 
 ### Limits
 
@@ -164,11 +167,11 @@ ctests have not been run for this report at the pin: **pending a pinned ctest ru
 <!-- reader glossary notes -->
 [^rg-8230405761eb]: $\rho_n$ — density of passive scalar $n$, $\rho_{\mathrm d} r_n$ (`scalar_s`)
 
-[^rg-3974a5b369de]: scalar — passive-scalar options
-
-[^rg-e2343f3014a2]: names — names of the passive scalars, one per scalar (in the `scalar` block)
-
 [^rg-56e1479736d6]: upper-bound — upper bound for the scalar ratio; a negative value disables the bound
 
 [^rg-3520b86c4f97]: cells — C++ local: the interior part of the block
+
+[^rg-3974a5b369de]: scalar — passive-scalar options
+
+[^rg-e2343f3014a2]: names — names of the passive scalars, one per scalar (in the `scalar` block)
 <!-- end reader glossary notes -->
