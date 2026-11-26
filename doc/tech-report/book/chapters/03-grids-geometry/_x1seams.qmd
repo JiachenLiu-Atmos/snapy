@@ -145,7 +145,7 @@ make_fig()
 | anchors and boards | {{< code src/layout/layout.cpp LayoutImpl::take_x1_anchor >}} | `take_x1_anchor` | none |
 | block messages, at most 16 blocks | {{< code src/layout/layout.cpp LayoutImpl::send_to_block >}} | `send_to_block` | `blocks_per_process` |
 | column gather | {{< code src/layout/layout.cpp LayoutImpl::gather_x1 >}} | `gather_x1` | none |
-| capture refusal | {{< code src/mesh/stage_executor.cpp StageExecutor::config_reasons >}} | `pz` | `execution` |
+| capture refusal | {{< code src/mesh/stage_executor.cpp StageExecutor::config_reasons >}} | `pz` | `execution`[^rg-15fe787ac757] |
 
 : Code map of the $x_1$ seams. {#tbl-ch03-x1seams-code}
 
@@ -247,4 +247,6 @@ the comment is stale against the code it tests. The switch combinations that are
 [^rg-2dedcdaf1d1e]: $k = 1..N_r$ — scalar row index in the seam tag list
 
 [^rg-dedb5a7b037d]: conversion-order — order of the $x_1$ cell-average to point conversion of the primitives: 2 (default) or 4
+
+[^rg-15fe787ac757]: execution — run mode of the integrator: auto, eager or cuda-graph
 <!-- end reader glossary notes -->
