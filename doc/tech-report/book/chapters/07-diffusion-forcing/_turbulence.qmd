@@ -1,18 +1,20 @@
-## Turbulence closure: not built {#sec-ch07-turbulence}
+## Turbulence closure: absent {#sec-ch07-turbulence}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: OUTLINE.md 9.11; src/turbulence/, src/CMakeLists.txt at the pin
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 7.4; src/CMakeLists.txt, src/hydro/hydro_options.cpp, src/output/output_utils.cpp at the pin
 status: draft
+author: chengcli
+reviewer: zoeyzyhu
 -->
 
 ### Summary
 
-The directory `src/turbulence/` holds a k-epsilon model and its base class written against Athena++: the source
-includes `athena/athena.hpp` and reads its parameters from an Athena++ input file
-({{< code src/turbulence/k_epsilon_turbulence.cpp >}}). The library is built from the source directories listed in
-`src_files` ({{< code src/CMakeLists.txt >}}), a list that does not include `turbulence/`; no YAML key refers to the
-model, and no test builds it. snapy therefore has no turbulence closure: sub-grid transport is the constant isotropic
+The source tree at the pin has no turbulence model: there is no `src/turbulence/` directory among the source
+directories the library is built from (`src_files`, {{< code src/CMakeLists.txt >}}), no key under `forcing:` or
+`dynamics:` names a closure ({{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}}), and no test
+refers to one. The only trace is three output-variable descriptions, `eps`, `tke` and `mut`, in the output name
+table ({{< code src/output/output_utils.cpp >}}), which no module fills. snapy therefore has no turbulence closure: sub-grid transport is the constant isotropic
 viscosity and conduction of @sec-ch07-viscosity, optionally shaped in $x_1$ (@sec-ch07-x1profile). The files are not
 described further.
 
@@ -26,12 +28,12 @@ No active solver path uses it at the pin, as the source inventory above records.
 
 ### Code
 
-The `src_files` build inventory excludes `src/turbulence/`.
+Nothing to map: no source file at the pin implements a closure.
 
 ### Tests
 
-No test builds this excluded directory.
+No test at the pin refers to a turbulence closure.
 
 ### Limits
 
-This entry documents unavailable code, not a usable closure.
+This entry records an absence, not a usable closure; a deck that expects one gets the constant viscosity only.

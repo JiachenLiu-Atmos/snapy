@@ -382,6 +382,8 @@ sections:
   # Chapter 9. Diffusion, viscosity and forcing
   sec-ch07-coriolis:
     - Coriolis force: [rotation, planetary rotation, rotation rate]
+  sec-ch07-axial:
+    - angular momentum, axial, flux form and closure: [conserve-axial-momentum, AAM closure]
   sec-ch07-framework:
     - forcing, adding a new one: [forcing module, source term module]
     - forcing block: [forcing key]

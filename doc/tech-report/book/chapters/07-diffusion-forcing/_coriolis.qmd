@@ -1,14 +1,22 @@
 ## Coriolis force in the coordinate frame or from a Cartesian rotation vector (`forcing/coriolis`) {#sec-ch07-coriolis}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: OUTLINE.md 9.3; src/forcing/coriolis.cpp, src/forcing/forcing.hpp, tests/test_forcing.cpp at the pin
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 7.1; src/forcing/coriolis.cpp, src/forcing/x1_momentum.cpp, src/forcing/x1_momentum.hpp,
+         src/hydro/register_forcing_modules.cpp, src/hydro/hydro_forward.cpp, src/options/forcing_coriolis.yaml,
+         tests/test_forcing.cpp at the pin
 status: draft
+author: chengcli
+reviewer: zoeyzyhu
 -->
 
 ### Summary
 
-The module adds the Coriolis force evaluated at the cell centre from the stage-entry density and velocity. With
+The module adds the Coriolis force at the cell centre. Where the vertical momentum $\rho w$ enters, it is taken
+from the stage's final $x_1$ face mass transfer, not from the cell's stage-entry velocity, on every grid where the
+$x_1$ mass-flux gate applies: spherical-polar with Coriolis and gnomonic-equiangle (cubed sphere), each with more than
+one $x_1$ cell and not shallow water. There the force is added in two parts, the $w$-free rows before the vertical
+implicit solve and the $\rho w$ rows after it. Elsewhere it uses the stage's density and velocity. With
 `type: 123` the three numbers are the components of $\boldsymbol\Omega$ along $x_1$, $x_2$, $x_3$ and are used as
 they are. With `type: xyz`, the default, the numbers are a rotation vector in a fixed Cartesian frame, read as
 `omega1`[^rg-15cb57e1ca38] $=\Omega_z$, `omega2` $=\Omega_x$, `omega3` $=\Omega_y$, and projected once, when the module is built,
@@ -20,17 +28,18 @@ of $\boldsymbol\Omega$ there, and the shallow-water equation of state turns it o
 **Purpose.** Adds the Coriolis force $-2\boldsymbol\Omega\times\rho\mathbf v$ to the momentum;
 @eq-ch07-coriolis-force.
 
-**Data.** In: cell density $\rho$[^rg-03fba3836b34], velocity $\mathbf v$[^rg-45a8b5d8860c], rotation $\boldsymbol\Omega$ and $\Delta t$; out: covariant momentum increments, no energy increment.
+**Data.** In: cell density $\rho$[^rg-03fba3836b34], velocity $\mathbf v$[^rg-45a8b5d8860c] (under the gate, $\rho w$ from the $x_1$ face mass transfer), rotation $\boldsymbol\Omega$ and $\Delta t$; out: covariant momentum increments, no energy increment.
 
-**Placement.** Every RK stage, after `const-gravity` when it is present in the forcing loop (@sec-ch07-framework).
+**Placement.** Every RK stage, as a pre-implicit source; under the $x_1$ mass-flux gate also as a post-implicit
+source, after the vertical implicit solve (@sec-ch07-framework).
 
 **Activation.** `forcing/coriolis: {type, omega1, omega2, omega3, traditional}`; defaults `xyz`, 0, 0, 0, `false`.
 Off unless the key is present.
 
-**Guarantee / limits.** Exact pointwise for the cell-centre state; no work on an orthogonal frame; `123` with
+**Guarantee / limits.** Exact pointwise for its inputs; no work on an orthogonal frame from one call; `123` with
 $n_3 = 1$ drops the $x_3$ row; `traditional` acts only on the cubed sphere.
 
-**Evidence.** Report checks and source-test assertions are listed below; solver ctests were not run at the pin.
+**Evidence.** @tbl-ch07-coriolis-tests; `test_forcing.release` passes at the pin.
 :::
 
 **Data details.** In: the cell-centre density $\rho$ [$\mathrm{kg\,m^{-3}}$] and velocity $\mathbf v$
@@ -42,8 +51,8 @@ not touched. Check cases: random orthogonal frames, a $z$[^rg-2eaf88bdc868] rota
 **Evidence details.** Tests: on all six cubed-sphere panels the force equals the Cartesian one mapped to the panel,
 {{< code tests/test_forcing.cpp forcing.cubed_sphere_coriolis_uses_cartesian_rotation_vector >}} (rtol and atol
 $10^{-12}$), with and without `traditional`
-({{< code tests/test_forcing.cpp forcing.cubed_sphere_coriolis_supports_traditional_approximation >}}); these ctests
-were not run at the pin. The Cartesian, cylindrical and spherical-polar branches have no ctest. Check:
+({{< code tests/test_forcing.cpp forcing.cubed_sphere_coriolis_supports_traditional_approximation >}}), and the
+gate's split by {{< code tests/test_forcing.cpp forcing.coriolis_and_metric_take_w_from_the_x1_mass_flux >}}. The Cartesian, cylindrical and spherical-polar branches have no ctest. Check:
 `python3 src/snapy_report/ch07/checks/coriolis_check.py`, output `coriolis_check.out` lines `[C1]`–`[C5]`, re-run at the pin: all PASS, output identical [^env-coriolis].
 
 Local symbols: $\boldsymbol\Omega=(\Omega_1,\Omega_2,\Omega_3)$ [s$^{-1}$] the rotation
@@ -63,9 +72,8 @@ $$ {#eq-ch07-coriolis-force}
 
 <!-- equation-check: eq-ch07-coriolis-force ch09_dropin_check.py [D1] -->
 
-computed component by component in `CoriolisXYZImpl::forward`
-({{< code src/forcing/coriolis.cpp CoriolisXYZImpl::forward >}}) and, for `type: 123`, in `Coriolis123Impl::forward`
-({{< code src/forcing/coriolis.cpp Coriolis123Impl::forward >}}). Why the energy row needs no term, in three steps.
+computed component by component in `CoriolisImpl::add`
+({{< code src/forcing/coriolis.cpp CoriolisImpl::add >}}), one class for both `type: xyz` and `type: 123`. Why the energy row needs no term, in three steps.
 
 1. *The increment is perpendicular to the momentum.* $\mathbf m\cdot(\boldsymbol\Omega\times\mathbf m)=0$ for every
    $\boldsymbol\Omega$, so $\mathbf m\cdot\Delta\mathbf m=0$ in exact arithmetic on an orthonormal frame.
@@ -98,36 +106,57 @@ $$
 $$ {#eq-ch07-coriolis-sph}
 
 the rows of the rotation from the Cartesian to the local $(\hat r,\hat\theta,\hat\varphi)$ basis, implemented as
-`omega1`, `omega2`, `omega3` in `CoriolisXYZImpl::reset` ({{< code src/forcing/coriolis.cpp CoriolisXYZImpl::reset >}}).
+`omega1`, `omega2`, `omega3` in `CoriolisImpl::reset` ({{< code src/forcing/coriolis.cpp CoriolisImpl::reset >}}).
 The rotation preserves $|\boldsymbol\Omega|$, and a rotation about $z$ gives $(\Omega\cos\theta, -\Omega\sin\theta, 0)$.[^cor-c3]
 On a Cartesian grid $x_1$ is the vertical, so `omega1` $=\Omega_z$ is the $x_1$ component unchanged
-({{< code src/forcing/coriolis.cpp CoriolisXYZImpl::reset >}}).[^cor-c4]
+({{< code src/forcing/coriolis.cpp CoriolisImpl::reset >}}).[^cor-c4]
 
 *Cubed sphere.* The panel velocity is contravariant, $v^a$, and the stored momentum covariant, $m_a$. The module
 maps $\rho v^a$ to the local spherical basis with the matrix of @sec-ch03, forms @eq-ch07-coriolis-force there
 with $\boldsymbol\Omega$ projected the same way, and maps the force to covariant components with
-`cs_apply_velocity_transform_` ({{< code src/forcing/coriolis.cpp CoriolisXYZImpl::forward >}}). With `traditional`
+`cs_apply_velocity_transform_` ({{< code src/forcing/coriolis.cpp CoriolisImpl::add >}}). With `traditional`
 the two horizontal components of $\boldsymbol\Omega$ are set to zero, so the force is $-2\Omega_1\hat r\times\mathbf m$,
-purely horizontal, and only the two horizontal momentum rows are updated.
+purely horizontal, and only the two horizontal momentum rows are updated. With `dynamics.conserve-axial-momentum`
+set to `exact`, the same call also adds the flux-form torque of @sec-ch07-axial (`add_torque`).
 
-*What is exact.* @eq-ch07-coriolis-force is exact at the cell centre for the cell-centre state. The only
+*The $x_1$ mass-flux gate.* `X1Momentum` decides once, when the hydro is built, whether the gate applies: not
+shallow water, more than one $x_1$ cell, and a gnomonic-equiangle grid or a spherical-polar grid with Coriolis
+({{< code src/forcing/x1_momentum.cpp X1Momentum::X1Momentum >}}). Under the gate the Coriolis module is registered
+twice, as a pre-implicit and as a post-implicit source
+({{< code src/hydro/register_forcing_modules.cpp HydroImpl::_register_forcings_module >}}), and the two calls read
+different inputs ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}):
+
+1. Before the solve, `before_solve` hands Coriolis $(\rho, 0, v_2, v_3)$: the rows that do not depend on $w$
+   ({{< code src/forcing/x1_momentum.cpp X1Momentum::before_solve >}}).
+2. After the solve, `after_solve` hands it $(1, m_1, 0, 0)$, where $m_1$ of cell $i$ is the face-weighted average of
+   the mass transfer rates $\phi = A_fF$ through its two $x_1$ faces, the explicit flux plus the solve's transfer,
+   with weights $(r_i^2-r_{i-1/2}^2)/(2r_iV_i)$ and $(r_{i+1/2}^2-r_i^2)/(2r_iV_i)$
+   ({{< code src/forcing/x1_momentum.cpp X1Momentum::after_solve >}}).
+
+Since the force is linear in $\mathbf m$, the two calls sum to @eq-ch07-coriolis-force with the cell's $\rho w$
+replaced by that face-based $m_1$. The same $m_1$ feeds the coordinate's $x_1$ metric source. A $w$ that moves no
+mass therefore exerts no Coriolis force, and the implicit solve sees the $w$-free rows.
+
+*What is exact.* @eq-ch07-coriolis-force is exact at the cell centre for its inputs. The only
 discretisation is that the cell average of $\boldsymbol\Omega\times\mathbf m$ is replaced by its centre value, which
 is $O(h^2)$ where $\boldsymbol\Omega$ varies across the cell (spherical-polar, cubed sphere) and exact on a Cartesian
 grid.
 
 [^cor-c2]: `python3 src/snapy_report/ch07/checks/coriolis_check.py`, output `coriolis_check.out`, line `[C2]`:
     $\max|\mathbf m\cdot\Delta\mathbf m|/(|\boldsymbol\Omega||\mathbf m|^2) = 2.5\times10^{-16}$ over 1000 draws; a
-    numpy port of `src/forcing/coriolis.cpp` at the pin, double precision.
+    numpy port of the formulas of `src/forcing/coriolis.cpp` (unchanged at 73c45a7c in `CoriolisImpl::add` and
+    `reset`; the check was not re-run there), double precision.
 [^cor-c3]: Same command, line `[C3]`: largest change of the norm $8.9\times10^{-16}$.
 [^cor-c4]: Same command, line `[C4]`.
 
 ### Numerical method
 
 @fig-ch07-coriolis-projection shows the projection of @eq-ch07-coriolis-sph for a rotation about $z$. The force is
-a pointwise source at the cell centre: no stencil, no ghosts. It runs in every stage, explicit, after `const-gravity` when present in the
-forcing loop, after `const-gravity` and before the diffusion module (@sec-ch07-framework). The projected components
-are computed once, when the module is built, and stored with `register_buffer`
-({{< code src/forcing/coriolis.cpp CoriolisXYZImpl::reset >}}), so they move with the block between devices.
+a pointwise source at the cell centre: no stencil, no ghosts, except that under the gate $m_1$ reads the two
+$x_1$ faces of the cell. It runs in every stage, explicit, as the first source after `const-gravity`, and again after
+the implicit solve under the gate (@sec-ch07-framework). The projected components are computed once, when the module
+is built, and stored with `register_buffer` ({{< code src/forcing/coriolis.cpp CoriolisImpl::reset >}}), so they move
+with the block between devices.
 
 ```{python}
 #| label: fig-ch07-coriolis-projection
@@ -155,12 +184,12 @@ forcing:
 
 1. *An unknown key* in `coriolis`, by `check_keys` ("unknown key 'forcing/coriolis/KEY'"): a misspelt `omega` would
    otherwise run with no rotation.
-2. *A `type` other than `xyz` or `123`*, with "CoriolisOptions: unsupported type " and the value
-   (`CoriolisOptionsImpl::from_yaml`, {{< code src/forcing/coriolis.cpp >}}).
+2. *A `type` other than `xyz` or `123`*, with "CoriolisOptions: unsupported type " and the value (the options row,
+   {{< code src/options/forcing_coriolis.yaml >}}).
 3. *`type: xyz` on a grid other than Cartesian, cylindrical, spherical-polar or gnomonic-equiangle*, at construction,
-   with "CoriolisXYZ: unsupported coordinate system" ({{< code src/forcing/coriolis.cpp >}}).
+   with "Coriolis: unsupported coordinate system" ({{< code src/forcing/coriolis.cpp CoriolisImpl::reset >}}).
 
-**The code, mapped to @eq-ch07-coriolis-force** (`CoriolisXYZImpl::forward`, orthonormal branches):
+**The code, mapped to @eq-ch07-coriolis-force** (`CoriolisImpl::add`, orthonormal branch of `xyz`):
 
 ```cpp
 auto m1 = w[IDN] * w[IVX];
@@ -179,23 +208,25 @@ $(\boldsymbol\Omega\times\mathbf m)_1=\Omega_2m_3-\Omega_3m_2$; `omega1..3` are 
 | what | code link | symbol | switch |
 |---|---|---|---|
 | options, defaults | {{< code src/forcing/coriolis.cpp CoriolisOptionsImpl::from_yaml >}} | `CoriolisOptionsImpl::from_yaml` | `type`, `omega1..3`, `traditional` |
-| choose the module | {{< code src/hydro/register_forcing_modules.cpp HydroImpl::_register_forcings_module >}} | `CoriolisXYZ` | `type` |
-| `123` force | {{< code src/forcing/coriolis.cpp Coriolis123Impl::forward >}} | `Coriolis123Impl::forward` | `type: 123` |
-| projection, all grids | {{< code src/forcing/coriolis.cpp CoriolisXYZImpl::reset >}} | `CoriolisXYZImpl::reset` | `type: xyz` |
-| spherical-polar projection | {{< code src/forcing/coriolis.cpp CoriolisXYZImpl::reset >}} | `omega1` | spherical-polar |
-| cubed-sphere transforms | {{< code src/forcing/coriolis.cpp CoriolisXYZImpl::reset >}} | `cs_velocity_transform_matrix` | gnomonic-equiangle |
-| `xyz` force | {{< code src/forcing/coriolis.cpp CoriolisXYZImpl::forward >}} | `CoriolisXYZImpl::forward` | `type: xyz` |
+| register, pre- and post-implicit | {{< code src/hydro/register_forcing_modules.cpp HydroImpl::_register_forcings_module >}} | `Coriolis` | `forcing/coriolis` |
+| projection, all grids | {{< code src/forcing/coriolis.cpp CoriolisImpl::reset >}} | `CoriolisImpl::reset` | `type: xyz` |
+| cubed-sphere transforms | {{< code src/forcing/coriolis.cpp CoriolisImpl::reset >}} | `cs_velocity_transform_matrix` | gnomonic-equiangle |
+| the force, `xyz` and `123` | {{< code src/forcing/coriolis.cpp CoriolisImpl::add >}} | `CoriolisImpl::add` | `type` |
+| the gate | {{< code src/forcing/x1_momentum.cpp X1Momentum::X1Momentum >}} | `applies_` | grid, $n_1$[^rg-793ca1ab85ae], EOS[^rg-466966ad271b] |
+| $w$-free input before the solve | {{< code src/forcing/x1_momentum.cpp X1Momentum::before_solve >}} | `wc1_` | gate |
+| face-based $m_1$ after the solve | {{< code src/forcing/x1_momentum.cpp X1Momentum::after_solve >}} | `wc2_` | gate |
 
 : Code map of the Coriolis force. {#tbl-ch07-coriolis-code}
 
 1. `CoriolisOptionsImpl::from_yaml` checks the keys and refuses a type other than `xyz` or `123`
    ({{< code src/forcing/coriolis.cpp CoriolisOptionsImpl::from_yaml >}}).
-2. `_register_forcings_module` installs `CoriolisXYZ` for `xyz` and `Coriolis123` otherwise
-   ({{< code src/hydro/register_forcing_modules.cpp HydroImpl::_register_forcings_module >}}).
-3. `CoriolisXYZImpl::reset` projects $\boldsymbol\Omega$ for the grid; any other grid throws
-   ({{< code src/forcing/coriolis.cpp CoriolisXYZImpl::reset >}}). On the cubed sphere it also builds the two
+2. `_register_forcings_module` installs one `Coriolis` module, and registers it a second time as a post-implicit
+   source ({{< code src/hydro/register_forcing_modules.cpp HydroImpl::_register_forcings_module >}}).
+3. `CoriolisImpl::reset` projects $\boldsymbol\Omega$ for the grid under `xyz`; any other grid throws
+   ({{< code src/forcing/coriolis.cpp CoriolisImpl::reset >}}). On the cubed sphere it also builds the two
    transform matrices and sets `traditional` from the option or the shallow-water equation of state.
-4. Each stage, `forward` adds @eq-ch07-coriolis-force ({{< code src/forcing/coriolis.cpp CoriolisXYZImpl::forward >}}).
+4. Each stage, `add` adds @eq-ch07-coriolis-force ({{< code src/forcing/coriolis.cpp CoriolisImpl::add >}}); under
+   the gate its input is the $w$-free state before the solve and the face-based $m_1$ after it.
 
 ### Tests
 
@@ -207,30 +238,37 @@ The derived round-off check [D1] passes.[^ch07-roundoff] The original orthogonal
 | same, `cubed_sphere_coriolis_uses_cartesian_rotation_vector` | on all six panels the force equals the force of the Cartesian $\boldsymbol\Omega$ on the Cartesian velocity, mapped to the panel | rtol $10^{-12}$, atol $10^{-12}$ | round-off of two $3\times3$ transforms on values of order 1 |
 | same, `cubed_sphere_coriolis_supports_traditional_approximation` | the same with only the radial component; the $x_1$ row is exactly unchanged | $10^{-12}$; exact | as above |
 | same, `cubed_sphere_shallow_water_uses_traditional_coriolis` | the shallow-water equation of state turns `traditional` on | $10^{-12}$; exact | as above |
+| same, `coriolis_and_metric_take_w_from_the_x1_mass_flux` | under the gate, a $w$ that moves no mass exerts no torque, and the implicit solve sees $\boldsymbol\Omega$ through the $w$-free rows | $10^{-12}$; nonzero | the test's bounds |
 | this section's check, `coriolis_check.py` | `[C1]`–`[C5]` | per claim | stated in the check |
 
 : Tests of the Coriolis force. {#tbl-ch07-coriolis-tests}
 
-::: {.callout-important title="Check"}
-**Evidence.** The check numbers come from the port named in the footnotes. The ctest cases: **pending a pinned
-ctest run**.
-**Coverage.** CPU only. No test covers the Cartesian, cylindrical or spherical-polar `xyz` branches or the `123`
-form through the solver; the check covers their formulas.
-:::
+`test_forcing.release` passes at the pin.[^cor-run] No test covers the Cartesian, cylindrical or
+spherical-polar `xyz` branches or the `123` form through the solver; the check covers their formulas.
+
+[^cor-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>`, with anchored patterns over the 25 ctests this chapter cites, in the `tests`
+    directory of a README CUDA Release build at the pin; CPU, and two visible CUDA GPUs (Quadro RTX 4000) for the CUDA
+    and two-device arms; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 24 of the 25
+    ctests passed; `test_diffusion_cubed_sphere_two_gpu.release`, registered as one process, skipped by design, and
+    its two-rank registration passed.
 
 ### Limits
 
 1. **`traditional` acts only on the cubed sphere.** It is read in the gnomonic branch only
-   ({{< code src/forcing/coriolis.cpp CoriolisXYZImpl::reset >}}); on Cartesian, cylindrical and spherical-polar
+   ({{< code src/forcing/coriolis.cpp CoriolisImpl::reset >}}); on Cartesian, cylindrical and spherical-polar
    grids, and with `type: 123`, it is parsed and ignored. Not tested.
 2. **`123` in two dimensions** drops the $x_3$ momentum row when $n_3 = 1$ (the test `w.size(1) > 1`,
-   {{< code src/forcing/coriolis.cpp Coriolis123Impl::forward >}}), so the force then does work:
+   {{< code src/forcing/coriolis.cpp CoriolisImpl::add >}}), so the force then does work:
    $\mathbf m\cdot\Delta\mathbf m \ne 0$ in general.[^cor-c5] The `xyz` form keeps all three rows.
 3. **Axis naming.** In `xyz`, `omega1` is $\Omega_z$, `omega2` $\Omega_x$, `omega3` $\Omega_y$
-   ({{< code src/forcing/coriolis.cpp CoriolisXYZImpl::reset >}}). On a Cartesian grid this is the
+   ({{< code src/forcing/coriolis.cpp CoriolisImpl::reset >}}). On a Cartesian grid this is the
    $(x_1,x_2,x_3)$ order; on a sphere it is the Cartesian frame whose $z$ is the polar axis.
 4. **Cylindrical** has a projection branch, but the coordinate type is not functional (@sec-ch03).
 5. **No energy check through the solver** and no convergence test of the cell-centre approximation; not measured.
+6. **Under the gate the two calls see different states.** The pre-implicit call uses the stage's $v_2$, $v_3$ and
+   the post-implicit one the solved $m_1$; the orthogonality of step 1 holds for each call's own input, not for the
+   stage's final momentum.
 
 [^cor-c5]: `python3 src/snapy_report/ch07/checks/coriolis_check.py`, line `[C5]`: the dropped component would have been
     $-0.20$, and $\mathbf m\cdot\Delta\mathbf m = 0.60$ in the two-dimensional case of the check.
@@ -253,7 +291,11 @@ form through the solver; the check covers their formulas.
 
 [^rg-137c6809df4d]: $\varphi$ — $x_3$ on a spherical-polar grid (azimuth) [rad]; never the potential
 
-[^rg-a91ad47fcc7b]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14)
+[^rg-a91ad47fcc7b]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); `machine_epsilon` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14)
 
 [^rg-5a0ce8082ce9]: type — implementation selector for the enclosing options block
+
+[^rg-793ca1ab85ae]: $n_1, n_2, n_3$ — interior cells per block in each direction
+
+[^rg-466966ad271b]: EOS — equation of state
 <!-- end reader glossary notes -->

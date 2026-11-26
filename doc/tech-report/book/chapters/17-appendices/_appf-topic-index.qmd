@@ -4,6 +4,8 @@
 
 **$A_{i\pm1/2}$**: [1. Coordinates and grids](#sec-appa-1).
 
+*AAM closure*, see **angular momentum, axial, flux form and closure**.
+
 *AAM drift*, see **angular momentum, global axial**.
 
 **ABI**: Build options and test registration, @sec-ch12-build.
@@ -21,6 +23,8 @@
 **$\alpha_{\mathrm{nh}}$**: [5. Gravity, potential energy and gravity work](#sec-appa-5).
 
 *aneos*, see **equation of state, tabulated**.
+
+**angular momentum, axial, flux form and closure**: Axial angular momentum: flux form and closure, @sec-ch07-axial.
 
 **angular momentum, global axial**: Invariant checks: zero in, zero out, and the global budgets, @sec-ch16-invariants.
 
@@ -255,6 +259,8 @@
 **conservation, monitoring a run**: Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle.
 
 **conservation tests**: Mass-conservation regression checks: which test holds which total, to what tolerance, @sec-ch13-regression.
+
+*conserve-axial-momentum*, see **angular momentum, axial, flux form and closure**.
 
 **conserved variables**: NetCDF output: per-block files and the combine, @sec-ch14-netcdf.
 
@@ -2046,7 +2052,7 @@
 
 *tridiagonal solve*, see **implicit scheme, solve**.
 
-**turbulence closure (not built)**: Turbulence closure: not built, @sec-ch07-turbulence.
+**turbulence closure (not built)**: Turbulence closure: absent, @sec-ch07-turbulence.
 
 **TVD**: The notation index, @sec-appa-index.
 

@@ -1,10 +1,13 @@
 ## User stage forcings: TorchScript modules called every stage (`set_user_stage_forcings`) {#sec-ch07-user}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml); pyharp@4721715855e937c1e8b218e964c0655f46e56e29
-sources: OUTLINE.md 9.2; src/mesh/meshblock.cpp; tests/test_jit_user_forcing.py, tests/test_stage_forcing_dry_tracer.py,
-         tests/CMakeLists.txt at the pin
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final); pyharp@4721715855e937c1e8b218e964c0655f46e56e29
+sources: STRUCTURE.md 7.4; src/mesh/meshblock.cpp, src/mesh/meshblock_advance.cpp, src/mesh/stage_executor.cpp;
+         tests/test_jit_user_forcing.py, tests/test_stage_forcing_dry_tracer.py, tests/test_forcing_species_clip.py,
+         tests/test_graph_user_forcing.py, tests/CMakeLists.txt at the pin
 status: draft
+author: chengcli
+reviewer: zoeyzyhu
 -->
 
 ### Summary
@@ -21,8 +24,8 @@ scalar increments; @eq-ch07-user-add.
 
 **Data.** In: shared buffer dictionary, full $\Delta t$ and stage index; out: `hydro_du` and/or `scalar_ds` increments.
 
-**Placement.** Every RK stage, in `MeshBlockImpl::advance_local`, after the native forcings, the vertical implicit
-correction and the scalar update, before the RK average.
+**Placement.** Every RK stage, in `MeshBlockImpl::stage_forcing`, after the native forcings, the vertical implicit
+correction and the scalar update (`stage_advance`), before the RK average (`stage_combine`).
 
 **Activation.** The call `MeshBlockImpl::set_user_stage_forcings(filenames)`; no YAML[^rg-0ebf34f7decd] key. Default: none.
 `scalar_ds` needs passive scalars.
@@ -30,7 +33,7 @@ correction and the scalar update, before the RK average.
 **Guarantee / limits.** The return value is added as it is, not multiplied by $\Delta t$, except that species rows are
 clipped at zero when the limiter is on (Limits); a wrong shape or an unknown key is refused.
 
-**Evidence.** Report checks and source-test assertions are listed below; solver ctests were not run at the pin.
+**Evidence.** @tbl-ch07-user-tests; the ctests pass at the pin.
 :::
 
 **Data details.** In: one dictionary of every named block buffer and the stage variables (stage variables win), the
@@ -41,7 +44,7 @@ full step. Check case: three toy modules, and the rk1, rk2, rk3, rk3s4 stage wei
 **Evidence details.** Tests: a scripted module adds $0.25\cdot1+0.5$ to the dry density in one stage,
 {{< code tests/test_jit_user_forcing.py main >}} (`assert_close` defaults); a user dry increment changes the density by
 $w_2^{(s)}$ times it for every integrator, {{< code tests/test_stage_forcing_dry_tracer.py main >}} ($10^{-12}$
-absolute); these ctests were not run at the pin. Check: `python3 src/snapy_report/ch07/checks/user_check.py`, output `user_check.out` lines `[C1]`–`[C3]`, re-run at the pin: all PASS, output identical [^env-user].
+absolute). Check: `python3 src/snapy_report/ch07/checks/user_check.py`, output `user_check.out` lines `[C1]`–`[C3]`, re-run at the pin: all PASS, output identical [^env-user].
 
 Local symbols: $\mathsf D$ the dictionary of named block buffers and stage variables
 handed to every module ($V$ is the cell volume in appendix A); $\ell=1..N_{\mathrm u}$ the user modules, in load order ($q$ is
@@ -63,11 +66,11 @@ $$
 $$ {#eq-ch07-user-add}
 
 1. With $\mathsf D$ the dictionary of block buffers and stage variables. @eq-ch07-user-add is the loop over
-   `user_stage_forcings` in `MeshBlockImpl::advance_local` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}).
+   `user_stage_forcings` in `MeshBlockImpl::stage_forcing` ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_forcing >}}).
    The dictionary is shared: in-place mutation of its tensors is visible to later user modules.
 2. Without such mutation, every module sees $\mathsf D$ as it was before any user module ran: `stage_forcing_variables` builds the
    dictionary once, from the stage variables and not from the increments
-   ({{< code src/mesh/meshblock.cpp stage_forcing_variables >}}). Through the Runge–Kutta average a user increment
+   ({{< code src/mesh/meshblock_advance.cpp stage_forcing_variables >}}). Through the Runge–Kutta average a user increment
    enters the step with the stage weight $w_2^{(s)}$, exactly as a native one; the test below asserts that for rk1,
    rk2, rk3 and rk3s4.
 
@@ -77,14 +80,18 @@ $$ {#eq-ch07-user-add}
    step with rk1, rk2, rk3 and rk3s4.[^user-c]
 
 [^user-c]: `python3 src/snapy_report/ch07/checks/user_check.py`, output `user_check.out`, lines `[C1]`–`[C3]`; a numpy
-    port of the addition in `MeshBlockImpl::advance_local` at the snapy pin and of the stage weights of pyharp at
+    port of the addition in `MeshBlockImpl::stage_forcing` at the snapy pin and of the stage weights of pyharp at
     `4721715855e937c1e8b218e964c0655f46e56e29`, double precision.
 
 ### Numerical method
 
 @fig-ch07-user-forcing shows the interface. `set_user_stage_forcings` moves the modules to the block's device
 when it loads them ({{< code src/mesh/meshblock.cpp MeshBlockImpl::set_user_stage_forcings >}}), and they are called
-on that device. They run once per stage of every step, and again in a redone step (@sec-ch09-redo).
+on that device. They run once per stage of every step, and again in a redone step (@sec-ch09-redo). The stage
+executor runs `stage_forcing` as its own operation between `stage_advance` and `stage_combine`
+({{< code src/mesh/stage_executor.cpp >}}). Under `integration.execution: cuda-graph` a user module is opaque, so
+that operation runs eagerly between two captured graphs, and a strict graph case with a user forcing is refused
+before its first launch (`test_graph_user_forcing_python`).
 
 ```{python}
 #| label: fig-ch07-user-forcing
@@ -102,19 +109,21 @@ make_fig()
 **What is refused, and why** (each a `TORCH_CHECK` naming "User stage forcing N"):
 
 1. *A return value that is not `Dict[str, Tensor]`*, a non-string key or a non-tensor value
-   (`stage_forcing_result`, {{< code src/mesh/meshblock.cpp >}}): the block cannot add it.
-2. *A `hydro_du` or `scalar_ds` of another shape* than the native increment ({{< code src/mesh/meshblock.cpp >}}).
-3. *`scalar_ds` without passive scalars*, or before the native scalar tendencies exist ({{< code src/mesh/meshblock.cpp >}}).
+   (`stage_forcing_result`, {{< code src/mesh/meshblock_advance.cpp stage_forcing_result >}}): the block cannot add it.
+2. *A `hydro_du` or `scalar_ds` of another shape* than the native increment
+   ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_forcing >}}).
+3. *`scalar_ds` without passive scalars*, or before the native scalar tendencies exist (same function).
 4. *Any other key*, with "returned unsupported key 'KEY'. Expected one or both of: hydro_du, scalar_ds."
-   ({{< code src/mesh/meshblock.cpp >}}): a misspelt key would otherwise be dropped silently.
+   (same function): a misspelt key would otherwise be dropped silently.
 
-**The code, mapped to @eq-ch07-user-add** (`MeshBlockImpl::advance_local`):
+**The code, mapped to @eq-ch07-user-add** (`MeshBlockImpl::stage_forcing`):
 
 ```cpp
 if (!user_stage_forcings.empty()) {
   auto inputs = stage_forcing_variables(*this, vars);
   for (size_t i = 0; i < user_stage_forcings.size(); ++i) {
-    auto result = user_stage_forcings[i]->forward({inputs, dt, stage});
+    auto result =
+        user_stage_forcings[i]->forward({inputs, dt.value(), stage});
     apply_extra_forcing(stage_forcing_result(result, i),
                         "User stage forcing " + std::to_string(i));
   }
@@ -122,31 +131,31 @@ if (!user_stage_forcings.empty()) {
 ```
 
 `inputs` is $\mathsf D$, built once per stage; each call is $\mathbf G^{[\ell]}(\mathsf D,\Delta t,s)$, and `apply_extra_forcing` adds it to
-the native increment with `fut_hydro_du.add_` ({{< code src/mesh/meshblock.cpp >}}), the sum of @eq-ch07-user-add.
+the native increment with `target.add_` ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_forcing >}}), the sum of @eq-ch07-user-add.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
 | load, move to device | {{< code src/mesh/meshblock.cpp MeshBlockImpl::set_user_stage_forcings >}} | `set_user_stage_forcings` | API[^rg-bbcb5d2272d2] call |
-| input dictionary | {{< code src/mesh/meshblock.cpp stage_forcing_variables >}} | `stage_forcing_variables` | |
-| output checks | {{< code src/mesh/meshblock.cpp stage_forcing_result >}} | `stage_forcing_result` | |
-| add `hydro_du`, `scalar_ds` | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `apply_extra_forcing` | |
-| call each module | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `user_stage_forcings` | |
-| dry carry | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `carry_dry_source` | scalars present |
+| input dictionary | {{< code src/mesh/meshblock_advance.cpp stage_forcing_variables >}} | `stage_forcing_variables` | |
+| output checks | {{< code src/mesh/meshblock_advance.cpp stage_forcing_result >}} | `stage_forcing_result` | |
+| add `hydro_du`, `scalar_ds` | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_forcing >}} | `apply_extra_forcing` | |
+| call each module | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_forcing >}} | `user_stage_forcings` | |
+| dry carry | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}} | `carry_dry_source` | scalars present |
 
 : Code map of the user stage forcings. {#tbl-ch07-user-code}
 
 1. `set_user_stage_forcings` loads every file with `torch::jit::load`, moves it to the block's device and puts it
    in evaluation mode ({{< code src/mesh/meshblock.cpp MeshBlockImpl::set_user_stage_forcings >}}).
-2. In `advance_local`, after the native and scalar tendencies, the block builds the dictionary with
-   `stage_forcing_variables` ({{< code src/mesh/meshblock.cpp stage_forcing_variables >}}): every named buffer first,
+2. In `stage_forcing`, after the native and scalar tendencies, the block builds the dictionary with
+   `stage_forcing_variables` ({{< code src/mesh/meshblock_advance.cpp stage_forcing_variables >}}): every named buffer first,
    then the stage variables, which replace a buffer of the same name.
 3. It calls each of the `user_stage_forcings` with the dictionary, $\Delta t$ and the stage index
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}), checks that the result is a dictionary of
-   tensors with string keys in `stage_forcing_result` ({{< code src/mesh/meshblock.cpp stage_forcing_result >}}) and
-   adds it in `apply_extra_forcing` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}), which
+   ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_forcing >}}), checks that the result is a dictionary of
+   tensors with string keys in `stage_forcing_result` ({{< code src/mesh/meshblock_advance.cpp stage_forcing_result >}}) and
+   adds it in `apply_extra_forcing`, which
    refuses a wrong shape, an unknown key, or `scalar_ds` without scalars.
 4. The user change of the dry density carries the tracers with `carry_dry_source`
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}), against the scalar increment from before the
+   ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}}), against the scalar increment from before the
    user modules, so an explicit `scalar_ds` is not debited by a simultaneous dry removal.
 
 ### Tests
@@ -160,15 +169,16 @@ The extra assertions cover CPU float32/float64, fresh outputs and unchanged borr
 |---|---|---|---|
 | `tests/test_jit_user_forcing.py` (`test_jit_user_forcing_python`) | a scripted module with a nested submodule and a buffer adds $0.25\cdot1 + 0.5$ to the dry density in one stage at $\Delta t = 0$ | `torch.testing.assert_close` defaults (float64: rtol $10^{-7}$, atol $10^{-7}$) | the returned value is added as is, not times $\Delta t$ |
 | `tests/test_stage_forcing_dry_tracer.py` (`test_stage_forcing_dry_tracer_python`) | for rk1, rk2, rk3, rk3s4 a user dry increment in stage $s$ changes the density by $w_2^{(s)}$ times it; an explicit `scalar_ds` is not coupled to a dry removal; tracer ratios stay in $[-10^{-12}, 1+10^{-12}]$ | $10^{-12}$ absolute | round-off of a few operations on values of order 1 |
+| `tests/test_forcing_species_clip.py` (`test_forcing_species_clip_python`) | a user vapor increment cannot take a dry slot below zero, and the cell below is what transport plus the forcing give, with no repair borrowed from it | $10^{-14}$ relative | round-off |
+| `tests/test_graph_user_forcing.py` (`test_graph_user_forcing_python`) | under `cuda-graph` the forcing operation runs eagerly between two graphs and equals an eager block bitwise, FP64 and FP32; a strict case is refused | bitwise | `torch.equal` |
 | this section's check, `user_check.py` | `[C1]`–`[C3]` | per claim | stated in the check |
 
 : Tests of the user stage forcings. {#tbl-ch07-user-tests}
 
 ::: {.callout-important title="Check"}
-**Evidence.** The check numbers come from the port named in the footnote. Both ctest cases: **pending a pinned
-ctest run**.
-**Coverage.** Both tests are registered on CPU only (`tests/CMakeLists.txt` at the pin has no `--device cuda` arm
-for them), although `test_stage_forcing_dry_tracer.py` accepts a device argument. No multi-rank arm.
+**Evidence.** The check numbers come from the port named in the footnote. The ctest cases pass at the pin.[^user-run]
+**Coverage.** `test_graph_user_forcing_python` is the one CUDA arm; the other tests run on CPU, although
+`test_stage_forcing_dry_tracer.py` accepts a device argument. No multi-rank arm.
 :::
 
 ### Limits
@@ -184,7 +194,14 @@ for them), although `test_stage_forcing_dry_tracer.py` accepts a device argument
    $\Delta U_n^{\mathrm{native}}$ is the species increment before the user modules and $U_n$ the stage state, so a
    user forcing cannot take a species density below zero. The withheld amount is not applied anywhere, and where the
    clip does not bind the increment is unchanged bit for bit (`clip_species`,
-   {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}); the positivity chain it completes is @sec-ch08.
+   {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_forcing >}}); the positivity chain it completes is @sec-ch08.
+
+[^user-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>`, with anchored patterns over the 25 ctests this chapter cites, in the `tests`
+    directory of a README CUDA Release build at the pin; CPU, and two visible CUDA GPUs (Quadro RTX 4000) for the CUDA
+    and two-device arms; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 24 of the 25
+    ctests passed; `test_diffusion_cubed_sphere_two_gpu.release`, registered as one process, skipped by design, and
+    its two-rank registration passed.
 
 [^env-user]: Recorded run environment: Python 3.11.13, numpy 2.4.6, sympy 1.14.0.
 

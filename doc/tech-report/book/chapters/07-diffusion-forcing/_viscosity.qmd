@@ -1,16 +1,19 @@
 ## Isotropic viscosity and heat conduction (`forcing/diffusion`) {#sec-ch07-viscosity}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml); pyharp@4721715855e937c1e8b218e964c0655f46e56e29
-sources: OUTLINE.md 9.4; src/forcing/diffusion.cpp, src/hydro/hydro.cpp, src/mesh/meshblock.cpp, tests/test_diffusion.cpp,
-         tests/test_diffusion_moist.cpp, tests/test_stretched_x1_ref.cpp at the pin; sources/canoe__diffusion_ghost_TECH_REPORT.md
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final); pyharp@4721715855e937c1e8b218e964c0655f46e56e29
+sources: STRUCTURE.md 7.3; src/forcing/diffusion.cpp, src/forcing/diffusion_cubed_sphere.cpp, src/hydro/hydro.cpp,
+         src/hydro/hydro_forward.cpp, src/mesh/meshblock_advance.cpp, tests/test_diffusion.cpp, tests/test_diffusion_moist.cpp,
+         tests/test_stretched_x1_ref.cpp at the pin; sources/canoe__diffusion_ghost_TECH_REPORT.md
 status: draft
+author: chengcli
+reviewer: zoeyzyhu
 -->
 
 ### Summary
 
 The diffusion module is snapy's only closure for sub-grid momentum and heat transport: constant isotropic
-coefficients, optionally shaped in $x_1$ (@sec-ch07-x1profile). With the default `dynamic: false`, `nu_iso`[^rg-68e1ae201205] is a
+coefficients, optionally shaped in $x_1$ (@sec-ch07-x1profile). With the default `dynamic: false`, `nu_iso` is a
 kinematic viscosity $\nu$ [$\mathrm{m^2\,s^{-1}}$] multiplied by the face density, and `kappa_iso`[^rg-362e26b17c8b] a thermal
 diffusivity $\kappa$[^rg-4c19b0445136] [$\mathrm{m^2\,s^{-1}}$] multiplied by the face volumetric heat capacity $\rho c_v$. With
 `dynamic: true` the two numbers are a dynamic viscosity $\mu$[^rg-33836c7b4c9c] [$\mathrm{Pa\,s}$] and a conductivity, still written
@@ -21,7 +24,7 @@ sphere the same keys select the operator of @sec-ch07-csdiffusion.
 
 For numerical diffusion/dissipation, see the Roe solver's fallback to the local Lax–Friedrichs flux in @sec-ch04-roe:
 its dissipative term is half the largest left/right signal speed times the conserved-state jump
-({{< code src/riemann/roe_impl.h roe_impl >}}). This is separate from the configured physical viscosity here.
+({{< code src/riemann/riemann_kernels.h roe_impl >}}). This is separate from the configured physical viscosity here.
 The task map (@sec-appg) explicitly states: **Not provided:** no list of numerical dissipation and no
 physical-vs-numerical split; that missing inventory is not supplied by this physical-diffusion section.
 
@@ -48,7 +51,7 @@ density $\rho$ and mixture $c_v$ of the stage, ghosts included ($n_{\mathrm{ghos
 coefficients `nu_iso`, `kappa_iso` [$\mathrm{m^2\,s^{-1}}$, or $\mathrm{Pa\,s}$ and $\mathrm{W\,m^{-1}\,K^{-1}}$ with
 `dynamic: true`]. Out: face fluxes of momentum [$\mathrm{Pa}$] and energy [$\mathrm{W\,m^{-2}}$] on every active
 direction, and their divergence in the momentum and energy rows. Check cases: transverse and normal modes at
-$n_1 = 64$, a random shear at $n_1 = 48$, a resting dry adiabat at $n_1$[^rg-793ca1ab85ae] = 64, 128, 256.
+$n_1 = 64$, a random shear at $n_1 = 48$, a resting dry adiabat at $n_1$ = 64, 128, 256.
 
 **Evidence details.** Tests: a transverse $v_2=x_1^2$ gives the uniform viscous Laplacian,
 {{< code tests/test_diffusion.cpp DeviceTest.transverse_velocity_uses_viscous_laplacian >}} ($10^{-5}$); a sine mode
@@ -100,7 +103,12 @@ and the stage adds $-\Delta t\,\nabla\cdot\mathbf F$ to momentum and energy. Wit
 replaced by $\mu$ and $\kappa\rho c_v$ by the conductivity $\kappa$.
 
 @eq-ch07-viscosity-flux is the face flux `momentum_flux` with its work and conduction terms in the energy row of
-`DiffusionImpl::forward` ({{< code src/forcing/diffusion.cpp DiffusionImpl::forward >}}).
+`DiffusionImpl::cartesian_fluxes` ({{< code src/forcing/diffusion.cpp DiffusionImpl::cartesian_fluxes >}}). The two
+parts of the flux reach the stage by two paths: the momentum rows through the module's `add`, which subtracts
+$\Delta t$ times their divergence from the stage increment ({{< code src/forcing/diffusion.cpp DiffusionImpl::add >}}),
+and the energy row through `post_fluxes`, which posts it into the flux register before the flux divergence is
+formed, so it enters $-\Delta t\,(\nabla\cdot\mathbf F)_i$ with the hydrodynamic fluxes
+({{< code src/forcing/diffusion_cubed_sphere.cpp DiffusionImpl::post_fluxes >}}, @sec-ch07-framework).
 
 #### Discrete fluxes
 
@@ -122,12 +130,12 @@ and the two-cell face average, in `face_normal_derivative`
 ({{< code src/forcing/diffusion.cpp centered_derivative >}}) and `face_average`
 ({{< code src/forcing/diffusion.cpp face_average >}}). The divergence $\nabla\cdot\mathbf v$ is formed with centred
 differences in every cell, `div_vel`, and then face-averaged, `div_face`
-({{< code src/forcing/diffusion.cpp DiffusionImpl::forward >}}). The stress row $b=a$ is
+({{< code src/forcing/diffusion.cpp DiffusionImpl::cartesian_fluxes >}}). The stress row $b=a$ is
 $2\partial_av_a - \tfrac23\overline{\nabla\cdot\mathbf v}$; a row $b\ne a$ is $\partial_av_b + \partial_bv_a$, with
 the second term dropped when direction $b$ is inactive. The viscous work uses the `face_average` of the velocity,
 and the conductive term the face-normal temperature difference times the face coefficient of @sec-ch07-wallcoef.
-The tendency subtracts $\Delta t$ times the `divergence` of the three flux arrays
-({{< code src/forcing/diffusion.cpp DiffusionImpl::forward >}}).
+The momentum tendency subtracts $\Delta t$ times the `divergence` of the three flux arrays
+({{< code src/forcing/diffusion.cpp DiffusionImpl::add >}}); the energy row is the register post above.
 
 Three properties follow, and a line-by-line port of the module checks them:[^vis-c]
 
@@ -187,9 +195,10 @@ with $K_{\Delta t}=\max(\nu\varsigma_{\max}^{\nu},\kappa\varsigma_{\max}^{\kappa
 largest value of an $x_1$ profile of @sec-ch07-x1profile, 1 without one) and
 $K_{\Delta t}=\max(\mu/\rho_{\min}, \kappa/(\rho c_v)_{\min})$ with `dynamic: true`, in `max_time_step`
 ({{< code src/forcing/diffusion.cpp DiffusionImpl::max_time_step >}}). At the bound $|G|=1$ exactly (`[C6]`). The
-solver takes the minimum of @eq-ch07-viscosity-dt and the hyperbolic bound through `pdiffusion`
-({{< code src/hydro/hydro.cpp HydroImpl::max_time_step >}}) and then multiplies by the Courant factor `cfl`[^rg-b85b53c55d48]
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::max_time_step >}}), 0.9 by default in pyharp's integrator options,
+solver takes the minimum of @eq-ch07-viscosity-dt and the hyperbolic bound through the registry's
+`sources.max_time_step` ({{< code src/hydro/hydro.cpp HydroImpl::max_time_step >}}) and then multiplies by the
+Courant factor `cfl`[^rg-b85b53c55d48]
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::global_time_step >}}), 0.9 by default in pyharp's integrator options,
 so the diffusive step runs at `cfl` times its limit.
 
 #### What `kappa_iso` diffuses
@@ -244,7 +253,7 @@ the two-cell average. With `temperature_inner` (or `temperature_outer`) $T_w>0$ 
 (`reflecting_outer`), the temperature difference across the wall face is replaced by the half-cell difference to the
 wall, $\partial_1T\rvert_{\mathrm{wall}}=(T_c-T_w)/(x_{1,c}-x_{1,f})$, with $c$ the wall cell and $f$ the wall face, and
 the wall-face coefficient is unchanged; the reflecting ghosts, which the hydrostatic balance reads, are not altered
-({{< code src/forcing/diffusion.cpp DiffusionImpl::forward >}}). A linear profile between two such walls is then a
+({{< code src/forcing/diffusion.cpp DiffusionImpl::cartesian_fluxes >}}). A linear profile between two such walls is then a
 discrete equilibrium. The module runs in every Runge–Kutta stage, explicit, third in the forcing loop
 (@sec-ch07-framework). Evidence for the orders: interior second order from `[C2]`, `[C3]` and `[C8]` (fitted slope
 2.00 over three resolutions); the wall coefficient second order from @sec-ch07-wallcoef; the order of the full
@@ -279,7 +288,8 @@ forcing:
    ({{< code src/forcing/diffusion.cpp DiffusionImpl::reset >}}).
 4. *At run time*, a non-finite coefficient or a non-positive bound in `max_time_step` ({{< code src/forcing/diffusion.cpp >}}).
 
-**The code, mapped to @eq-ch07-viscosity-flux** (`DiffusionImpl::forward`, per direction and velocity row):
+**The code, mapped to @eq-ch07-viscosity-flux** (`DiffusionImpl::cartesian_fluxes`, per direction and velocity
+row, then `DiffusionImpl::add`):
 
 ```cpp
 auto momentum_flux = options->dynamic()
@@ -287,15 +297,18 @@ auto momentum_flux = options->dynamic()
                          : -options->nu_iso() * rho_face * stress;
 flux[IVX + ivar].index(face_index).copy_(momentum_flux);
 flux[IPR].index(face_index) +=
-    face_average(w[IVX + ivar], idir, face_start, face_end) *
+    face_average(w[IVX + ivar], coord, idir, face_start, face_end) *
     momentum_flux;
 ...
-du -= dt * coord->divergence(fluxes[0], fluxes[1], fluxes[2]);
+// DiffusionImpl::add: the energy rows are post_fluxes'
+auto div = coord->divergence(fluxes[0], fluxes[1], fluxes[2]);
+du.narrow(0, 0, IPR) -= dt * div.narrow(0, 0, IPR);
 ```
 
 `stress` is the bracket of the first row (with `2. * stress - (2. / 3.) * div_face` on the diagonal, {{< code src/forcing/diffusion.cpp >}}), so
 `momentum_flux` is $F^{(m_b)}_a$; the `+=` line is the work $\sum_bv_bF^{(m_b)}_a$ of the second row, to which the heat flux
-`- kappa_iso * coef * dtdn` is added ({{< code src/forcing/diffusion.cpp >}}); the last line is $-\Delta t\,\nabla\cdot\mathbf F$.
+`- kappa_iso * coef * dtdn` is added ({{< code src/forcing/diffusion.cpp >}}); the last line is $-\Delta t\,\nabla\cdot\mathbf F$
+on the rows below the energy row, whose divergence comes from the register post.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
@@ -304,13 +317,14 @@ du -= dt * coord->divergence(fluxes[0], fluxes[1], fluxes[2]);
 | face-normal difference | {{< code src/forcing/diffusion.cpp face_normal_derivative >}} | `face_normal_derivative` | |
 | tangential difference | {{< code src/forcing/diffusion.cpp centered_derivative >}} | `centered_derivative` | |
 | face average | {{< code src/forcing/diffusion.cpp face_average >}} | `face_average` | |
-| cell divergence | {{< code src/forcing/diffusion.cpp DiffusionImpl::forward >}} | `div_vel` | `nu_iso` $>0$ |
-| $\rho c_v$ | {{< code src/forcing/diffusion.cpp DiffusionImpl::forward >}} | `rho_cv` | `kappa_iso` $>0$, not dynamic |
-| stress and work | {{< code src/forcing/diffusion.cpp DiffusionImpl::forward >}} | `momentum_flux` | `nu_iso` $>0$ |
-| heat flux | {{< code src/forcing/diffusion.cpp DiffusionImpl::forward >}} | `dtdn` | `kappa_iso` $>0$ |
-| tendency | {{< code src/forcing/diffusion.cpp DiffusionImpl::forward >}} | `divergence` | |
+| cell divergence | {{< code src/forcing/diffusion.cpp DiffusionImpl::cartesian_fluxes >}} | `div_vel` | `nu_iso` $>0$ |
+| $\rho c_v$ | {{< code src/forcing/diffusion.cpp DiffusionImpl::cartesian_fluxes >}} | `rho_cv` | `kappa_iso` $>0$, not dynamic |
+| stress and work | {{< code src/forcing/diffusion.cpp DiffusionImpl::cartesian_fluxes >}} | `momentum_flux` | `nu_iso` $>0$ |
+| heat flux | {{< code src/forcing/diffusion.cpp DiffusionImpl::cartesian_fluxes >}} | `dtdn` | `kappa_iso` $>0$ |
+| momentum tendency | {{< code src/forcing/diffusion.cpp DiffusionImpl::add >}} | `divergence` | |
+| energy row into the flux register | {{< code src/forcing/diffusion_cubed_sphere.cpp DiffusionImpl::post_fluxes >}} | `reg.add` | |
 | time-step bound | {{< code src/forcing/diffusion.cpp DiffusionImpl::max_time_step >}} | `DiffusionImpl::max_time_step` | |
-| bound used by the solver | {{< code src/hydro/hydro.cpp HydroImpl::max_time_step >}} | `pdiffusion` | |
+| bound used by the solver | {{< code src/hydro/hydro.cpp HydroImpl::max_time_step >}} | `sources.max_time_step` | |
 
 : Code map of the isotropic viscosity and heat conduction. {#tbl-ch07-viscosity-code}
 
@@ -321,11 +335,15 @@ du -= dt * coord->divergence(fluxes[0], fluxes[1], fluxes[2]);
    wall options of item 3, viscosity with fewer than two ghosts, and conduction without a positive reference $c_v$
    ({{< code src/forcing/diffusion.cpp DiffusionImpl::reset >}});
    it then builds the $x_1$ profiles (@sec-ch07-x1profile).
-3. `forward` hands a cubed-sphere block to `forward_cubed_sphere` (@sec-ch07-csdiffusion); on a Cartesian block it forms the cell divergence `div_vel` and `rho_cv`, then, per active direction, the face coefficient, the
-   stress rows and their work, `momentum_flux`, and the heat flux from `dtdn`, with the wall value of `dtdn` replaced
-   where a wall temperature is set ({{< code src/forcing/diffusion.cpp DiffusionImpl::forward >}}).
-4. It subtracts $\Delta t$ times the `divergence` of the three flux arrays
-   ({{< code src/forcing/diffusion.cpp DiffusionImpl::forward >}}).
+3. `cartesian_fluxes` forms the cell divergence `div_vel` and `rho_cv`, then, per active direction, the face
+   coefficient, the stress rows and their work, `momentum_flux`, and the heat flux from `dtdn`, with the wall value
+   of `dtdn` replaced where a wall temperature is set
+   ({{< code src/forcing/diffusion.cpp DiffusionImpl::cartesian_fluxes >}}).
+4. Before the flux divergence of the stage, `post_fluxes` posts the energy row of those fluxes into the flux
+   register ({{< code src/forcing/diffusion_cubed_sphere.cpp DiffusionImpl::post_fluxes >}}). In the forcing loop,
+   `add` hands a cubed-sphere block to `forward_cubed_sphere` (@sec-ch07-csdiffusion); on a Cartesian block it
+   subtracts $\Delta t$ times the `divergence` of the momentum rows
+   ({{< code src/forcing/diffusion.cpp DiffusionImpl::add >}}).
 5. `max_time_step` returns @eq-ch07-viscosity-dt ({{< code src/forcing/diffusion.cpp DiffusionImpl::max_time_step >}});
    it throws on a non-finite coefficient or a non-positive bound.
 
@@ -353,8 +371,9 @@ The derived round-off checks [D4, D5, D5n] pass.[^ch07-roundoff]
 : Tests of the isotropic viscosity and heat conduction. {#tbl-ch07-viscosity-tests}
 
 ::: {.callout-important title="Check"}
-**Evidence.** The check numbers come from the port named in the footnote. ctest cases: `test_diffusion.release`
-and `test_stretched_x1_ref.release` pass at the pin.[^vis-ctest] A data figure of the sine-mode decay against $e^{-\nu t}$ from the ctest is **pending** the same run.
+**Evidence.** The check numbers come from the port named in the footnote. ctest cases: `test_diffusion.release`,
+`test_diffusion_moist.release` and `test_stretched_x1_ref.release` pass at the pin.[^vis-ctest] No data figure of
+the sine-mode decay against $e^{-\nu t}$ is drawn; the ctest prints no series.
 **Coverage.** The `DeviceTest` cases run on CPU in float32 and float64 and on CUDA in both when a device is present
 (`tests/device_testing.hpp`). No multi-rank test of the module.
 :::
@@ -388,24 +407,25 @@ coefficient by a factor of about 500 (@sec-ch07-wallcoef). No species or tracer 
 
 [^env-viscosity]: Recorded run environment: Python 3.11.13, numpy 2.4.6, sympy 1.14.0.
 
-[^vis-ctest]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: `tests/test_diffusion.yaml` as each case modifies it, and the stretched card of `tests/test_stretched_x1_ref.cpp`; run: `env CUDA_VISIBLE_DEVICES=0 ctest -j1 -V -R '^(test_diffusion|test_stretched_x1_ref)\.release$'` in `build/tests` of the Release source build at the pin described in @sec-ch07-csdiffusion's footnote (snapy 2.12.7.dev2+g68f4e066, torch 2.10.0+cu126, nvcc 12.9); 57 cases of `test_diffusion` pass, the `DeviceTest` cases on CPU and CUDA in float32 and float64, and every case of `test_stretched_x1_ref`, one process]
+[^vis-ctest]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>`, with anchored patterns over the 25 ctests this chapter cites, in the `tests`
+    directory of a README CUDA Release build at the pin; CPU, and two visible CUDA GPUs (Quadro RTX 4000) for the CUDA
+    and two-device arms; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 24 of the 25
+    ctests passed; `test_diffusion_cubed_sphere_two_gpu.release`, registered as one process, skipped by design, and
+    its two-rank registration passed.
 
 <!-- reader glossary notes -->
-[^rg-68e1ae201205]: nu_iso — isotropic viscosity coefficient, interpreted according to dynamic
-
 [^rg-362e26b17c8b]: kappa_iso — isotropic thermal transport coefficient, interpreted according to dynamic
 
-[^rg-4c19b0445136]: $\kappa$ — thermal diffusivity (or conductivity, stated); [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/diffusion.cpp#L631-L665)
+[^rg-4c19b0445136]: $\kappa$ — thermal diffusivity (or conductivity, stated); `kappa_iso` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/diffusion.cpp#L631-L665)
 
-[^rg-33836c7b4c9c]: $\mu$, $\nu$ — dynamic and kinematic viscosity; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/diffusion.cpp#L621-L626)
+[^rg-33836c7b4c9c]: $\mu$, $\nu$ — dynamic and kinematic viscosity; `nu_iso` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/diffusion.cpp#L621-L626)
 
 [^rg-53f5eb4413f2]: $c_v, c_p$ — mixture specific heats **per unit total mass**, $c_v = \sum_n y_n c_{v,n}$ over dry air and every species [J kg$^{-1}$ K$^{-1}$]; a chapter that needs the per-dry-mass form writes it out and says so
 
-[^rg-793ca1ab85ae]: $n_1, n_2, n_3$ — interior cells per block in each direction
+[^rg-ca412aea0cc9]: $\tau$ — a relaxation time scale (named); `tau` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/relax_bot_temp.cpp#L102-L105)
 
-[^rg-ca412aea0cc9]: $\tau$ — a relaxation time scale (named); [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/relax_bot_temp.cpp#L102-L105)
-
-[^rg-34899b57fc9e]: $R_{\mathrm{d}}$, $R_n$ — specific gas constants of dry air and species $n$ [J kg$^{-1}$ K$^{-1}$]; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L40-L43)
+[^rg-34899b57fc9e]: $R_{\mathrm{d}}$, $R_n$ — specific gas constants of dry air and species $n$ [J kg$^{-1}$ K$^{-1}$]; `Rd` and `Ri` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L40-L43)
 
 [^rg-71760943616c]: $g_1, g_2, g_3$ — constant gravity components [m s$^{-2}$]; $g_1<0$ points to decreasing $x_1$
 

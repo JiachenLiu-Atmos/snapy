@@ -1,10 +1,13 @@
 ## Sponge layers: Rayleigh drag near the top and bottom boundaries (`top-sponge-lyr`, `bot-sponge-lyr`) {#sec-ch07-sponge}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: OUTLINE.md 9.9; src/forcing/top_sponge_lyr.cpp, bot_sponge_lyr.cpp, src/coord/coord_utils_impl.h,
-         tests/test_forcing.cpp at the pin
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 7.4; src/forcing/sponge.cpp, src/options/forcing_top_sponge_lyr.yaml,
+         forcing_bot_sponge_lyr.yaml, src/coord/coord_utils_impl.h, tests/test_forcing.cpp,
+         tests/test_axial_momentum.cpp at the pin
 status: draft
+author: chengcli
+reviewer: zoeyzyhu
 -->
 
 
@@ -14,7 +17,8 @@ A sponge layer absorbs waves that would otherwise reflect from the top or bottom
 Rayleigh drag $-\rho\mathbf v/\tau$ multiplied by a profile that is 1 at the boundary and falls to 0 at `width`[^rg-222855044eda]
 away from it as $\sin^2$. The drag acts on the momentum only; the total energy is untouched, so the kinetic energy
 it removes becomes internal energy density in the same cell. On the cubed sphere the drag is lowered to covariant
-components so that it brakes the wind instead of rotating it.
+components so that it brakes the wind instead of rotating it. Both sponges are one class, `Sponge`, built for one
+end or the other.
 
 ::: {.callout-note title="At a glance"}
 **Purpose.** Damps all three velocity components toward zero in a layer of given width at the top or bottom of the
@@ -30,7 +34,7 @@ $\mathrm{m}$]. Off unless the key is present.
 **Guarantee / limits.** First order in time; the removed kinetic energy becomes internal energy density; a `width`
 taller than the boundary block is cut off at its other face.
 
-**Evidence.** Report checks and source-test assertions are listed below; solver ctests were not run at the pin.
+**Evidence.** @tbl-ch07-sponge-tests; the ctests pass at the pin, and the report check ports the formulas.
 :::
 
 **Data details.** In: the cell density $\rho$ and contravariant velocity of every cell of the boundary block, ghosts
@@ -40,7 +44,9 @@ $0.5$ $\mathrm m$ with a width of $2$ $\mathrm m$, and 1000 random draws on a pa
 
 **Evidence details.** Test: on six panels the top sponge, the bottom sponge and `relax-bot-velo` give a drag antiparallel to the
 covariant momentum, {{< code tests/test_forcing.cpp forcing.cubed_sphere_sponge_drag_is_covariant >}} ($10^{-12}$ of the
-larger product); the ctest was not run at the pin. No test of the drag magnitude or of the profile. Check:
+larger product). On six panels with `exact` axial momentum, the AAM the top sponge books is the AAM change it
+makes, {{< code tests/test_axial_momentum.cpp SourceShare.sponge_and_drag_torque_is_the_aam_change >}}. No test of the
+drag magnitude or of the profile. Check:
 `python3 src/snapy_report/ch07/checks/sponge_check.py`, output `sponge_check.out` lines `[C1]`–`[C4]`, re-run at the pin: all PASS, output identical [^env-sponge].
 
 Local symbols: $L_{\mathrm{spg}}$ [m] the layer width `width` ($w$ is a source letter
@@ -59,15 +65,14 @@ $$
 $$
 
 with $x_{1,\mathrm{top}}$ the upper face of the block, and for a bottom layer the distance is
-$x_{1,i-1/2}-x_{1,\mathrm{bot}}$ (`eta` in the code; {{< code src/forcing/top_sponge_lyr.cpp TopSpongeLyrImpl::forward >}},
-{{< code src/forcing/bot_sponge_lyr.cpp BotSpongeLyrImpl::forward >}}). One stage adds
+$x_{1,i-1/2}-x_{1,\mathrm{bot}}$ (`d` and `eta` in the code; {{< code src/forcing/sponge.cpp SpongeImpl::add >}}). One stage adds
 
 $$
 \Delta m_a = -\frac{\Delta t}{\tau}\,\sin^2\!\big(\tfrac{\pi}{2}\zeta_i\big)\,\rho_i\,g_{ab}v^b_i
 $$ {#eq-ch07-sponge-drag}
 
-to the three momentum rows and nothing to the energy (`force` in `TopSpongeLyrImpl::forward`,
-{{< code src/forcing/top_sponge_lyr.cpp TopSpongeLyrImpl::forward >}}). Because the distance is measured from each
+to the three momentum rows and nothing to the energy (`force` in `SpongeImpl::add`,
+{{< code src/forcing/sponge.cpp SpongeImpl::add >}}). Because the distance is measured from each
 cell's *lower* face, the bottom cell of a bottom sponge has $\zeta=1$, while the top cell of a top sponge has
 $\zeta = 1 - \Delta x_1/L_{\mathrm{spg}}$, with $\Delta x_1$ the cell's $x_1$ width: scale 0.8536 for $\Delta x_1/L_{\mathrm{spg}}=0.25$.[^spg-c]
 
@@ -87,7 +92,7 @@ $\zeta = 1 - \Delta x_1/L_{\mathrm{spg}}$, with $\Delta x_1$ the cell's $x_1$ wi
 3. *Exact and truncated.* The profile is exact as defined; the drag is explicit, first order in $\Delta t/\tau$.
 
 [^spg-c]: `python3 src/snapy_report/ch07/checks/sponge_check.py`, output `sponge_check.out`, lines `[C1]`–`[C4]`; a numpy
-    port of the two `forward` functions and of `coord_vec_lower_impl` at the pin, double precision.
+    port of both ends of `SpongeImpl::add` and of `coord_vec_lower_impl` at the pin, double precision.
 
 ### Numerical method
 
@@ -103,8 +108,9 @@ make_fig()
 ```
 
 The drag is a cell source at every cell of the block, ghosts included; ghost increments are overwritten by the
-boundary fill. Only the block that owns the physical boundary applies it (`is_physical_boundary`,
-{{< code src/forcing/top_sponge_lyr.cpp TopSpongeLyrImpl::forward >}}). It runs in every stage, explicit, in the
+boundary fill. Only the block that owns the physical boundary applies it: the constructor declares the region
+`top` or `bottom`, and the registry skips the module on any other block
+({{< code src/forcing/sponge.cpp SpongeImpl::SpongeImpl overload=2 >}}). It runs in every stage, explicit, in the
 forcing loop (@sec-ch07-framework).
 
 ### Code
@@ -119,41 +125,43 @@ forcing:
 
 **What is refused, and why.** An unknown key, by `check_keys`; $\tau\le0$ or `width` $\le0$, with
 "TopSpongeLyrOptions: tau must be greater than zero.", "... width must be greater than zero." and the same for
-`BotSpongeLyrOptions` ({{< code src/forcing/top_sponge_lyr.cpp >}}, {{< code src/forcing/bot_sponge_lyr.cpp >}}): a zero width divides by zero in
+`BotSpongeLyrOptions` ({{< code src/options/forcing_top_sponge_lyr.yaml >}}, {{< code src/options/forcing_bot_sponge_lyr.yaml >}}): a zero width divides by zero in
 $\zeta$, and a zero $\tau$ in the drag.
 
-**The code, mapped to @eq-ch07-sponge-drag** (`TopSpongeLyrImpl::forward`):
+**The code, mapped to @eq-ch07-sponge-drag** (`SpongeImpl::add`):
 
 ```cpp
-if (!phydro->pmb->options->is_physical_boundary(0, 0, 1)) return du;
-auto x1max = pcoord->x1f[iu + 1];
-auto eta = (options->width() - (x1max - pcoord->x1f.slice(0, 0, -1))) /
-           options->width();
+auto d = top_ ? x1f[pcoord->iu() + 1] - x1f.slice(0, 0, -1)
+              : x1f.slice(0, 0, -1) - x1f[pcoord->il()];
+auto eta = (options->width() - d) / options->width();
 eta.clamp_(0., 1.0);
 auto scale = torch::sin(M_PI / 2. * eta).pow(2).unsqueeze(0).unsqueeze(0);
-auto force = w[IDN] * w.narrow(0, IVX, 3) / options->tau() * scale * dt;
+auto force =
+    s.w[IDN] * s.w.narrow(0, IVX, 3) / options->tau() * scale * s.dt.value();
 coord_vec_lower_(force, pcoord->cosine_cell_kj);
 du.narrow(0, IVX, 3) -= force;
 ```
 
-`eta` is $\zeta_i$ from each cell's lower face `x1f`, `scale` is $\sin^2(\pi\zeta_i/2)$, `force` is $\alpha_{\mathrm{spg}}\rho v^a$ and
-`coord_vec_lower_` the lowering by $g_{ab}$; the bottom sponge measures $x_{1,i-1/2}-x_{1,\mathrm{bot}}$ instead.
+`d` is the distance of each cell's lower face `x1f` from the block's top or bottom face, `eta` is $\zeta_i$, `scale`
+is $\sin^2(\pi\zeta_i/2)$, `force` is $\alpha_{\mathrm{spg}}\rho v^a$ and `coord_vec_lower_` the lowering by $g_{ab}$.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| options | {{< code src/forcing/top_sponge_lyr.cpp TopSpongeLyrOptionsImpl::from_yaml >}} | `TopSpongeLyrOptionsImpl::from_yaml` | `top-sponge-lyr` |
-| top drag | {{< code src/forcing/top_sponge_lyr.cpp TopSpongeLyrImpl::forward >}} | `TopSpongeLyrImpl::forward` | |
-| options | {{< code src/forcing/bot_sponge_lyr.cpp BotSpongeLyrOptionsImpl::from_yaml >}} | `BotSpongeLyrOptionsImpl::from_yaml` | `bot-sponge-lyr` |
-| bottom drag | {{< code src/forcing/bot_sponge_lyr.cpp BotSpongeLyrImpl::forward >}} | `BotSpongeLyrImpl::forward` | |
+| options | {{< code src/forcing/sponge.cpp TopSpongeLyrOptionsImpl::from_yaml >}} | `TopSpongeLyrOptionsImpl::from_yaml` | `top-sponge-lyr` |
+| options | {{< code src/forcing/sponge.cpp BotSpongeLyrOptionsImpl::from_yaml >}} | `BotSpongeLyrOptionsImpl::from_yaml` | `bot-sponge-lyr` |
+| the end and the region | {{< code src/forcing/sponge.cpp SpongeImpl::SpongeImpl overload=2 >}} | `top_` | |
+| the drag, both ends | {{< code src/forcing/sponge.cpp SpongeImpl::add >}} | `SpongeImpl::add` | |
 | lowering | {{< code src/coord/coord_utils_impl.h coord_vec_lower_impl >}} | `coord_vec_lower_impl` | cubed sphere |
 
 : Code map of the sponge layers. {#tbl-ch07-sponge-code}
 
-1. `from_yaml` requires $\tau>0$ and $L_{\mathrm{spg}}>0$ ({{< code src/forcing/top_sponge_lyr.cpp TopSpongeLyrOptionsImpl::from_yaml >}},
-   {{< code src/forcing/bot_sponge_lyr.cpp BotSpongeLyrOptionsImpl::from_yaml >}}).
-2. `forward` returns unless the block owns the physical boundary, forms $\zeta$ and the $\sin^2$ scale, builds the
-   force from $\rho v^b$, lowers it and subtracts it ({{< code src/forcing/top_sponge_lyr.cpp TopSpongeLyrImpl::forward >}},
-   {{< code src/forcing/bot_sponge_lyr.cpp BotSpongeLyrImpl::forward >}}).
+1. `from_yaml` reads the block through its option table, which requires $\tau>0$ and $L_{\mathrm{spg}}>0$
+   ({{< code src/forcing/sponge.cpp TopSpongeLyrOptionsImpl::from_yaml >}},
+   {{< code src/forcing/sponge.cpp BotSpongeLyrOptionsImpl::from_yaml >}}).
+2. The constructor maps `bot-sponge-lyr`'s options onto the shared ones and declares the region; the registry runs
+   `add` only on the block that owns that boundary ({{< code src/forcing/sponge.cpp SpongeImpl::SpongeImpl overload=2 >}}).
+3. `add` forms $\zeta$ and the $\sin^2$ scale, builds the force from $\rho v^b$, lowers it and subtracts it
+   ({{< code src/forcing/sponge.cpp SpongeImpl::add >}}).
 
 ### Tests
 
@@ -161,13 +169,13 @@ du.narrow(0, IVX, 3) -= force;
 |---|---|---|---|
 | `tests/test_forcing.cpp` (`test_forcing.release`), `cubed_sphere_sponge_drag_is_covariant` | on six panels the top sponge, the bottom sponge and `relax-bot-velo` give a drag antiparallel to the covariant momentum; the unlowered direction differs; the drag is not zero | $\lvert f\times m\rvert\le10^{-12}$ of the larger product; $>10^{-10}$; $>0$ | double round-off; non-vacuity |
 | same, `reject_invalid_values` | option refusals | exact (throws) | contracts |
+| `tests/test_axial_momentum.cpp` (`test_axial_momentum.release`), `sponge_and_drag_torque_is_the_aam_change` | on six panels the top sponge's booked AAM share is the AAM change it makes, and not zero | $10^{-15}\,\lvert L\rvert$ | `EXPECT_LE` |
 | this section's check, `sponge_check.py` | `[C1]`–`[C4]` | per claim | stated in the check |
 
 : Tests of the sponge layers. {#tbl-ch07-sponge-tests}
 
 ::: {.callout-important title="Check"}
-**Evidence.** The check numbers come from the port named in the footnote. ctest cases: **pending a pinned ctest
-run**.
+**Evidence.** The check numbers come from the port named in the footnote. The ctest cases pass at the pin.[^spg-run]
 **Coverage.** CPU only. The test checks the direction of the drag, not its size: **no test of the drag magnitude or
 of the profile** (a gap; `[C1]` and `[C2]` cover the formulas only).
 :::
@@ -179,9 +187,15 @@ of the profile** (a gap; `[C1]` and `[C2]` cover the formulas only).
 2. **Lower-face convention.** $\zeta$ uses each cell's lower face, so the top and bottom sponges are not mirror
    images (`[C1]`).
 3. **Drag on $v^1$.** The vertical velocity is damped as well as the horizontal ones.
-4. **Not run at scale on the cubed sphere.** No deck or test at the pin runs a sponge through the solver on the
-   cubed sphere; not measured.
-5. **Leftover file.** `src/forcing/sponge_lyr.cpp_` is not compiled (wrong extension).
+4. **Not run at scale on the cubed sphere.** The cubed-sphere tests call the module on one stage's state; none
+   steps a sponge through the solver on the cubed sphere; not measured.
+
+[^spg-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+    --output-on-failure -R <pattern>`, with anchored patterns over the 25 ctests this chapter cites, in the `tests`
+    directory of a README CUDA Release build at the pin; CPU, and two visible CUDA GPUs (Quadro RTX 4000) for the CUDA
+    and two-device arms; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 24 of the 25
+    ctests passed; `test_diffusion_cubed_sphere_two_gpu.release`, registered as one process, skipped by design, and
+    its two-rank registration passed.
 
 [^env-sponge]: Recorded run environment: Python 3.11.13, numpy 2.4.6, sympy 1.14.0.
 

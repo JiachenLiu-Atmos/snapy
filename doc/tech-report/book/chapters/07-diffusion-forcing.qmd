@@ -1,20 +1,24 @@
 # Diffusion, viscosity and forcing {#sec-ch07}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml); kintera@c55b13b2204997d2d09e04498558ab9495d8ee77; pyharp@4721715855e937c1e8b218e964c0655f46e56e29
-sources: OUTLINE.md, the diffusion, viscosity and forcing entry; the code at the pin
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final); kintera@c55b13b2204997d2d09e04498558ab9495d8ee77; pyharp@4721715855e937c1e8b218e964c0655f46e56e29
+sources: STRUCTURE.md, chapter 7; the code at the pin
 status: draft
+author: chengcli
+reviewer: zoeyzyhu
 -->
 
 This chapter covers every source term snapy adds to the stage increment besides the flux divergence and constant
 gravity: the forcing loop that parses, installs and sums them; user stage forcings written in TorchScript; the
-Coriolis force; the isotropic viscosity and heat conduction, with their face coefficient at walls and their
+Coriolis force; the conservation of axial angular momentum on the cubed sphere; the isotropic viscosity and heat conduction, with their face coefficient at walls and their
 optional $x_1$[^rg-2e085e796dc5] profiles, and its operator on the cubed sphere; prescribed heating and cooling; the bottom relaxations of temperature, velocity and
 composition; and the sponge layers. All of them are explicit and act through one increment, and every native
-module reads the same stage-entry state, so their order does not change the result. Constant gravity is the first module of the same loop; it and its work
+module reads the same stage-entry state, so their order does not change the result; the Coriolis force runs a
+second time after the implicit solve, with the stage's $x_1$ mass transfer. Constant gravity runs just before the
+registry; it and its work
 are @sec-ch06; sedimentation is @sec-ch10-sed; the tracers that ride the dry-air part of these sources are
-@sec-ch10-tracer. Two entries record code that is present but never runs: the plume forcing and the turbulence
-closure, which is not built.
+@sec-ch10-tracer. Two entries record what does not run: the plume forcing, present but never installed, and a
+turbulence closure, which the code at the pin does not have.
 
 ```{python}
 #| label: fig-ch07-deps
@@ -27,9 +31,10 @@ make_fig()
 
 | scheme | switch | default | order | main test |
 |---|---|---|---|---|
-| Forcing loop (@sec-ch07-framework) | `forcing:` keys | none | n/a | `test_forcing` |
+| Forcing loop (@sec-ch07-framework) | `forcing:` keys | none | n/a | `test_source_registry` |
 | User stage forcings (@sec-ch07-user) | `set_user_stage_forcings` | none | user | `test_stage_forcing_dry_tracer_python` |
 | Coriolis (@sec-ch07-coriolis) | `coriolis`[^rg-9a9d811520ed] | off | exact pointwise | `test_forcing` |
+| Axial angular momentum (@sec-ch07-axial) | `conserve-axial-momentum` | `off` | round-off (global) | `test_axial_momentum` |
 | Viscosity and conduction (@sec-ch07-viscosity) | `diffusion`[^rg-c78179e38016] | off | 2 (1 at walls) | `test_diffusion` |
 | Wall face coefficient (@sec-ch07-wallcoef) | automatic | on at named walls | 2 | `test_diffusion` |
 | Viscosity and conduction, cubed sphere (@sec-ch07-csdiffusion) | `diffusion` on `gnomonic-equiangle`, `implicit_radial`[^rg-311cb1f16924] | off | 2 (heat, measured) | `test_diffusion_cubed_sphere` |
@@ -38,7 +43,7 @@ make_fig()
 | Bottom relaxation (@sec-ch07-relax) | `relax-bot-temp`[^rg-b6f16609de29], `-velo`, `-comp` | off | 1 in time | `test_forcing` |
 | Sponge layers (@sec-ch07-sponge) | `top-sponge-lyr`[^rg-24d92b4619a2], `bot-sponge-lyr`[^rg-0f7085e7d2e2] | off | 1 in time | `test_forcing` |
 | Plume forcing (@sec-ch07-plume) | `plume-forcing` | never installed | n/a | none |
-| Turbulence (@sec-ch07-turbulence) | none | not built | n/a | none |
+| Turbulence (@sec-ch07-turbulence) | none | absent | n/a | none |
 
 : The schemes of this chapter. "Order" is the spatial order of the discrete operator, or the order in time for the
 relaxations; all are explicit. Full ctest names and tolerances are in each scheme's Tests layer. {#tbl-ch07-schemes}
@@ -48,6 +53,8 @@ relaxations; all are explicit. Full ctest names and tolerances are in each schem
 {{< include 07-diffusion-forcing/_user.qmd >}}
 
 {{< include 07-diffusion-forcing/_coriolis.qmd >}}
+
+{{< include 07-diffusion-forcing/_axial.qmd >}}
 
 {{< include 07-diffusion-forcing/_viscosity.qmd >}}
 
