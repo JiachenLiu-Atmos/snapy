@@ -4,11 +4,13 @@
 > refutation** before any writer starts. Binding style: `STYLE.md` (every scheme section keeps the six layers:
 > Summary, Derivation, Numerical method, Code, Tests, Limits).
 >
-> Code pin: snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b6acfc7873d6a` (UCzhangxi/snapy). It lands the closing batch on
-> `939f7928398f302080cc34aee6df059e883e830d`: #316, the execution default, the wall-batch slots with the MPS
-> wide-dtype operands, and the EfStatus meters (12 commits, patch-identical to the checked commits but for one
-> mechanical merge in `tests/CMakeLists.txt`). The structure was approved at `70f6e15e`; every anchor in this file,
-> section 6 included, is at `4c023985`.
+> Code pin: snapy `v3/final` = `73c45a7c8c991209924e1137992352c335575062` (UCzhangxi/snapy), the head of the closing
+> PR chengcli/snapy#377 (base `main` `72bc3980`). It is `4c023985` (the closing batch on `939f7928`: #316, the
+> execution default, the wall-batch slots with the MPS wide-dtype operands, the EfStatus meters) plus the closing
+> fix round, 56 commits: the executor's streams and one stage schedule, the register owner and the conducting wall,
+> the seam transport, the implicit register, the conversion-trips slot, the precision policy rows, the audit-3 leads,
+> the block-job failure path, the block policy's device and the one-home helpers. The structure was approved at
+> `70f6e15e`; every anchor in this file, section 6 included, is at `73c45a7c`.
 > V3 lane map: `docs/v3/DESIGN.rst` on happysky19/snapy `v3-design/DESIGN` at
 > `449636b3e1963b5fc7d44407cb7d6db437e8b016`, Table 1 (lane heads, lines 36-80) and Table 7 (lane scopes and
 > skeletons, lines 209-275). Lanes: C reconstruction/Riemann/well-balanced reference; R flux register, monitor,
@@ -100,15 +102,18 @@ more than one new chapter; each piece has the single home given above.
 | topic | home | code at the pin |
 |---|---|---|
 | stage executor, segments, execution model | 11 | `src/mesh/stage_executor.*`, `src/mesh/segment.*` |
-| capture rules and allow-lists (EOS ideal-gas/ideal-moist, Riemann lmars/hllc), the refusal list with its named reasons | 11 | `StageExecutor::config_reasons` in `src/mesh/stage_executor.cpp` (lines 579-643 at the pin) |
+| capture rules and allow-lists (EOS ideal-gas/ideal-moist, Riemann lmars/hllc), the refusal list with its named reasons | 11 | `StageExecutor::config_reasons` in `src/mesh/stage_executor.cpp` (lines 624-682 at the pin) |
 | capture sweep (which shipped tests capture, and the table of results) | 16 | the sweep's committed record, cited when it lands |
 | S4 cost catalogue: one short list of the eager-path folds, each pointing to its home (4, 6, 9, 10), plus the counting method's home (16) | 11 | pointers only; the code is described in the home chapters |
-| the execution default (cuda-graph non-strict on CUDA, eager on CPU, explicit eager honoured) | 11.4 | `StageExecutor::mode` in `src/mesh/stage_executor.cpp` (lines 107-115); see H1 |
+| the execution default (cuda-graph non-strict on CUDA, eager on CPU, explicit eager honoured) | 11.4 | `StageExecutor::mode` in `src/mesh/stage_executor.cpp` (lines 161-169); see H1 |
 | graph = eager bitwise rule; why eager is launch-bound and graph faster | 11 | launches per step and timings as measured, cited from their committed source (see 4.2); no H100 headline |
 | launch-counting procedure (profiler trace; kernel, memcpy and memset events over N steps) | 16 | `docs/v3/closing/tools/speed/bench.py` (`--profile`, `SPEED_PROF_TRACE`) at cshsgy/snapy `be267b702c074eae3aa05e12759357e2ee9f4b51` (v3/closing-dryrun-plan) |
 | graph-safe coding (no host reads, no host-to-device copies inside a captured segment, fixed shapes, device dt, host state replay does not refresh) | 11.5 | `src/utils/step_dt.*`, `src/mesh/state_store.hpp`; the copy rule holds at the pin for the stretched x1 reference, whose rows are built on the grid's device (`src/recon/x1_reference.hpp:62-66`, #316), see 4.3 |
 | mesh-agree (a Mesh whose blocks disagree runs eager) | 13 | `StageExecutor::agree` in `src/mesh/stage_executor.cpp` |
 | exchange cuts and multi-block capture (B3) | 13 | `src/mesh/exchange_cut.hpp`, `src/layout/exchange.*` |
+| the one seam transport (x1 relays and panel seams as seam sides) | 13, pointer from 3 | `Exchange::resolve_seam`, `Exchange::seam_exchange` in `src/layout/exchange.cpp` |
+| a block job that fails in a Mesh (the same-process waits end, the first error reaches the caller; a capture out of device memory names `execution: eager`) | 13; pointer from 11 | `local_wait` in `src/layout/layout.cpp`; `StageExecutor::run_segments` in `src/mesh/stage_executor.cpp` |
+| owned CUDA streams (the Mesh's worker streams, a block's capture stream, the seam copies') | 11 | `OwnedStream` in `src/mesh/stage_executor.hpp` |
 | flux register and monitor amounts: posts, prescribed faces, wall batch, stage fold, rollback/redo | 10 | `FluxRegister`, `RegisterMonitor`, `WallBatch` in `src/hydro/flux_register.hpp` |
 | monitor counts (face floors, `implicit.fp64_columns`, events) and their rollback | 10 | `RegisterMonitor::count`, `flush_counts`, `rollback` |
 | rollback through graph replay (the redo replays the captured stages; the host stage bookkeeping survives `FluxRegister::rollback`) | 10, pointer from 11 | `FluxRegister::rollback` in `src/hydro/flux_register.cpp`; `StageExecutor::replay` in `src/mesh/stage_executor.cpp` |
@@ -127,13 +132,14 @@ more than one new chapter; each piece has the single home given above.
 | FP32 precision policy | 12 | `PrecisionPolicy` in `src/mesh/precision_policy.hpp` |
 | redo decision and step acceptance | 9 | `src/mesh/meshblock_redo.cpp` |
 
-Every row was found by `git grep` on `70f6e15e` and again at the pin `4c023985` (file and symbol exist). Their behaviour is not
+Every row was found by `git grep` on `70f6e15e` and again at the pin `73c45a7c` (file and symbol exist). Their behaviour is not
 re-read here; that is the section outline's job.
 
 ### 4.1 Chapter 10's order and test layer
 
 Chapter 10 covers, in this order: the posts (`add`, `scale`, `overwrite_`; plain adds of the rows, no
-`index_add_` at the pin); prescribed faces (`apply_prescribed`, the written mark `written_since_prescribed`, and the
+`index_add_` at the pin); prescribed faces (`apply_prescribed` once per active direction after the sources' posts and before the
+divergence, the written mark `written_since_prescribed`, which every add and scale sets, and the
 post-implicit reapplication, which runs when the implicit correction ran or the mark is set; the settling
 carry that sets the mark, #315, is chapter 8's and is pointed to from here); the wall batch (one `WallBatch` per block, shared by the hydro
 and scalar registers, flushed in the stage combine); the amounts (FP64, FP32 on MPS; the stage fold); rollback
@@ -162,32 +168,34 @@ closed. The rule stays: no chapter is written against a fix that has not landed 
 ### 4.4 The pin
 
 One pin per package (STYLE.md 3.1, `code_pin.yml`): the whole report moves to the commit that lands the
-execution default, by `tools/code_anchors.py bump`; chapter 11 is not pinned separately. That commit is
-`v3/final` = `4c023985`, and this file is pinned there. From `939f7928` to `4c023985` the outline's anchors in
-`src/mesh/stage_executor.cpp` move by +20 to +37 (e.g. `StageExecutor::config_reasons` `:558` is `:579`), those in
-`src/hydro/flux_register.cpp` by +15 to +87 where they move, and those in `src/mesh/meshblock_advance.cpp` (after
-line ~160) and `src/mesh/meshblock_options.cpp` (after line ~58) by +1; no other file's anchors move. Section 6
-gives every anchor at the pin.
+execution default, by `tools/code_anchors.py bump`; chapter 11 is not pinned separately. The report now pins the
+closing PR's head, `v3/final` = `73c45a7c`, and this file is pinned there. From `4c023985` to `73c45a7c` the anchors
+in `src/mesh/stage_executor.cpp` move by +25 to +62 (e.g. `StageExecutor::config_reasons` `:579` is `:624`), those
+in `src/hydro/flux_register.cpp` by -64 to -23 (e.g. `FluxRegister::apply_prescribed` `:771` is `:707`), and others
+in `src/hydro/hydro.cpp`, `src/mesh/mesh.cpp`, `src/mesh/meshblock*.cpp`, `src/hydro/sweep.cpp`,
+`src/layout/exchange.cpp` and `src/layout/seam_register.cpp`; four anchored symbols are gone
+(`ReconstructImpl::floor_counts`, `FluxRegister::apply_wall_planes_`, `HydroImpl::implicit_solve_float`, the
+one-argument `exchange_cut`) and their sections cite what replaced them. Section 6 gives every anchor at the pin.
 
 ## 5. Hypotheses (not checked in code)
 
 - **H1** (confirmed in code at the pin). The S4 default (cuda-graph, non-strict, on CUDA; eager on CPU; an
-  explicit `eager` honoured) is on `v3/final` at `4c023985af5f80cd6b20ce9d5f9b6acfc7873d6a` (RED `53c46723`, fix `02e4ef05`,
+  explicit `eager` honoured) is on `v3/final` since `4c023985` and at the pin `73c45a7c` (RED `53c46723`, fix `02e4ef05`,
   patch-identical to `ea3e5777`/`8854ccd4`, whose non-author check passed on CUDA sm_61 and CPU):
   `integration.execution` defaults to `auto` (`src/mesh/meshblock.hpp:98`), which `StageExecutor::mode`
-  (`src/mesh/stage_executor.cpp:107-115`) resolves to cuda-graph on a CUDA block and eager otherwise. Before it, at
+  (`src/mesh/stage_executor.cpp:161-169`) resolves to cuda-graph on a CUDA block and eager otherwise. Before it, at
   `70f6e15e` and `939f7928`, the default was `eager`. Chapter 11 is written against this pin and cites the bound as
   ruled from `docs/v3/closing/s4_eager_gap.md` at cshsgy/snapy `be267b70` (section 4.2).
 - **H2.** Old 10's chemistry material splits cleanly into the chemistry segment (11) and the kintera contract
   (E); not checked against the old chapter's sections.
 - **H3** (resolved in review; two meanings). The positivity census (`PositivityLimiter::census_`,
-  `src/hydro/flux_positivity.cpp:207`) writes the EfStatus slots `kPosHits`, `kPosSevere`, `kPosMin`
+  `src/hydro/flux_positivity.cpp:203`) writes the EfStatus slots `kPosHits`, `kPosSevere`, `kPosMin`
   (`src/eos/ef_status.hpp:27-29`) and, for scalars, `kScalarPosHits` (`:32`); at the pin they are read by the
   budget diagnostics (`src/diagnostics/budget.cpp:345-346`, through `HydroImpl::positivity_*`,
-  `src/hydro/hydro.cpp:280-288`), not by `check_redo`, whose limiter cause is the EOS `limiter_marks()`
+  `src/hydro/hydro.cpp:281-289`), not by `check_redo`, whose limiter cause is the EOS `limiter_marks()`
   (`src/mesh/meshblock_redo.cpp:118-120`). It lives in 8. The "census" of `src/mesh/meshblock_redo.cpp:56` is
-  the monitor's counters (`face_floor.*` from `src/hydro/sweep.cpp:78-90`, `implicit.fp64_columns` from
-  `src/hydro/hydro.cpp:492`), zeroed by `RegisterMonitor::rollback()` (`src/hydro/flux_register.cpp:46-65`);
+  the monitor's counters (`face_floor.*` from `src/hydro/sweep.cpp:84-96`, `implicit.fp64_columns` from
+  `src/hydro/hydro.cpp:487`), zeroed by `RegisterMonitor::rollback()` (`src/hydro/flux_register.cpp:46-65`);
   they live in 10.
 - **H4.** Precision warrants its own chapter (12): assumed from the single `PrecisionPolicy` class and the
   number of lanes with FP32 rows; the size of the material is not measured.
@@ -197,21 +205,21 @@ gives every anchor at the pin.
 
 ## 6. Section outline
 
-Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b6acfc7873d6a` (function or class name in the same cell). That head lands the closing batch on `939f7928` (#316, the execution default, the wall-batch slots and the MPS wide-dtype operands, the EfStatus meters), so no section carries a re-pin marker; what the batch changed is in the sections' Code and Tests lines at this pin. Anchors, test files, ctest names and tolerances were resolved by reading the code at that commit; tolerances are quoted from the test source ("bitwise" where the test compares with `torch.equal`/`torch::equal`); `allclose`/`isclose`/`assert_allclose` calls are read argument by argument (positional rtol/atol included, the library default stated where none is given), and a Tests cell lists every tolerance found in that file, so the writer quotes the one on the assertion the section relies on. Figures marked **new** are to be written; the others are existing scripts under `doc/tech-report/`, to be re-checked at the pin. A section with no test or no figure says so.
+Code anchors are `path:line` at snapy `v3/final` = `73c45a7c8c991209924e1137992352c335575062` (function or class name in the same cell). That head is the closing PR's head: 4c023985 (the execution default, #316, the wall-batch slots, the EfStatus meters) plus the closing fix round on it (56 commits: the executor's streams and one stage schedule, the register owner, the conducting wall, the seam transport, the implicit register, the conversion-trips slot, the precision policy rows, the audit-3 leads, the block-job failure path, the block policy's device and the one-home helpers), so no section carries a re-pin marker; what changed is in the sections' Derivation, Code and Tests lines at this pin. Anchors, test files, ctest names and tolerances were resolved by reading the code at that commit; tolerances are quoted from the test source ("bitwise" where the test compares with `torch.equal`/`torch::equal`); `allclose`/`isclose`/`assert_allclose` calls are read argument by argument (positional rtol/atol included, the library default stated where none is given), and a Tests cell lists every tolerance found in that file, so the writer quotes the one on the assertion the section relies on. Figures marked **new** are to be written; the others are existing scripts under `doc/tech-report/`, to be re-checked at the pin. A section with no test or no figure says so.
 
 ### Chapter 1. Overview: the V3 step and the code map
 
 #### 1.1 The V3 step: Mesh, block, stage, segments
 
 - **Derivation:** none (control flow): one step = rk3 stages; each stage = the block's segment schedule run eagerly or replayed
-- **Code:** `src/mesh/mesh.cpp:367` `MeshImpl::forward`; `src/mesh/meshblock_advance.cpp:88` `MeshBlockImpl::forward`; `src/mesh/stage_executor.cpp:778` `StageExecutor::run_stage`; `src/mesh/segment.cpp:40` `StageSchedule::add`
+- **Code:** `src/mesh/mesh.cpp:371` `MeshImpl::forward`; `src/mesh/meshblock_advance.cpp:88` `MeshBlockImpl::forward`; `src/mesh/stage_executor.cpp:813` `StageExecutor::run_stage`; `src/mesh/segment.cpp:40` `StageSchedule::add`
 - **Tests:** `test_mesh_executor.release` (bitwise (equal x2)); `test_stage_schedule.release` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** `src/snapy_report/ch01/figures/fig_stage_flow.py` (deck: none (diagram)); **new** `src/snapy_report/ch01/figures/fig_v3_step.py` (deck: none (diagram))
 
 #### 1.2 Construction and dependencies
 
 - **Derivation:** none (control flow): options -> MeshBlock -> modules (hydro, scalar, coord, EOS, kintera thermo)
-- **Code:** `src/mesh/meshblock.cpp:107` `MeshBlockImpl::reset`; `src/hydro/hydro.cpp:21` `HydroImpl::HydroImpl`
+- **Code:** `src/mesh/meshblock.cpp:118` `MeshBlockImpl::reset`; `src/hydro/hydro.cpp:21` `HydroImpl::HydroImpl`
 - **Tests:** `test_uniform_module_tree.release` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** `src/snapy_report/ch01/figures/fig_construction_flow.py` (deck: none (diagram)); `src/snapy_report/ch01/figures/fig_dependencies_flow.py` (deck: none (diagram))
 
@@ -270,8 +278,8 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 
 #### 3.3 Panel rotation and the seam register
 
-- **Derivation:** face fluxes rotated covariant face basis -> Cartesian -> neighbour basis; the owner's rows replace the neighbour's on the seam
-- **Code:** `src/coord/coord_rotation.cpp:79` `PanelRotation::face_rows_to_cart_`; `src/layout/seam_register.cpp:36` `reconcile_panel_seams`
+- **Derivation:** face fluxes rotated covariant face basis -> Cartesian -> neighbour basis; the owner's rows replace the neighbour's on the seam; the rows travel through the one seam transport (Exchange::resolve_seam and seam_exchange, 13.5) at the executor's cut
+- **Code:** `src/coord/coord_rotation.cpp:79` `PanelRotation::face_rows_to_cart_`; `src/layout/seam_register.cpp:35` `reconcile_panel_seams`
 - **Tests:** `test_panel_rotation.release` (bitwise (equal x1)); `test_cubed_sphere_seams.release` (bitwise (equal x3))
 - **Figures/tables:** `src/snapy_report/ch03/figures/fig_thetacopy_seam.py` (deck: none (diagram))
 
@@ -287,7 +295,7 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 #### 4.1 Reconstruction (PLM, WENO5) and the conversion order
 
 - **Derivation:** piecewise-linear and WENO5 face states from cell averages; fourth-order point/average conversion
-- **Code:** `src/recon/reconstruct.cpp:257` `ReconstructImpl::forward`; `src/recon/reconstruct.cpp:119` `InterpImpl::forward`
+- **Code:** `src/recon/reconstruct.cpp:252` `ReconstructImpl::forward`; `src/recon/reconstruct.cpp:119` `InterpImpl::forward`
 - **Tests:** `test_plm.release` (allclose(rtol=1e-05 (default), atol=1e-08 (default)); EXPECT_NEAR 1.E-10, 1.E-6, 2.E-6); `test_weno.release` (bitwise (equal x4); EXPECT_NEAR 1.E-10, 1.E-6, 2.E-6); `test_conversion_order_python` (bitwise (equal x4); compared < 1e-13, 1.e-10)
 - **Figures/tables:** `src/snapy_report/ch04/figures/fig_recon_stencil.py` (deck: none (diagram)); **new** `src/snapy_report/ch04/checks/recon_order_run.py + fig_recon_order.py` (deck: a 1-D smooth profile through ReconstructImpl at the pin (replaces recon_check.py, a port of src/recon/interp_simple.hpp, deleted by 231dc228))
 
@@ -301,7 +309,7 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 #### 4.3 The sweep and its register posts
 
 - **Derivation:** none (control flow): reconstruct -> face floors -> solve -> post to the register; S4: one reduced count post per floor or event that ran (the `post_events` lambda inside `riemann_solve`)
-- **Code:** `src/hydro/sweep.cpp:31` `reconstruct_faces`; `src/hydro/sweep.cpp:23` `post_face_floors`; `src/hydro/sweep.cpp:99` `riemann_solve`; `src/recon/reconstruct.cpp:246` `ReconstructImpl::floor_counts`
+- **Code:** `src/hydro/sweep.cpp:37` `reconstruct_faces`; `src/hydro/sweep.cpp:23` `post_face_floors`; `src/hydro/sweep.cpp:105` `riemann_solve`; `src/hydro/sweep.cpp:31` `post_riemann_events`
 - **Tests:** `test_face_floor.release` (EXPECT_NEAR 1.e-3, 1.e-5 * 1.28524e-8); `test_fp32_face_floor_counts_python` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** `src/snapy_report/ch04/figures/fig_stage_pipeline.py` (deck: none (diagram))
 
@@ -317,7 +325,7 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 #### 5.1 The x1 hydrostatic reference
 
 - **Derivation:** reference pressure and density from dp/dz = -rho g integrated per column; face states of the reference subtracted before the solve
-- **Code:** `src/hydro/hydro.cpp:531` `HydroImpl::_hydro_ref_x1`; `src/recon/x1_reference.hpp:41` `HydroReferenceX1Operator`
+- **Code:** `src/hydro/hydro.cpp:526` `HydroImpl::_hydro_ref_x1`; `src/recon/x1_reference.hpp:41` `HydroReferenceX1Operator`
 - **Tests:** `test_hydro_ref_x1.release` (bitwise (equal x16); allclose(rtol=atol=2e-12 FP64, 2e-5 FP32) through expect_close (tests/test_hydro_ref_x1.cpp:203-204), GPU arm 2e-12 (:267-269); compared < 1e-6); `test_hydro_ref_x1_rf_wall.release` (no numeric tolerance in the source (pass/fail checks only)); `test_stretched_x1_ref.release` (EXPECT_NEAR 1.e-12)
 - **Figures/tables:** `src/snapy_report/ch05/figures/fig_refkernel_scan.py` (deck: none (diagram))
 
@@ -353,9 +361,9 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 
 #### 6.3 Column status, the FP64 retry and the S4 status truth table
 
-- **Derivation:** status bits per column; the predicated FP64 stage solves only failed columns; status() as one table lookup (S4)
-- **Code:** `src/implicit/implicit_hydro.cpp:223` `ImplicitHydroImpl::status`; `src/hydro/hydro.cpp:436` `HydroImpl::_apply_implicit_correction`
-- **Tests:** `test_fp32_vic_pivot_python` (no numeric tolerance in the source (pass/fail checks only)); `test_fp32_implicit_python` (bitwise (equal x1); constants rtol=1.0e-13; compared < 2.0e-6)
+- **Derivation:** status bits per column; the predicated FP64 stage solves only failed columns; status() as one table lookup (S4); the solve posts its face transfers into the x1 total of the register, also with the x1 flux off (the disabled direction's total is rewritten to zero each stage)
+- **Code:** `src/implicit/implicit_hydro.cpp:223` `ImplicitHydroImpl::status`; `src/hydro/hydro.cpp:431` `HydroImpl::_apply_implicit_correction`
+- **Tests:** `test_fp32_vic_pivot_python` (no numeric tolerance in the source (pass/fail checks only)); `test_fp32_implicit_python` (bitwise (equal x1); constants rtol=1.0e-13; compared < 2.0e-6); `test_implicit_register_x1_off_python` (bitwise (equal x1))
 - **Figures/tables:** `src/snapy_report/ch07/figures/fig_vic_reject.py` (deck: none (diagram))
 
 #### 6.4 The implicit solve on the device dt (pointer to 11.5)
@@ -369,9 +377,9 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 
 #### 7.1 Coriolis
 
-- **Derivation:** -2 Omega x v projected on the local frame; the x1 mass-flux w terms from the stage's face transfers
+- **Derivation:** -2 Omega x v projected on the local frame; the x1 mass-flux w terms from the x1 total of the register (A_f times the dry and species mass rows), which holds the implicit solve's posts, the x1 flux on or off
 - **Code:** `src/forcing/coriolis.cpp:110` `CoriolisImpl::add`; `src/forcing/x1_momentum.cpp:48` `X1Momentum::after_solve`
-- **Tests:** `test_forcing.release` (bitwise (equal x3); allclose(rtol=1e-05 (default), atol=1e-08 (default)) x9; allclose(rtol=1.e-12, atol=1.e-12); allclose(rtol=1.e-13, atol=0.) x2; allclose(rtol=1.e-8, atol=1.e-8); allclose(rtol=1.e-10, atol=1.e-10); allclose(rtol=1.e-10, atol=1.e-8); allclose(rtol=1.e-10, atol=0.); EXPECT_NEAR 1.e-9)
+- **Tests:** `test_forcing.release` (bitwise (equal x3); allclose(rtol=1e-05 (default), atol=1e-08 (default)) x9; allclose(rtol=1.e-12, atol=1.e-12); allclose(rtol=1.e-13, atol=0.) x2; allclose(rtol=1.e-8, atol=1.e-8); allclose(rtol=1.e-10, atol=1.e-10); allclose(rtol=1.e-10, atol=1.e-8); allclose(rtol=1.e-10, atol=0.); EXPECT_NEAR 1.e-9); `test_implicit_register_x1_off_python` (bitwise (equal x1))
 - **Figures/tables:** `src/snapy_report/ch09/figures/fig_coriolis_projection.py` (deck: none (diagram))
 
 #### 7.2 Axial angular momentum: flux form and closure
@@ -383,15 +391,15 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 
 #### 7.3 Diffusion and viscosity
 
-- **Derivation:** second-order diffusion operators on Cartesian, cubed-sphere and radial grids; the diffusive time-step bound
-- **Code:** `src/forcing/diffusion.cpp:551` `DiffusionImpl::add`; `src/forcing/diffusion.cpp:717` `DiffusionImpl::max_time_step`
-- **Tests:** `test_diffusion.release` (bitwise (equal x1); allclose(rtol=1e-05 (default), atol=1e-08 (default)) x3; allclose(rtol=1.e-6, atol=1.e-6); allclose(rtol=1.e-5, atol=1.e-5) x2; allclose(rtol=3.e-4, atol=3.e-4); allclose(rtol=1.e-10, atol=1.e-10); allclose(rtol=1.e-12, atol=0.) x4; EXPECT_NEAR 1.e-12, 1.e-3, 1.e-4 * full, 1.e-6, dtype == torch::kFloat64 ? 1.e-9 : 1.e-3); `test_diffusion_cubed_sphere.release` (bitwise (equal x1); allclose(rtol=0., atol=1.e-12); allclose(rtol=1.e-11, atol=1.e-12); allclose(rtol=1.e-8, atol=1.e-10); allclose(rtol=1.e-12, atol=1.e-9); allclose(rtol=1.e-8, atol=1.e-8); EXPECT_NEAR 0.02 * analytical, 1.e-10, 1.e-11, 1.e-12 * energy0); `test_diffusion_moist.release` (bitwise (equal x1); allclose(rtol=1.e-5, atol=1.e-5); allclose(rtol=1.e-12, atol=1.e-12); allclose(rtol=1.e-6, atol=1.e-6); EXPECT_NEAR 1.e-12 * expected, 1.e-3)
+- **Derivation:** second-order diffusion operators on Cartesian, cubed-sphere and radial grids; the energy rows go through the register only (post_fluxes, also with a flux direction off), add() takes the other rows; the diffusive time-step bound
+- **Code:** `src/forcing/diffusion.cpp:551` `DiffusionImpl::add`; `src/forcing/diffusion_cubed_sphere.cpp:365` `DiffusionImpl::post_fluxes`; `src/forcing/diffusion.cpp:709` `DiffusionImpl::max_time_step`
+- **Tests:** `test_diffusion.release` (allclose(rtol=1e-05 (default), atol=1e-08 (default)) x3; allclose(rtol=1.e-6, atol=1.e-6); allclose(rtol=1.e-5, atol=1.e-5) x2; allclose(rtol=3.e-4, atol=3.e-4); allclose(rtol=1.e-10, atol=1.e-10); allclose(rtol=1.e-12, atol=0.) x4; EXPECT_NEAR 1.e-12, 1.e-3, 1.e-4 * full, 1.e-6, dtype == torch::kFloat64 ? 1.e-9 : 1.e-3); `test_diffusion_cubed_sphere.release` (allclose(rtol=0., atol=1.e-12); allclose(rtol=1.e-11, atol=1.e-12); allclose(rtol=1.e-8, atol=1.e-10); allclose(rtol=1.e-12, atol=1.e-9); allclose(rtol=1.e-8, atol=1.e-8); EXPECT_NEAR 0.02 * analytical, 1.e-10, 1.e-11, 1.e-12 * energy0); `test_diffusion_moist.release` (bitwise (equal x1); allclose(rtol=1.e-5, atol=1.e-5); allclose(rtol=1.e-12, atol=1.e-12); allclose(rtol=1.e-6, atol=1.e-6); EXPECT_NEAR 1.e-12 * expected, 1.e-3)
 - **Figures/tables:** `src/snapy_report/ch09/figures/fig_viscosity_stencil.py` (deck: none (diagram)); `src/snapy_report/ch09/figures/fig_csdiffusion_stencil.py` (deck: none (diagram))
 
 #### 7.4 Other forcings and the user stage forcing
 
 - **Derivation:** heating, relaxation and sponge terms (one table); the TorchScript stage forcing and its species clip
-- **Code:** `src/mesh/meshblock_advance.cpp:240` `MeshBlockImpl::stage_forcing`
+- **Code:** `src/mesh/meshblock_advance.cpp:235` `MeshBlockImpl::stage_forcing`
 - **Tests:** `test_jit_user_forcing_python` (assert_close(rtol=dtype default (default), atol=dtype default (default))); `test_forcing_species_clip_python` (constants tol=1.e-14); `test_source_registry.release` (bitwise (equal x2); allclose(rtol=1.e-12, atol=1.e-12))
 - **Figures/tables:** `src/snapy_report/ch09/figures/fig_user_forcing.py` (deck: none (diagram)); `src/snapy_report/ch09/figures/fig_sponge_profile.py` (deck: none (analytic))
 
@@ -400,7 +408,7 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 #### 8.1 Saturation adjustment and the vapor repair
 
 - **Derivation:** kintera equilibrium per cell at constant (rho, e); vapor deficit repair by column borrowing
-- **Code:** `src/mesh/meshblock_advance.cpp:358` `MeshBlockImpl::stage_saturation`
+- **Code:** `src/mesh/meshblock_advance.cpp:346` `MeshBlockImpl::stage_saturation`
 - **Tests:** `test_fix_vapor_deficit.release` (EXPECT_NEAR 1.e-15); `test_condensate_conservation.release` (bitwise (equal x1); allclose(rtol=1.e-12, atol=1.e-12); allclose(rtol=1.e-6, atol=1.e-6) x2); `test_wall_saturation.release` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** `src/snapy_report/ch10/figures/fig_satadj_timeline.py` (deck: none (diagram)); `src/snapy_report/ch10/figures/fig_fixvapor_column.py` (deck: data/fixvapor_column.csv from ch10/evidence/fixvapor_column_run.py (a 64-cell spherical-polar MeshBlock through snapy's own repair; rerun at the pin))
 
@@ -414,7 +422,7 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 #### 8.3 The flux positivity limiter and its census
 
 - **Derivation:** theta per cell so that u + dt div F >= 0; borrow between species; census_ counts theta < 1 (kPosHits), theta < 0.9 with the withheld mass above the round-off of the gas in the cell (kPosSevere, #256) and the smallest theta (kPosMin); read by the budget diagnostics
-- **Code:** `src/hydro/flux_positivity.cpp:42` `flux_positivity_theta`; `src/hydro/flux_positivity.cpp:207` `PositivityLimiter::census_`
+- **Code:** `src/hydro/flux_positivity.cpp:42` `flux_positivity_theta`; `src/hydro/flux_positivity.cpp:203` `PositivityLimiter::census_`
 - **Tests:** `test_flux_positivity_python` (compared < 1e-12); `test_flux_positivity_cubedsphere_python` (constants DRIFT_TOL=1e-13)
 - **Figures/tables:** `src/snapy_report/ch08/figures/fig_theta_stencil.py` (deck: none (diagram)); `src/snapy_report/ch08/figures/fig_borrow.py` (deck: none (diagram))
 
@@ -434,8 +442,8 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 
 #### 8.6 The EfStatus slots
 
-- **Derivation:** none (record): one block's EOS, floor and positivity status in named device slots (marks, vapor failures, heat-capacity latch, positivity meters); check_redo reads its causes in one copy, the budget reads the meters
-- **Code:** `src/eos/ef_status.hpp:20` `EfStatus`; `src/mesh/stage_executor.cpp:712` `StageExecutor::save_list`. At the pin, `StageExecutor::save_list` saves the block's EfStatus slots (`src/mesh/stage_executor.cpp:726-731`) across capture warm-ups, so a warm-up leaves no count; conversion order 4's fallback count `conversion_trips` is not an EfStatus slot but a hydro module buffer (`src/hydro/hydro.cpp:271-273`), which save_list adds by a name lookup of the hydro's buffers (`src/mesh/stage_executor.cpp:732-735`; 3c1c0c20, landed as 4c023985); the graph = eager meter test is test_graph_positivity_meters_match_eager (`tests/test_graph_positivity_meters_match_eager.py`, registered at `tests/CMakeLists.txt:519`)
+- **Derivation:** none (record): one block's EOS, floor and positivity status in named device slots (marks, vapor failures, heat-capacity latch, positivity meters, conversion-order 4 trips); check_redo reads its causes in one copy, the budget reads the meters
+- **Code:** `src/eos/ef_status.hpp:20` `EfStatus`; `src/mesh/stage_executor.cpp:751` `StageExecutor::save_list`. At the pin, `StageExecutor::save_list` saves every EfStatus slot (`src/mesh/stage_executor.cpp:765-770`) across capture warm-ups, so a warm-up leaves no count; conversion order 4's fallback count is the slot `kConvTrips` (`src/eos/ef_status.hpp:33`, bound as the hydro buffer `conversion_trips` at `src/hydro/hydro.cpp:271-274`; d0d83bf6); the graph = eager meter test is test_graph_positivity_meters_match_eager (`tests/test_graph_positivity_meters_match_eager.py`, registered at `tests/CMakeLists.txt:525`)
 - **Tests:** `test_flux_positivity_python` (compared < 1e-12); `test_cycle_diagnostics.release` (EXPECT_NEAR 1.e-12, 1.e-9, 1.e-9 * flux, 1.e-9 * ke_total); `test_fp32_compute_python` (bitwise (equal x2); compared < 2.0e-5); `test_graph_positivity_meters_match_eager_python` (bitwise (equal x1))
 - **Figures/tables:** none
 
@@ -444,14 +452,14 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 #### 9.1 RK3 stages and the combine
 
 - **Derivation:** SSP-RK3 weights (w0, w1, w2) from pyharp; u^{s+1} = w0 u0 + w1 u1 + w2 dt L(u1)
-- **Code:** `src/mesh/meshblock_advance.cpp:314` `MeshBlockImpl::stage_combine`
+- **Code:** `src/mesh/meshblock_advance.cpp:309` `MeshBlockImpl::stage_combine`
 - **Tests:** `test_mesh_executor.release` (bitwise (equal x2))
 - **Figures/tables:** `src/snapy_report/ch07/figures/fig_rk_stages.py` (deck: none (diagram))
 
 #### 9.2 The time step
 
 - **Derivation:** acoustic CFL bound per direction, then the sources' bounds; the global minimum over blocks
-- **Code:** `src/hydro/hydro.cpp:332` `HydroImpl::max_time_step`; `src/mesh/meshblock_advance.cpp:65` `MeshBlockImpl::global_time_step`
+- **Code:** `src/hydro/hydro.cpp:333` `HydroImpl::max_time_step`; `src/mesh/meshblock_advance.cpp:65` `MeshBlockImpl::global_time_step`
 - **Tests:** `test_implicit_cfl.release` (no numeric tolerance in the source (pass/fail checks only)); `test_shear_cfl_python` (no numeric tolerance in the source (pass/fail checks only)); `test_implicit_advection_cfl_python` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** `src/snapy_report/ch07/figures/fig_cfl_bounds.py` (deck: none (analytic))
 
@@ -465,7 +473,7 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 #### 9.4 The implicit tracer transfer (S4 padded shifts)
 
 - **Derivation:** tracer face transfer P = M r_donor capped by the held amount; S4 forms r_below and P_above by one pad each
-- **Code:** `src/mesh/meshblock_advance.cpp:150` `MeshBlockImpl::stage_advance`
+- **Code:** `src/mesh/meshblock_advance.cpp:145` `MeshBlockImpl::stage_advance`
 - **Tests:** `test_dry_carry_zero_base_python` (allclose(rtol=0., atol=1.e-12); constants rtol=0); `test_tracer_ratio_python` (compared < 1e-14, 1e-12)
 - **Figures/tables:** none
 
@@ -473,23 +481,23 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 
 #### 10.1 Posts
 
-- **Derivation:** none (bookkeeping): add, scale and overwrite of a direction's total and its kept parts; plain row adds
-- **Code:** `src/hydro/flux_register.cpp:545` `FluxRegister::add`; `src/hydro/flux_register.cpp:574` `FluxRegister::scale`; `src/hydro/flux_register.cpp:587` `FluxRegister::overwrite_`
-- **Tests:** `test_flux_register.release` (bitwise (equal x28); allclose(rtol=0., atol=0.))
+- **Derivation:** none (bookkeeping): add, scale and overwrite of a direction's total and its kept parts; plain row adds; every add and scale marks its direction for the post-implicit apply; overwrite_ is the one write-and-book of A_f (after - before)
+- **Code:** `src/hydro/flux_register.cpp:519` `FluxRegister::add`; `src/hydro/flux_register.cpp:548` `FluxRegister::scale`; `src/hydro/flux_register.cpp:561` `FluxRegister::overwrite_`
+- **Tests:** `test_flux_register.release` (bitwise (equal x29); allclose(rtol=0., atol=0.))
 - **Figures/tables:** **new** `src/snapy_report/ch10/figures/fig_register_order.py` (deck: none (diagram))
 
 #### 10.2 Prescribed faces and their reapplication
 
-- **Derivation:** boundary.prescribed books the removed wall flux; reapplied after the implicit correction or when the written mark is set (the #315 carry: see 8.4)
-- **Code:** `src/hydro/flux_register.cpp:771` `FluxRegister::apply_prescribed`; `src/hydro/hydro_forward.cpp:299` `HydroImpl::forward`
-- **Tests:** `test_prescribed_after_sources.release` (no numeric tolerance in the source (pass/fail checks only))
+- **Derivation:** boundary.prescribed books the removed wall flux; applied once per active direction after the sources' posts and before the divergence, so a source's post on a wall face never reaches du, and again after the implicit correction or when the written mark is set (the #315 carry: see 8.4)
+- **Code:** `src/hydro/flux_register.cpp:707` `FluxRegister::apply_prescribed`; `src/hydro/hydro_forward.cpp:299` `HydroImpl::forward`
+- **Tests:** `test_prescribed_after_sources.release` (EXPECT_NEAR tol0; constants tol=1.e-12)
 - **Figures/tables:** none
 
 #### 10.3 The wall batch
 
-- **Derivation:** the wall rates of a stage gathered in push order, one dense row reduction per stage, shared by the hydro and scalar registers
-- **Code:** `src/hydro/flux_register.cpp:380` `WallBatch::flush`; `src/hydro/flux_register.cpp:365` `WallBatch::push`; `src/hydro/flux_register.cpp:684` `FluxRegister::apply_wall_planes_`; `src/mesh/meshblock.cpp:437` `MeshBlockImpl::register_flux_storage`. At the pin, the wall batch and the count masks sit in fixed device storage, registered with the state store in `MeshBlockImpl::register_flux_storage` (`src/mesh/meshblock.cpp:469-474`); `stage_advance` begins the batch each stage (`src/mesh/meshblock_advance.cpp:161`) and the wall slots follow the stage's push order; `apply_wall_planes_` builds the wall weights' scalar operands in the wide dtype on the device
-- **Tests:** `test_graph_monitor_amounts.release` (bitwise (equal x7)); `test_flux_register.release` (bitwise (equal x28); allclose(rtol=0., atol=0.))
+- **Derivation:** each overwrite_'s after - before over the faces it wrote, pushed with the register's face-area weights in the stage's push order (a slot is tied to the weights it was registered with); each slot's rows a plain weighted sum at the flush; shared by the hydro and scalar registers
+- **Code:** `src/hydro/flux_register.cpp:357` `WallBatch::flush`; `src/hydro/flux_register.cpp:342` `WallBatch::push`; `src/hydro/flux_register.cpp:649` `FluxRegister::set_prescribed_walls`; `src/mesh/meshblock.cpp:440` `MeshBlockImpl::register_flux_storage`. At the pin, the wall batch and the count masks sit in fixed device storage, registered with the state store in `MeshBlockImpl::register_flux_storage` (`src/mesh/meshblock.cpp:471-476`); `stage_advance` begins the batch each stage (`src/mesh/meshblock_advance.cpp:156`) and the wall slots follow the stage's push order; the wall planes are applied by `FluxRegister::apply_prescribed` through `overwrite_`, which pushes after - before with its face-area weights (`src/hydro/flux_register.cpp:561`)
+- **Tests:** `test_graph_monitor_amounts.release` (bitwise (equal x7)); `test_flux_register.release` (bitwise (equal x29); allclose(rtol=0., atol=0.))
 - **Figures/tables:** none
 
 #### 10.4 Amounts and the stage fold
@@ -502,14 +510,14 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 #### 10.5 Monitor counts
 
 - **Derivation:** count masks batched per stage and summed by one integer cumsum (no atomics)
-- **Code:** `src/hydro/flux_register.cpp:75` `RegisterMonitor::count`; `src/hydro/flux_register.cpp:139` `RegisterMonitor::flush_counts`. At the pin, the count masks have fixed device storage (`RegisterMonitor::count_storage`, `src/hydro/flux_register.hpp:90`)
+- **Code:** `src/hydro/flux_register.cpp:75` `RegisterMonitor::count`; `src/hydro/flux_register.cpp:139` `RegisterMonitor::flush_counts`. At the pin, the count masks have fixed device storage (`RegisterMonitor::count_storage`, `src/hydro/flux_register.hpp:90`); the face-floor and Riemann event masks are posted by `post_face_floors` and `post_riemann_events` (`src/hydro/sweep.cpp:23-35`) and reduced together at the flush
 - **Tests:** `test_fp32_face_floor_counts_python` (no numeric tolerance in the source (pass/fail checks only)); `test_cycle_diagnostics.release` (EXPECT_NEAR 1.e-12, 1.e-9, 1.e-9 * flux, 1.e-9 * ke_total)
 - **Figures/tables:** none
 
 #### 10.6 Rollback and redo, through replay
 
 - **Derivation:** a rejected attempt zeroes the device slots and counters and keeps the host stage bookkeeping, because a replayed redo does not rerun begin_stage/end_stage (pointer from 11)
-- **Code:** `src/hydro/flux_register.cpp:514` `FluxRegister::rollback`; `src/hydro/flux_register.cpp:65` `RegisterMonitor::rollback`
+- **Code:** `src/hydro/flux_register.cpp:488` `FluxRegister::rollback`; `src/hydro/flux_register.cpp:65` `RegisterMonitor::rollback`
 - **Tests:** `test_graph_monitor_amounts.release` (bitwise (equal x7))
 - **Figures/tables:** none
 
@@ -524,36 +532,36 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 
 #### 11.1 The execution model: segments and the schedule
 
-- **Derivation:** none (control flow): a stage is a list of ops grouped into segments (compute, host exchange, eager); the executor runs them in order
-- **Code:** `src/mesh/segment.cpp:56` `StageSchedule::regroup`; `src/mesh/stage_executor.cpp:808` `StageExecutor::run_segments`
+- **Derivation:** none (control flow): a stage is a list of ops grouped into segments (compute, host exchange, eager); the executor runs them in order; one schedule for a Mesh block and a bare block (a bare block's begins with its stage-entry exchange, a Mesh block's has none: the Mesh exchanges last); run_local runs the non-host segments through run_eager
+- **Code:** `src/mesh/segment.cpp:56` `StageSchedule::regroup`; `src/mesh/stage_executor.cpp:838` `StageExecutor::run_segments`; `src/mesh/stage_executor.cpp:531` `StageExecutor::run_local`
 - **Tests:** `test_stage_schedule.release` (no numeric tolerance in the source (pass/fail checks only)); `test_stage_segments.release` (bitwise (equal x1)); `test_mesh_executor.release` (bitwise (equal x2)). Test_mesh_executor sets `execution: eager` (the eager executor path against the pre-executor sequence)
 - **Figures/tables:** **new** `src/snapy_report/ch11/figures/fig_segments.py` (deck: none (diagram))
 
 #### 11.2 Capture, warm-up, the save list and replay
 
-- **Derivation:** none (control flow): three eager warm-ups on a side stream, restore the save list, capture once, replay (the device dt the replay reads: 11.5)
-- **Code:** `src/mesh/stage_executor.cpp:864` `StageExecutor::capture`; `src/mesh/stage_executor.cpp:712` `StageExecutor::save_list`; `src/mesh/stage_executor.cpp:1021` `StageExecutor::replay`. At the pin, the save list carries the EfStatus slots and, by a name lookup outside EfStatus, the hydro buffer `conversion_trips` (8.6)
-- **Tests:** `test_stage_executor_capture_python` (bitwise (equal x5)); `test_graph_pool_recapture_python` (bitwise (equal x1)); `test_state_store.release` (bitwise (equal x5))
+- **Derivation:** none (control flow): three eager warm-ups on the block's own capture stream, restore the save list, capture once, replay (the device dt the replay reads: 11.5); a capture's streams (the block's, the seam copies', the Mesh's worker streams) come from one owned-stream helper, lent to one owner at a time and given back, never destroyed, when the owner dies; a capture that runs out of device memory stops with an error that names execution: eager
+- **Code:** `src/mesh/stage_executor.cpp:900` `StageExecutor::capture`; `src/mesh/stage_executor.cpp:751` `StageExecutor::save_list`; `src/mesh/stage_executor.cpp:1046` `StageExecutor::replay`; `src/mesh/stage_executor.hpp:45` `OwnedStream`. At the pin, the save list carries every EfStatus slot, `kConvTrips` included (8.6); a capture's out-of-memory error is rethrown naming `execution: eager` (`src/mesh/stage_executor.cpp:859-866`)
+- **Tests:** `test_stage_executor_capture_python` (bitwise (equal x5)); `test_graph_pool_recapture_python` (bitwise (equal x1)); `test_state_store.release` (bitwise (equal x5)); `test_mesh_worker_streams.release` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** none
 
 #### 11.3 The refusal list and the allow-lists
 
 - **Derivation:** none (rules): the named reasons a block runs eager; EOS ideal-gas/ideal-moist and Riemann lmars/hllc only
-- **Code:** `src/mesh/stage_executor.cpp:579` `StageExecutor::config_reasons`; `src/mesh/stage_executor.cpp:545` `StageExecutor::capture_reasons`. At the pin, the allow-list is at `src/mesh/stage_executor.cpp:600-601`, the split-panel refusal (a cubed-sphere panel split into several blocks, #317) at `:623-628` and the forcing lift at `:629-634`
+- **Code:** `src/mesh/stage_executor.cpp:624` `StageExecutor::config_reasons`; `src/mesh/stage_executor.cpp:590` `StageExecutor::capture_reasons`. At the pin, the allow-list is at `src/mesh/stage_executor.cpp:645-646` and the forcing lift at `:668-673`; a cubed-sphere panel split into several blocks is no longer refused (b81f1c1f)
 - **Tests:** `test_execution_capability_python` (no numeric tolerance in the source (pass/fail checks only)); `test_graph_capture_lifts_python` (bitwise (equal x1)); `test_graph_outflow_refused_python` (bitwise (equal x2)); `test_graph_user_forcing_python` (bitwise (equal x3))
 - **Figures/tables:** **new** `src/snapy_report/ch11/figures/tab_refusals.py` (deck: none (table from config_reasons))
 
 #### 11.4 The default and strict
 
 - **Derivation:** none (rules): integration.execution (auto, eager, cuda-graph) and execution-strict; written against the pin, which carries the default (STRUCTURE 4.4)
-- **Code:** `src/mesh/meshblock_options.cpp:17` `MeshBlockOptionsImpl::from_yaml`; `src/mesh/stage_executor.cpp:107` `StageExecutor::mode`. At the pin, `integration.execution` takes auto (the default, also with no key), eager or cuda-graph (`src/mesh/meshblock.hpp:98`, checked in `src/mesh/meshblock_options.cpp:58-59`); `StageExecutor::mode` (`src/mesh/stage_executor.cpp:107-115`) resolves auto to cuda-graph on a CUDA block and eager otherwise, and an explicit value is honoured; non-strict, each eager reason is logged once per block
+- **Code:** `src/mesh/meshblock_options.cpp:17` `MeshBlockOptionsImpl::from_yaml`; `src/mesh/stage_executor.cpp:161` `StageExecutor::mode`. At the pin, `integration.execution` takes auto (the default, also with no key), eager or cuda-graph (`src/mesh/meshblock.hpp:98`, checked once, by the options reader, in `src/mesh/meshblock_options.cpp:58-64`); `StageExecutor::mode` (`src/mesh/stage_executor.cpp:161-169`) resolves auto to cuda-graph on a CUDA block and eager otherwise, and an explicit value is honoured; non-strict, each eager reason is logged once per block
 - **Tests:** `test_execution_capability_python` (no numeric tolerance in the source (pass/fail checks only)); `test_default_execution_python` (bitwise (equal x2))
 - **Figures/tables:** none
 
 #### 11.5 Graph = eager bitwise, graph-safe code and the device dt
 
 - **Derivation:** rules: no host reads, no host-to-device copies inside a captured segment, fixed shapes, host state replay does not refresh; the one home of the device dt: the executor fills a per-block 0-d FP64 dt before each replay, and StepDt forms w2 dt, dt_corr and x/dt from it bitwise like the host dt (x * (1/dt) for torch's host-scalar division)
-- **Code:** `src/utils/step_dt.cpp:14` `StepDt::value`; `src/utils/step_dt.cpp:25` `StepDt::divide`; `src/utils/step_dt.cpp:36` `StepDt::scaled`; `src/mesh/stage_executor.cpp:283` `StageExecutor::device_dt`; `src/mesh/state_store.hpp:24` `StateStore`. At the pin, the stretched x1 reference rows are built on the grid's device (`src/recon/x1_reference.hpp:62-66`), so no host-to-device copy runs inside a captured segment (#316)
+- **Code:** `src/utils/step_dt.cpp:14` `StepDt::value`; `src/utils/step_dt.cpp:25` `StepDt::divide`; `src/utils/step_dt.cpp:36` `StepDt::scaled`; `src/mesh/stage_executor.cpp:345` `StageExecutor::device_dt`; `src/mesh/state_store.hpp:24` `StateStore`. At the pin, the stretched x1 reference rows are built on the grid's device (`src/recon/x1_reference.hpp:62-66`), so no host-to-device copy runs inside a captured segment (#316)
 - **Tests:** `test_sk3_capture_moist_python` (bitwise (equal x4)); `test_graph_implicit_dt_python` (bitwise (equal x3)); `test_graph_chemistry_slot_python` (bitwise (equal x3)); `test_graph_stretched_x1_python` (bitwise (torch.equal of every block's state after every step, tests/test_graph_stretched_x1.py:85); its rtol=1.e-13 (:51-52) is the tolerance of the balance_column solve that builds the initial state, not a comparison tolerance)
 - **Figures/tables:** none
 
@@ -567,7 +575,7 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 #### 11.7 Eager ops inside a captured stage: the user forcing and the chemistry segment
 
 - **Derivation:** none (rules): an op that cannot be captured runs as its own eager segment with the host dt, between captured segments; a registered chemistry step is such an op (eager FP64 kinetics), except in a Mesh block, which defers chemistry to the Mesh's global phase and keeps the op in the graph
-- **Code:** `src/mesh/stage_executor.cpp:149` `StageExecutor::build_schedule`; `src/mesh/stage_executor.cpp:130` `StageExecutor::chemistry_slot`
+- **Code:** `src/mesh/stage_executor.cpp:204` `StageExecutor::build_schedule`; `src/mesh/stage_executor.cpp:184` `StageExecutor::chemistry_slot`
 - **Tests:** `test_graph_chemistry_slot_python` (bitwise (equal x3)); `test_graph_mesh_chemistry_python` (bitwise (equal x1)); `test_graph_user_forcing_python` (bitwise (equal x3)); `test_sk4_chemistry_source_python` (bitwise (equal x2))
 - **Figures/tables:** none
 
@@ -575,9 +583,9 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 
 #### 12.1 The precision policy
 
-- **Derivation:** one row per quantity: storage, compute and accumulation dtype; FP64 masters for geometry and references; the wide dtype is FP32 on MPS (no FP64 there), the one home of MPS precision
-- **Code:** `src/mesh/precision_policy.hpp:31` `PrecisionPolicy`
-- **Tests:** `test_precision_policy.release` (bitwise (equal x1)); `test_fp32_policy_python` (bitwise (equal x4); compared < 2.0e-8, 2.0e-5)
+- **Derivation:** one row per quantity: storage, compute and accumulation dtype; FP64 masters for geometry and references; PrecisionPolicy::wide(device) is the one wide-dtype rule (FP32 on MPS, no FP64 there), the one home of MPS precision; the kImplicit row follows integration.implicit-precision; the block's policy is rebuilt for the device its caller gives (reset, to)
+- **Code:** `src/mesh/precision_policy.hpp:31` `PrecisionPolicy`; `src/mesh/meshblock.cpp:38` `MeshBlockImpl::_reset_policy`
+- **Tests:** `test_precision_policy.release` (bitwise (equal x1)); `test_fp32_policy_python` (bitwise (equal x4); compared < 2.0e-8, 2.0e-5); `test_mps_matches_cpu_python` (err = max|mps - cpu| / max|cpu| <= max(TOL=1e-4, 3 x the CPU FP32-vs-FP64 error) per arm; the reconstruction arms exactly 0 (tests/test_mps_matches_cpu.py:4-9, :27))
 - **Figures/tables:** **new** `src/snapy_report/ch12/figures/tab_policy_rows.py` (deck: none (table from precision_policy.hpp))
 
 #### 12.2 FP32 storage, typed constants and the horizontal sweep
@@ -596,8 +604,8 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 
 #### 12.4 The FP32 implicit solve (pointer to 6.3)
 
-- **Derivation:** block-row scaling before the FP32 LU; FP64 retry of failed columns only
-- **Code:** `src/hydro/hydro.cpp:420` `HydroImpl::implicit_solve_float`
+- **Derivation:** block-row scaling before the FP32 LU; FP64 retry of failed columns only; the solve's dtype is the policy's kImplicit compute row and its FP64 stage the row's storage
+- **Code:** `src/hydro/hydro.cpp:421` `HydroImpl::prepare_implicit`; `src/hydro/hydro.cpp:431` `HydroImpl::_apply_implicit_correction`
 - **Tests:** `test_fp32_vic_pivot_python` (no numeric tolerance in the source (pass/fail checks only)); `test_fp32_implicit_python` (bitwise (equal x1); constants rtol=1.0e-13; compared < 2.0e-6); `test_fp32_restart_python` (bitwise (equal x8); compared < 2.0e-5)
 - **Figures/tables:** none
 
@@ -605,37 +613,37 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 
 #### 13.1 Layouts and ranks
 
-- **Derivation:** none (mapping): slab, cubed and cubed-sphere layouts; block -> rank -> panel
+- **Derivation:** none (mapping): slab, cubed and cubed-sphere layouts; block -> rank -> panel (LayoutImpl::panel_of, is_cubed_sphere); the distribute: options, blocks_per_process included, have one home in the layout, generated from src/options/layout.yaml
 - **Code:** `src/layout/cubed_sphere_layout.cpp:514` `CubedSphereLayoutImpl::neighbor_rank`; `src/layout/cubed_sphere_layout.cpp:504` `CubedSphereLayoutImpl::loc_of`
 - **Tests:** `test_process_group.release` (no numeric tolerance in the source (pass/fail checks only)); `test_local_horizontal_cells_python` (compared < 1.0e-12)
 - **Figures/tables:** `src/snapy_report/ch03/figures/fig_layouts_morton.py` (deck: none (diagram))
 
 #### 13.2 The ghost exchange
 
-- **Derivation:** none (control flow): pack, same-process rendezvous or process-group send/recv, unpack; corner refresh
-- **Code:** `src/mesh/meshblock_exchange.cpp:124` `MeshBlockImpl::exchange_ghost_zones`; `src/mesh/mesh.cpp:446` `MeshImpl::exchange_ghost_zones`
-- **Tests:** `test_exchange.release` (isclose(rtol=1e-05 (default), atol=1e-08 (default)) x2); `test_mesh_exchange_python` (no numeric tolerance in the source (pass/fail checks only)); `test_cubed_sphere_exchange.release` (bitwise (equal x9)); `test_periodic_corners_python` (no numeric tolerance in the source (pass/fail checks only))
+- **Derivation:** none (control flow): pack, same-process rendezvous or process-group send/recv, unpack; corner refresh; every same-process wait goes through one helper (local_wait), so a block job that fails ends the other blocks' waits, leaves no mail behind, and the first error reaches the caller
+- **Code:** `src/mesh/meshblock_exchange.cpp:118` `MeshBlockImpl::exchange_ghost_zones`; `src/mesh/mesh.cpp:450` `MeshImpl::exchange_ghost_zones`; `src/layout/layout.cpp:135` `local_wait`
+- **Tests:** `test_exchange.release` (isclose(rtol=1e-05 (default), atol=1e-08 (default)) x2); `test_mesh_exchange_python` (no numeric tolerance in the source (pass/fail checks only)); `test_cubed_sphere_exchange.release` (bitwise (equal x9)); `test_periodic_corners_python` (no numeric tolerance in the source (pass/fail checks only)); `test_mesh_block_job_failure_python` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** `src/snapy_report/ch03/figures/fig_exchange_stencil.py` (deck: none (diagram))
 
 #### 13.3 Exchange cuts and multi-block capture (B3)
 
-- **Derivation:** none (control flow): an in-stage exchange is a cut; the blocks capture together after align_captures
-- **Code:** `src/mesh/stage_executor.cpp:360` `exchange_cut`; `src/mesh/stage_executor.cpp:497` `StageExecutor::align_captures`
-- **Tests:** `test_mesh_capture.release` (bitwise (equal x2)); `test_mesh_capture_moist_python` (bitwise (equal x1)); `test_cubed_sphere_capture_python` (bitwise (equal x1))
+- **Derivation:** none (control flow): an in-stage exchange is a cut (exchange_cut decides: a cut in a segment capture, the plain launch elsewhere); the blocks capture together after align_captures; split cubed-sphere panels (2x2, 4x4) and Meshes of many blocks capture, each block on its own capture and worker streams
+- **Code:** `src/mesh/stage_executor.cpp:412` `exchange_cut`; `src/mesh/stage_executor.cpp:546` `StageExecutor::align_captures`
+- **Tests:** `test_mesh_capture.release` (bitwise (equal x2)); `test_mesh_capture_moist_python` (bitwise (equal x1)); `test_cubed_sphere_capture_python` (bitwise (equal x1)); `test_graph_mesh_many_blocks_python` (bitwise (equal x1)); `test_mesh_worker_streams.release` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** **new** `src/snapy_report/ch13/figures/fig_exchange_cut.py` (deck: none (diagram))
 
 #### 13.4 Mesh-agree
 
 - **Derivation:** none (rule): a Mesh whose blocks disagree (one refuses, or modes differ) runs eager as a whole
-- **Code:** `src/mesh/stage_executor.cpp:529` `StageExecutor::agree`. At the pin, the blocks' resolved modes (`StageExecutor::mode`) are compared, not the deck key (`src/mesh/stage_executor.cpp:557-560`)
+- **Code:** `src/mesh/stage_executor.cpp:574` `StageExecutor::agree`. At the pin, the blocks' resolved modes (`StageExecutor::mode`) are compared, not the deck key (`src/mesh/stage_executor.cpp:602-605`)
 - **Tests:** `test_mesh_disagree.release` (bitwise (equal x1))
 - **Figures/tables:** none
 
 #### 13.5 The x1 seam split
 
-- **Derivation:** none (control flow): x1 relays between blocks split in x1 (pz > 1); refused for capture and for the implicit solve
-- **Code:** `src/layout/exchange.cpp:123` `Exchange::x1_seam_peers`
-- **Tests:** `test_x1_seam_split.release` (no numeric tolerance in the source (pass/fail checks only)); `test_x1_seam_split_mp.release` (no numeric tolerance in the source (pass/fail checks only))
+- **Derivation:** none (control flow): x1 relays between blocks split in x1 (pz > 1), the seam sides 0 (below) and 1 (above) of dimension 1 of the one seam transport, whose x1 peers come from x1_seam_peers; refused for capture and for the implicit solve
+- **Code:** `src/layout/exchange.cpp:100` `Exchange::x1_seam_peers`; `src/layout/exchange.cpp:134` `Exchange::resolve_seam`; `src/layout/exchange.cpp:174` `Exchange::seam_exchange`
+- **Tests:** `test_x1_seam_split.release` (bitwise (equal x2)); `test_x1_seam_split_mp.release` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** `src/snapy_report/ch03/figures/fig_x1seams_relay.py` (deck: none (diagram))
 
 ### Chapter 14. Boundary conditions and immersed solids
@@ -643,22 +651,22 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 #### 14.1 Boundary kinds
 
 - **Derivation:** reflecting, outflow/radiating, periodic and custom ghost fills
-- **Code:** `src/mesh/meshblock_exchange.cpp:220` `MeshBlockImpl::apply_boundaries`; `src/mesh/meshblock_options.cpp:169` `MeshBlockOptionsImpl::is_wall_boundary`
+- **Code:** `src/mesh/meshblock_exchange.cpp:214` `MeshBlockImpl::apply_boundaries`; `src/mesh/meshblock_options.cpp:169` `MeshBlockOptionsImpl::is_wall_boundary`
 - **Tests:** `test_radiating_boundary.release` (bitwise (equal x11); allclose(rtol=1e-05 (default), atol=1e-08 (default)) x6; allclose(rtol=1.e-5, atol=1.e-6) x4; allclose(rtol=1.e-12, atol=1.e-9) x2; allclose(rtol=1.e-12, atol=1.e-12) x5; allclose(rtol=1.e-10, atol=1.e-10)); `test_outflow_stale_ghosts_python` (constants REST_TOL=1.0e-3)
 - **Figures/tables:** `src/snapy_report/ch11/figures/fig_reflecting_stencil.py` (deck: none (diagram)); `src/snapy_report/ch11/figures/fig_outflow_stencil.py` (deck: none (diagram))
 
 #### 14.2 Which faces are prescribed, and with what
 
-- **Derivation:** wall faces carry zero mass flux and the pressure term; how the register books them is 10.2
-- **Code:** `src/layout/seam_register.cpp:215` `supply_prescribed`
-- **Tests:** `test_wb_wall_corner.release` (no numeric tolerance in the source (pass/fail checks only)); `test_wall4_sphere_python` (no numeric tolerance in the source (pass/fail checks only))
+- **Derivation:** wall faces carry zero mass flux and the pressure term; the free rows are per wall plane: a wall whose boundary prescribes a temperature (the diffusion's wall temperature or a fixed-temperature boundary) keeps its energy row free and conducts, on the planes path and the solid-mask path alike; how the register books them is 10.2
+- **Code:** `src/layout/seam_register.cpp:184` `supply_prescribed`
+- **Tests:** `test_wb_wall_corner.release` (no numeric tolerance in the source (pass/fail checks only)); `test_wall4_sphere_python` (no numeric tolerance in the source (pass/fail checks only)); `test_prescribed_after_sources.release` (EXPECT_NEAR tol0; constants tol=1.e-12)
 - **Figures/tables:** none
 
 #### 14.3 Immersed solids
 
 - **Derivation:** solid mask; fill of solid cells; the implicit solve on stratified solids
 - **Code:** `src/bc/internal_boundary.cpp:66` `InternalBoundaryImpl::forward`; `src/bc/rectify_solid.cpp:109` `rectify_solid`
-- **Tests:** `test_implicit_stratified_solid_python` (bitwise (equal x1); compared < 1e-12, 1.e-12); `test_rectify.release` (no numeric tolerance in the source (pass/fail checks only))
+- **Tests:** `test_implicit_stratified_solid_python` (bitwise (equal x1); compared < 1.e-12, 1e-12); `test_rectify.release` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** `src/snapy_report/ch11/figures/fig_solids_stencil.py` (deck: none (diagram))
 
 ### Chapter 15. Configuration, output and restart
@@ -666,7 +674,7 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 #### 15.1 Options schema and YAML keys
 
 - **Derivation:** none (schema): generated option tables, defaults and key checks
-- **Code:** `src/mesh/meshblock_options.cpp:17` `MeshBlockOptionsImpl::from_yaml`; `src/hydro/hydro_options.cpp:19` `HydroOptionsImpl::from_yaml`. At the pin, `integration.execution` defaults to auto (`src/mesh/meshblock.hpp:98`, values checked in `src/mesh/meshblock_options.cpp:58-59`)
+- **Code:** `src/mesh/meshblock_options.cpp:17` `MeshBlockOptionsImpl::from_yaml`; `src/hydro/hydro_options.cpp:19` `HydroOptionsImpl::from_yaml`. At the pin, `integration.execution` defaults to auto (`src/mesh/meshblock.hpp:98`, values checked in `src/mesh/meshblock_options.cpp:58-64`); the `distribute:` members, their defaults, deck reader and Python options are generated from `src/options/layout.yaml` (d1c47a11), and `blocks_per_process` has one home, the layout (baf29561)
 - **Tests:** `test_options_table.release` (no numeric tolerance in the source (pass/fail checks only)); `test_options_defaults.release` (bitwise (equal x1)); `test_yaml_keys.release` (no numeric tolerance in the source (pass/fail checks only))
 - **Figures/tables:** `src/snapy_report/ch12/figures/fig_yaml_flow.py` (deck: none (diagram))
 
@@ -711,7 +719,7 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 
 - **Derivation:** none (record): each regression test with the issue and the RED/GREEN commits it came from
 - **Code:** none in `src/` (method or record section)
-- **Tests:** `test_flux_positivity_carry.release` (bitwise (equal x4); EXPECT_NEAR 0.; constants tol=1.e-12); `test_graph_monitor_amounts.release` (bitwise (equal x7)); `test_seam_rotation_cache_python` (bitwise (equal x3)); `test_mesh_disagree.release` (bitwise (equal x1)); `test_graph_stretched_x1_python` (bitwise (torch.equal of every block's state after every step, tests/test_graph_stretched_x1.py:85); its rtol=1.e-13 (:51-52) is the tolerance of the balance_column solve that builds the initial state, not a comparison tolerance); `test_flux_register.release` (bitwise (equal x28); allclose(rtol=0., atol=0.)); `test_default_execution_python` (bitwise (equal x2)); `test_graph_positivity_meters_match_eager_python` (bitwise (equal x1)). Provenance on `v3/final`: test_graph_stretched_x1 #316 (RED 213189c4, fix 069769ba); test_graph_monitor_amounts `GraphSaveList.user_forcing_graph_books_wall_rates_like_eager` (RED 8019073b, fix a78dc50f then fa734fff); test_flux_register `FluxRegister.wall_prescription_books_in_float32_on_the_device` (added with 9766b2d7); test_default_execution (RED 53c46723, fix 02e4ef05); test_graph_positivity_meters_match_eager (`tests/test_graph_positivity_meters_match_eager.py`, ctest at `tests/CMakeLists.txt:519`; RED e276ece3 and 897ef787, fix 66614c32 (EfStatus slots in the save list) then 4c023985 = 3c1c0c20 (`conversion_trips` by a name lookup, `src/mesh/stage_executor.cpp:732-735`))
+- **Tests:** `test_flux_positivity_carry.release` (bitwise (equal x4); EXPECT_NEAR 0.; constants tol=1.e-12); `test_graph_monitor_amounts.release` (bitwise (equal x7)); `test_seam_rotation_cache_python` (bitwise (equal x3)); `test_mesh_disagree.release` (bitwise (equal x1)); `test_graph_stretched_x1_python` (bitwise (torch.equal of every block's state after every step, tests/test_graph_stretched_x1.py:85); its rtol=1.e-13 (:51-52) is the tolerance of the balance_column solve that builds the initial state, not a comparison tolerance); `test_flux_register.release` (bitwise (equal x29); allclose(rtol=0., atol=0.)); `test_default_execution_python` (bitwise (equal x2)); `test_graph_positivity_meters_match_eager_python` (bitwise (equal x1)); `test_prescribed_after_sources.release` (EXPECT_NEAR tol0; constants tol=1.e-12); `test_implicit_register_x1_off_python` (bitwise (equal x1)); `test_graph_mesh_many_blocks_python` (bitwise (equal x1)); `test_mesh_worker_streams.release` (no numeric tolerance in the source (pass/fail checks only)); `test_mesh_block_job_failure_python` (no numeric tolerance in the source (pass/fail checks only)). Provenance on `v3/final`: test_graph_stretched_x1 #316 (RED 213189c4, fix 069769ba); test_graph_monitor_amounts `GraphSaveList.user_forcing_graph_books_wall_rates_like_eager` (RED 8019073b, fix a78dc50f then fa734fff); test_flux_register `FluxRegister.wall_prescription_books_in_float32_on_the_device` (added with 9766b2d7), the rebuilt-weights slot (RED 2a20e4fc, fix ead839e3) and the solid-mask x1 wall rows (RED 715d8b39, fix 9e03e4d3); test_default_execution (RED 53c46723, fix 02e4ef05; split panels RED c7bbca02, fix b81f1c1f); test_graph_positivity_meters_match_eager (RED e276ece3 and 897ef787, fix 66614c32 then 4c023985; `kConvTrips` d0d83bf6); test_flux_positivity_carry (RED 83ef60c7, fix 2b0914c8); test_prescribed_after_sources (RED abd8670f, fix c7401fdb; the conducting wall RED fae998e0, fix e71206ef); test_diffusion (RED 875ec321, fix 3d898fd7); test_implicit_register_x1_off (RED 28b84f9b, fix b860b16e); test_graph_mesh_many_blocks (RED c9977805, fix 838028c6 to e474ff90); test_mesh_worker_streams (RED 10027e12, fix 2a25a3ff); test_mesh_block_job_failure (RED 0affeb86, fix 17c05904 and 9cf0bcb2)
 - **Figures/tables:** **new** `src/snapy_report/ch16/figures/tab_regressions.py` (deck: none (table))
 
 #### 16.5 CPU, CUDA and MPS reproducibility
@@ -725,16 +733,16 @@ Code anchors are `path:line` at snapy `v3/final` = `4c023985af5f80cd6b20ce9d5f9b
 
 | limit | home | anchor at the pin |
 |---|---|---|
-| Multi-rank capture is refused (P1) | 11.3, 13.4 | `src/mesh/stage_executor.cpp:579` `StageExecutor::config_reasons` |
-| EOS and Riemann solvers outside the allow-lists run eager | 11.3 | `src/mesh/stage_executor.cpp:579` `StageExecutor::config_reasons` |
-| An x1 split (pz > 1) is refused for capture and for the implicit solve | 13.5, 6.2 | `src/hydro/hydro.cpp:436` `HydroImpl::_apply_implicit_correction` |
+| Multi-rank capture is refused (P1) | 11.3, 13.4 | `src/mesh/stage_executor.cpp:624` `StageExecutor::config_reasons` |
+| EOS and Riemann solvers outside the allow-lists run eager | 11.3 | `src/mesh/stage_executor.cpp:624` `StageExecutor::config_reasons` |
+| An x1 split (pz > 1) is refused for capture and for the implicit solve | 13.5, 6.2 | `src/hydro/hydro.cpp:431` `HydroImpl::_apply_implicit_correction` |
 | FP32 on the cubed sphere needs anomaly storage, which is Cartesian only | 12.3 | `src/eos/ideal_moist.cpp:79` `IdealMoistImpl::perturbations` |
-| A registered chemistry step runs as an eager segment between captured ones (a Mesh block keeps it in the graph) | 11.7 | `src/mesh/stage_executor.cpp:130` `StageExecutor::chemistry_slot` |
+| A registered chemistry step runs as an eager segment between captured ones (a Mesh block keeps it in the graph) | 11.7 | `src/mesh/stage_executor.cpp:184` `StageExecutor::chemistry_slot` |
 | MPS has no FP64: the wide dtype is FP32 there | 12.1 | `src/mesh/precision_policy.hpp:31` `PrecisionPolicy` |
-| MPS runs eager only, and the moist column stops before saturation (no kintera MPS kernel) | 12.1, 16.5 | `src/mesh/stage_executor.cpp:536` `StageExecutor::vars_reasons` |
+| MPS runs eager only, and the moist column stops before saturation (no kintera MPS kernel) | 12.1, 16.5 | `src/mesh/stage_executor.cpp:581` `StageExecutor::vars_reasons` |
 | MPS hard refusal: anomaly storage cannot move to MPS (its reference is FP64, which MPS does not have); `Fp64StoreImpl::to(Device)` stops with an error, it does not fall back | 12.3, 12.1 | `src/hydro/fp64_store.hpp:23` `Fp64StoreImpl` |
-| MPS hard refusal: a stretched x1 grid (geometry/x1f or cells/x1rat) is not supported on MPS (#280); the hydro stops with an error, it does not fall back | 3.1, 16.5 | `src/hydro/hydro.cpp:302` `HydroImpl::_check_stretched_x1` |
-| A cubed-sphere panel split into several blocks (nb2 or nb3 > 1) is refused for capture with its reason and runs eager (#317): its seams inside the panel are not cut into segments | 11.3, 13.3 | `src/mesh/stage_executor.cpp:579` `StageExecutor::config_reasons` |
+| MPS hard refusal: a stretched x1 grid (geometry/x1f or cells/x1rat) is not supported on MPS (#280); the hydro stops with an error, it does not fall back | 3.1, 16.5 | `src/hydro/hydro.cpp:303` `HydroImpl::_check_stretched_x1` |
+| A capture that runs out of device memory stops with an error naming execution: eager; there is no automatic eager fallback | 11.2, 13.2 | `src/mesh/stage_executor.cpp:838` `StageExecutor::run_segments` |
 
 ### Appendices
 
