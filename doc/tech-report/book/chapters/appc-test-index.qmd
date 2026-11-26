@@ -77,9 +77,9 @@ the generator links each one at the pin. Six calls account for the rows:
 |---|---|---|---|
 | 90 rows: one gtest executable per C++ test file, named by the file stem plus the lower-case build type (`test_eos.release`) | {{< code cmake/macros/macro_setup_test.cmake >}} | `setup_test` | `CMAKE_BUILD_TYPE` |
 | 101 rows: a Python script run by the configured interpreter, with labels and an optional timeout, named by the stem plus `_python` | {{< code tests/CMakeLists.txt >}} | `snapy_add_python_test` | `SNAPY_TEST_PYTHONPATH` |
-| 28 rows: a built binary or script driven by a written-out call: environment variants of built tests (`*_x1_centroid`), the `*_cuda`, `*_mp` and `*_gloo` launches, the example-deck runs (`test_straka`, `test_bryan_balance_ic`) and the restart scripts | {{< code tests/CMakeLists.txt >}} | `add_test` | `CUDA` (the `*_cuda` rows are `DISABLED` without it) |
+| 28 rows: a built binary or script driven by a written-out call, for example environment variants of built tests (`*_x1_centroid`), the `*_cuda`, `*_mp` and `*_gloo` launches, the example-deck runs (`test_straka`, `test_bryan_balance_ic`), the restart scripts and the exchange tests | {{< code tests/CMakeLists.txt >}} | `add_test` | `CUDA` (the `*_cuda` rows are `DISABLED` without it) |
 | 8 rows: one gtest executable launched through `torchrun --no-python --nproc-per-node=<cores>`, named like `setup_test` (`test_x1_seam_split_mp.release`) | {{< code cmake/macros/macro_setup_parallel_test.cmake >}} | `setup_parallel_test` | `CMAKE_BUILD_TYPE` |
-| 8 rows: one entry per arm of the x1 seam-split test, a `GTEST_FILTER` on a single case plus the arm's environment, passing only on `[  PASSED  ] 1 test.`; named `test_x1_seam_split<arm>.release` | {{< code tests/CMakeLists.txt >}} | `seam_arm` | `CUDA` (three more arms under `if(CUDA)`) |
+| 8 rows: one entry per arm of the x1 seam-split test, a `GTEST_FILTER` on a single case plus the arm's environment, passing only on `[  PASSED  ] 1 test.`; named `test_x1_seam_split<arm>.release` (the first call, with an empty arm name, adds no row: it sets the filter and the pass pattern on the `setup_test` row `test_x1_seam_split.release`) | {{< code tests/CMakeLists.txt >}} | `seam_arm` | `CUDA` (three more arms under `if(CUDA)`) |
 | 3 rows: the two-rank form of the same arms through `torchrun`, the arm being the environment; named `test_x1_seam_split_mp<arm>.release` | {{< code tests/CMakeLists.txt >}} | `seam_arm_mp` | none |
 
 : Registration helpers at the code pin and the rows each one produces. {#tbl-appc-helpers}
@@ -106,7 +106,8 @@ when reproducing a run: the compact table deliberately omits machine paths and
 most execution properties. For Python tests, set `SNAPY_TEST_PYTHONPATH` when
 configuring to the installation built from the intended source: it is a cache
 path that `tests/CMakeLists.txt` prepends to `PYTHONPATH` for every test that
-`snapy_add_python_test` enrolled; when it is empty, CMake warns that those tests
+`snapy_add_python_test` enrolled, plus `test_radiating_boundary_python`, a
+written-out `add_test` enrolled by hand; when it is empty, CMake warns that those tests
 import the installed snapy and do not constrain the checkout
 ({{< code tests/CMakeLists.txt >}}). A skipped command is not a pass: 31 rows use
 exit code 125 as their skip condition, shown in Notes, and the generated table
@@ -150,10 +151,14 @@ print("[C4] PASS: 4 exact identities")
 
 This is the CPU configuration's registration inventory, not evidence of CPU or
 CUDA execution. CUDA-only registrations and other switch combinations require a
-separate configure and listing; none were checked here. Dependency counts can
-also change with the compiler and available dependencies: the Eigen count differs
-between CMake releases because the fetched Eigen registers its suite through its
-own CMake logic. The table does not record individual numerical tolerances: follow
+separate configure and listing; none were checked here. The dependency count
+depends on the machine, not on snapy: the fetched Eigen registers its optional
+test suites only for the optional packages its configure finds (CHOLMOD, UMFPACK,
+KLU, SuperLU, SPQR, Boost, FFTW, among others), so the 938 recorded here include
+the 11 Boost.Multiprecision tests of a machine where Boost was found, and the
+same pin and options give 927 Eigen tests (1165 in all) on a machine without
+them, with CMake 3.22.6 and 3.31.8 alike. Only $N_S$ is a statement about snapy.
+The table does not record individual numerical tolerances: follow
 each test's assertions and the chapter's Tests layer for those. For measured
 verification see @sec-ch16, and for configuration combinations see @sec-ch12-matrix.
 
