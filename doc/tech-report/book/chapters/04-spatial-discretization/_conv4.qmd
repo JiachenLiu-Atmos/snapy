@@ -105,8 +105,8 @@ The weights follow in four steps. Write $m_l$ for the midpoint of cell $l$ and $
    $$ {#eq-ch04-conv4-weights}
 
    which on equal widths is $k^+_i = k^-_i = 1/24$ and $(\mathsf Q a)_i = (a_{i+1}-2a_i+a_{i-1})/24$. In the code,
-   @eq-ch04-conv4-weights is `c`, `k[0]` and `k[1]` of `conv4_x1_weights`
-   ({{< code src/hydro/hydro_forward.cpp conv4_x1_weights >}}), written as differences of `x1f` entries:
+   @eq-ch04-conv4-weights is `c`, `k[0]` and `k[1]` of `conv4_rows`
+   ({{< code src/recon/x1_rows.cpp conv4_rows >}}), written as differences of `x1f` entries:
    $h_i+h_{i+1}$ is `f(3) - f(1)`, $h_{i-1}+h_i$ is `f(2) - f(0)` and $h_{i-1}+h_i+h_{i+1}$ is `f(3) - f(0)`.
    @eq-ch04-conv4-op is the lambda `lap` of `HydroImpl::forward`
    ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
@@ -179,7 +179,7 @@ entered only when the key is 4 and the block has more than one $x_1$ cell
 ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). A block with one $x_1$ cell therefore keeps the
 second-order primitives with no error and no warning.
 
-**The weights are cached per grid.** `conv4_x1_weights` builds $k^+$ and $k^-$ once, on the CPU in double, from
+**The weights are cached per grid.** `conv4_rows` builds $k^+$ and $k^-$ once, on the CPU in double, from
 `x1f`, and the result is kept in `conv4_x1_` with the `(data_ptr, version)` pair of the `x1f` tensor it was built
 from, `conv4_x1_at_` ({{< code src/hydro/hydro.hpp HydroImpl >}}). They are rebuilt when that pair changes or when
 the state moves to another device or dtype, so a block whose $x_1$ grid is rewritten in place gets new weights.
@@ -214,7 +214,7 @@ this order ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}):
    $x_2$ and $x_3$ halos and, in the `cubed` layout, the $x_1$ halos, from neighbours in this process and in
    others alike; the `slab` and `cubed-sphere` layouts have one block along $x_1$ ($p_z = 1$), so their $x_1$
    ghosts are physical boundaries, written in step 3;
-2. `_x1_ghost_rows` ({{< code src/hydro/hydro.cpp HydroImpl::_x1_ghost_rows >}}) with the ghost depth, which
+2. `_x1_ghost_rows` ({{< code src/layout/exchange.cpp Exchange::x1_rows >}}) with the ghost depth, which
    copies the $x_1$ neighbour's outermost owned rows again across the **whole** $x_2$/$x_3$ extent, so the
    corner columns past an $x_1$ seam are the neighbour's converted cells and not stale; it returns at once
    where the block has no $x_1$ neighbour, which is every block of those two layouts;
@@ -233,7 +233,7 @@ would close it. $x_2$ and $x_3$: second order in every configuration, because no
 **What else the key turns on.** With the key at 4 and gravity on, the well-balanced $x_1$ reference takes the
 fourth-order **face** density of @sec-ch05-wbref4, the same one `SNAP_WB_REF4` selects, and with it that scheme's
 resolution flag and its $n_{\mathrm{gh}} \ge 3$ requirement ({{< code src/hydro/hydro.cpp HydroImpl::_hydro_ref_x1 >}},
-{{< code src/hydro/wb_ref4.hpp wb_ref4_flag >}}). Without it a fourth-order conversion would sit on a
+{{< code src/recon/x1_reference.cpp wb_ref4_flag >}}). Without it a fourth-order conversion would sit on a
 second-order hydrostatic reference and the gravity arm of the test would not converge.
 
 ### Code
@@ -261,8 +261,8 @@ dynamics:
 3. *With 4 and $g_1 \ne 0$ a block needs $n_{\mathrm{gh}} \ge 3$*, the requirement of the fourth-order face
    density reference it turns on, with the message "SNAP_WB_REF4 (or SNAP_X1_CENTROID_EXACT, which implies it, or
    dynamics/conversion-order 4) needs nghost >= 3, got ..." ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
-4. *A block needs at least four $x_1$ cells, ghosts included, and $n_{c1}+1$ faces.* `conv4_x1_weights`
-   ({{< code src/hydro/hydro_forward.cpp conv4_x1_weights >}}) refuses less with "dynamics/conversion-order 4
+4. *A block needs at least four $x_1$ cells, ghosts included, and $n_{c1}+1$ faces.* `conv4_rows`
+   ({{< code src/recon/x1_rows.cpp conv4_rows >}}) refuses less with "dynamics/conversion-order 4
    needs nc1 >= 4 cells and nc1 + 1 x1 faces, got ...". The check is made where the weights are built, so it
    fires on the first stage, not at construction.
 5. *The option is clonable and bound.* `HydroOptionsImpl::clone` copies it
@@ -306,11 +306,11 @@ primitives; the `copy_` restores them where `good` is false; `_conv4_trips` is t
 | the key, its default and its type | {{< code src/hydro/hydro.hpp HydroOptionsImpl >}} | `conversion_order` | YAML, default 2 |
 | the parser and the accepted key set | {{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}} | `check_keys` | |
 | only 2 or 4, and the ghost-depth check | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `TORCH_CHECK` | key 4, $g_1\ne0$ |
-| the weights and the four-cell check | {{< code src/hydro/hydro_forward.cpp conv4_x1_weights >}} | `conv4_x1_weights` | key 4 |
+| the weights and the four-cell check | {{< code src/recon/x1_rows.cpp conv4_rows >}} | `conv4_rows` | key 4 |
 | the cached weights and the grid they were built from | {{< code src/hydro/hydro.hpp HydroImpl >}} | `conv4_x1_at_` | key 4 |
 | the conversion, the screen and the ghost refill | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `lap` | key 4 |
-| the $x_1$ row exchange of step 2 | {{< code src/hydro/hydro.cpp HydroImpl::_x1_ghost_rows >}} | `_x1_ghost_rows` | an $x_1$ neighbour |
-| the fourth-order face density it turns on | {{< code src/hydro/wb_ref4.hpp wb_ref4_flag >}} | `wb_ref4_flag` | key 4, $g_1\ne0$ |
+| the $x_1$ row exchange of step 2 | {{< code src/layout/exchange.cpp Exchange::x1_rows >}} | `_x1_ghost_rows` | an $x_1$ neighbour |
+| the fourth-order face density it turns on | {{< code src/recon/x1_reference.cpp wb_ref4_flag >}} | `wb_ref4_flag` | key 4, $g_1\ne0$ |
 | the Python option | {{< code python/csrc/pyhydro.cpp bind_hydro >}} | `conversion_order` | |
 
 : Code map of the fourth-order $x_1$ conversion. {#tbl-ch04-conv4-code}

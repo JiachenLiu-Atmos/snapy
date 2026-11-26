@@ -48,7 +48,7 @@ $$
 q^{\mathrm R}_i = \mathcal A_q\sum_\ell\omega_\ell\,\mathcal W_\ell(\bar q/\mathcal A_q),
 $$ {#eq-ch04-weno-weights}
 
-with $\mathcal A_q = 1$ when `scale` is false. In the code, @eq-ch04-weno-weights is `alpha0` to `OUT(j)` ({{< code src/recon/interp_impl.h interp_weno5_impl >}}).
+with $\mathcal A_q = 1$ when `scale` is false. In the code, @eq-ch04-weno-weights is `alpha0` to `OUT(j)` ({{< code src/recon/recon_point.h weno5_point >}}).
 
 #### Why the scheme has the centred order where the field is smooth
 
@@ -58,7 +58,7 @@ with $\mathcal A_q = 1$ when `scale` is false. In the code, @eq-ch04-weno-weight
    `weno3.cpp` buffer (`derivation_check.py` `[C5]`).
 2. *The linear weights rebuild the wide stencil.* The only $d$ for which $\sum_\ell d_\ell \mathcal W_\ell$ equals the cp5 value for every stencil is
    $(\tfrac3{10}, \tfrac35, \tfrac1{10})$, and $(\tfrac23, \tfrac13)$ gives cp3 (`[C5]`); these are the constants of
-   `interp_weno5_impl` and `interp_weno3_impl`.
+   `weno5_point` and `weno3_point`.
 3. *The indicators.* $\beta_\ell = \sum_{l=1}^{2}h^{2l-1}\int_{\text{cell }i}(\partial_1^lQ_\ell)^2\,\mathrm dx$ for WENO5 and
    $h\int(\partial_1Q_\ell)^2$ for WENO3, with $Q_\ell$ the candidate polynomial. Integrated with sympy they are the
    $\tfrac{13}{12}(\cdot)^2 + \tfrac14(\cdot)^2$ and $(\cdot)^2$ forms built from rows 3–8 and 2–3 of the buffers
@@ -123,9 +123,9 @@ from snapy_report.ch04.figures.fig_ch04_schemes import make_weno
 make_weno()
 ```
 
-**Which path runs.** `Weno5InterpImpl::left` passes the `cm` buffer, and `right` the mirrored `cp`, to the
-dispatch `call_weno5` with `options->scale()`; the CPU kernel is `interp_weno5_impl` in `interp_impl.h`. WENO3
-is the same with `interp_weno3_impl`. The scalar templates `interp_weno3` and `interp_weno5` of
+**Which path runs.** `InterpImpl::left` passes the `cm` buffer, and `right` the mirrored `cp`, to the
+dispatch `call_weno5` with `options->scale()`; the CPU kernel is `weno5_point` in `interp_impl.h`. WENO3
+is the same with `weno3_point`. The scalar templates `interp_weno3` and `interp_weno5` of
 `interp_simple.hpp` are used only by tests; `derivation_check.py` `[C6]` shows their rows are the production
 rows, so the orders `recon_check.py` measures on those ports are the orders of the scale-off kernels.
 
@@ -149,7 +149,7 @@ clamped at zero afterwards, so a WENO5 undershoot at a sharp vapour gradient rea
 (`shock`, {{< code src/recon/reconstruct.cpp ReconstructImpl::forward >}}); @sec-ch08-reconfloors gives the floors and
 the test of the `shock: true` case.
 
-**The excerpt.** `interp_weno5_impl` ({{< code src/recon/interp_impl.h interp_weno5_impl >}}):
+**The excerpt.** `weno5_point` ({{< code src/recon/recon_point.h weno5_point >}}):
 
 ```cpp
     T vscale = scale ? (fabs(INP(j, 0)) + fabs(INP(j, 1)) + fabs(INP(j, 2)) +
@@ -175,12 +175,12 @@ the test of the `shock: true` case.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| WENO5 kernel | {{< code src/recon/interp_impl.h interp_weno5_impl >}} | `interp_weno5_impl` | `type: weno5`, `interp1` |
-| WENO3 kernel | {{< code src/recon/interp_impl.h interp_weno3_impl >}} | `interp_weno3_impl` | `type: weno3`, `interp1` |
-| WENO5 rows | {{< code src/recon/weno5.cpp Weno5InterpImpl::reset >}} | `cm` | |
-| WENO3 rows | {{< code src/recon/weno3.cpp Weno3InterpImpl::reset >}} | `cm` | |
-| `scale` passed to the kernel | {{< code src/recon/weno5.cpp Weno5InterpImpl::left >}} | `scale` | `scale: true` |
-| the `interp2` partner | {{< code src/recon/interpolation.cpp InterpImpl::create >}} | `Center5Interp` | `weno5` |
+| WENO5 kernel | {{< code src/recon/recon_point.h weno5_point >}} | `weno5_point` | `type: weno5`, `interp1` |
+| WENO3 kernel | {{< code src/recon/recon_point.h weno3_point >}} | `weno3_point` | `type: weno3`, `interp1` |
+| WENO5 rows | {{< code src/recon/reconstruct.cpp InterpImpl::reset >}} | `cm` | |
+| WENO3 rows | {{< code src/recon/reconstruct.cpp InterpImpl::reset >}} | `cm` | |
+| `scale` passed to the kernel | {{< code src/recon/reconstruct.cpp InterpImpl::left >}} | `scale` | `scale: true` |
+| the `interp2` partner | {{< code src/recon/reconstruct.cpp InterpImpl::create >}} | `Center5Interp` | `weno5` |
 
 : Code map of the WENO interpolants. {#tbl-ch04-weno-code}
 
@@ -217,15 +217,15 @@ are below the floor, so WENO3 must equal cp3.
 3. **Only half the state is limited** with `shock: false`: velocity and pressure take cp3 or cp5 through a jump.
 4. **Uniform-grid rows, except on a declared stretched $x_1$.** The candidates, the indicators and the linear
    weights of this section are the equal-width rationals. `weno5` is one of the two interpolants that also carry a
-   per-face $x_1$ route: `Weno5InterpImpl::set_x1_coeffs` fills `cm_x1`/`cp_x1` from the $x_1$ faces, and
+   per-face $x_1$ route: `InterpImpl::set_x1_coeffs` fills `cm_x1`/`cp_x1` from the $x_1$ faces, and
    `left`/`right` take that branch when `has_x1_coeffs()`
-   ({{< code src/recon/weno5.cpp Weno5InterpImpl::set_x1_coeffs >}}; @sec-ch04-x1volume has the row construction
+   ({{< code src/recon/reconstruct.cpp InterpImpl::set_x1_coeffs >}}; @sec-ch04-x1volume has the row construction
    and its measured order). `weno3` has no such route. On that branch the *form* of @eq-ch04-weno-weights is
    unchanged — the same $\tfrac{13}{12}$ and $\tfrac14$ in each $\beta_\ell$, the same $10^{-6}$ floor and the
    same $\alpha_\ell=d_\ell/(\beta_\ell+\epsilon)^2$ — but all nine five-wide rows behind $p_\ell$ and $\beta_\ell$,
    and the three $d_\ell$, are per-face instead of the rationals above
-   ({{< code src/recon/interp_impl_nu.h interp_weno5_nu_impl >}}). Neither the order nor the limiting of that
+   ({{< code src/recon/recon_point.h weno5_point >}}). Neither the order nor the limiting of that
    branch is measured in this section.
 5. **No stretched $x_1$ on MPS.** The non-uniform kernels refuse on the MPS backend, naming CPU or CUDA as the
-   two that carry it ({{< code src/recon/recon_dispatch_nu.cpp call_weno5_nu_mps >}}).
+   two that carry it ({{< code src/recon/recon_dispatch.cpp call_recon_cpu >}}).
 6. **WENO5 through critical points** is measured on one profile (5.62); no derivation covers it here.

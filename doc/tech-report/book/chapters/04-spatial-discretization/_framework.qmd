@@ -119,7 +119,7 @@ reconstruction, which has no hydro parent, clamps every row at zero whatever the
 **Order.** The framework adds no error of its own: the face value has the order of the interpolant
 (@sec-ch04-dc to @sec-ch04-weno), measured on a uniform grid. A deck that declares a stretched $x_1$ does **not**
 run those uniform weights on it: setup builds per-face coefficients for `weno5` and `cp5` and refuses every other
-interpolant on $x_1$ ({{< code src/recon/interpolation.hpp InterpImpl::set_x1_coeffs >}}; @sec-ch04-x1volume).
+interpolant on $x_1$ ({{< code src/recon/reconstruct.cpp InterpImpl::set_x1_coeffs >}}; @sec-ch04-x1volume).
 Within a block the other axes keep the uniform weights, which is correct there because $x_2$ and $x_3$ are
 uniform.
 
@@ -197,7 +197,7 @@ The `shock` branch is step 4 of the row split; the three calls below it are step
 | a block with fewer ghosts is refused | {{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}} | `stencils() / 2 + 1` | the block's `nghost` |
 | shock branch | {{< code src/recon/reconstruct.cpp ReconstructImpl::forward >}} | `shock` | `shock: true` |
 | density, velocity and pressure, tracers | {{< code src/recon/reconstruct.cpp ReconstructImpl::forward >}} | `pinterp2` | |
-| which interpolant is `interp2` | {{< code src/recon/interpolation.cpp InterpImpl::create >}} | `Center5Interp` | `weno3`, `weno5` |
+| which interpolant is `interp2` | {{< code src/recon/reconstruct.cpp InterpImpl::create >}} | `Center5Interp` | `weno3`, `weno5` |
 | the two reconstructions of a block | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `precon1` | always |
 
 : Code map of the reconstruction framework. {#tbl-ch04-framework-code}
@@ -246,7 +246,7 @@ caught only by an accuracy test.
    rational weights for equal cell widths. On a declared stretched $x_1$ only `weno5` and `cp5` have a per-face
    route (@sec-ch04-x1volume); `InterpImpl::set_x1_coeffs` is a hard refusal in the base class, so any other
    interpolant stops at setup rather than applying uniform-grid arithmetic silently
-   ({{< code src/recon/interpolation.hpp InterpImpl::set_x1_coeffs >}}). What is **not** covered is a grid that is
+   ({{< code src/recon/reconstruct.cpp InterpImpl::set_x1_coeffs >}}). What is **not** covered is a grid that is
    geometrically non-uniform without being declared: the refusal is reached only when `HydroImpl::reset` or
    `ScalarImpl::reset` is given $x_1$ faces ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
 3. **Dead option members.** `ReconstructOptionsImpl` carries `density_floor`, `pressure_floor`, `limiter`,

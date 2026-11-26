@@ -35,9 +35,9 @@ def test_pin_values_distinguish_the_two_riemann_paths():
     assert v['cmake'] == '3.22'
     if legacy:  # the Riemann block's chapter is legacy (tools/code-anchors-legacy.txt)
         pytest.skip(f"{legacy} is in tools/code-anchors-legacy.txt")
-    assert (v['no_block'], v['no_type']) == ('hllc', 'roe')
-    assert v['no_block_cite'].endswith('/src/riemann/riemann_solver.hpp#L33)')
-    assert v['no_type_cite'].endswith('/src/riemann/riemann_solver.cpp#L27)')
+    assert (v['no_block'], v['no_type']) == ('hllc', 'op->type()')
+    assert v['no_block_cite'].endswith('/src/riemann/riemann.hpp#L61)')
+    assert v['no_type_cite'].endswith('/src/riemann/riemann.cpp#L71)')
     assert v['cmake'] == '3.22'
 
 

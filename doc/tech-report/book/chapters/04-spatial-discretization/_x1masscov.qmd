@@ -170,7 +170,7 @@ of the correction; the reconstruction reads the corrected velocity and the last 
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| the switch, read once | {{< code src/hydro/hydro.cpp HydroImpl::x1_mass_covariance >}} | `get_env` | default `"0"` |
+| the switch, read once | {{< code src/hydro/hydro.hpp HydroImpl::x1_mass_covariance >}} | `get_env` | default `"0"` |
 | the correction block | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `x1_mass_covariance` | switch on, gravity on |
 | the centred difference | {{< code src/hydro/x1_mass_covariance.hpp x1_cov_d1_centred >}} | `x1_cov_d1_centred` | |
 | one-sided wall slope | {{< code src/hydro/x1_mass_covariance.hpp x1_cov_one_sided >}} | `x1_cov_one_sided` | physical, not outflow |

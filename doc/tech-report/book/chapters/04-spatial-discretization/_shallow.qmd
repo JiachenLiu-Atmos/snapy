@@ -59,11 +59,11 @@ wave index, $\lambda_\ell$ the wave speeds [m s$^{-1}$] and $\mathbf r_\ell$ the
    are `a1`, `a2`, `a3`, and `[C11]` shows they rebuild $\Delta\mathbf U$.
 5. *The flux* is $\tfrac12(\mathbf F^{\mathrm L} + \mathbf F^{\mathrm R}) - \tfrac12\sum_\ell\lvert\lambda_\ell\rvert\alpha_\ell\mathbf r_\ell$ with
    $\lambda = v^{\mathrm{Roe}}_\perp \mp c^{\mathrm{Roe}}, v^{\mathrm{Roe}}_\perp$. There is no supersonic branch and no fallback: with
-   $\lvert\lambda\rvert$ the formula already returns $\mathbf F^{\mathrm L}$ when every wave moves right (`solvers_check.py` `[C6]`). In the code, @eq-ch04-shallow-avg is `ubar`, `vbar` and `cbar` ({{< code src/riemann/shallow_roe_impl.h shallow_roe_impl >}}).
+   $\lvert\lambda\rvert$ the formula already returns $\mathbf F^{\mathrm L}$ when every wave moves right (`solvers_check.py` `[C6]`). In the code, @eq-ch04-shallow-avg is `ubar`, `vbar` and `cbar` ({{< code src/riemann/riemann_kernels.h shallow_roe_impl >}}).
 
 #### Plume-roe: what it computes
 
-1. *Roe quantities are computed and unused.* `PlumeRoeSolverImpl::forward` forms square-root averages of the four
+1. *Roe quantities are computed and unused.* `RiemannSolverImpl::forward` forms square-root averages of the four
    rows, three Jacobian entries per row and the coefficients of a characteristic polynomial; none of them enters
    the returned flux.
 2. *The flux is Lax–Friedrichs on the primitive rows.* It returns
@@ -98,7 +98,7 @@ make_wavefan("shallow")
 
 **Rows and directions.** `dir` decides which momentum rows are normal and tangential: with `dir: xy` the
 normal row is `IVX` on $x_1$ faces and `IVY` otherwise; with `dir: yz` it is `IVY` on $x_2$ faces and `IVZ`
-otherwise. `ShallowRoeSolverImpl::forward` refuses any other `dir`, `omni` included, and on the gnomonic grid
+otherwise. `RiemannSolverImpl::solve` refuses any other `dir`, `omni` included, and on the gnomonic grid
 `reset` requires `yz`. The states are projected with `prim2local{1,2,3}_` and the flux returned with
 `flux2global{1,2,3}_`.
 
@@ -124,7 +124,7 @@ dynamics:
 4. *`plume-roe` refuses every direction but $x_3$* ("PlumeRoeSolver only supports dim = 1").
 5. *`plume-eos` is refused* by the equation-of-state factory, so the plume system has no deck.
 
-**The excerpt.** `shallow_roe_impl` ({{< code src/riemann/shallow_roe_impl.h shallow_roe_impl >}}):
+**The excerpt.** `shallow_roe_impl` ({{< code src/riemann/riemann_kernels.h shallow_roe_impl >}}):
 
 ```cpp
   T ubar = (SWL(ivx) * sqrtdl + SWR(ivx) * sqrtdr) * isdlpdr;
@@ -143,12 +143,12 @@ step 4.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| shallow-water body | {{< code src/riemann/shallow_roe_impl.h shallow_roe_impl >}} | `shallow_roe_impl` | `type: shallow-roe` |
+| shallow-water body | {{< code src/riemann/riemann_kernels.h shallow_roe_impl >}} | `shallow_roe_impl` | `type: shallow-roe` |
 | the averaged wave speed | {{< code src/eos/shallow_water_impl.h shallow_water_roe_sound_speed >}} | `shallow_water_roe_sound_speed` | |
-| `dir` checks and the frame | {{< code src/riemann/shallow_roe.cpp ShallowRoeSolverImpl::forward >}} | `dir` | `xy` or `yz` |
-| `yz` on the gnomonic grid | {{< code src/riemann/shallow_roe.cpp ShallowRoeSolverImpl::reset >}} | `gnomonic_equiangle` | |
-| plume flux | {{< code src/riemann/plume_roe.cpp lax_friedrichs_flux >}} | `lax_friedrichs_flux` | `type: plume-roe` |
-| plume forward, unused Roe terms | {{< code src/riemann/plume_roe.cpp PlumeRoeSolverImpl::forward >}} | `J21` | |
+| `dir` checks and the frame | {{< code src/riemann/riemann.cpp RiemannSolverImpl::solve >}} | `dir` | `xy` or `yz` |
+| `yz` on the gnomonic grid | {{< code src/riemann/riemann.cpp RiemannSolverImpl::reset >}} | `gnomonic_equiangle` | |
+| plume flux | {{< code src/riemann/riemann.cpp lax_friedrichs_flux >}} | `lax_friedrichs_flux` | `type: plume-roe` |
+| plume forward, unused Roe terms | {{< code src/riemann/riemann.cpp RiemannSolverImpl::forward >}} | `J21` | |
 | no `plume-eos` | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::create >}} | `create` | |
 
 : Code map of the two special-purpose solvers. {#tbl-ch04-shallow-code}

@@ -3,166 +3,206 @@
 #### Native C++ route
 
 The recipe above prototypes a reconstruction in Python and selects a built-in one by name; it stays the one
-recipe. A new scheme that the solver itself runs is a C++ class, built into the library and selected from the YAML
-card, and this route is the one place that says how, for a reconstruction and for a Riemann solver. Each step below
-is a fact of the code at the pin.
+recipe. A new scheme that the solver itself runs is built into the library and selected from the YAML card, and
+this route is the one place that says how, for a reconstruction and for a Riemann solver. There is one
+reconstruction module and one Riemann module: a new scheme is a new entry in their tables and a new face function,
+not a new class. Each step below is a fact of the code at the pin.
 
 **Select it from YAML.** A reconstruction is read from `dynamics/reconstruct/vertical` for $x_1$ and from
-`dynamics/reconstruct/horizontal` for $x_2$ and $x_3$ ([`src/hydro/hydro_options.cpp:24-27`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_options.cpp#L24-L27)). Each section takes `shock`, `type` and
-`scale`; `type` defaults to `dc` ([`src/recon/reconstruct.cpp:31-36`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/reconstruct.cpp#L31-L36)):
+`dynamics/reconstruct/horizontal` for $x_2$ and $x_3$, into `recon1` and `recon23` ([`src/hydro/hydro_options.cpp:28-31`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/hydro/hydro_options.cpp#L28-L31)). Each section takes `shock`, `type` and
+`scale`, and a missing key keeps its default ([`src/recon/reconstruct.cpp:208-211`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.cpp#L208-L211)); `type` defaults to `dc` ([`src/recon/reconstruct.hpp:41`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.hpp#L41)):
 
 ```cpp
-  check_keys(node[section], "dynamics/reconstruct/" + section,
-             {"shock", "type", "scale"});
-  op->shock() = node[section]["shock"].as<bool>(false);
-  op->interp() = InterpOptionsImpl::create();
-  op->interp()->type() = node[section]["type"].as<std::string>("dc");
-  op->interp()->scale() = node[section]["scale"].as<bool>(false);
+  check_keys(node, path, keys);
+  op->shock() = node["shock"].as<bool>(op->shock());
+  op->interp()->type() = node["type"].as<std::string>(op->interp()->type());
+  op->interp()->scale() = node["scale"].as<bool>(op->interp()->scale());
+  ADD_ARG(std::string, type) = "dc";
 ```
 
-A Riemann solver is read from `dynamics/riemann-solver`, whose keys are `type` and `dir` ([`src/riemann/riemann_solver.cpp:18-19`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/riemann_solver.cpp#L18-L19)).
-A section without `type` gives `roe` ([`src/riemann/riemann_solver.cpp:27-28`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/riemann_solver.cpp#L27-L28)):
+A Riemann solver is read from `dynamics/riemann-solver`, whose keys are `type` and `dir` ([`src/riemann/riemann.cpp:67`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.cpp#L67)). A
+missing key keeps the created `type` and `dir` ([`src/riemann/riemann.cpp:71-72`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.cpp#L71-L72)), and so does a card with no `riemann-solver`
+section ([`src/riemann/riemann.cpp:59`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.cpp#L59)); the created `type` is `hllc` ([`src/riemann/riemann.hpp:61`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.hpp#L61)):
 
 ```cpp
-  op->type() = node["type"].as<std::string>("roe");
-  op->dir() = node["dir"].as<std::string>("omni");
-```
-
-A card with no such section keeps the options as created ([`src/riemann/riemann_solver.cpp:17`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/riemann_solver.cpp#L17)), whose default is another solver,
-`hllc` ([`src/riemann/riemann_solver.hpp:33`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/riemann_solver.hpp#L33)):
-
-```cpp
+  op->type() = node["type"].as<std::string>(op->type());
+  op->dir() = node["dir"].as<std::string>(op->dir());
   if (!config[section]["riemann-solver"]) return op;
   ADD_ARG(std::string, type) = "hllc";
 ```
 
-**Lookup.** The name is compared as a string, branch by branch, in `InterpImpl::create` and
-`RiemannSolverImpl::create`; there is no table and no suffix added to the name. A name with no branch is refused
-when the block is built ([`src/recon/interpolation.cpp:38`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/interpolation.cpp#L38), [`src/riemann/riemann_solver.cpp:69`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/riemann_solver.cpp#L69)):
+**Lookup.** A reconstruction name maps to one value of the `Scheme` enum ([`src/recon/recon_point.h:19`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/recon_point.h#L19)), compared as a
+string, branch by branch, in `parse_scheme` ([`src/recon/reconstruct.cpp:17-26`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.cpp#L17-L26)); a name with no branch is refused by a `TORCH_CHECK`
+when the block is built ([`src/recon/reconstruct.cpp:25`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.cpp#L25)):
 
 ```cpp
-    TORCH_CHECK(false, "Interp: unknown type " + opts->type());
-    TORCH_CHECK(false, "RiemannSolver: unknown type " + opts->type());
+enum class Scheme : int { dc, plm, ppm, cp3, weno3, cp5, weno5 };
+Scheme parse_scheme(std::string const& type) {
+  if (type == "dc") return Scheme::dc;
+  if (type == "plm") return Scheme::plm;
+  if (type == "ppm") return Scheme::ppm;
+  if (type == "cp3") return Scheme::cp3;
+  if (type == "weno3") return Scheme::weno3;
+  if (type == "cp5") return Scheme::cp5;
+  if (type == "weno5") return Scheme::weno5;
+  TORCH_CHECK(false, "Interp: unknown type " + type);
+}
 ```
 
-A reconstruction module is created twice, under the names `interp1` and `interp2` ([`src/recon/reconstruct.cpp:75-76`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/reconstruct.cpp#L75-L76)):
+The module is created twice, under the names `interp1` (density and species) and `interp2` (velocity and
+pressure) ([`src/recon/reconstruct.cpp:242-244`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.cpp#L242-L244)); `interp2` takes its partner scheme from `velocity_pressure_scheme` ([`src/recon/reconstruct.cpp:28-32`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.cpp#L28-L32)):
 
 ```cpp
-  pinterp1 = InterpImpl::create(options->interp(), this, "interp1");
-  pinterp2 = InterpImpl::create(options->interp(), this, "interp2");
+  pinterp1 = InterpImpl::create(options->interp(), s, this, "interp1");
+  pinterp2 = InterpImpl::create(options->interp(), velocity_pressure_scheme(s),
+                                this, "interp2");
+Scheme velocity_pressure_scheme(Scheme s) {
+  return s == Scheme::weno3   ? Scheme::cp3
+         : s == Scheme::weno5 ? Scheme::cp5
+                              : s;
+}
 ```
 
-and for `weno3` and `weno5` the last character of that name chooses the class ([`src/recon/interpolation.cpp:29-36`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/interpolation.cpp#L29-L36)):
+A Riemann name maps to one value of the `RiemannKind` enum ([`src/riemann/riemann.hpp:20-27`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.hpp#L20-L27)) in `parse_riemann_kind`
+([`src/riemann/riemann.cpp:77-85`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.cpp#L77-L85)); a name with no branch is refused by a `TORCH_CHECK` when the block is built
+([`src/riemann/riemann.cpp:84`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.cpp#L84)):
 
 ```cpp
-  } else if (opts->type() == "weno5") {
-    if (name.back() == '1') {
-      return p->register_module(name, Weno5Interp(opts));
-    } else if (name.back() == '2') {
-      return p->register_module(name, Center5Interp(opts));
-    } else {
-      TORCH_CHECK(false, "Interp: unknown name " + name);
+enum class RiemannKind : int {
+  hllc,
+  lmars,
+  roe,
+  shallow_roe,
+  upwind,
+  plume_roe
+};
+RiemannKind parse_riemann_kind(std::string const& type) {
+  if (type == "hllc") return RiemannKind::hllc;
+  if (type == "lmars") return RiemannKind::lmars;
+  if (type == "roe") return RiemannKind::roe;
+  if (type == "shallow-roe") return RiemannKind::shallow_roe;
+  if (type == "upwind") return RiemannKind::upwind;
+  if (type == "plume-roe") return RiemannKind::plume_roe;
+  TORCH_CHECK(false, "RiemannSolver: unknown type " + type);
+}
+```
+
+**Add a reconstruction.** Besides the enum value and its `parse_scheme` branch, a stencil scheme needs its width
+and coefficient counts in `SchemeTraits` ([`src/recon/recon_point.h:25-39`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/recon_point.h#L25-L39)):
+
+```cpp
+template <Scheme S>
+struct SchemeTraits {
+  static constexpr int stencil =
+      S == Scheme::dc                                              ? 1
+      : S == Scheme::plm || S == Scheme::cp3 || S == Scheme::weno3 ? 3
+                                                                   : 5;
+  static constexpr int ncoeff = S == Scheme::cp3     ? 3
+                                : S == Scheme::weno3 ? 12
+                                : S == Scheme::cp5   ? 5
+                                : S == Scheme::weno5 ? 48
+                                                     : 0;
+  static constexpr int ncoeff_nu = S == Scheme::cp5     ? 5
+                                   : S == Scheme::weno5 ? 48
+                                                        : 0;
+};
+```
+
+its coefficient table, built in `InterpImpl::reset` as for `cp3` ([`src/recon/reconstruct.cpp:51-55`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.cpp#L51-L55)):
+
+```cpp
+    case Scheme::cp3:
+      cm = register_buffer(
+          "cm", torch::tensor({1. / 3., 5. / 6., -1. / 6.}, torch::kFloat64));
+      cp = register_buffer("cp", cm.flip({0}));
+      break;
+```
+
+its one-face formula, a branch of `recon_point`, which the CPU loop and the CUDA line kernel share
+([`src/recon/recon_point.h:152-165`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/recon_point.h#L152-L165)):
+
+```cpp
+template <Scheme S, typename T, bool Nu = false>
+DISPATCH_MACRO inline T recon_point(T const* src, int stride, T const* row,
+                                    bool scale) {
+  if constexpr (S == Scheme::cp3) {
+    return poly_point<T, 3>(src, stride, row);
+  } else if constexpr (S == Scheme::cp5) {
+    return poly_point<T, 5>(src, stride, row);
+  } else if constexpr (S == Scheme::weno3) {
+    return weno3_point(src, stride, row, scale);
+  } else {
+    static_assert(S == Scheme::weno5, "dc, plm and ppm are tensor code");
+    return weno5_point<T>(src, stride, row, scale);
+  }
+}
+```
+
+and a case in the CPU dispatch, `recon_line_cpu` ([`src/recon/recon_dispatch.cpp:84-85`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/recon_dispatch.cpp#L84-L85)), and in the CUDA one, `recon_line_cuda`
+([`src/recon/recon_dispatch.cu:88-89`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/recon_dispatch.cu#L88-L89)):
+
+```cpp
+    case Scheme::cp3:
+      return recon_line_cpu<Scheme::cp3, false>(iter, rows, dim, scale, "cp3");
+    case Scheme::cp3:
+      return recon_line_cuda<Scheme::cp3, false>(iter, rows, dim, false, "cp3");
+```
+
+`dc`, `plm` and `ppm` are tensor code in `InterpImpl::forward`, `left` and `right` instead, with no kernel.
+`InterpImpl::create` registers the module as a submodule of its parent with `register_module`
+([`src/recon/reconstruct.cpp:38`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.cpp#L38)).
+
+**Add a Riemann solver.** Besides the enum value and its `parse_riemann_kind` branch, a solver needs its face
+function in `src/riemann/riemann_kernels.h`, called from `riemann_face` as for `lmars` ([`src/riemann/riemann_kernels.h:549-551`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann_kernels.h#L549-L551)):
+
+```cpp
+  } else if constexpr (K == RiemannKind::lmars) {
+    lmars_impl(p[0], p[i], p[i + 1], *p[i + 2], *(p[i + 2] + s), *p[i + 3],
+               *(p[i + 3] + s), a.dim, a.ny, s, s, p[1]);
+```
+
+the EOS quantities it reads, gathered per side in `RiemannSolverImpl::solve` as for `lmars` ([`src/riemann/riemann.cpp:256-261`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.cpp#L256-L261)):
+
+```cpp
+  } else if (kind == RiemannKind::lmars) {
+    for (auto [side, w] : {std::pair{ILT, wl}, std::pair{IRT, wr}}) {
+      elr[side] = peos->compute("W->I", {w}) / w[IDN];
+      glr[side] = peos->adiabatic_index(w);
     }
+    e = elr, gamma = glr;
 ```
 
-**Write the class.** The header `src/recon/interpolation.hpp` declares `InterpImpl`, the base of every
-reconstruction. Its `forward` sizes the two outputs from `stencils()` and fills them through `left` and `right`
-([`src/recon/interpolation.hpp:73-89`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/interpolation.hpp#L73-L89)):
+and a case in the CPU dispatch, `SNAP_RIEMANN_CPU` ([`src/riemann/riemann_dispatch.cpp:77-78`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann_dispatch.cpp#L77-L78)), and in the CUDA one, `SNAP_RIEMANN_CUDA`
+([`src/riemann/riemann_dispatch.cu:68-69`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann_dispatch.cu#L68-L69)):
 
 ```cpp
-  virtual std::pair<torch::Tensor, torch::Tensor> forward(
-      torch::Tensor w, int dim,
-      torch::optional<torch::Tensor> wl = torch::nullopt,
-      torch::optional<torch::Tensor> wr = torch::nullopt) {
-    auto vec = w.sizes().vec();
-    vec[dim] -= stencils() - 1;  // reduce size by stencils - 1
-
-    auto wlv = wl.value_or(torch::empty(vec, w.options()));
-    auto wrv = wr.value_or(torch::empty(vec, w.options()));
-
-    left(w, dim, wlv);
-    right(w, dim, wrv);
-
-    wl = wlv;
-    wr = wrv;
-    return std::make_pair(wlv, wrv);
-  }
+    case RiemannKind::lmars:
+      SNAP_RIEMANN_CPU(RiemannKind::lmars);
+    case RiemannKind::lmars:
+      SNAP_RIEMANN_CUDA(RiemannKind::lmars, 6);
 ```
 
-The donor-cell class is the smallest one to follow ([`src/recon/interpolation.hpp:101-120`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/interpolation.hpp#L101-L120)):
+A solver outside the capture allow-list runs eager: the CUDA-graph executor refuses it by name until a capture
+test covers it, by the set `capture_riemann` ([`src/mesh/stage_executor.cpp:646`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/mesh/stage_executor.cpp#L646)):
 
 ```cpp
-class DonorCellInterpImpl : public torch::nn::Cloneable<DonorCellInterpImpl>,
-                            public InterpImpl {
- public:
-  //! Constructor to initialize the layer
-  DonorCellInterpImpl() = default;
-  explicit DonorCellInterpImpl(InterpOptions const& options_)
-      : InterpImpl(options_) {
-    reset();
-  }
-  void reset() override {}
-  using InterpImpl::forward;
-
-  void left(torch::Tensor w, int dim, torch::Tensor const& out) override {
-    out.copy_(w.slice(dim, 0, w.size(dim)));
-  }
-  void right(torch::Tensor w, int dim, torch::Tensor const& out) override {
-    out.copy_(w.slice(dim, 0, w.size(dim) - 1));
-  }
-};
-TORCH_MODULE(DonorCellInterp);
+  static std::set<std::string> const capture_riemann = {"lmars", "hllc"};
 ```
 
-A Riemann solver derives from `RiemannSolverImpl`, declared in `src/riemann/riemann_solver.hpp`
-([`src/riemann/riemann_solver.hpp:97-117`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/riemann_solver.hpp#L97-L117)):
-
-```cpp
-class RoeSolverImpl : public torch::nn::Cloneable<RoeSolverImpl>,
-                      public RiemannSolverImpl {
- public:
-  //! Constructor to initialize the layers
-  RoeSolverImpl() = default;
-  explicit RoeSolverImpl(const RiemannSolverOptions& options_,
-                         torch::nn::Module* p = nullptr)
-      : RiemannSolverImpl(options_, p) {
-    reset();
-  }
-  void reset() override;
-
-  //! Solver the Riemann problem
-  torch::Tensor forward(torch::Tensor wl, torch::Tensor wr, int dim,
-                        torch::Tensor out,
-                        torch::Tensor face_pressure = torch::Tensor()) override;
-
- protected:
-  FORWARD_HAS_DEFAULT_ARGS({4, torch::nn::AnyValue(torch::Tensor())})
-};
-TORCH_MODULE(RoeSolver);
-```
-
-Add one branch to the matching `create`, as for `dc` ([`src/recon/interpolation.cpp:11-12`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/interpolation.cpp#L11-L12)) and `roe` ([`src/riemann/riemann_solver.cpp:56-57`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/riemann_solver.cpp#L56-L57)):
-
-```cpp
-  if (opts->type() == "dc") {
-    return p->register_module(name, DonorCellInterp(opts));
-  if (opts->type() == "roe") {
-    return p->register_module(name, RoeSolver(opts, p));
-```
-
-**Files.** Every `.cpp` file in `src/recon/` and `src/riemann/` is compiled into the library
-([`src/CMakeLists.txt:42-43`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/CMakeLists.txt#L42-L43)), and with CUDA every `.cu` file there ([`src/CMakeLists.txt:128-129`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/CMakeLists.txt#L128-L129)); a new file there needs no CMake edit.
+**Files.** Every `.cpp` file in `src/recon/` and `src/riemann/` is compiled into the library, by the globs
+`recon/*.cpp` and `riemann/*.cpp` ([`src/CMakeLists.txt:44-45`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/CMakeLists.txt#L44-L45)), and with CUDA every `.cu` file there, by `riemann/*.cu`
+([`src/CMakeLists.txt:130-131`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/CMakeLists.txt#L130-L131)); a new file there needs no CMake edit.
 
 **Face slots: which state is left and which is right.** The two slots of the reconstruction result are named
-by this enum ([`src/snap.h:44-45`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/snap.h#L44-L45)):
+`ILT` and `IRT` by this enum ([`src/snap.h:44-45`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/snap.h#L44-L45)):
 
 ```cpp
   ILT = 0,  //!< Left interface
   IRT = 1,  //!< Right interface
 ```
 
-Face $i$ is the face on the low side of cell $i$, between cells $i-1$ and $i$. The reconstruction hands the method
-two slices of the result ([`src/recon/reconstruct.cpp:54-57`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/reconstruct.cpp#L54-L57)):
+Face $i$ is the face on the low side of cell $i$, between cells $i-1$ and $i$. The reconstruction hands the
+interpolant two slices of the result, `outl` and `outr` ([`src/recon/reconstruct.cpp:221-224`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.cpp#L221-L224)):
 
 ```cpp
   auto outl = wlr[IRT].slice(dim, il - 1, iu + 1);
@@ -173,117 +213,108 @@ two slices of the result ([`src/recon/reconstruct.cpp:54-57`](https://github.com
 
 so `left`, the value at each cell's low-side face, lands in slot `IRT` at the cell's own index, and `right`, the
 value at each cell's high-side face, lands in slot `ILT` one index on. At index $i$, slot `ILT` holds the state
-on the left of face $i$, from cell $i-1$, and slot `IRT` the state on its right, from cell $i$; the donor-cell
-`left` and `right` above and step 5 of the recipe show exactly this. The solver takes slot `ILT` as `wl` and slot
-`IRT` as `wr` ([`src/hydro/hydro_forward.cpp:583`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_forward.cpp#L583)), and its flux at index $i$ is the flux through face $i$: the update of cell $i$ uses
-the fluxes at $i$ and $i+1$ ([`src/coord/coordinate.cpp:732-734`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/coordinate.cpp#L732-L734)):
+on the left of face $i$, from cell $i-1$, and slot `IRT` the state on its right, from cell $i$; step 5 of the
+recipe shows exactly this. The sweep passes slot `ILT` as `wl` and slot `IRT` as `wr` to `priemann` ([`src/hydro/sweep.cpp:115-116`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/hydro/sweep.cpp#L115-L116)), and the
+flux at index $i$ is the flux through face $i$: the update of cell $i$ uses the fluxes at $i$ and $i+1$, each
+times its face area `area1` ([`src/coord/coordinate.cpp:614-615`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/coord/coordinate.cpp#L614-L615)):
 
 ```cpp
-    dflx.slice(DIM1, si, ei) +=
-        face_area1(si + 1, ei + 1) * flux1.slice(DIM1, si + 1, ei + 1) -
-        face_area1(si, ei) * flux1.slice(DIM1, si, ei);
+    hydro.priemann->forward(lr[ILT], lr[IRT], dim, flux, face_pressure,
+                            central);
+  return area1.slice(-1, si + 1, ei + 1) * flux1.slice(-1, si + 1, ei + 1) -
+         area1.slice(-1, si, ei) * flux1.slice(-1, si, ei);
 ```
 
-**Riemann shapes and face pressure.** The flux and the face pressure of $x_1$ are float64 buffers of the full
-block, ghosts included: the flux has one row per variable, the face pressure one row only, and neither exists
-when the block has one cell along $x_1$ ([`src/hydro/hydro.cpp:189-197`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro.cpp#L189-L197)):
+**Riemann shapes and face pressure.** The $x_1$ flux `_flux1` is the flux register's total for direction 1
+([`src/hydro/hydro.cpp:240`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/hydro/hydro.cpp#L240)). The $x_1$ face pressure `_face_pressure1` is a float64 buffer of the full block, ghosts
+included, one row only, and absent when the block has one cell along $x_1$ ([`src/hydro/hydro.cpp:252-254`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/hydro/hydro.cpp#L252-L254)):
 
 ```cpp
-  if (nc1 > 1) {
-    _flux1 = register_buffer(
-        "F1", torch::zeros({nvar, nc3, nc2, nc1}, torch::kFloat64));
-    _face_pressure1 =
-        register_buffer("P1", torch::zeros({nc3, nc2, nc1}, torch::kFloat64));
-  } else {
-    _flux1 = register_buffer("F1", torch::Tensor());
-    _face_pressure1 = register_buffer("P1", torch::Tensor());
-  }
+  _flux1 = register_buffer("F1", freg.totals()[0]);
+  _face_pressure1 = register_buffer(
+      "P1", nc1 > 1 ? torch::zeros({nc3, nc2, nc1}, torch::kFloat64)
+                    : torch::Tensor());
 ```
 
 The left and right states have the shape of the state, as the reconstruction result above has. The solver writes
-the face pressure into the tensor it is given, or into a scratch tensor of one row when it is given none
-([`src/riemann/roe.cpp:47-48`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/roe.cpp#L47-L48)):
+the face pressure into `face_pressure_out`: the tensor it is given, or a scratch tensor of one row when it is
+given none ([`src/riemann/riemann.cpp:305`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.cpp#L305)):
 
 ```cpp
-  auto face_pressure_out =
-      face_pressure.defined() ? face_pressure : torch::empty_like(wl[IDN]);
+    face_pressure_out = direct ? face_pressure : torch::empty_like(wl[IDN]);
 ```
 
-Only the $x_1$ call passes the face pressure, and not with the shallow-water EOS ([`src/hydro/hydro_forward.cpp:580-582`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_forward.cpp#L580-L582)); the $x_2$ and
-$x_3$ calls pass none ([`src/hydro/hydro_forward.cpp:827`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_forward.cpp#L827), [`src/hydro/hydro_forward.cpp:859`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_forward.cpp#L859)):
+Only the $x_1$ solve passes the face pressure, `face_pressure1`, and not with the shallow-water EOS
+([`src/hydro/hydro_forward.cpp:581-583`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/hydro/hydro_forward.cpp#L581-L583)); it goes to `riemann_solve` ([`src/hydro/hydro_forward.cpp:584-585`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/hydro/hydro_forward.cpp#L584-L585)). The $x_2$ and $x_3$ solves pass none to
+`riemann_solve` ([`src/hydro/sweep.cpp:153-155`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/hydro/sweep.cpp#L153-L155)):
 
 ```cpp
       auto face_pressure1 = options->eos()->type() == "shallow-water"
                                 ? torch::Tensor()
                                 : _face_pressure1;
-      priemann->forward(wlr2[ILT], wlr2[IRT], DIM2, _flux2);
-      priemann->forward(wlr3[ILT], wlr3[IRT], DIM3, _flux3);
+      riemann_solve(*this, wlr1, DIM1, freg.slot(1, "riemann"), face_pressure1,
+                    pressure_base1, split);
+  riemann_solve(
+      hydro, wlr, dir.dim, reg.slot(d, "riemann"), torch::Tensor(), background,
+      perturb, central ? reg.part_slot(d, "riemann.central") : torch::Tensor());
 ```
 
-A solver that keeps the base `forward` refuses a defined face pressure ([`src/riemann/riemann_solver.cpp:42-45`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/riemann_solver.cpp#L42-L45)), so a hydro run with
-it stops at the first $x_1$ call, as the built-in `upwind` does; a solver for the hydro overrides `forward` and
-writes the face pressure:
+`upwind`, `plume-roe` and `shallow-roe` refuse a defined face pressure, so a hydro run with them stops at the first
+$x_1$ solve; for `upwind` it is this `TORCH_CHECK` ([`src/riemann/riemann.cpp:165-168`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.cpp#L165-L168)):
 
 ```cpp
-  TORCH_CHECK(
-      !face_pressure.defined(),
-      "Face-pressure output is not implemented for Riemann solver type ",
-      options->type());
+    TORCH_CHECK(
+        !face_pressure.defined(),
+        "Face-pressure output is not implemented for Riemann solver type ",
+        options->type());
 ```
 
-The face pressure is read by the gnomonic-equiangle geometry ([`src/coord/gnomonic_equiangle.cpp:441`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/gnomonic_equiangle.cpp#L441)) and by the spherical-polar one
-with the exact $x_1$ centroid ([`src/coord/spherical_polar.cpp:252`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/spherical_polar.cpp#L252)); the base geometry ignores it ([`src/coord/coordinate.cpp:786`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/coordinate.cpp#L786)).
+The face pressure `face_pressure1` is read by the gnomonic-equiangle geometry ([`src/coord/gnomonic_equiangle.cpp:493`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/coord/gnomonic_equiangle.cpp#L493)) and by the
+spherical-polar one with the exact $x_1$ centroid, `x1_centroid_exact_enabled` ([`src/coord/spherical_polar.cpp:203`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/coord/spherical_polar.cpp#L203)); the base
+geometry ignores `face_pressure1` ([`src/coord/coordinate.cpp:698`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/coord/coordinate.cpp#L698)).
 
 **Shapes, outputs and device.**
 
 - Reconstruction output: the result is allocated like the input, so it has the input's dtype and device, and the
-  method writes into it ([`src/recon/reconstruct.cpp:88`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/reconstruct.cpp#L88)):
+  interpolant writes into `result` ([`src/recon/reconstruct.cpp:255`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.cpp#L255)):
 
   ```cpp
     auto result = torch::zeros(vec, w.options());
   ```
 
-- Riemann call: the solver gets the left and right states from the reconstruction, each of the shape of the state
-  (the result above is the state's shape with 2 prepended), the direction, and the flux tensor to fill
-  ([`src/hydro/hydro_forward.cpp:583`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_forward.cpp#L583)):
+- In place: the solver writes the flux into the tensor it is given without resizing it; every operand shares one
+  dtype except under `hllc`, whose face pressure may differ ([`src/riemann/riemann.cpp:294-298`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.cpp#L294-L298)):
 
   ```cpp
-        priemann->forward(wlr1[ILT], wlr1[IRT], DIM1, _flux1, face_pressure1);
+    at::TensorIteratorConfig config;
+    config.resize_outputs(false)
+        .check_all_same_dtype(kind != RiemannKind::hllc)
+        .declare_static_shape(flx.sizes(), /*squash_dims=*/0)
+        .add_output(flx);
   ```
 
-- In place, one dtype: the solver writes the flux into its fourth argument without resizing it, and all tensors
-  must share one dtype ([`src/riemann/roe.cpp:52-63`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/roe.cpp#L52-L63)):
+- Device: the kernel is chosen by the device of the flux tensor `flx` ([`src/riemann/riemann.cpp:325`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.cpp#L325)):
 
   ```cpp
-    auto iter = at::TensorIteratorConfig()
-                    .resize_outputs(false)
-                    .check_all_same_dtype(true)
-                    .declare_static_shape(flx.sizes(), /*squash_dims=*/0)
-                    .add_output(flx)
-                    .add_owned_output(face_pressure_out.unsqueeze(0))
-                    .add_input(wl)
-                    .add_input(wr)
-                    .add_input(elr)
-                    .add_input(glr)
-                    .add_input(clr)
-                    .build();
+    at::native::call_riemann(flx.device().type(), iter, static_cast<int>(kind),
   ```
 
-- Device: the kernel is chosen by the device of the flux tensor ([`src/riemann/roe.cpp:65`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/roe.cpp#L65)):
-
-  ```cpp
-    at::native::call_roe(flx.device().type(), iter, dim, ideal_moist, nvapor,
-  ```
-
-- Ownership: `create` registers the new module as a submodule of its parent with `register_module`
-  ([`src/riemann/riemann_solver.cpp:56-57`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/riemann_solver.cpp#L56-L57)); the solver keeps only a non-owning pointer back to its hydro ([`src/riemann/riemann_solver.hpp:64-65`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/riemann_solver.hpp#L64-L65)):
+- Ownership: the solver keeps only a non-owning pointer back to its hydro, `phydro` ([`src/riemann/riemann.hpp:113-114`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.hpp#L113-L114)):
 
   ```cpp
     //! non-owning reference to parent
     HydroImpl const* phydro = nullptr;
   ```
 
-**Rebuild.** Build the library ([`README.md:96-97`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/README.md#L96-L97)) and reinstall the Python package ([`README.md:100-102`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/README.md#L100-L102)):
+`RiemannSolverImpl::create` registers the solver as a submodule of its parent with `register_module`
+([`src/riemann/riemann.cpp:354`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.cpp#L354)):
+
+```cpp
+  return p->register_module(name, std::make_shared<RiemannSolverImpl>(opts, p));
+```
+
+**Rebuild.** Build the library with `cmake` ([`README.md:102-103`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/README.md#L102-L103)) and reinstall the Python package with `pip`
+([`README.md:106-108`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/README.md#L106-L108)):
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON
@@ -295,8 +326,8 @@ Then set the new name as `type` under `dynamics/reconstruct/vertical` or `horizo
 `dynamics/riemann-solver`.
 
 **Check the registration.** This test builds a block from the repository deck with the names selected, and fails
-when a name has no branch in `create`. Run it from the repository root with the rebuilt package, with the new
-names in place of `weno5` and `lmars`:
+when a name has no branch in `parse_scheme` or `parse_riemann_kind`. Run it from the repository root with the
+rebuilt package, with the new names in place of `weno5` and `lmars`:
 
 ```python
 from pathlib import Path

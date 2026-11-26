@@ -50,7 +50,7 @@ cell average (appendix A, notation group 4).
    fitted order 1.00.
 4. *Why the flux divergence is also first order.* The divergence takes a difference of two face values a cell
    apart and divides by $h$; the $O(h)$ face error of a smooth field changes by $O(h^2)$ between the two faces,
-   so the divergence error is $O(h)$. In the code, @eq-ch04-dc-error is the copy of `DonorCellInterpImpl` ({{< code src/recon/interpolation.hpp DonorCellInterpImpl >}}).
+   so the divergence error is $O(h)$. In the code, @eq-ch04-dc-error is the copy of `InterpImpl::left` ({{< code src/recon/reconstruct.cpp InterpImpl::left >}}).
 
 #### Why there is no round-off
 
@@ -89,7 +89,7 @@ dynamics:
 `scale` and `shock` in a block, and an unknown type is refused. `scale` is accepted and has no effect, because
 a copy has nothing to scale.
 
-**The excerpt.** `DonorCellInterpImpl` ({{< code src/recon/interpolation.hpp DonorCellInterpImpl >}}):
+**The excerpt.** `InterpImpl::left` ({{< code src/recon/reconstruct.cpp InterpImpl::left >}}):
 
 ```cpp
   void left(torch::Tensor w, int dim, torch::Tensor const& out) override {
@@ -105,8 +105,8 @@ $q^{\mathrm L}_{i+1} = \bar q_i$, placed by @eq-ch04-framework-map.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| the interpolant | {{< code src/recon/interpolation.hpp DonorCellInterpImpl >}} | `DonorCellInterpImpl` | `type: dc` |
-| registration | {{< code src/recon/interpolation.cpp InterpImpl::create >}} | `DonorCellInterp` | |
+| the interpolant | {{< code src/recon/reconstruct.cpp InterpImpl::left >}} | `InterpImpl::left` | `type: dc` |
+| registration | {{< code src/recon/reconstruct.cpp InterpImpl::create >}} | `DonorCellInterp` | |
 
 : Code map of donor cell. {#tbl-ch04-dc-code}
 

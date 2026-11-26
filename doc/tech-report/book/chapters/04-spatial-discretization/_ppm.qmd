@@ -42,7 +42,7 @@ None at the pin: the interpolant throws before it computes anything, and the ste
 2. *Construction reads the stencil width.* `PPMInterpImpl::stencils()` returns 5, so the framework sets three
    ghost cells and the block is built with them.
 3. *The first reconstruction calls `forward`.* `_apply_inplace` calls `pinterp->forward(w, dim, outl, outr)`.
-4. *`PPMInterpImpl::forward` throws before writing anything.* Its body computes the output shape and then
+4. *`InterpImpl::forward` throws before writing anything.* Its body computes the output shape and then
    executes `throw std::runtime_error("PPM interpolation is not implemented yet.")`; the `return` after it is
    unreachable: $\mathcal W[q]$ has no value for this type, because the call never returns.
 5. *Hence no face state of any accuracy is produced*, and there is no round-off to bound. The committed `ch04-ppm` card below builds a block with `type: ppm` and stops with exactly this message.
@@ -67,7 +67,7 @@ dynamics:
 **What the parser accepts and refuses.** The reconstruct parser accepts `ppm` as any other registered type
 (@sec-ch04-framework). The refusal comes at run time, from the interpolant, as described above.
 
-**The excerpt.** `PPMInterpImpl::forward` ({{< code src/recon/ppm.cpp PPMInterpImpl::forward >}}):
+**The excerpt.** `InterpImpl::forward` ({{< code src/recon/reconstruct.cpp InterpImpl::forward >}}):
 
 ```cpp
   auto vec = w.sizes().vec();
@@ -82,9 +82,9 @@ The `throw` line is step 4; the `return` is never reached.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| the throwing body | {{< code src/recon/ppm.cpp PPMInterpImpl::forward >}} | `runtime_error` | `type: ppm` |
-| stencil width 5 | {{< code src/recon/interpolation.hpp PPMInterpImpl >}} | `stencils` | |
-| registration | {{< code src/recon/interpolation.cpp InterpImpl::create >}} | `PPMInterp` | |
+| the throwing body | {{< code src/recon/reconstruct.cpp InterpImpl::forward >}} | `runtime_error` | `type: ppm` |
+| stencil width 5 | {{< code src/recon/reconstruct.cpp InterpImpl::forward >}} | `stencils` | |
+| registration | {{< code src/recon/reconstruct.cpp InterpImpl::create >}} | `PPMInterp` | |
 
 : Code map of PPM. {#tbl-ch04-ppm-code}
 

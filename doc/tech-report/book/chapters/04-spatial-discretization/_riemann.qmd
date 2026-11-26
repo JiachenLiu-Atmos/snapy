@@ -16,7 +16,7 @@ solver also returns the face pressure the $x_1$ pressure force and the well-bala
 six cannot. The shipped decks name `lmars` (7), `hllc` (6) or `shallow-roe` (9).
 
 <!-- generated reader-reference: riemann -->
-For hydrodynamics, omitting the `riemann-solver` block preserves `hllc` ([`src/riemann/riemann_solver.hpp:33`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/riemann_solver.hpp#L33)); a present block without `type` selects `roe` ([`src/riemann/riemann_solver.cpp:27`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/riemann/riemann_solver.cpp#L27)). These are distinct parser paths at source pin `919936da07d80a310b98ab11da184972a3203274`.
+For hydrodynamics, omitting the `riemann-solver` block preserves the created `type`, `hllc` ([`src/riemann/riemann.hpp:61`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.hpp#L61)); a present block without `type` keeps it too, through `op->type()` ([`src/riemann/riemann.cpp:71`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/riemann/riemann.cpp#L71)). Both parser paths give `hllc` at source pin `73c45a7c8c991209924e1137992352c335575062`.
 <!-- end reader-reference: riemann -->
 
 ::: {.callout-note title="At a glance"}
@@ -57,8 +57,9 @@ index, 3 for $x_1$, 2 for $x_2$, 1 for $x_3$.
    written once; `operator_check.py` `[C8]` lists them. A renaming involves no arithmetic, so it adds no
    round-off.
 4. *On a curved grid the renaming is not enough.* The velocity components are covariant or panel components, not
-   components in the face's orthonormal frame. `lmars`, `hllc` and `shallow-roe` call `prim2local{1,2,3}_` on
-   both states before solving and `flux2global{1,2,3}_` on the flux after (@sec-ch04-gnomonic); `roe` does not. In the code, @eq-ch04-riemann-frame is `ivx` ({{< code src/riemann/lmars_impl.h lmars_impl >}}).
+   components in the face's orthonormal frame. `RiemannSolverImpl::solve` calls `prim2local{1,2,3}_` on
+   both states before solving and `flux2global{1,2,3}_` on the flux after, for every face-function solver: `lmars`,
+   `hllc`, `roe` and `shallow-roe` (@sec-ch04-gnomonic). In the code, @eq-ch04-riemann-frame is `ivx` ({{< code src/riemann/riemann_kernels.h lmars_impl >}}).
 
 #### Why some solvers refuse a run
 
@@ -113,11 +114,11 @@ dynamics:
 **What the parser accepts and refuses.** `RiemannSolverOptionsImpl::from_yaml` and the factory apply, in order:
 
 1. *No `riemann-solver` block*: the options object is returned as constructed (see the generated defaults above)
-   ({{< code src/riemann/riemann_solver.hpp RiemannSolverOptionsImpl >}}).
+   ({{< code src/riemann/riemann.hpp RiemannSolverOptionsImpl >}}).
 2. *A block takes only `type` and `dir`*; any other key is refused by `check_keys` ("unknown key
    'dynamics/riemann-solver/foo'. Valid keys: type, dir").
-3. *Inside a block a missing key uses the parser fallback*; the type is stated above, and the direction is `omni`
-   ({{< code src/riemann/riemann_solver.cpp RiemannSolverOptionsImpl::from_yaml overload=2 >}}).
+3. *Inside a block a missing key keeps the constructed value*: the type stated above, and the direction `omni`
+   ({{< code src/riemann/riemann.cpp RiemannSolverOptionsImpl::from_yaml overload=2 >}}).
 4. *An unknown type is refused* by `RiemannSolverImpl::create` ("RiemannSolver: unknown type exact").
 5. *`shallow-roe` refuses `dir: omni`* when it runs, and on a gnomonic grid requires `dir: yz` at construction
    (@sec-ch04-shallow).
@@ -126,35 +127,33 @@ dynamics:
 
 The probe against the pin build confirms items 1 to 4 and 6 (@sec-ch04-framework).
 
-**The excerpt.** The defaults and the factory ({{< code src/riemann/riemann_solver.cpp RiemannSolverOptionsImpl::from_yaml overload=2 >}},
-{{< code src/riemann/riemann_solver.cpp RiemannSolverImpl::create >}}) and the row map of every solver body, here
-`lmars_impl` ({{< code src/riemann/lmars_impl.h lmars_impl >}}):
+**The excerpt.** The defaults and the factory ({{< code src/riemann/riemann.cpp RiemannSolverOptionsImpl::from_yaml overload=2 >}},
+{{< code src/riemann/riemann.cpp RiemannSolverImpl::create >}}) and the row map of every solver body, here
+`lmars_impl` ({{< code src/riemann/riemann_kernels.h lmars_impl >}}):
 
 ```cpp
-  op->type() = node["type"].as<std::string>("roe");
-  op->dir() = node["dir"].as<std::string>("omni");
+  op->type() = node["type"].as<std::string>(op->type());
+  op->dir() = node["dir"].as<std::string>(op->dir());
   ...
-  if (opts->type() == "roe") {
-    return p->register_module(name, RoeSolver(opts, p));
-  } else if (opts->type() == "lmars") {
+  parse_riemann_kind(opts->type());
+  return p->register_module(name, std::make_shared<RiemannSolverImpl>(opts, p));
   ...
-  auto ivx = IPR - dim;
-  auto ivy = IVX + ((ivx - IVX) + 1) % 3;
-  auto ivz = IVX + ((ivx - IVX) + 2) % 3;
+  int ivx = IPR - dim;
+  return {ivx, IVX + ((ivx - IVX) + 1) % 3, IVX + ((ivx - IVX) + 2) % 3};
 ```
 
-The first two lines are item 3; the factory is item 4; the last three lines are @eq-ch04-riemann-frame and the
-cyclic tangential rows.
+The first two lines are item 3; the factory is item 4; the last two lines (`face_axes`) are
+@eq-ch04-riemann-frame and the cyclic tangential rows.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| defaults with no block | {{< code src/riemann/riemann_solver.hpp RiemannSolverOptionsImpl >}} | `type` | `riemann-solver` |
-| defaults inside a block | {{< code src/riemann/riemann_solver.cpp RiemannSolverOptionsImpl::from_yaml overload=2 >}} | `from_yaml` | `type`, `dir` |
-| the factory | {{< code src/riemann/riemann_solver.cpp RiemannSolverImpl::create >}} | `create` | six types |
-| upwind, and the face-pressure refusal | {{< code src/riemann/riemann_solver.cpp RiemannSolverImpl::forward >}} | `forward` | `type: upwind` |
+| defaults with no block | {{< code src/riemann/riemann.hpp RiemannSolverOptionsImpl >}} | `type` | `riemann-solver` |
+| defaults inside a block | {{< code src/riemann/riemann.cpp RiemannSolverOptionsImpl::from_yaml overload=2 >}} | `from_yaml` | `type`, `dir` |
+| the factory | {{< code src/riemann/riemann.cpp RiemannSolverImpl::create >}} | `create` | six types |
+| upwind, and the face-pressure refusal | {{< code src/riemann/riemann.cpp RiemannSolverImpl::forward >}} | `forward` | `type: upwind` |
 | face pressure always requested on $x_1$ | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `_face_pressure1` | $n_{c1}>1$ |
 | the $x_1$ call | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `face_pressure1` | not shallow water |
-| the row map | {{< code src/riemann/lmars_impl.h lmars_impl >}} | `ivx` | every direction |
+| the row map | {{< code src/riemann/riemann_kernels.h lmars_impl >}} | `ivx` | every direction |
 | scalars require `upwind` | {{< code src/scalar/scalar.cpp ScalarImpl::reset >}} | `upwind` | passive scalars |
 
 : Code map of the Riemann framework. {#tbl-ch04-riemann-code}
@@ -179,9 +178,10 @@ and 1, 2.[^rs-run] `test_riemann.release` passes at the pin on CPU, one rank (@t
 
 ### Limits
 
-1. **Two parser paths.** Deleting the block and deleting only its type are different operations; see the generated defaults above.
-2. **`roe` is not projected.** On a gnomonic grid it solves in panel components (@sec-ch04-gnomonic); no test
-   runs `roe` on a curved grid.
+1. **One default on both parser paths.** Deleting the block and deleting only its type both keep `hllc`; see the generated defaults above.
+2. **`roe` on a curved grid.** It is projected like the other face-function solvers (@sec-ch04-gnomonic);
+   `test_roe_cubed_sphere_rest_python` keeps a resting six-panel atmosphere at rest, $\max\lvert v_{2,3}\rvert < 10^{-9}$ m s$^{-1}$
+   over two cycles with no redo (`tests/test_roe_cubed_sphere_rest.py`).
 3. **`upwind` is the scalar solver.** As a hydro solver it is refused wherever $x_1$ is resolved, and elsewhere it
    multiplies by the flux buffer it is handed.
 4. **`dir`** matters only to `shallow-roe`; for the other five it is parsed and unused.

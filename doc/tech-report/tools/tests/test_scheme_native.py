@@ -18,17 +18,17 @@ def test_clean_contract():
 
 
 @pytest.mark.parametrize('old,new', [
-    ('.as<std::string>("dc");', '.as<std::string>("plm");'),
-    ('.as<std::string>("roe");', '.as<std::string>("hllc");'),
+    ('ADD_ARG(std::string, type) = "dc";', 'ADD_ARG(std::string, type) = "plm";'),
     ('ADD_ARG(std::string, type) = "hllc";', 'ADD_ARG(std::string, type) = "roe";'),
     ('"Interp: unknown type "', '"Interp: unknown name "'),
     ('this, "interp2");', 'this, "interp1");'),
-    ('.check_all_same_dtype(true)', '.check_all_same_dtype(false)'),
-    ('src/CMakeLists.txt#L42-L43', 'src/CMakeLists.txt#L41-L43'),
-    ('if (opts->type() == "dc") {', 'if (opts->type() == "donor") {'),
+    ('.check_all_same_dtype(kind != RiemannKind::hllc)', '.check_all_same_dtype(true)'),
+    ('src/CMakeLists.txt#L44-L45', 'src/CMakeLists.txt#L43-L45'),
+    ('if (type == "dc") return Scheme::dc;', 'if (type == "donor") return Scheme::dc;'),
     ('auto outl = wlr[IRT].slice(dim, il - 1, iu + 1);', 'auto outl = wlr[ILT].slice(dim, il - 1, iu + 1);'),
     ('torch::empty_like(wl[IDN])', 'torch::empty_like(wl)'),
-    ('"P1", torch::zeros({nc3, nc2, nc1}', '"P1", torch::zeros({nvar, nc3, nc2, nc1}'),
+    ('torch::zeros({nc3, nc2, nc1}, torch::kFloat64)', 'torch::zeros({nvar, nc3, nc2, nc1}, torch::kFloat64)'),
+    ('{"lmars", "hllc"}', '{"lmars", "hllc", "roe"}'),
 ])
 def test_contract_drift(tmp_path, old, new):
     target = tmp_path / c.TARGET

@@ -70,7 +70,7 @@ the rows (mass, normal momentum, tangential, tangential, energy).
    $$ {#eq-ch04-hllc-contact}
 
    which are `am` and `cp` of the code; `[C9]` solves steps 1 and 2 with sympy and gets these expressions. The
-   code then clamps $p_{\mathrm c}$ at zero. In the code, @eq-ch04-hllc-contact is `am` and `cp` ({{< code src/riemann/hllc_impl.h hllc_impl >}}).
+   code then clamps $p_{\mathrm c}$ at zero. In the code, @eq-ch04-hllc-contact is `am` and `cp` ({{< code src/riemann/riemann_kernels.h hllc_impl >}}).
 
 #### The flux
 
@@ -92,7 +92,7 @@ the rows (mass, normal momentum, tangential, tangential, energy).
    by step 1 of the contact, so a passive quantity is carried at the contact speed with the star density.
 4. *An isolated contact is exact.* With $p^{\mathrm L} = p^{\mathrm R}$ and $v_\perp^{\mathrm L} = v_\perp^{\mathrm R} = v$,
    @eq-ch04-hllc-contact gives $\lambda_{\mathrm c} = v$ and $p_{\mathrm c} = p$, and the flux is the physical flux of the
-   upwind side: no diffusion of the density jump (`solvers_check.py` `[C2]`). In the code, @eq-ch04-hllc-flux is `sl`, `sm` and `FLX` ({{< code src/riemann/hllc_impl.h hllc_impl >}}).
+   upwind side: no diffusion of the density jump (`solvers_check.py` `[C2]`). In the code, @eq-ch04-hllc-flux is `sl`, `sm` and `FLX` ({{< code src/riemann/riemann_kernels.h hllc_impl >}}).
 
 #### The clip and its bound
 
@@ -116,7 +116,7 @@ from snapy_report.ch04.figures.fig_ch04_schemes import make_wavefan
 make_wavefan("hllc")
 ```
 
-**Frame and the equation of state.** `HLLCSolverImpl::forward` fills `elr` with $\rho e$ (`W->I`), `glr` with
+**Frame and the equation of state.** `RiemannSolverImpl::solve` fills `elr` with $\rho e$ (`W->I`), `glr` with
 $\gamma$ and `clr` with $c_s$ for both sides, projects both states with `prim2local{1,2,3}_`, calls the kernel and
 turns the flux back with `flux2global{1,2,3}_`. The kernel adds $\tfrac12\rho\lvert\mathbf v\rvert^2$ to $\rho e$ to get
 $E$[^rg-0c5aa43793e0]. The face pressure is $p_{\mathrm c}$.
@@ -133,7 +133,7 @@ dynamics:
 
 **What the parser accepts and refuses.** As in @sec-ch04-riemann.
 
-**The excerpt.** `hllc_impl` ({{< code src/riemann/hllc_impl.h hllc_impl >}}), steps 2, 4, 5, 8 and 9 of its comments:
+**The excerpt.** `hllc_impl` ({{< code src/riemann/riemann_kernels.h hllc_impl >}}), steps 2, 4, 5, 8 and 9 of its comments:
 
 ```cpp
   auto pmid = .5 * (WL(IPR) + WR(IPR) + (WL(ivx) - WR(ivx)) * rhoa * ca);
@@ -164,13 +164,13 @@ used.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| the solver body | {{< code src/riemann/hllc_impl.h hllc_impl >}} | `hllc_impl` | `type: hllc` |
-| PVRS pressure and shock factors | {{< code src/riemann/hllc_impl.h hllc_impl >}} | `pmid` | |
-| clipped outer speeds | {{< code src/riemann/hllc_impl.h hllc_impl >}} | `TINY_NUMBER` | |
-| contact speed and pressure | {{< code src/riemann/hllc_impl.h hllc_impl >}} | `am` | |
-| face pressure written out | {{< code src/riemann/hllc_impl.h hllc_impl >}} | `face_pressure` | caller asked |
-| $\rho e$, $\gamma$, $c_s$ and the frame | {{< code src/riemann/hllc.cpp HLLCSolverImpl::forward >}} | `prim2local3_` | |
-| options construction (defaults in @sec-ch04-riemann) | {{< code src/riemann/riemann_solver.hpp RiemannSolverOptionsImpl >}} | `type` | `riemann-solver` |
+| the solver body | {{< code src/riemann/riemann_kernels.h hllc_impl >}} | `hllc_impl` | `type: hllc` |
+| PVRS pressure and shock factors | {{< code src/riemann/riemann_kernels.h hllc_impl >}} | `pmid` | |
+| clipped outer speeds | {{< code src/riemann/riemann_kernels.h hllc_impl >}} | `TINY_NUMBER` | |
+| contact speed and pressure | {{< code src/riemann/riemann_kernels.h hllc_impl >}} | `am` | |
+| face pressure written out | {{< code src/riemann/riemann_kernels.h hllc_impl >}} | `face_pressure` | caller asked |
+| $\rho e$, $\gamma$, $c_s$ and the frame | {{< code src/riemann/riemann.cpp RiemannSolverImpl::solve >}} | `prim2local3_` | |
+| options construction (defaults in @sec-ch04-riemann) | {{< code src/riemann/riemann.hpp RiemannSolverOptionsImpl >}} | `type` | `riemann-solver` |
 
 : Code map of HLLC. {#tbl-ch04-hllc-code}
 

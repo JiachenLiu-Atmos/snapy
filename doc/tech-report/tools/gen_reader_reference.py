@@ -43,18 +43,18 @@ def source_values(report, riemann=True):
         return m[1], text[:m.start()].count('\n') + 1
 
     cmake, project = read('CMakeLists.txt'), read('pyproject.toml')
-    header = read('src/riemann/riemann_solver.hpp') if riemann else ''
-    parser = read('src/riemann/riemann_solver.cpp') if riemann else ''
+    header = read('src/riemann/riemann.hpp') if riemann else ''
+    parser = read('src/riemann/riemann.cpp') if riemann else ''
     values = {}
     for key, path, text, pattern in [
         ('cmake', 'CMakeLists.txt', cmake, r'^cmake_minimum_required\(VERSION ([\d.]+)\)'),
         ('cxx', 'CMakeLists.txt', cmake, r'^set\(CMAKE_CXX_STANDARD (\d+)\)'),
         ('python', 'pyproject.toml', project, r'^requires-python = "([^"]+)"'),
         ('torch', 'pyproject.toml', project, r'^  "(torch==[^"]+)"'),
-        ('no_block', 'src/riemann/riemann_solver.hpp', header,
+        ('no_block', 'src/riemann/riemann.hpp', header,
          r'^  ADD_ARG\(std::string, type\) = "([^"]+)";'),
-        ('no_type', 'src/riemann/riemann_solver.cpp', parser,
-         r'^  op->type\(\) = node\["type"\]\.as<std::string>\("([^"]+)"\);'),
+        ('no_type', 'src/riemann/riemann.cpp', parser,
+         r'^  op->type\(\) = node\["type"\]\.as<std::string>\((op->type\(\))\);'),
     ][:None if riemann else 4]:
         value, line = match(pattern, text)
         values[key] = value
@@ -89,9 +89,9 @@ def defaults_blocks(report):
     if riemann_legacy:  # checked in full once its chapter's line is deleted from the legacy list
         return [(INSTALL, 'install', install)]
     riemann = (
-        f'For hydrodynamics, omitting the `riemann-solver` block preserves `{v["no_block"]}` '
-        f'({v["no_block_cite"]}); a present block without `type` selects `{v["no_type"]}` '
-        f'({v["no_type_cite"]}). These are distinct parser paths at source pin `{v["sha"]}`.')
+        f'For hydrodynamics, omitting the `riemann-solver` block preserves the created `type`, `{v["no_block"]}` '
+        f'({v["no_block_cite"]}); a present block without `type` keeps it too, through `{v["no_type"]}` '
+        f'({v["no_type_cite"]}). Both parser paths give `{v["no_block"]}` at source pin `{v["sha"]}`.')
     return [(INSTALL, 'install', install), (RIEMANN, 'riemann', riemann)]
 
 
