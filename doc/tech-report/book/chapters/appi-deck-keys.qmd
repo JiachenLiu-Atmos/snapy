@@ -1,14 +1,16 @@
 # Deck key reference {#sec-appi}
 
 Use this appendix to look up any key of a YAML deck: its full path, the value snapy uses when the key is absent,
-the source line that decides it, and the section of the book that explains it. The table is generated from the
-parsers at the code pin, so it lists exactly the keys they accept: inside these blocks, a key that is not here is
-refused at load with "unknown key".
+the source line that decides it, and the section of the book that explains it. The table is generated at the code
+pin from the options schema (`src/options/*.yaml`, from which snapy's build generates the readers of those blocks)
+and from the `check_keys` lists of the parsers written by hand, so it lists exactly the keys they accept: inside
+these blocks, a key that is not here is refused at load with "unknown key".
 
 ::: {.callout-note title="At a glance"}
 **Purpose.** Find every key a deck may carry, with its default and the section that explains it.
 
-**Data.** The `check_keys` lists of snapy's parsers at the pin, extracted into `tools/deck-keys.json`.
+**Data.** The options schema and the `check_keys` lists of snapy's parsers at the pin, extracted into
+`tools/deck-keys.json`.
 
 **Placement.** Report preparation, outside the solver; the parsers run once, when a deck is loaded.
 
@@ -16,7 +18,7 @@ refused at load with "unknown key".
 
 **Guarantee / limits.** Every accepted key is listed; a default is shown only where the parser states one, and "no section" means no section names the key.
 
-**Evidence.** `tools/tests/test_deck_keys.py` re-extracts the keys from fixtures and checks the committed fragment is current.
+**Evidence.** `tools/tests/test_deck_keys.py` re-extracts the keys from fixture parsers and a fixture schema table, and checks the committed fragment is current.
 :::
 
 ### How to read the table
@@ -30,13 +32,13 @@ refused at load with "unknown key".
   a key whose value is a block of further keys; "required" means the parser stops without it; "none (read only
   when present)" means nothing is set when it is absent. "—" marks a key that a shared block accepts on behalf of
   kintera or pyharp, which read it; its default is in that library, not in snapy.
-- **read at**: the line that decides the default: the read, the options-struct member, or, when neither exists,
-  the list that accepts the key.
+- **read at**: the line that decides the default: the schema row, the read, the options-struct member, or, when
+  none exists, the list that accepts the key.
 - **explained in**: the section that names the key, chosen by the rule in the generator; "no section" means no
   section of the book names it.
 
 Top-level keys are not checked by a list. snapy reads one itself, `verbose`
-([`src/mesh/meshblock_options.cpp:47`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/mesh/meshblock_options.cpp#L47)),
+({{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}}),
 falling back to the caller's `verbose` argument; the blocks' own `verbose` keys fall back to that argument, not to
 the top-level key. kintera's thermodynamics reader, which the equation-of-state parser calls with the deck's file
 name, reads the deck as well; the keys it reads are kintera's and are not in this table.
