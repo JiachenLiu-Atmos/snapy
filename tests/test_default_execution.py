@@ -87,8 +87,8 @@ def run_pair(device):
     return block.execution_report(), ref.execution_report(), nstage
 
 
-def cubed(nb, execution=None):
-    """a six-panel cubed-sphere Mesh on CUDA, nb x nb blocks per panel"""
+def cubed(nb, execution=None, nx=8, nx1=1):
+    """a six-panel cubed-sphere Mesh on CUDA, nb x nb blocks per panel of nx1 x nx x nx cells"""
     from snapy import Mesh, MeshOptions, kIDN, kIPR
 
     intg = {"type": "rk3", "cfl": 0.4, "implicit-scheme": 0}
@@ -102,7 +102,7 @@ def cubed(nb, execution=None):
         "distribute": {"layout": "cubed-sphere", "nb2": nb, "nb3": nb,
                        "blocks_per_process": 6 * nb * nb, "verbose": False},
         "geometry": {"type": "gnomonic-equiangle",
-                     "cells": {"nx1": 1, "nx2": 8, "nx3": 8, "nghost": 2},
+                     "cells": {"nx1": nx1, "nx2": nx, "nx3": nx, "nghost": 2},
                      "bounds": {"x2min_pi": -0.25, "x2max_pi": 0.25,
                                 "x3min_pi": -0.25, "x3max_pi": 0.25}},
         "boundary-condition": {"external": {
