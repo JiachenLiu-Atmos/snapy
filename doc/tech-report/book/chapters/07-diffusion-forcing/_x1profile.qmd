@@ -264,7 +264,7 @@ device.[^x1p-run]
 <!-- reader glossary notes -->
 [^rg-2b93cd28ee3b]: $C$ — Courant number (named: acoustic, advective, vertical acoustic)
 
-[^rg-0f12429a3d5d]: $e$ — specific internal energy [J kg$^{-1}$]; its per-species heat-capacity ratio is `cv_ratio_m1` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L278-L281)
+[^rg-0f12429a3d5d]: $e$ — specific internal energy [J kg$^{-1}$]; its per-species heat-capacity ratio is `cv_ratio_m1` in the code; {{< code src/eos/ideal_moist.cpp IdealMoistImpl::species_enthalpy >}}
 
 [^rg-4f3551f7ab4e]: $\rho_{\mathrm{ref}}, p_{\mathrm{ref}}$ — cell reference density and pressure of the well-balanced $x_1$ reconstruction
 

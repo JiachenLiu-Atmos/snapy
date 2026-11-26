@@ -378,11 +378,11 @@ The ratio's evaluation at three cloud bases is @tbl-ch04-fluxcov-b3 in the Deriv
 
 [^rg-060923d3cabe]: $\lambda_w$ — a wavelength (named); notation only; see @sec-appa
 
-[^rg-6902c52ef171]: $\hat h$ — specific enthalpy $e + p/\rho$ [J kg$^{-1}$]; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L278-L281)
+[^rg-6902c52ef171]: $\hat h$ — specific enthalpy $e + p/\rho$ [J kg$^{-1}$]; {{< code src/eos/ideal_moist.cpp IdealMoistImpl::species_enthalpy >}}
 
 [^rg-3c8deee64597]: $y_n$ — mass fraction of species $n$ **per unit total mass**, $\rho_n = \rho y_n$, dimensionless [-]; this is snapy's composition variable and the only one the state vector carries
 
-[^rg-d0c78353440c]: $H$ — a density or pressure scale height [m]; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/tests/test_cubed_sphere_cell_volume.py#L70-L74)
+[^rg-d0c78353440c]: $H$ — a density or pressure scale height [m]; {{< code tests/test_cubed_sphere_cell_volume.py rest >}}
 
 [^rg-8b60e74a7d3b]: $r_n$ — mass mixing ratio of species $n$ **per unit dry mass**, $r_n = \rho_n/\rho_{\mathrm{d}}$, dimensionless [-]; used only where the code is per dry air (passive tracers, @sec-ch10-tracer). Never written $r$ without its species subscript, because $r$ alone is the radius (§1)
 

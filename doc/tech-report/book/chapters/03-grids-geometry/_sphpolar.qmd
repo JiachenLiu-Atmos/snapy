@@ -397,7 +397,7 @@ switch coverage matrix, @sec-ch12-matrix.
 
 [^rg-f2733a81186c]: x2max_pi — upper bound of the second coordinate in multiples of pi
 
-[^rg-bbe09e4ed06f]: $V^{(1)}_i$ — the $x_1$ factor of the cell volume, $V_{ijk}=\varpi_{jk}V^{(1)}_i$: $\tfrac13(x_{1,i+1/2}^3-x_{1,i-1/2}^3)$ on spherical-polar, $h_i$ on Cartesian; the radial factor of `cell_volume`; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/spherical_polar.cpp#L200-L211)
+[^rg-bbe09e4ed06f]: $V^{(1)}_i$ — the $x_1$ factor of the cell volume, $V_{ijk}=\varpi_{jk}V^{(1)}_i$: $\tfrac13(x_{1,i+1/2}^3-x_{1,i-1/2}^3)$ on spherical-polar, $h_i$ on Cartesian; the radial factor of `cell_volume`; {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::cell_volume >}}
 
-[^rg-3c62fd4496b8]: $\varpi_{jk}$ — horizontal factor of a cell volume, $V_{ijk}=\varpi_{jk}V^{(1)}_i$: the solid angle on spherical-polar ($V^{(1)}_i=\tfrac13(r_{+}^3-r_{-}^3)$), $\Delta x_2\Delta x_3$ on Cartesian ($V^{(1)}_i=h_i$); the angular factors of `cell_volume`; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/spherical_polar.cpp#L200-L211)
+[^rg-3c62fd4496b8]: $\varpi_{jk}$ — horizontal factor of a cell volume, $V_{ijk}=\varpi_{jk}V^{(1)}_i$: the solid angle on spherical-polar ($V^{(1)}_i=\tfrac13(r_{+}^3-r_{-}^3)$), $\Delta x_2\Delta x_3$ on Cartesian ($V^{(1)}_i=h_i$); the angular factors of `cell_volume`; {{< code src/coord/spherical_polar.cpp SphericalPolarImpl::cell_volume >}}
 <!-- end reader glossary notes -->

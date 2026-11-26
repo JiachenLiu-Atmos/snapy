@@ -709,17 +709,17 @@ nothing beyond the face form; and every $E_{\mathrm{tot}}+\mathrm{PE}_d$ check m
 <!-- reader glossary notes -->
 [^rg-24c85d83151c]: $\sigma_i^2$ — variance of $x_1$ about the centroid over cell $i$ on its own measure, $\langle (x_1-x_{1,i})^2\rangle_{V_i}$
 
-[^rg-8b7387f6bab7]: $\delta_i$ — centroid offset $x_{1,i}-x^{\mathrm{m}}_{1,i}$ (zero on Cartesian); `x1_centroid_offset` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/gravity_work_radial.hpp#L95-L105)
+[^rg-8b7387f6bab7]: $\delta_i$ — centroid offset $x_{1,i}-x^{\mathrm{m}}_{1,i}$ (zero on Cartesian); `x1_centroid_offset` in the code; {{< code src/hydro/gravity_work.hpp x1_centroid_offset >}}
 
 [^rg-84698c2c1f47]: $\mathcal P$ — the exact potential energy $\int\rho\phi\,dV$ of a smooth density field; notation only; see @sec-appa
 
 [^rg-d054fdb5ce7a]: $\mathrm{PE}_d$ — discrete potential energy $\sum_iV_i\rho_i\phi_i$
 
-[^rg-972d04f188e1]: $\mathcal N_i$ — the stencil set of the centroid slope of cell $i$ (stencil cells indexed by $l$); built by `centroid_slope_stencil` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/gravity_work_radial.hpp#L60-L87)
+[^rg-972d04f188e1]: $\mathcal N_i$ — the stencil set of the centroid slope of cell $i$ (stencil cells indexed by $l$); built by `centroid_slope_stencil` in the code; {{< code src/hydro/gravity_work.hpp centroid_slope_stencil >}}
 
-[^rg-233d4794e1ca]: $\Delta_\pm$ — centroid spacings $x_{1,i+1}-x_{1,i}$ ($+$) and $x_{1,i}-x_{1,i-1}$ ($-$), used in non-uniform stencils; never $h_\pm$, which would read as cell widths; `hm` and `hp` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/gravity_work_radial.hpp#L66-L71)
+[^rg-233d4794e1ca]: $\Delta_\pm$ — centroid spacings $x_{1,i+1}-x_{1,i}$ ($+$) and $x_{1,i}-x_{1,i-1}$ ($-$), used in non-uniform stencils; never $h_\pm$, which would read as cell widths; `hm` and `hp` in the code; {{< code src/hydro/gravity_work.hpp centroid_slope_stencil >}}
 
-[^rg-477c78c44075]: $\mathsf S$ — the matrix of $s$: $(\mathsf S q)_i = s_i[q] = \sum_l\mathsf S_{il}q_l$ (row $i$: the weights of the cells $l$ in the slope of $i$); its bands are the implicit rows, `rx_lo` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/implicit/implicit_hydro.cpp#L349-L374)
+[^rg-477c78c44075]: $\mathsf S$ — the matrix of $s$: $(\mathsf S q)_i = s_i[q] = \sum_l\mathsf S_{il}q_l$ (row $i$: the weights of the cells $l$ in the slope of $i$); its bands are the implicit rows, `rx_lo` in the code; {{< code src/hydro/gravity_work.hpp GravityWork::update_rows >}}
 
 [^rg-f6811c76094b]: $\Delta t_c$ — the time step handed to the implicit solve: $w_{2,s}\Delta t$ under rk3 and rk3s4, $\Delta t$ under rk1 and rk2
 

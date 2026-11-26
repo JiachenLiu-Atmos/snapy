@@ -252,7 +252,7 @@ $10^{-6}$. These are round-off and are quoted against their bounds.[^gno-run]
 3. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
 
 <!-- reader glossary notes -->
-[^rg-788c4c144f03]: $\xi, \eta$ — the two gnomonic-equiangle panel coordinates of a cubed-sphere block ($x_2, x_3$) [rad]; their cell centres are `x2v` and `x3v` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/coord/gnomonic_equiangle.cpp#L56-L69)
+[^rg-788c4c144f03]: $\xi, \eta$ — the two gnomonic-equiangle panel coordinates of a cubed-sphere block ($x_2, x_3$) [rad]; their cell centres are `x2v` and `x3v` in the code; {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::reset >}}
 
 [^rg-b71b7096829d]: $C$ — Courant number (named: acoustic, advective, vertical acoustic)
 

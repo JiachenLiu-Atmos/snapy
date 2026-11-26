@@ -351,7 +351,7 @@ listed in the switch coverage matrix, @sec-ch12-matrix.
 
 [^rg-254534abaa24]: CPU — central processing unit
 
-[^rg-fbe9686e1f06]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); `machine_epsilon` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14)
+[^rg-fbe9686e1f06]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); `machine_epsilon` in the code; {{< code src/hydro/flux_positivity.cpp machine_epsilon >}}
 
 [^rg-e074f181bf79]: x2min_pi — lower bound of the second coordinate in multiples of pi
 

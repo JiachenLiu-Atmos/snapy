@@ -183,7 +183,7 @@ this report.
    with the Mach number.
 
 <!-- reader glossary notes -->
-[^rg-254973d86e54]: $e$ — specific internal energy [J kg$^{-1}$]; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L278-L281)
+[^rg-254973d86e54]: $e$ — specific internal energy [J kg$^{-1}$]; {{< code src/eos/ideal_moist.cpp IdealMoistImpl::species_enthalpy >}}
 
 [^rg-c678301a7945]: $\gamma$ — mixture ratio of specific heats $c_p/c_v$, local, varies with composition, dimensionless [-]; $\gamma_{\mathrm{d}}$ is the dry value
 

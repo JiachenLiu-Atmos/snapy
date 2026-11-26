@@ -242,7 +242,7 @@ CPU, one rank (@tbl-ch04-ctest-run in @sec-ch04-fluxcov).
 
 [^rg-5df4aa41a896]: $i\pm\tfrac12$ — the $x_1$ faces of cell $i$; also written $f$ for a generic face; notation only; see @sec-appa
 
-[^rg-e68ce82306ee]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/flux_positivity.cpp#L11-L14)
+[^rg-e68ce82306ee]: $\epsilon_{\mathrm{m}}$ — machine epsilon of the working precision (never bare $\epsilon$, which is $\epsilon_{\mathrm{piv}}$); {{< code src/hydro/flux_positivity.cpp machine_epsilon >}}
 
 [^rg-ac6e4d54428b]: dynamics — hydrodynamic options block
 

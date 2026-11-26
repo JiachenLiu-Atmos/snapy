@@ -5,6 +5,7 @@ defines it, and the named methods the prose refers to (such as the Riemann solve
 `tools/reader-glossary.json`, the book's one concept registry; a symbol is defined by its group of the notation index
 (@sec-appa-index), an acronym by the section that writes out its expansion, a key by the table row or the sentence
 that says what it is. Where no section defines a concept, the entry says "not defined here" and links the first
-section that uses it.
+section that uses it. Where an entry points into the code, it cites the code by symbol at the code pin, checked
+like every other code citation of the book; a kintera entry links kintera at its package pin.
 
 {{< include 17-appendices/_apph-glossary.qmd >}}

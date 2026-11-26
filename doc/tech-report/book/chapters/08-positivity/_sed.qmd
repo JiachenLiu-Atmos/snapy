@@ -174,7 +174,7 @@ The parallel test needs two ranks (`torchrun`); the run record of @sec-ch08-thet
 - MPS: the kernel is registered for MPS, but no test of it on MPS is cited here.
 
 <!-- reader glossary notes -->
-[^rg-a1f5839c34f2]: $\mu$, $\nu$ — dynamic and kinematic viscosity; the diffusion module calls the kinematic one `nu_iso`; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/diffusion.cpp#L621-L626)
+[^rg-a1f5839c34f2]: $\mu$, $\nu$ — dynamic and kinematic viscosity; the diffusion module calls the kinematic one `nu_iso`; {{< code src/forcing/diffusion.cpp DiffusionImpl::cartesian_fluxes >}}
 
 [^rg-2b73543203a2]: const-vsed — prescribed sedimentation velocities indexed by species
 

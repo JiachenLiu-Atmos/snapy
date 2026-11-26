@@ -133,6 +133,20 @@ _GLOSS_KEYS = re.compile(r'^<!-- reader glossary keys -->.*\n', re.M)
 _GLOSS_REF = re.compile(r'\[\^rg-[a-f0-9]{12}\]')
 
 
+#: a registry source in the snapy tree: `path` or `path symbol`, resolved at the code pin by code_anchors.py
+_SNAPY_SOURCE = re.compile(r'(?:src|tests|examples|python|external|cmake)/[\w./-]+(?: [\w:~]+)?')
+
+
+def _kintera_source(report, source):
+    """A link into kintera at its package pin, with a line or a line range, and optionally the symbol it shows."""
+    try:
+        pin = json.loads((Path(report) / 'tools/package-pins.json').read_text())['kintera']
+    except (OSError, ValueError, KeyError):
+        return False
+    return bool(re.fullmatch(r'https://github\.com/chengcli/kintera/blob/%s/[^\s#]+#L\d+(?:-L\d+)?(?: [\w:~]+)?' % pin,
+                             source))
+
+
 def glossary_entries(report):
     """One inventory; symbol meanings are resolved against Appendix A's source."""
     import gen_notation_index as notation
@@ -172,13 +186,19 @@ def glossary_entries(report):
             raise ValueError(f'invalid local glossary meanings for {term}')
         source = item.get('source')
         notation_only = item.get('notation_only', False)
-        if source is not None and (notation_only or not isinstance(source, str) or not re.fullmatch(
-                r'https://github\.com/chengcli/(?:snapy/blob/919936da07d80a310b98ab11da184972a3203274|'
-                r'kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77)/[^\s#]+#L\d+(?:-L\d+)?', source)):
+        if source is not None and (notation_only or not isinstance(source, str)
+                                   or not (_SNAPY_SOURCE.fullmatch(source) or _kintera_source(report, source))):
             raise ValueError(f'invalid pinned glossary source for {term}')
         if not isinstance(notation_only, bool):
             raise ValueError(f'invalid notation-only marker for {term}')
-        suffix = ('; [source](' + source + ')') if source else (
+        # a snapy source is cited by symbol at the code pin (the code shortcode, checked by code_anchors.py);
+        # a kintera source is a link at kintera's package pin (tools/package-pins.json)
+        if source and _SNAPY_SOURCE.fullmatch(source):
+            cite = '{{< code ' + source + ' >}}'
+        elif source:
+            url, _, symbol = source.partition(' ')
+            cite = (f'`{symbol}` ' if symbol else '') + f'[source]({url})'
+        suffix = ('; ' + cite) if source else (
             '; notation only; see @sec-appa' if notation_only else '')
         meaning += suffix
         local = {path: value + suffix for path, value in local.items()}
