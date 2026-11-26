@@ -64,10 +64,10 @@ either way. Chapter 11 states the graph = eager rule.
 
 | limit | home | code at the pin |
 |---|---|---|
-| Multi-rank capture is refused: "more than one process: multi-rank capture is not done yet" | 11.3, 13.4 | `src/mesh/stage_executor.cpp:659-662@73c45a7c` (`StageExecutor::config_reasons`) |
+| Multi-rank capture is refused: "more than one process: multi-rank capture is not done yet" | 11.3, 13.4 | `src/mesh/stage_executor.cpp:661-663@73c45a7c` (`StageExecutor::config_reasons`) |
 | An EOS outside `ideal-gas`, `ideal-moist`, or a Riemann solver outside `lmars`, `hllc`, runs eager, with the reason named | 11.3 | `src/mesh/stage_executor.cpp:641-652@73c45a7c` |
-| An $x_1$ split (`pz > 1`) is refused for capture, and any $x_1$ decomposition for the implicit solve ("[Hydro] implicit scheme requires nb1 = 1") | 13.5, 6.2 | `src/mesh/stage_executor.cpp:663-666@73c45a7c`; `src/hydro/hydro.cpp:442-446@73c45a7c` (`HydroImpl::_apply_implicit_correction`) |
-| FP32 on the cubed sphere is refused: FP32 needs `perturbation-flux`, the perturbations need an anomaly background, and anomaly storage is Cartesian only | 12.3 | `src/hydro/hydro.cpp:38-39@73c45a7c`; `src/eos/ideal_moist.cpp:81-82@73c45a7c` (`IdealMoistImpl::perturbations`); `src/hydro/hydro.cpp:144-148@73c45a7c` |
+| An $x_1$ split (`pz > 1`) is refused for capture, and any $x_1$ decomposition for the implicit solve ("[Hydro] implicit scheme requires nb1 = 1") | 13.5, 6.2 | `src/mesh/stage_executor.cpp:665-667@73c45a7c`; `src/hydro/hydro.cpp:442-446@73c45a7c` (`HydroImpl::_apply_implicit_correction`) |
+| FP32 on the cubed sphere is refused: FP32 needs `perturbation-flux`, the perturbations need an anomaly background, and anomaly storage is Cartesian only | 12.3 | `src/hydro/hydro.cpp:38-39@73c45a7c`; the setup refusal "dynamics/perturbation-flux requires anomaly storage and HLLC" `src/hydro/hydro.cpp:152-155@73c45a7c`; `src/eos/ideal_moist.cpp:81-82@73c45a7c` (`IdealMoistImpl::perturbations`); `src/hydro/hydro.cpp:144-148@73c45a7c` |
 | A registered chemistry step on a bare block is its own eager slot between captured segments; a Mesh's block defers it to the Mesh's global phase, which runs it eagerly after the stages | 11.7 | `src/mesh/stage_executor.cpp:184-190@73c45a7c` (`StageExecutor::chemistry_slot`) |
 | MPS has no FP64: the wide dtype is FP32 there | 12.1 | `src/mesh/precision_policy.hpp:52-54@73c45a7c` (`PrecisionPolicy::wide`) |
 | MPS runs eager only, because a state not on a CUDA device is an eager reason. The moist column stops before saturation there (no kintera MPS kernel): **unverified** in this draft, since it depends on kintera, which is not read here | 12.1, 16.5 | `src/mesh/stage_executor.cpp:581-588@73c45a7c` (`StageExecutor::vars_reasons`) |
@@ -85,10 +85,10 @@ either way. Chapter 11 states the graph = eager rule.
 | `test_execution_capability_python` | a state not on CUDA lists "not on a CUDA device" among its eager reasons | string match | MPS eager |
 | `test_precision_policy.release` | the policy built for an MPS device holds FP32 in its FP64 rows | as in its source | MPS wide dtype |
 | `test_mesh_block_job_failure_python` | a capture out of device memory raises one `OutOfMemoryError` naming `execution: eager` | string match | out of memory |
-| `test_mps_matches_cpu_python` | MPS paths agree with CPU at FP32; exits 125 (skip) without MPS | as in its source | MPS rows |
+| `test_mps_matches_cpu_python` | MPS paths agree with CPU at FP32; a deck with a stretched $x_1$ is refused with "not supported on MPS" and one with anomaly storage with "MPS does not have" (`tests/test_mps_matches_cpu.py:251-257@73c45a7c`); exits 125 (skip) without MPS (`:240-242`) | string match for the refusals | MPS rows, both MPS hard refusals |
 
-No test at the pin was found that asserts the multi-rank capture refusal, the FP32 cubed-sphere chain, or the
-`Fp64StoreImpl` MPS refusal. The MPS rows run only on an MPS device. **Run evidence at the pin: missing
+No test at the pin was found that asserts the multi-rank capture refusal or the FP32 cubed-sphere chain end to end
+(only its perturbation-flux link is tested). The MPS rows, including both MPS hard refusals, run only on an MPS device. **Run evidence at the pin: missing
 evidence** (no run is recorded in this draft).
 
 ### Limits
