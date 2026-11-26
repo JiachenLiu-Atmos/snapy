@@ -1205,7 +1205,10 @@
       "term": "$R_n = \\mathcal R/\\mu_n$",
       "notation_group": "2a",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L40-L43",
-      "section": "sec-appa-2a"
+      "section": "sec-appa-2a",
+      "meaning_by_file": {
+        "chapters/02-thermodynamics/_ideal-moist.qmd": "specific gas constant of species $n$ [J kg$^{-1}$ K$^{-1}$]; defined for gases only, a condensate has no $R_n$ and contributes no pressure; `Ri` in the code"
+      }
     },
     {
       "kind": "symbol",
