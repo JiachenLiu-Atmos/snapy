@@ -52,5 +52,5 @@ The limits this chapter states are collected with those of the other chapters in
 
 [^rg-a857d6ac8b55]: VIC — vertically implicit correction
 
-[^rg-28d2a2d75ede]: gravity-work-fixer — whether the gravity-work fixer runs (a boolean; default true with `gravity-work: cell`, and it needs `cell`)
+[^rg-28d2a2d75ede]: gravity-work-fixer — removed in V3: only `false` (the default) is accepted
 <!-- end reader glossary notes -->

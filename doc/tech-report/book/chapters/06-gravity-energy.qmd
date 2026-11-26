@@ -103,7 +103,7 @@ make_fig()
 | Face form (@sec-ch06-face) | `gravity-work: face` | on; the only accepted value | 2 | `test_forcing` |
 | Corrected-PE face work (@sec-ch06-dwork) | none: on with `face`, $g_1\ne0$ and an $x_1$ measure | on | 4 | `test_gravity_work_radial_exact_python` |
 | VIC[^rg-0a78bcb32f8c] gravity work (@sec-ch06-vic) | `implicit-scheme`[^rg-5f155960c1f4] $\neq0$ | off | linearised | `test_implicit_face_work_operator_python` |
-| Cell form (@sec-ch06-cell) | `gravity-work: cell` | refused | none | `test_gravity_work_fixer_removed_python` (the fixer) |
+| Cell form (@sec-ch06-cell) | `gravity-work: cell` | refused | none | `test_flux_register.release` (`the_cell_form_is_refused_and_names_face`) |
 | Gravity-work fixer (@sec-ch06-fixer) | `gravity-work-fixer`[^rg-7133da810a58] | `false`; `true` refused | none | `test_gravity_work_fixer_removed_python` |
 
 : The schemes of this chapter, their switches and defaults, the order of the booked gravity work, and the test
@@ -145,5 +145,5 @@ The limits this chapter states are collected with those of the other chapters in
 
 [^rg-5f155960c1f4]: implicit-scheme — implicit time-integration scheme selector
 
-[^rg-7133da810a58]: gravity-work-fixer — whether the gravity-work fixer runs (a boolean; default true with `gravity-work: cell`, and it needs `cell`)
+[^rg-7133da810a58]: gravity-work-fixer — removed in V3: only `false` (the default) is accepted
 <!-- end reader glossary notes -->

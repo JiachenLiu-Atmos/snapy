@@ -172,5 +172,5 @@ The complete switch inventory is @sec-ch12-matrix.
 
 [^rg-96f8ca6235cd]: grav1 — gravity component along the first coordinate
 
-[^rg-334e37910182]: gravity-work — form of the $x_1$ gravity work: `face` (default), `face-wallc` or `cell`
+[^rg-334e37910182]: gravity-work — form of the $x_1$ gravity work; only `face` (the default) is accepted
 <!-- end reader glossary notes -->

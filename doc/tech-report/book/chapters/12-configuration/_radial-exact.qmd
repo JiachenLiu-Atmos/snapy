@@ -179,7 +179,7 @@ The complete switch inventory is @sec-ch12-matrix.
 
 [^rg-859e2d0bb890]: $P$ — corrected discrete potential energy $\sum_iV_i[\rho_i\phi_i - g_1\sigma_i^2s_i[\rho]]$, exact to $O(h^4)$
 
-[^rg-a5b993b32d10]: gravity-work-fixer — whether the gravity-work fixer runs (a boolean; default true with `gravity-work: cell`, and it needs `cell`)
+[^rg-a5b993b32d10]: gravity-work-fixer — removed in V3: only `false` (the default) is accepted
 
 [^rg-3ec07417d3f2]: $\mathcal E$ — the conserved energy functional of a scheme, named each time ($\mathcal E = \sum_iV_iE_i+P$ under D, $\sum_iV_iE_i+\mathrm{PE}_d$ under the plain face form)
 

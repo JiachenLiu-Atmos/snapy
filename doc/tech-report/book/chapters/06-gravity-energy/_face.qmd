@@ -165,7 +165,7 @@ there is no switch that books the plain face form alone on those grids.
 
 : Tests of the face form. {#tbl-ch06-face-tests}
 
-The four ctests' cases are in {{< code tests/test_forcing.cpp >}} and
+The four cases are in {{< code tests/test_forcing.cpp >}} and
 {{< code tests/test_gravity_work_cache_to.cpp >}}. Both ctests pass at the pin.[^ch06-face-run]
 
 [^ch06-face-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1

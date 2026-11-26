@@ -83,7 +83,7 @@ forcing:
     gravity-work-fixer: false   # the only accepted value; or drop the key
 ```
 
-**What is refused, and why.** `gravity-work-fixer: true`, from YAML[^rg-20d0ad55a777] and from Python options, with a message
+**What is refused, and why.** `gravity-work-fixer: true`, from YAML and from Python options, with a message
 that names the V3 removal and says to set the key false or drop it. There is no defect for it to repair.
 
 | what | code link | symbol | switch |
@@ -98,16 +98,18 @@ that names the V3 removal and says to set the key false or drop it. There is no 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
 | {{< code tests/test_gravity_work_fixer_removed.py refused >}} (`test_gravity_work_fixer_removed_python`) | `gravity-work-fixer: true` is refused from YAML and from Python with a message naming the removal; `false` and no key still load | exact (throws or not) | `assert "removed in V3" in str(e)` |
+| {{< code tests/test_flux_register.cpp GravityWork.the_cell_form_is_refused_and_names_face >}} (`test_flux_register.release`) | `gravity-work-fixer: true` from YAML is refused with a message containing "removed in V3", and `false` loads | exact (throws or not) | `EXPECT_NE(msg.find("removed in V3"), std::string::npos)` |
 
 : Tests of the refused fixer. {#tbl-ch06-fixer-tests}
 
-The test passes at the pin.[^ch06-fixer-run]
+The tests pass at the pin.[^ch06-fixer-run]
 
 [^ch06-fixer-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
     --output-on-failure -R <pattern>` with one anchored pattern over the 19 gravity-work and implicit ctests this
     chapter cites, in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro
     RTX 4000) for the CUDA arms; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 19 of
-    19 ctests passed.
+    19 ctests passed. `test_flux_register.release` was run separately, the same way at the same pin and build: 28 of 28 cases passed, among them
+    `the_cell_form_is_refused_and_names_face`.
 
 ### Limits
 
@@ -122,6 +124,4 @@ Combinations with the study switches: @sec-ch12-matrix.
 
 <!-- reader glossary notes -->
 [^rg-b660c0a73eb0]: $\mathcal D$ — the $E+\mathrm{PE}_d$ defect of a step, the quantity the gravity-work fixer removes [J]
-
-[^rg-20d0ad55a777]: YAML — YAML Ain't Markup Language, the structured input format used for decks
 <!-- end reader glossary notes -->

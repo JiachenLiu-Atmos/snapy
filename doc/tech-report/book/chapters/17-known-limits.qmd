@@ -413,7 +413,7 @@ from the Limits layer of any single section.[^ch17-round]
 
 [^rg-e66c24be2aa8]: NCO — NetCDF Operators
 
-[^rg-3722133da059]: gravity-work — form of the $x_1$ gravity work: `face` (default), `face-wallc` or `cell`
+[^rg-3722133da059]: gravity-work — form of the $x_1$ gravity work; only `face` (the default) is accepted
 
 [^rg-81cc2e5b80d5]: CFL — Courant–Friedrichs–Lewy
 <!-- end reader glossary notes -->

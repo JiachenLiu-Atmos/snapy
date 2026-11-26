@@ -114,8 +114,9 @@ the second form from $\phi_i - \phi_{i\pm1/2} = g_1(x_{1,i\pm1/2}-x_{1,i})$. @eq
 {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}
 (times $\Delta t$). The face form conserves $E_{\mathrm{tot}}+\mathrm{PE}_d$ exactly, by @eq-ch06-dwork-booked.
 
-$\mathrm{PE}_d$ is the exact $\int\rho\phi\,\mathrm{d}V$ of a piecewise-constant density, so it misses the in-cell
-density gradient. On a uniform Cartesian grid @eq-ch06-dwork-face is the trapezoid rule,
+$\mathrm{PE}_d$ is a choice of discrete potential energy, and the impossibility results below rest on it. It is the
+exact $\int\rho\phi\,\mathrm{d}V$ of a piecewise-constant density; read as the cell average of a smooth field, it
+misses the in-cell density gradient and is only $O(h^2)$ accurate. On a uniform Cartesian grid @eq-ch06-dwork-face is the trapezoid rule,
 $W^{\mathrm{face}}_i = g_1(F_{i+1/2}+F_{i-1/2})/2$, with error $g_1\tfrac{h^2}{12}\partial_1^2F$ in every cell. On
 a spherical-polar grid two more terms appear
 ({{< code docs/derivations/curved-gravity-work-weight.md >}} §2, eq. 2):
@@ -524,8 +525,8 @@ the booked work approximates the exact work of the scheme's own mass fluxes to $
 (@eq-ch06-dwork-order), for smooth fields on smoothly varying grids. A column split in $x_1$ equals the unsplit one,
 because the seam cell takes the centred slope; only at the block edges of a periodic $x_1$ column, which keep the
 one-sided slope, does the split differ, at $O(h^4)$. The Cartesian case is corroborated by a different construction
-in `sources/gw__NEXTPR_indep_cartesian_gravity_work_weight.md` §§2.3-2.6; its §4.4 disputes several claims of the
-derivation note, which remain to be dispositioned (Limits).
+in `sources/gw__NEXTPR_indep_cartesian_gravity_work_weight.md` §§2.3-2.6; its §4.4 disputes five claims of the
+derivation note; the disposition of each is in Limits item 9.
 
 ::: {.callout-important title="Check"}
 The identities of the explicit scheme are checked by `d_face_work_pe_check.py`, 11 claims, all passing. It ports the
@@ -688,8 +689,20 @@ nothing beyond the face form; and every $E_{\mathrm{tot}}+\mathrm{PE}_d$ check m
    cells. The explicit path with solids is not separately tested.
 8. **Float32.** $\sigma^2$ is written without cancellation (@eq-ch06-dwork-variance), but the $E_{\mathrm{tot}}+P$
    identity is tested in double only.
-9. **Open disagreement in the sources.** `sources/gw__NEXTPR_indep_cartesian_gravity_work_weight.md` §4.4 lists
-   claims it holds to be wrong or under-qualified in the derivation note; each is dispositioned before approval.
+9. **Disagreements in the sources, dispositioned.** `sources/gw__NEXTPR_indep_cartesian_gravity_work_weight.md` §4.4
+   lists five claims of the derivation note it holds to be wrong or under-qualified. This chapter's disposition of
+   each:
+   (a) *the Cartesian wall term is a conflict resolved by giving up the trapezoid error*: agreed that it is removable;
+   the corrected-PE work at the pin is exactly conservative and $O(h^4)$ in every cell, the wall cells included
+   (`[C6]`, @tbl-ch06-dwork-order), so this chapter does not rely on that sentence of the note;
+   (b) *no weight choice removes both terms*: agreed that it holds only for two-point weights with
+   $\mathrm{PE}_d$ held fixed; the corrected-PE work replaces $\mathrm{PE}_d$ by $P$ and is outside that statement;
+   (c) *$\mathrm{PE}_d$ is exact for piecewise-constant density*: agreed that it is a choice; the Derivation states it
+   as one, with its $O(h^2)$ accuracy;
+   (d) *the remainder of the note's eq. (4) is overstated*: not used here; this chapter quotes the note's eq. (2),
+   whose $O(h^4)$ form the source confirms;
+   (e) *the face form's residual at $R=1000H$ is called round-off*: not used here; this chapter quotes no residual at
+   that radius and does not re-measure it.
 10. **Untested combinations.** See the switch coverage matrix, @sec-ch12-matrix.
 
 <!-- reader glossary notes -->

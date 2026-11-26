@@ -529,7 +529,7 @@ factor is exactly zero rather than merely small — which is the distinction the
 
 [^rg-d1873d074a8e]: shock — whether reconstruction uses its shock handling
 
-[^rg-9d4a892bae32]: gravity-work — form of the $x_1$ gravity work: `face` (default), `face-wallc` or `cell`
+[^rg-9d4a892bae32]: gravity-work — form of the $x_1$ gravity work; only `face` (the default) is accepted
 
 [^rg-97940a7e792f]: CI — continuous integration
 <!-- end reader glossary notes -->

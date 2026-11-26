@@ -139,17 +139,18 @@ options built in Python, with the same reasons.
 |---|---|---|---|
 | `test_forcing.release`, `vertical_gravity_work_uses_continuity_mass_flux` | one stage's change of $\sum_iV_i(E_i+\phi_i\rho_i)$, less the corrected-PE work, equals the energy and potential-energy flux through the two end faces: the booked work is the face work of the continuity mass flux, not the cell work | $10^{-9}$ abs. | `EXPECT_NEAR(..., 1.e-9)` |
 | `test_gravity_work_fixer_removed_python` | the gravity block loads with the fixer off or absent and refuses it on | exact (loads or throws) | a setup contract |
+| {{< code tests/test_flux_register.cpp GravityWork.the_cell_form_is_refused_and_names_face >}} (`test_flux_register.release`) | `gravity-work: cell`, from YAML[^rg-20d0ad55a777] and from code (`gravity_work("cell")`), is refused with a message that names `gravity-work: face`; `gravity-work-fixer: true` is refused with "removed in V3" and `false` loads | exact (throws or not) | `EXPECT_NE(msg.find("gravity-work: face"), std::string::npos)` |
 
 : Tests of the constant gravity forcing at the pin. {#tbl-ch06-cell-tests}
 
-No test at the pin feeds `gravity-work: cell` to check its refusal message (read from the tests; missing evidence for
-that message). Both ctests pass at the pin.[^ch06-cell-run]
+The three ctests pass at the pin.[^ch06-cell-run]
 
 [^ch06-cell-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
     --output-on-failure -R <pattern>` with one anchored pattern over the 19 gravity-work and implicit ctests this
     chapter cites, in the `tests` directory of a README CUDA[^rg-dd629466f3e7] Release build at the pin; CPU, and one CUDA GPU[^rg-af347973fc02] (Quadro
     RTX 4000) for the CUDA arms; Python 3.11.13, torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.13, pyharp 2.8.2]. 19 of
-    19 ctests passed.
+    19 ctests passed. `test_flux_register.release` was run separately, the same way at the same pin and build: 28 of 28 cases passed, among them
+    `the_cell_form_is_refused_and_names_face`.
 
 ### Limits
 
@@ -163,7 +164,7 @@ Combinations with the study switches: @sec-ch12-matrix.
 <!-- reader glossary notes -->
 [^rg-cf144a647361]: const-gravity — constant-gravity forcing component
 
-[^rg-72cdee3ac795]: gravity-work — form of the $x_1$ gravity work: `face` (default), `face-wallc` or `cell`
+[^rg-72cdee3ac795]: gravity-work — form of the $x_1$ gravity work; only `face` (the default) is accepted
 
 [^rg-88e66223cc5e]: grav1 — gravity component along the first coordinate
 
@@ -178,6 +179,8 @@ Combinations with the study switches: @sec-ch12-matrix.
 [^rg-f239edda6399]: forcing — forcing options block: a map with one sub-block per forcing component
 
 [^rg-7034ba898e85]: CPU — central processing unit
+
+[^rg-20d0ad55a777]: YAML — YAML Ain't Markup Language, the structured input format used for decks
 
 [^rg-dd629466f3e7]: CUDA — NVIDIA's parallel computing platform
 
