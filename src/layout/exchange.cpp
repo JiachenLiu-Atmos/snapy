@@ -146,8 +146,7 @@ bool Exchange::resolve_seam(SeamSide& s, bool process_only) const {
     // (a periodic x1 wrap counts); the x1 layout has no panel seams
     TORCH_CHECK(s.side == 0 || s.side == 1, "[Exchange:seam] x1 side ", s.side,
                 " is not 0 or 1");
-    if (layout->options->pz() <= 1) return false;
-    auto [below, above] = raw_x1_peers(*layout);
+    auto [below, above] = x1_seam_peers(process_only);
     peer = s.side == 0 ? below : above;
   } else {
     // L/R are the x2 faces, B/T the x3 faces, with the (dy, dx) of their
