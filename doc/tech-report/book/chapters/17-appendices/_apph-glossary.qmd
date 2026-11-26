@@ -85,6 +85,7 @@
 - `dynamics`: hydrodynamic options block. Not defined here; used in [Construct a MeshBlock and its modules (`MeshBlockOptions`)](#sec-ch01-construction).
 - `eos-file`: equation-of-state table file read by the linked provider. Not defined here; used in [EOS interface and dispatch (`type`)](#sec-ch02-interface).
 - `equation-of-state`: equation-of-state options. Not defined here; used in [Construct a MeshBlock and its modules (`MeshBlockOptions`)](#sec-ch01-construction).
+- `execution`: run mode of the integrator: auto, eager or cuda-graph. Defined in [Options schema and YAML keys (the deck file)](#sec-ch15-options).
 - `external`: boundary-function names for external domain faces. Not defined here; used in [Construct a MeshBlock and its modules (`MeshBlockOptions`)](#sec-ch01-construction).
 - `flux`: prescribed heat flux. Not defined here; used in [Body heating, top cooling and bottom heating (`body-heat`, `top-cool`, `bot-heat`)](#sec-ch07-heating).
 - `forcing`: forcing options block: a map with one sub-block per forcing component. Not defined here; used in [Well-balanced $x_1$ reconstruction: perturbations about a hydrostatic reference (gravity on)](#sec-ch05-wbx1).
@@ -124,7 +125,8 @@
 - `nx3`: number of cells in the third coordinate direction. Not defined here; used in [Construct a MeshBlock and its modules (`MeshBlockOptions`)](#sec-ch01-construction).
 - `O`: oxygen count in the composition mapping. Not defined here; used in [Temperature-dependent moist thermodynamics (`moist-mixture`)](#sec-ch02-moist-mixture).
 - `omega1`: first rotation-rate component: $\Omega_z$ of the Cartesian frame under the default `type: xyz`, the $x_1$ component under `type: 123`. Defined in [Coriolis force in the coordinate frame or from a Cartesian rotation vector (`forcing/coriolis`)](#sec-ch07-coriolis).
-- `outputs`: output-stream configuration. Not defined here; used in [Output-field diagnostics: `div`, `curl`, `theta_v`, `ic_*`, paths and means on request (`loadDiagOutputData`)](#sec-ch13-output-diag).
+- `output_dir`: directory the output and restart files are written to. Defined in [Output writers (`outputs: - type: netcdf` or `pnetcdf`)](#sec-ch15-output).
+- `outputs`: output-stream configuration. Defined in [Output writers (`outputs: - type: netcdf` or `pnetcdf`)](#sec-ch15-output).
 - `pmax`: upper pressure bound of the heating region. Not defined here; used in [The forcing loop: parsing, registration and the stage increment (`forcing:`)](#sec-ch07-framework).
 - `pmin`: lower pressure bound of the heating region. Not defined here; used in [The forcing loop: parsing, registration and the stage increment (`forcing:`)](#sec-ch07-framework).
 - `Pref`: thermodynamic reference pressure. Not defined here; used in [Constant-heat-capacity moist mixture (`ideal-moist`)](#sec-ch02-ideal-moist).
@@ -161,7 +163,7 @@
 - `u0_R`: reference internal energy in the species gas-constant normalisation. Not defined here; used in [Constant-heat-capacity moist mixture (`ideal-moist`)](#sec-ch02-ideal-moist).
 - `upper-bound`: upper bound for the scalar ratio; a negative value disables the bound. Not defined here; used in [Transport passive scalars with dry mass (`scalar:`)](#sec-ch01-scalar).
 - `uv-solver`: solver used for fixed-energy saturation adjustment. Defined in [Saturation adjustment in the step (top-level `reactions`)](#sec-ch10-satadj).
-- `variables`: variables requested by an output stream. Not defined here; used in [Output-field diagnostics: `div`, `curl`, `theta_v`, `ic_*`, paths and means on request (`loadDiagOutputData`)](#sec-ch13-output-diag).
+- `variables`: variables requested by an output stream. Defined in [Output writers (`outputs: - type: netcdf` or `pnetcdf`)](#sec-ch15-output).
 - `vertical`: options for the vertical reconstruction. Defined in [YAML scheme selection and setup guards (`YAML keys`)](#sec-ch12-yaml).
 - `vm`: molar volume used by the reaction-rate model. Not defined here; used in [Precipitation and evaporation kinetics in the example drivers (driver-level coupling)](#sec-ch10-kinetics).
 - `wall_velocity`: viscous condition at the radial walls on the cubed sphere: stress-free (default) or no-slip. Defined in [Viscosity and heat conduction on the cubed sphere (`diffusion` keys on `gnomonic-equiangle`)](#sec-ch07-csdiffusion).

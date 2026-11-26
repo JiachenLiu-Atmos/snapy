@@ -1,0 +1,357 @@
+## Output writers (`outputs: - type: netcdf` or `pnetcdf`) {#sec-ch15-output}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (code_pin.yml)
+sources: src/mesh/meshblock_output.cpp, src/mesh/meshblock.cpp, src/mesh/mesh.cpp, src/output/output_type.{hpp,cpp},
+         src/output/writer_core.{hpp,cpp}, src/output/netcdf.cpp, src/output/pnetcdf.cpp,
+         src/output/combine_netcdf.cpp, src/output/combine_parts.cpp, src/output/output_utils.{hpp,cpp},
+         src/options/output.yaml, examples/straka.cpp, tests/test_user_output.cpp, tests/test_combine_parts.cpp,
+         tests/test_netcdf_axis_attrs.py, tests/test_netcdf_cubed_lonlat.py, tests/test_yaml_keys.cpp, all read at
+         the pin
+status: draft
+author: Sihe Chen
+reviewer: Linfeng Li
+-->
+
+### Summary
+
+`outputs` is the deck's list of outputs, one entry per writer; an entry holds a writer type, an interval, a list of variables and a few
+options that select cells. After initialisation and after every accepted step, each output checks whether its
+next time has come and, if so, writes one *frame*: the selected variables of the block, on the block's interior
+(or with its ghost zones), optionally cut to a few planes or summed along an axis, as single-precision values
+unless double precision is asked for. The `netcdf` writer writes one file per block and then joins the files of
+all blocks into one; the `pnetcdf` writer writes one shared file directly. Two statistics variables give the
+time-weighted mean and deviation of the state since the previous write. The writers exist so that a run leaves a
+self-describing file set, with the coordinates, units and the block decomposition recorded in each file, that
+the combine step and the analysis tools can read without the deck.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Writes the selected fields of each accepted state that reaches an output's next time, at the cadence
+of @eq-ch15-output-schedule, and joins the blocks' files.
+
+**Data.** Reads the block's `hydro_w`, `hydro_u`, `scalar_*` and user fields through the loaders; writes
+`<basename>.block<r>.out<n>.<NNNNN>.nc` per block and `<basename>.out<n>.<NNNNN>.nc` combined (netcdf), or
+`<basename>.out<n>.<NNNNN>.nc` directly (pnetcdf), in `output_dir`[^rg-365809d1fc61].
+
+**Placement.** `make_outputs`, called by the driver after initialisation and after every accepted step; the final
+call at the end of the run writes no gridded frame.
+
+**Activation.** `outputs: - type: netcdf` (or `pnetcdf`) with `dt`, `variables`[^rg-57a20e47aa5c]; CMake `NETCDF` (netcdf) and
+`PNETCDF` (pnetcdf). Default: no outputs.
+
+**Guarantee / limits.** The values of a frame are copied exactly to the host in float64 and stored as float32 unless
+`double_precision: true` (netcdf only): relative error at most $2^{-24}$ per finite value, with $\pm\infty$ and NaN
+kept. The combined file holds every part's values byte for byte at the part's offset.
+
+**Evidence.** The Tests layer of this section, @tbl-ch15-output-tests.
+:::
+
+Local symbols of this section: $t$ the time of an accepted state [s]; $t_{\mathrm{next}}$ an output's next write
+time [s]; $\Delta t_o$ its interval, the deck's `dt` [s]; $N_{\mathrm{file}}$ its file number; $q_i$ a field's
+value after accepted step $i$[^rg-817326ac21bd]; $\Delta t_i = t_i - t_{i-1}$ that step's length [s];
+$\mathcal T_i = \sum_{j \le i} \Delta t_j$ the time summed since the previous write [s]; $q^{\mathrm{avg}}_i$ the
+running time-weighted mean of $q$; $Q_i$ the running weighted sum of squared deviations [units of $q^2$ s];
+$q^{\mathrm{sd}}$ the reported deviation; $N_{\mathrm{acc}}$ the number of accumulated states. *Aliases.* Lane O and its items O6 (the combine)
+and O8 (the budget writer, @sec-ch10) in commit messages.
+
+### Derivation
+
+Two rules of this section are stated as equations; the file layout is a convention and is given in the next layer.
+
+**The schedule.** An output with interval $\Delta t_o$ and next time $t_{\mathrm{next}}$ writes at the first
+accepted state whose time satisfies $t \ge t_{\mathrm{next}}$, and at that write advances by one interval:
+
+$$
+\begin{aligned}
+t_{\mathrm{next}} &\leftarrow t_{\mathrm{next}} + \Delta t_o, \\
+N_{\mathrm{file}} &\leftarrow N_{\mathrm{file}} + 1 .
+\end{aligned}
+$$ {#eq-ch15-output-schedule}
+
+@eq-ch15-output-schedule is the body of `MeshBlockImpl::make_outputs`
+({{< code src/mesh/meshblock_output.cpp MeshBlockImpl::make_outputs >}}). Three consequences follow from the
+one-interval advance. With $\Delta t_o = 0$ the condition is always true and the output fires at every accepted
+state. When one step jumps over several intervals, $t_{\mathrm{next}}$ still moves by one interval, so the output
+falls behind the run time and fires at every following step until it has caught up; it never skips an interval.
+And an output never fires twice at one time, because the advance happens at the write. A rejected (redone) step
+produces no accepted state and so never reaches @eq-ch15-output-schedule.
+
+**The time-weighted statistics.** When `prim_stat` (or `scalar_stat`) is among the variables, the output keeps,
+between two writes, the time-weighted mean and the weighted sum of squared deviations of the primitive state (or
+the scalar mass fractions), with each accepted state weighted by the step that produced it. They are updated in
+place by the weighted form of Welford's recurrence. With $\mathcal T_{i-1} = \sum_{j<i} \Delta t_j$:
+
+$$
+\begin{aligned}
+q^{\mathrm{avg}}_i &= q^{\mathrm{avg}}_{i-1} + \frac{\Delta t_i}{\mathcal T_{i-1} + \Delta t_i}\,
+  \big(q_i - q^{\mathrm{avg}}_{i-1}\big), \\
+Q_i &= Q_{i-1} + \Delta t_i\,\big(q_i - q^{\mathrm{avg}}_{i-1}\big)\big(q_i - q^{\mathrm{avg}}_i\big), \\
+q^{\mathrm{sd}} &= \sqrt{\max(Q/\mathcal T,\ 0)} .
+\end{aligned}
+$$ {#eq-ch15-output-stats}
+
+@eq-ch15-output-stats is computed in `update_weighted_moments`
+({{< code src/output/output_type.cpp update_weighted_moments >}}). Why it is the weighted mean and the weighted
+sum of squared deviations, by induction in four steps. Assume
+$q^{\mathrm{avg}}_{i-1} = \sum_{j<i} \Delta t_j q_j / \mathcal T_{i-1}$ and
+$Q_{i-1} = \sum_{j<i} \Delta t_j (q_j - q^{\mathrm{avg}}_{i-1})^2$.
+
+1. *The mean.* The first line of @eq-ch15-output-stats equals
+   $(\mathcal T_{i-1} q^{\mathrm{avg}}_{i-1} + \Delta t_i q_i)/\mathcal T_i = \sum_{j\le i} \Delta t_j q_j / \mathcal T_i$,
+   the weighted mean over all $i$ states.
+2. *Shift of the centre.* For any $c$,
+   $\sum_{j<i} \Delta t_j (q_j - c)^2 = Q_{i-1} + \mathcal T_{i-1} (q^{\mathrm{avg}}_{i-1} - c)^2$, because the cross
+   term $2(q^{\mathrm{avg}}_{i-1} - c)\sum_{j<i}\Delta t_j (q_j - q^{\mathrm{avg}}_{i-1})$ vanishes at the mean.
+3. *Add the new state.* Take $c = q^{\mathrm{avg}}_i$ and add the new term $\Delta t_i (q_i - q^{\mathrm{avg}}_i)^2$.
+   By step 1, $q^{\mathrm{avg}}_i - q^{\mathrm{avg}}_{i-1} = \Delta t_i (q_i - q^{\mathrm{avg}}_{i-1})/\mathcal T_i$,
+   so $\mathcal T_{i-1}(q^{\mathrm{avg}}_{i-1} - q^{\mathrm{avg}}_i)^2 + \Delta t_i (q_i - q^{\mathrm{avg}}_i)^2
+   = \Delta t_i (q_i - q^{\mathrm{avg}}_{i-1})(q_i - q^{\mathrm{avg}}_i)$, which is the second line of
+   @eq-ch15-output-stats.
+4. *Start.* At the first accumulated state $\mathcal T_0 = 0$, so $q^{\mathrm{avg}} = q_1$ and $Q = 0$.
+
+Hence $Q/\mathcal T$ is the population variance of the accepted states, weighted by their steps, with no
+small-sample correction, and $q^{\mathrm{sd}}$ is its square root.
+
+*Round-off of the mean*, to first order, from the four roundings of one update in `update_weighted_moments`
+({{< code src/output/output_type.cpp update_weighted_moments >}}): `delta = value - mean`,
+`weight / total_weight` where `total_weight` is itself a sum, the product, and the in-place add.
+
+1. *One update.* The ratio $r_i = \Delta t_i / \mathcal T_i \le 1$ carries a relative error of at most
+   $2^{-53}$ from its two roundings, `delta` and the product $2^{-54}$ each, so the
+   increment is off by at most $2^{-52} r_i |q_i - q^{\mathrm{avg}}_{i-1}| \le 2^{-51} \max|q|$,
+   and the add contributes at most $2^{-54} \max|q|$.
+2. *The carried error is damped.* An error $e_{i-1}$ in $q^{\mathrm{avg}}_{i-1}$ enters $q^{\mathrm{avg}}_i$
+   multiplied by $1 - r_i \in [0, 1)$.
+3. *The weights.* Rounding the running sum $\mathcal T$ perturbs the weights, not the form of the mean; it is
+   inside the $2^{-53}$ of step 1.
+4. *Hence* after $N_{\mathrm{acc}}$ updates $|e| \le 4.5\, N_{\mathrm{acc}}\, 2^{-53} \max|q|$, a bound
+   that is loose because the roundings do not all carry one sign.
+
+The bound is in the unit round-off of the dtype the statistics are kept in, which is `hydro_w`'s (the running
+mean is allocated as `zeros_like(value)`); the numbers above are for a float64 state, and a run that keeps
+`hydro_w` in float32 has $2^{-24}$ in place of $2^{-53}$. Each state is weighted by the step that ends at it (a
+right-endpoint rule in time); the statistics are averages of the accepted states, not of the stage states inside
+a step.
+
+**Storage precision.** A frame is copied to the host as float64 by `Frame::to_host`
+({{< code src/output/writer_core.cpp Frame::to_host >}}) and, unless `double_precision: true`, cast to float32
+before it is written, in `Values::put` ({{< code src/output/netcdf.cpp Values::put >}}). The cast rounds to
+nearest, so a finite value $x$ is stored as $\mathrm{fl}_{32}(x)$ with $|\mathrm{fl}_{32}(x) - x| \le 2^{-24} |x|$;
+a value beyond the float32 range becomes $\pm\infty$ and a NaN stays a NaN, because the writer casts in memory and
+does not ask the NetCDF library to narrow (which would store the fill value instead). The `time` variable and the
+coordinates are written through the same cast.
+
+### Numerical method
+
+**One write.** `GriddedWriter::write_output_file`
+({{< code src/output/writer_core.cpp GriddedWriter::write_output_file >}}) does nothing on the final call, then
+builds the frame in five steps:
+
+1. *Load.* `LoadOutputData` ({{< code src/output/output_type.cpp OutputType::LoadOutputData >}}) collects the
+   fields the variables ask for from the hydro, diagnostic, scalar and user loaders; `prim` and `cons` select the
+   primitive and conserved hydro rows (`shouldOutputPrimitive`,
+   {{< code src/output/output_type.cpp OutputType::shouldOutputPrimitive >}}; `shouldOutputConserved`,
+   {{< code src/output/output_type.cpp OutputType::shouldOutputConserved >}}), named variables select single
+   fields, and a field must be one to three dimensional (`appendTensorOutput`,
+   {{< code src/output/output_type.cpp OutputType::appendTensorOutput >}}).
+2. *Range.* `output_range` ({{< code src/output/writer_core.cpp output_range >}}) gives the interior index range
+   of every dimension with more than one cell, widened by the ghost zones when `include_ghost_zones` is set.
+3. *Host copy.* `Frame::to_host` ({{< code src/output/writer_core.cpp Frame::to_host >}}) copies every field once
+   to the CPU as float64, shaped `[nx4, nx3, nx2, nx1]` with left padding.
+4. *Transform.* `Frame::transform` ({{< code src/output/writer_core.cpp Frame::transform >}}) applies the slices,
+   then the sums. For each axis with a slice list, the cell whose upper face is the first above each requested
+   position is selected, positions below the block's lower bound shift the block's offset in the combined grid,
+   and a field with one cell along the axis is repeated for every selected plane; when no requested plane falls
+   in this block the frame is dropped and nothing is written. A sum adds the selected cells in index order.
+5. *Write and combine.* The sink writes the frame; with `combine: true` (the default) the blocks' files are
+   joined by `GriddedWriter::combine_blocks`
+   ({{< code src/output/writer_core.cpp GriddedWriter::combine_blocks >}}).
+
+**The frame's grids.** A field's grid kind decides which axes it has: cells (`'c'`), faces along $x_1$, $x_2$ or
+$x_3$ (`'1'`-`'3'`), a column (`'z'`), a face column (`'f'`), a horizontal plane (`'p'`) or a scalar (`'s'`), as
+`Frame::kind` reads it ({{< code src/output/writer_core.cpp Frame::kind >}}). `Frame::pack`
+({{< code src/output/writer_core.cpp Frame::pack >}}) returns one component in the file's order, $x_1$ outermost,
+then $x_3$, then $x_2$. A multi-component field is named by its `;`-separated names, or by one name with `?` (or
+the end) taking the component number, in `Field::names` ({{< code src/output/writer_core.cpp Field::names >}});
+every name is made NetCDF-legal by `sanitize_netcdf_name`
+({{< code src/output/writer_core.cpp sanitize_netcdf_name >}}).
+
+**The NetCDF file.** `NetcdfSink::write` ({{< code src/output/netcdf.cpp NetcdfSink::write >}}) writes, for block
+`r`, `<output_dir>/<basename>.block<r>.out<n>.<NNNNN>.nc` in NetCDF-4. Its dimensions are `time` (unlimited),
+`x1`[^rg-f7f8891d4759], `x2`, `x3`, and `x1f`, `x2f`, `x3f` for every axis that has cells or a slice. The coordinate variables carry
+`axis` (`Z`, `X`, `Y`), `units` and `long_name` from `axis_text` ({{< code src/output/writer_core.cpp axis_text >}});
+the horizontal units are `radian` on the gnomonic-equiangle and spherical-polar coordinates and `m` otherwise,
+by `horizontal_axis_units` ({{< code src/output/output_utils.hpp horizontal_axis_units >}}). Each coordinate
+variable also carries `domain_decomposition`, the four integers `{first, last, start, end}` that place
+this block's range in the global axis (1-based on the cell variables; on the face variable of an unsliced
+axis `first` and `start` are one less, so a face axis starts at 0), which `NetcdfSink::write`
+({{< code src/output/netcdf.cpp NetcdfSink::write >}}) computes from the block's place in the layout; on the cubed
+sphere the six panels are laid out $3 \times 2$ in $(x_2, x_3)$, so a panel's horizontal ranges are offset by its
+column and row, and its coordinate values are shifted by $\pi/2$ per column and per row, from
+`output_block_location` ({{< code src/output/writer_core.cpp output_block_location >}}). The global attribute
+`NumFilesInSet` counts the blocks that hold a requested plane, times six on the cubed sphere. Every field variable
+has the file axes `(time, x1, x3, x2)`, a face grid swapping in its face axis, with `units` and `long_name` from
+the metadata table when it lists the name; the table, with `rho` in $\mathrm{kg\,m^{-3}}$, `press` in
+$\mathrm{Pa}$, the velocities in $\mathrm{m\,s^{-1}}$ and the temperatures in $\mathrm{K}$, is the `MetadataTable`
+constructor ({{< code src/output/output_utils.cpp MetadataTable::MetadataTable >}}).
+
+**The combine.** `combine_netcdf_blocks` ({{< code src/output/combine_netcdf.cpp combine_netcdf_blocks >}}) runs
+under the per-process protocol of `combine_on_root` ({{< code src/output/writer_core.cpp combine_on_root >}}):
+the blocks of one process count in under the key `output_dir|basename|out<n>|NNNNN` (`ready_to_combine`,
+{{< code src/output/writer_core.cpp ready_to_combine >}}), and only the last one proceeds; the process group then
+meets at a barrier, the root does the work, and every rank meets again after it, also when the root throws, so
+no rank returns before the combined file exists. The root globs the parts (`glob_block_files`,
+{{< code src/output/writer_core.cpp glob_block_files >}}), deletes any stale combined file, renames a single part,
+or calls `combine_parts`. `combine_parts` ({{< code src/output/combine_parts.cpp combine_parts >}}) takes the
+structure of the joined file from the first part, treats a dimension as split when its coordinate variable
+carries `domain_decomposition`, sets that dimension's length from `{first, last}`, copies every attribute except
+`domain_decomposition` and `NumFilesInSet`, places each part's values of a split variable at the part's `start`
+offset in a whole record, writes the whole record once a set of `NumFilesInSet` parts is in, copies an unsplit
+variable from the first part only, requires exactly one time record per part, and removes the parts. The
+combined file is `<output_dir>/<basename>.out<n>.<NNNNN>.nc`.
+
+**The PnetCDF file.** `PNetcdfSink::write` ({{< code src/output/pnetcdf.cpp PNetcdfSink::write >}}) creates one
+shared file `<basename>.out<n>.<NNNNN>.nc` collectively; every block writes its own range at its offset, computed
+from its place in the layout. The writer is float only: it refuses `double_precision` at setup, in
+`make_pnetcdf_sink` ({{< code src/output/pnetcdf.cpp make_pnetcdf_sink >}}), and again at the first write; it
+refuses slices and needs `blocks_per_process: 1`; its dimensions are the whole global grid. Without `PNETCDF=ON`
+the type is refused when the block is built, in `MeshBlockImpl::reset`
+({{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}}); without `NETCDF=ON` a `netcdf` output writes nothing
+and returns, from the stub that `netcdf.cpp` compiles in that case ({{< code src/output/netcdf.cpp >}}).
+
+**Statistics.** `AccumulateStats` ({{< code src/output/output_type.cpp OutputType::AccumulateStats >}}) starts
+the clock at its first call and from then on applies @eq-ch15-output-stats to `hydro_w` (for `prim_stat`) and
+`scalar_r` (for `scalar_stat`) with the time since its previous call as the weight, skipping calls with no
+elapsed time; `ResetStats` ({{< code src/output/output_type.cpp OutputType::ResetStats >}}) zeroes the sums at
+each write; before the first accumulated interval the mean is the current state and the deviation is zero
+(`stat_mean`, {{< code src/output/output_type.cpp stat_mean >}}; `stat_std`,
+{{< code src/output/output_type.cpp stat_std >}}).
+
+**Which writer.** The block builds one writer per output entry when it is constructed, in `MeshBlockImpl::reset`
+({{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}}): `restart`, `netcdf`, `budget` and `pnetcdf`; any
+other type is refused. The Mesh calls every block's `make_outputs` in block order (`MeshImpl::make_outputs`,
+{{< code src/mesh/mesh.cpp MeshImpl::make_outputs >}}); the driver calls it once after initialisation and once
+after every accepted step (the `main` of `straka.cpp`, {{< code examples/straka.cpp main >}}), and `finalize`
+makes the final call (`MeshBlockImpl::finalize`, {{< code src/mesh/meshblock_output.cpp MeshBlockImpl::finalize >}};
+`MeshImpl::finalize`, {{< code src/mesh/mesh.cpp MeshImpl::finalize >}}).
+
+### Code
+
+**How to use it.** A NetCDF stream every 60 s with the primitives, their time-weighted mean and deviation, and the
+pressure, in double precision:
+
+```yaml
+output_dir: out
+outputs:
+  - type: netcdf
+    dt: 60.
+    variables: [prim, prim_stat, press]
+    double_precision: true
+```
+
+`output_dir` is the directory every file of the run is written to, taken relative to the working directory and
+created when the first writer runs. `variables` is the list of the fields an entry writes: single field names,
+or the group names `prim`, `cons`, `prim_stat` and `scalar_stat`.
+
+**What is refused, and why.**
+
+- An output entry without `type`, or with an unknown key (`outputs/<n>/<key>`): the generated reader of
+  `output.yaml` ({{< code src/options/output.yaml >}}), tested by `yaml_keys.outputs_refuses_an_unknown_key`
+  ({{< code tests/test_yaml_keys.cpp yaml_keys.outputs_refuses_an_unknown_key >}}).
+- Both a slice and a sum on one axis, a slice outside `[min, max)` of the global grid, or slices not strictly
+  increasing: the `domain` check set of `output.yaml` ({{< code src/options/output.yaml >}}), run for every
+  output when the block is built in `MeshBlockImpl::reset` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}}),
+  so a bad entry stops the run before the first step.
+- `pnetcdf` with slices, with `double_precision`, or with more than one block per process; `pnetcdf` without
+  `PNETCDF=ON` (above).
+- A field of more than three dimensions (`appendTensorOutput`,
+  {{< code src/output/output_type.cpp OutputType::appendTensorOutput >}}), and a user variable without a
+  registered callback, tested by `UserOutput.missing_callback_reports_meaningful_error`
+  ({{< code tests/test_user_output.cpp UserOutput.missing_callback_reports_meaningful_error >}}).
+
+**The excerpt.** @eq-ch15-output-schedule, the body of `MeshBlockImpl::make_outputs`
+({{< code src/mesh/meshblock_output.cpp MeshBlockImpl::make_outputs >}}):
+
+```cpp
+  for (auto &output_type : output_types) {
+    output_type->AccumulateStats(vars, current_time);
+    if (final_write) {
+      output_type->write_output_file(this, vars, current_time, final_write);
+    } else if (current_time >= output_type->next_time) {
+      output_type->write_output_file(this, vars, current_time, final_write);
+      output_type->ResetStats(current_time);
+      output_type->next_time += output_type->options->dt();
+      output_type->file_number += 1;
+    }
+  }
+```
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| when an output fires | {{< code src/mesh/meshblock_output.cpp MeshBlockImpl::make_outputs >}} | `MeshBlockImpl::make_outputs` | `dt` |
+| the writer of each type | {{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}} | `output_types` | `type` |
+| one write | {{< code src/output/writer_core.cpp GriddedWriter::write_output_file >}} | `GriddedWriter::write_output_file` | `netcdf`, `pnetcdf` |
+| slices and sums | {{< code src/output/writer_core.cpp Frame::transform >}} | `Frame::transform` | `x?_slice`, `output_sumx?` |
+| the index range | {{< code src/output/writer_core.cpp output_range >}} | `output_range` | `include_ghost_zones` |
+| the NetCDF file | {{< code src/output/netcdf.cpp NetcdfSink::write >}} | `NetcdfSink::write` | `double_precision` |
+| the combine protocol | {{< code src/output/writer_core.cpp combine_on_root >}} | `combine_on_root` | `combine` |
+| joining the parts | {{< code src/output/combine_parts.cpp combine_parts >}} | `combine_parts` | `combine` |
+| the PnetCDF file | {{< code src/output/pnetcdf.cpp PNetcdfSink::write >}} | `PNetcdfSink::write` | `pnetcdf` |
+| the statistics | {{< code src/output/output_type.cpp update_weighted_moments >}}, {{< code src/output/output_type.cpp OutputType::AccumulateStats >}} | `update_weighted_moments`, `AccumulateStats` | `prim_stat`, `scalar_stat` |
+| units and long names | {{< code src/output/output_utils.cpp MetadataTable::MetadataTable >}}, {{< code src/output/output_utils.hpp horizontal_axis_units >}} | `MetadataTable`, `horizontal_axis_units` | none |
+
+: Code map of the output writers. {#tbl-ch15-output-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `test_user_output.release` `OutputSlice.*` | a slice selects the cell whose upper face is first above the position and collapses the axis; several axes combine; a block missed by every plane writes nothing; reduced grids keep their axes; uneven lists are combined across blocks; a scalar or invalid list is refused; a slice with a sum on the same axis is refused | `EXPECT_EQ` on shapes and indices, `EXPECT_THROW` | the `OutputSlice` suite ({{< code tests/test_user_output.cpp >}}) |
+| `test_user_output.release` `OutputScheduleKey.precise_cadences_do_not_collide` | two intervals that differ below $10^{-6}$ share the legacy schedule key and differ in the exact one | `EXPECT_EQ`, `EXPECT_NE` on the keys | {{< code tests/test_user_output.cpp OutputScheduleKey.precise_cadences_do_not_collide >}} |
+| `test_user_output.release` `OutputPrecision.yaml_double_precision_defaults_off_and_is_reported` | `double_precision` is off by default, read from the deck, and reported | `EXPECT_FALSE`/`TRUE`, string containment | {{< code tests/test_user_output.cpp OutputPrecision.yaml_double_precision_defaults_off_and_is_reported >}} |
+| `test_user_output.release` `OutputSlice.netcdf_writes_selected_coordinate_and_collapsed_dimension` | the file holds the selected coordinate and the collapsed dimension | `EXPECT_EQ` (exact) | {{< code tests/test_user_output.cpp OutputSlice.netcdf_writes_selected_coordinate_and_collapsed_dimension >}} |
+| `test_user_output.release` `OutputPrecision.netcdf_float_output_keeps_nonfinite` | with the default float storage a planted $+\infty$ and NaN survive, every other value is $\mathrm{fl}_{32}(1/3)$, and the file holds the interior only (72 values of a $6 \times 3 \times 4$ interior) | `EXPECT_EQ` to `float(1.0/3.0)`; `isinf`, `isnan`; 6 special values | {{< code tests/test_user_output.cpp OutputPrecision.netcdf_float_output_keeps_nonfinite >}} |
+| `test_user_output.release` `OutputPrecision.netcdf_double_precision_reads_back_exactly` | with `double_precision: true` the field reads back bit for bit (steps of $1/3$) and `time` is exactly $1/3$ | `torch::equal` (bitwise), `EXPECT_EQ` on `time` | {{< code tests/test_user_output.cpp OutputPrecision.netcdf_double_precision_reads_back_exactly >}} |
+| `test_user_output.release` `OutputPrecision.netcdf_output_without_netcdf_writes_nothing` (NETCDF=OFF builds only) | a netcdf output writes no file | file absence | {{< code tests/test_user_output.cpp OutputPrecision.netcdf_output_without_netcdf_writes_nothing >}} |
+| `test_user_output.release` `OutputSelection.*` | the hydro fields depend on the EOS and on `prim`/`cons`; scalar fields follow the same requests; `prim_stat` and `scalar_stat` are written only when named | `EXPECT_EQ` on field lists (exact) | the `OutputSelection` suite ({{< code tests/test_user_output.cpp >}}) |
+| `test_user_output.release` `OutputStatistics.*` | the primitive and scalar statistics are time-weighted and reset at a write: mean $13/3$ and deviation $\sqrt{8/9}$ for the test's three states, and mean $10^9 + 2$ with deviation 1 for the offset case | `EXPECT_NEAR` $10^{-12}$ (mean, deviation), $10^{-6}$ (the $10^9$ mean) | {{< code tests/test_user_output.cpp OutputStatistics.primitive_statistics_are_time_weighted_and_reset >}}, {{< code tests/test_user_output.cpp OutputStatistics.scalar_statistics_are_time_weighted_and_reset >}} |
+| `test_user_output.release` `OutputDiagnostics.*` | `theta_v` uses the dry gas constant; the divergence of a uniform Cartesian velocity is zero; the curl of solid-body rotation; gnomonic diagnostics are finite | `EXPECT_NEAR` $10^{-10}$ (`theta_v`), the test's bounds for `div` and `curl` | the `OutputDiagnostics` suite ({{< code tests/test_user_output.cpp >}}) |
+| `test_combine_parts.release` `CombineParts.*` (10 cases: Straka with 2 blocks, with ghost zones, in double precision, with an $x_2$ slice; shallow-water with 4 and 6 blocks; two-process decompositions; uneven slice lists) | the parts written with `combine: false` are joined into a file that holds every part's values byte for byte at the part's `domain_decomposition` offset, and the parts are removed | byte comparison; `EXPECT_TRUE(parts_in(...).empty())` | `expect_merged` ({{< code tests/test_combine_parts.cpp expect_merged >}}) and the `CombineParts` suite ({{< code tests/test_combine_parts.cpp >}}) |
+| `test_netcdf_axis_attrs` | on a slab deck and a cubed-sphere deck, for `netcdf` and (when built) `pnetcdf`, `x2f` and `x3f` carry the `long_name` of the X and Y axes, the horizontal `units` are `m` or `radian`, and `press` is in `Pa` | exact strings; `pnetcdf` is skipped without `PNETCDF=ON` | `check_files` ({{< code tests/test_netcdf_axis_attrs.py check_files >}}) and `main` ({{< code tests/test_netcdf_axis_attrs.py main >}}) |
+| `test_netcdf_cubed_lonlat_python` | on a gnomonic deck with two blocks stacked in $x_1$ (`layout: cubed`), each block's file and the combined file hold the coordinate's `lon` and `lat` in the file's precision | `np.array_equal` after the cast to the file dtype | `check` ({{< code tests/test_netcdf_cubed_lonlat.py check >}}) and `main` ({{< code tests/test_netcdf_cubed_lonlat.py main >}}) |
+
+: Tests of the output writers and the tolerance each uses. {#tbl-ch15-output-tests}
+
+Every ctest entry of this table passed at the pin on a serial CPU run with NetCDF and PnetCDF built in: 16 of
+the 16 tests selected for this chapter, among them `test_user_output.release`, `test_combine_parts.release`,
+`test_netcdf_axis_attrs` (both writers) and `test_netcdf_cubed_lonlat_python`.[^ch15-output-run] The
+`netcdf_output_without_netcdf_writes_nothing` case is compiled only without NetCDF and so did not run in
+that build.
+
+[^ch15-output-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own decks; run: `ctest -j 1 --timeout 1800 -R 'test_options_table|test_options_defaults|test_yaml_keys|test_user_output|test_combine_parts|test_restart_bundle|test_netcdf_cubed_lonlat|test_fp32_restart|test_restart_resume_schedule|test_restart_|test_netcdf_axis_attrs'` from the build directory of a CPU build (`-DCUDA=OFF -DNETCDF=ON -DPNETCDF=ON -DBUILD_EXAMPLES=ON -DCMAKE_BUILD_TYPE=Release`), one process, the driver tests through `torchrun`; torch 2.10.0+cu128, kintera 2.6.13, pyharp 2.7.17, snapy 2.14.4] All 16 passed. The statistics recurrence @eq-ch15-output-stats has no committed independent check at the pin; adding one
+(the two-pass weighted mean and deviation against the recurrence over unequal steps) is a to-do of this section.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- `include_ghost_zones` is only meaningful for cell-centred fields; the range widening of `output_range`
+  ({{< code src/output/writer_core.cpp output_range >}}) does not follow the face and reduced grids.
+- The `pnetcdf` writer is float only, takes no slices and needs one block per process (above).
+- An interval shorter than the step makes an output fire at every step until $t_{\mathrm{next}}$ catches up; it
+  does not skip ahead (@eq-ch15-output-schedule).
+- The statistics sample accepted states only, weighted by the step that ends at them; stage states inside a
+  step do not enter.
+- The combine requires one time record per part and the same variable structure in every part; `combine_parts`
+  ({{< code src/output/combine_parts.cpp combine_parts >}}) reads the structure from the first part only.
+- Only the netcdf, pnetcdf, restart and budget types exist; another `type` stops the run when the block is built.
+:::
+
+<!-- reader glossary notes -->
+[^rg-365809d1fc61]: output_dir — directory the output and restart files are written to
+
+[^rg-57a20e47aa5c]: variables — variables requested by an output stream
+
+[^rg-817326ac21bd]: $i, j, k$ — cell indices in $x_1, x_2, x_3$
+
+[^rg-f7f8891d4759]: x1 — first-coordinate positions of the profile knots
+<!-- end reader glossary notes -->

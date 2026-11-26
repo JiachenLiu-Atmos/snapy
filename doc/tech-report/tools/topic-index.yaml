@@ -567,6 +567,23 @@ sections:
   sec-ch16-ch12-tests:
     - verification, configuration
 
+  # Chapter 15. Configuration, output and restart
+  sec-ch15-options:
+    - deck file, how keys are read: [YAML deck, option tables, gen_options]
+    - unknown key, refused: [check_keys, unknown key error]
+    - defaults, where they are defined: [option defaults, report text]
+    - execution key: [integration/execution, cuda-graph, eager]
+  sec-ch15-output:
+    - output files, NetCDF and PnetCDF: [netcdf writer, pnetcdf writer, output frames]
+    - output, time-weighted statistics: [prim_stat, scalar_stat]
+    - output slices and sums: [x1_slice, output_sumx1, include_ghost_zones]
+    - output files, combining the blocks: [combine, domain_decomposition, NumFilesInSet]
+    - output precision: [double_precision, float32 output]
+  sec-ch15-restart:
+    - restart, what it saves: [restart bundle, hydro_u_stored, restart metadata]
+    - restart, schedule after resume: [file numbers after restart, schedule keys]
+    - restart, refused files: [reference grid mismatch, restart metadata version]
+
   # Chapter 16. Known limits
   sec-ch17-wrong:
     - known limits, wrong results possible: [known bugs, pitfalls]

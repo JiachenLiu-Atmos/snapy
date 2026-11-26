@@ -1,0 +1,342 @@
+## Options schema and YAML keys (the deck file) {#sec-ch15-options}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (code_pin.yml)
+sources: src/options/*.yaml, tools/gen_options.py, src/input/check_keys.cpp, src/mesh/meshblock_options.cpp,
+         src/hydro/hydro_options.cpp, src/mesh/meshblock.{hpp,cpp}, src/output/output_type.{hpp,cpp},
+         tests/test_options_table.cpp, tests/test_options_defaults.cpp, tests/test_yaml_keys.cpp, all read at the pin
+status: draft
+author: Sihe Chen
+reviewer: Linfeng Li
+-->
+
+### Summary
+
+A snapy run is configured by one YAML file, the *deck*. Every module that has options reads its own block of the
+deck and refuses any key it does not know. Where a module's options are plain scalars, their names, deck keys,
+types, defaults, documentation and checks are declared once, in a table under `src/options/`, and a generator
+writes the C++ members, the `report()` text, the deck reader, the Python bindings and the Python stub from that
+table. The rule exists so that a default or a check has one home: the table. A reader of the code, of the Python
+stub or of a run's option report sees the same value, because all three come from the same row.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Turns the deck into the option objects of every module, with one definition per option and a refusal
+of every unknown key.
+
+**Data.** In: one YAML file. Out: `MeshBlockOptions` holding the layout, hydro, scalar, integrator, output,
+coordinate and boundary options; a `report()` text per module.
+
+**Placement.** Once, before any block exists: `MeshBlockOptionsImpl::from_yaml` reads the deck, then `MeshBlockImpl`
+runs the setup checks when it is built.
+
+**Activation.** Always. Defaults come from the tables; an absent block leaves its module at its defaults.
+
+**Guarantee / limits.** An unknown key under a checked block stops the run with the key's path; an out-of-range
+value of a checked row stops it with the row's message. Keys the tables do not list are read by hand-written
+readers and are checked by those readers, not by the generator.
+
+**Evidence.** The Tests layer of this section, @tbl-ch15-options-tests.
+:::
+
+This section has no equations and no local symbols. *Aliases.* Lane O and its item O4 (the generated option
+tables) in commit messages.
+
+### Derivation
+
+None: the section describes a schema, not a discretisation. Three rules take the place of a derivation, and each is
+a property of the generated code rather than of the physics.
+
+1. *One row, one option.* A row of a table under `src/options/` declares an option's member name, its deck key,
+   its type, its default, how it is read, its environment-variable override if any, whether it reaches Python,
+   and its documentation: the column list at the head of `gen_options.py` ({{< code tools/gen_options.py >}}).
+   From that row the generator emits the member with its default, the `report()` line, the reader statement,
+   the pybind11 binding and the `.pyi` stub block. A default therefore cannot differ between the C++ object,
+   its report and the Python stub, because none of them is written by hand.
+2. *Every checked block refuses an unknown key.* A reader that calls `check_keys`
+   ({{< code src/input/check_keys.cpp check_keys >}}) on a block compares every key of the block with the keys it
+   reads, plus the keys another reader reads from the same block, and stops at the first key on neither list with
+   the message `unknown key '<path>/<key>'. Valid keys: ...`. A table declares the keys its block hands to other
+   readers under `extra_keys`; in `hydro.yaml` ({{< code src/options/hydro.yaml >}}) these are
+   `equation-of-state`[^rg-5a10d3c13a00], `reconstruct`[^rg-f5a21213da88] and `riemann-solver`[^rg-96a1118440b3], read by their own modules.
+3. *A check runs where its table says.* A row's check belongs to one or more *check sets*: `read`, which runs
+   inside the deck reader right after the row it follows, or a named set the table declares, emitted as a
+   separate function the code calls where that set applies (the `checks` column of `gen_options.py`,
+   {{< code tools/gen_options.py >}}). The output table's `domain` set, for example, needs the resolved global
+   grid, so it runs once per output when the block is built, in `MeshBlockImpl::reset`
+   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}}), not when the deck is read; the set is declared in
+   `output.yaml` ({{< code src/options/output.yaml >}}).
+
+### Numerical method
+
+**The tables at the pin.** Six families of tables sit under `src/options/`: `coord.yaml`
+({{< code src/options/coord.yaml >}}; the `geometry`[^rg-3079dbd32736] block: type, bounds with their `_pi` aliases, cells, `nghost`[^rg-22717fd4f164],
+`interp_order`[^rg-a1f3b7685ff3], the stretched-grid keys `x1rat`[^rg-c80d72cc7be3] and `x1f`), `hydro.yaml` ({{< code src/options/hydro.yaml >}};
+the scalar rows of `dynamics`[^rg-1c007ea215c1]), `layout.yaml` ({{< code src/options/layout.yaml >}}; the `distribute` block),
+`output.yaml` ({{< code src/options/output.yaml >}}; one entry of the `outputs`[^rg-42ad95cc5381] list), `internal_boundary.yaml`
+({{< code src/options/internal_boundary.yaml >}}; `boundary-condition/internal`) and one `forcing_<module>.yaml`
+per forcing module. CMake runs the generator over all of them at configure time and writes the `.inc` files into
+`snap_options/` (the `gen_options` step of the top-level `CMakeLists.txt`, {{< code CMakeLists.txt >}}); a module
+includes its reader and its members from there, as `OutputOptionsImpl` does
+({{< code src/output/output_type.hpp OutputOptionsImpl >}}). The Python stubs carry the generated block between
+two marker comments (`hydro.pyi`, {{< code python/snapy/hydro.pyi >}}; `output.pyi`,
+{{< code python/snapy/output.pyi >}}).
+
+**The `dynamics` rows.** `hydro.yaml` ({{< code src/options/hydro.yaml >}}) declares, with their defaults:
+`verbose` (false), `disable-flux-x1`[^rg-5cf47e45a36b], `-x2`, `-x3` (false; each also zeroes the gravity component of its
+direction, see below), `wb-wall-clamp`[^rg-e2c1522ec93e] (true), `conversion-order`[^rg-e7e0b398ca96] (2; the value 4 selects the fourth-order $x_1$[^rg-7f8e197294fa]
+conversion of @sec-ch04), `anomaly` (false; the environment variable `SNAP_ANOMALY` overrides the deck and the row
+is not bound to Python), `flux-covariance` (true), `x1-mass-covariance` (false; it needs at least three $x_1$ cells
+per block), `perturbation-flux` (false), `precision` (`float64`; @sec-ch12) and `conserve-axial-momentum` (`off`,
+else `transport` or `exact`, with the word aliases `false`/`no` for `off` and `true`/`on`/`yes` for `transport`;
+any other word is refused with a message that names the three values).
+
+**The reading order of a deck.** `MeshBlockOptionsImpl::from_yaml`
+({{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}}) reads the deck in a fixed order:
+
+1. the layout (`distribute`), through `LayoutOptionsImpl::from_yaml`;
+2. the run's base name, the deck's file name without its extension; output files are named from it;
+3. the hydro options, then the scalar options, whose reconstruction defaults to the hydro's horizontal
+   reconstruction when the deck gives none, then the integrator;
+4. `verbose` and the execution keys: `integration/execution` is the key that selects how the integrator runs,
+   `auto`, `eager` or `cuda-graph`, and any other word is refused;
+   `execution-strict` is refused with `eager`, because an eager run is never refused; the member `execution`[^rg-3dca53244575] and
+   its default `auto` are declared in `MeshBlockOptionsImpl`
+   ({{< code src/mesh/meshblock.hpp MeshBlockOptionsImpl::execution >}}), and @sec-ch11 gives what each value
+   does;
+5. the `outputs` list: entry $n$ of the list becomes output `out<n>`; the position, not a key, sets its file id,
+   in `OutputOptionsImpl::from_yaml` ({{< code src/output/output_type.cpp OutputOptionsImpl::from_yaml >}});
+6. the coordinate (`geometry`) and the internal boundary;
+7. the external boundaries: the `boundary-condition` block admits `external`[^rg-ea7e99c37c8d] and `internal`[^rg-32e65e1b6134], the `external`
+   block admits `x1-inner`[^rg-0e5e2673a49c] ... `x3-outer`[^rg-d42c6e4726b6], each defaulting to `reflecting`; a dimension with one cell that lies
+   below an active one keeps two empty slots, so the face index is the same for every deck; `periodic` marks
+   the layout; the name with its side appended (`reflecting_inner`, ...) must be a registered boundary function,
+   else the run stops. Which function does what is @sec-ch14.
+
+The hydro reader, `HydroOptionsImpl::from_yaml` ({{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}}),
+reads, in order, the equation of state, the vertical and horizontal reconstruction, the Riemann solver, the
+implicit correction and the sedimentation options, then the `dynamics` rows through the generated reader, then the
+`forcing`[^rg-f1deea8dad7e] block: it must be a map; the retired key `fric-heat` is refused with a message that says why; the twelve
+forcing keys are checked; each forcing module reads its own block, and a `plume-forcing` block is read only with
+the `plume-eos` equation of state. When a direction's flux is disabled, the gravity component of that direction is
+set to zero after the gravity block is read.
+
+**Reporting.** With `verbose: true` every module prints its `report()` text, the generated `* name = value` lines
+under the table's title, as the deck is read: the generator writes each table's `report()` in `emit_members`
+({{< code tools/gen_options.py emit_members >}}), and `MeshBlockOptionsImpl::from_yaml`
+({{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}}) calls it for each module it has
+read. The expected text of the defaults is pinned by
+a test (below).
+
+### Code
+
+**How to use it.** A minimal deck names the geometry, the dynamics and the boundaries; everything else takes its
+table default:
+
+<!-- reader glossary keys -->Keys in this fragment: `type`[^rg-c82d9b68904e], `bounds`[^rg-809be4d3f9f0], `x1min`[^rg-10ab5bffdcb5], `x1max`[^rg-d79568ee973b], `x2min`[^rg-b115e17b940c], `x2max`[^rg-af2dc6224b7d], `x3min`[^rg-76518649f79f], `x3max`[^rg-1bbca3a08d89], `cells`[^rg-a1f4e77675c4], `nx1`[^rg-c6b56440ed70], `nx2`[^rg-e49c72c32257], `nx3`[^rg-d0681286875c], `vertical`[^rg-8fd6ffd55072], `horizontal`[^rg-ff5f79e61217], `const-gravity`[^rg-dee65088947a], `grav1`[^rg-bc3127656067], `x1-outer`[^rg-9f9cfab229ca], `x2-inner`[^rg-578811b43af6], `x2-outer`[^rg-0e6812dc53be], `integration`[^rg-f528a638e9c3], `cfl`[^rg-b703d495f357], `tlim`[^rg-c07a7b10dcd1].
+```yaml
+geometry:
+  type: cartesian
+  bounds: {x1min: 0., x1max: 1000., x2min: 0., x2max: 1000., x3min: 0., x3max: 1.}
+  cells: {nx1: 64, nx2: 64, nx3: 1, nghost: 2}
+dynamics:
+  equation-of-state: {type: ideal-gas}
+  reconstruct: {vertical: {type: weno5}, horizontal: {type: weno5}}
+  riemann-solver: {type: hllc}
+  conversion-order: 2          # a hydro.yaml row; 2 is the default
+forcing:
+  const-gravity: {grav1: -9.8}
+boundary-condition:
+  external: {x1-inner: reflecting, x1-outer: reflecting, x2-inner: periodic, x2-outer: periodic}
+integration:
+  type: rk3
+  cfl: 0.4
+  tlim: 600.
+  execution: auto              # the default; eager or cuda-graph are the other values
+```
+
+**What is refused, and why.**
+
+- An unknown key under a checked block, with the key's path in the message (rule 2). The checked blocks the
+  tests exercise are listed in the Tests layer.
+- `integration/execution` outside `auto`, `eager`, `cuda-graph`, and `execution-strict: true` with
+  `execution: eager`, in `MeshBlockOptionsImpl::from_yaml`
+  ({{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}}): strict means "refuse what cannot
+  be captured", and eager never captures.
+- `forcing/fric-heat`: the $x_1$ face gravity work already carries the sedimentation channel of the mass flux, so
+  the key would apply the precipitation potential-energy release twice; `HydroOptionsImpl::from_yaml`
+  ({{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}}) says so in its message.
+- `dynamics/conserve-axial-momentum` outside its three values: the row's check in `hydro.yaml`
+  ({{< code src/options/hydro.yaml >}}).
+- An output entry without `type`, or with both a slice and a sum on one axis, a slice outside the global grid,
+  or slices out of order (@sec-ch15-output).
+- A boundary name that is not registered, in `MeshBlockOptionsImpl::from_yaml`
+  ({{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}}).
+
+**The excerpt.** The execution keys are checked once, by the deck reader `MeshBlockOptionsImpl::from_yaml`
+({{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}}), so a bad value never reaches a
+block:
+
+```cpp
+  if (config["integration"]) {
+    auto intg = config["integration"];
+    op->execution() = intg["execution"].as<std::string>(op->execution());
+    op->execution_strict() =
+        intg["execution-strict"].as<bool>(op->execution_strict());
+  }
+  TORCH_CHECK(op->execution() == "auto" || op->execution() == "eager" ||
+                  op->execution() == "cuda-graph",
+              "integration/execution must be auto, eager or cuda-graph, got '",
+              op->execution(), "'");
+  TORCH_CHECK(!(op->execution() == "eager" && op->execution_strict()),
+              "integration/execution-strict needs execution: cuda-graph "
+              "(eager is never refused)");
+```
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| the option tables | {{< code src/options/hydro.yaml >}}, {{< code src/options/output.yaml >}}, {{< code src/options/coord.yaml >}}, {{< code src/options/layout.yaml >}}, {{< code src/options/internal_boundary.yaml >}} | rows | every table key |
+| the generator | {{< code tools/gen_options.py >}} | `gen_options.py` | run by CMake ({{< code CMakeLists.txt >}}) |
+| unknown keys | {{< code src/input/check_keys.cpp check_keys >}} | `check_keys` | every checked block |
+| the deck | {{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}} | `MeshBlockOptionsImpl::from_yaml` | the whole deck |
+| execution | {{< code src/mesh/meshblock.hpp MeshBlockOptionsImpl::execution >}} | `execution`, `execution_strict` | `integration/execution` |
+| outputs | {{< code src/output/output_type.cpp OutputOptionsImpl::from_yaml >}} | `OutputOptionsImpl::from_yaml` | `outputs` |
+| hydro and forcing | {{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}} | `HydroOptionsImpl::from_yaml` | `dynamics`, `forcing` |
+| dynamics rows | {{< code src/options/hydro.yaml >}} | `read_hydro_rows` | `dynamics/*` |
+| distribute rows | {{< code src/options/layout.yaml >}} | `LayoutOptionsImpl` | `distribute/*` |
+| external boundaries | {{< code src/mesh/meshblock.hpp MeshBlockOptionsImpl::bfuncs >}} | `bfuncs`, `bcnames` | `boundary-condition/external` |
+| report text | {{< code tools/gen_options.py emit_members >}}, {{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}} | `report` | `verbose` |
+
+: Code map of the options schema. {#tbl-ch15-options-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `test_options_table.release` `options_table.pin_defaults` | a default-constructed `OutputOptionsImpl` and `HydroOptionsImpl` hold the tables' defaults (output: `fid` 0, `dt`[^rg-afb2348f9eea] 0, sums and ghosts off, empty slices and variables, `double_precision`[^rg-96965ca8c480] off, `combine` on; hydro: `wb_wall_clamp` on, `conversion_order` 2, `anomaly` off, `precision` `float64`, `flux_covariance` on, `x1_mass_covariance` off, `conserve_axial_momentum` `off`, no gravity, no EOS[^rg-d6598b149464]) | `EXPECT_EQ`, `EXPECT_TRUE`/`FALSE` (exact) | {{< code tests/test_options_table.cpp options_table.pin_defaults >}} |
+| `test_options_table.release` `options_table.pin_report` | the `report()` text of both defaults, line by line | `EXPECT_EQ` on the whole string | {{< code tests/test_options_table.cpp options_table.pin_report >}} |
+| `test_options_table.release` `options_table.hydro_env_row` | `SNAP_ANOMALY` overrides the deck's `anomaly` and keeps its refusal of a bad word | `EXPECT_TRUE`/`FALSE`, `EXPECT_THROW` | {{< code tests/test_options_table.cpp options_table.hydro_env_row >}} |
+| `test_options_table.release` `options_table.axial_mode_words` | `conserve-axial-momentum` accepts `exact` and refuses `full` and the retired closure key, naming the replacement | exact string containment | {{< code tests/test_options_table.cpp options_table.axial_mode_words >}} |
+| `test_options_table.release` `options_table.output_checks`, `output_removed_keys_refused`, `output_domain_checks` | the slice/sum, removed-key and domain checks of an output entry keep their exception type and messages | `EXPECT_STREQ`, `EXPECT_THROW` | {{< code tests/test_options_table.cpp options_table.output_checks >}}, {{< code tests/test_options_table.cpp options_table.output_removed_keys_refused >}}, {{< code tests/test_options_table.cpp options_table.output_domain_checks >}} |
+| `test_options_defaults.release` `OptionsDefaults.*` | the EOS floors default to $10^{-6}$ and $10^{-3}$; a Riemann block without `type` is `hllc`; `flux-covariance: false` changes the $x_2$ flux; `x1-mass-covariance: true` needs three $x_1$ cells; the replaced environment variables neither warn nor act; the scalar's `reconstruct` section takes the dynamics defaults and refuses `scale`[^rg-98eadbdb85b3]; `execution: graph` and strict-with-eager are refused by the reader, `execution: eager` is read | `EXPECT_EQ` (exact), `EXPECT_THROW`, `torch::equal` (bitwise) for the flux comparison | the `OptionsDefaults` suite ({{< code tests/test_options_defaults.cpp >}}) |
+| `test_yaml_keys.release` `yaml_keys.*` | the test deck loads; a misspelt key under each of 25 checked blocks (`forcing/*`, `geometry`, `geometry/cells`, `geometry/bounds`, `dynamics/reconstruct` and its two children, `dynamics/riemann-solver`, `outputs/0`, `boundary-condition` and `/internal` and `/external`, `scalar`[^rg-4332d59d9d1a] and its children) is refused with `unknown key '<block>/<key>'` | exact string containment | `expect_refused` ({{< code tests/test_yaml_keys.cpp expect_refused overload=1 >}}) and the `yaml_keys` suite ({{< code tests/test_yaml_keys.cpp >}}) |
+
+: Tests of the options schema and the tolerance each uses. {#tbl-ch15-options-tests}
+
+Every ctest entry of this table passed at the pin on a serial CPU[^rg-401f567dfb65] run: 16 of the 16 tests selected for this
+chapter, among them `test_options_table.release`, `test_options_defaults.release` and
+`test_yaml_keys.release`.[^ch15-options-run]
+
+[^ch15-options-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own decks; run: `ctest -j 1 --timeout 1800 -R 'test_options_table|test_options_defaults|test_yaml_keys|test_user_output|test_combine_parts|test_restart_bundle|test_netcdf_cubed_lonlat|test_fp32_restart|test_restart_resume_schedule|test_restart_|test_netcdf_axis_attrs'` from the build directory of a CPU build (`-DCUDA=OFF -DNETCDF=ON -DPNETCDF=ON -DBUILD_EXAMPLES=ON -DCMAKE_BUILD_TYPE=Release`), one process, the driver tests through `torchrun`; torch 2.10.0+cu128, kintera 2.6.13, pyharp 2.7.17, snapy 2.14.4] All 16 passed; this table's three took under a second each.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- Only the tables' rows are generated. The sub-module options (equation of state, reconstruction, Riemann
+  solver, implicit, sedimentation, the scalar module, the integrator) keep hand-written readers; their
+  defaults live in their own files, and a key check there is that reader's, not the generator's.
+- A deck is read once. Options built directly in code (a test, a Python script) skip the deck reader's checks,
+  except the output domain checks, `OutputOptionsImpl::check_domain`
+  ({{< code src/output/output_type.hpp OutputOptionsImpl::check_domain >}}), which the block runs for every
+  output however it was built.
+- `distribute/backend` is accepted and ignored; the process-group backend comes from the `BACKEND` environment
+  variable (the `backend` row of `layout.yaml`, {{< code src/options/layout.yaml >}}; @sec-appd).
+- `conversion-order`, `x1-mass-covariance` and the stretched-grid keys have further setup checks in the hydro
+  and coordinate modules (@sec-ch04 and @sec-ch03); the reader admits any integer or list, and the module refuses
+  what it cannot run.
+:::
+
+<!-- reader glossary notes -->
+[^rg-5a10d3c13a00]: equation-of-state — equation-of-state options
+
+[^rg-f5a21213da88]: reconstruct — reconstruction options
+
+[^rg-96a1118440b3]: riemann-solver — Riemann-solver options within the enclosing dynamics or scalar block
+
+[^rg-3079dbd32736]: geometry — coordinate-system and grid options
+
+[^rg-22717fd4f164]: nghost — number of ghost cells at each boundary
+
+[^rg-a1f3b7685ff3]: interp_order — order used for grid interpolation
+
+[^rg-c80d72cc7be3]: x1rat — ratio of adjacent $x_1$ cell widths of a geometric stretched $x_1$ (in `geometry/cells`)
+
+[^rg-1c007ea215c1]: dynamics — hydrodynamic options block
+
+[^rg-42ad95cc5381]: outputs — output-stream configuration
+
+[^rg-5cf47e45a36b]: disable-flux-x1 — whether the first-coordinate flux is disabled
+
+[^rg-e2c1522ec93e]: wb-wall-clamp — whether to clamp the well-balanced wall continuation
+
+[^rg-e7e0b398ca96]: conversion-order — order of the $x_1$ cell-average to point conversion of the primitives: 2 (default) or 4
+
+[^rg-7f8e197294fa]: $x_1, x_2, x_3$ — the three coordinate directions; $x_1$ is always the vertical (radial) direction
+
+[^rg-3dca53244575]: execution — run mode of the integrator: auto, eager or cuda-graph
+
+[^rg-ea7e99c37c8d]: external — boundary-function names for external domain faces
+
+[^rg-32e65e1b6134]: internal — internal-boundary options
+
+[^rg-0e5e2673a49c]: x1-inner — boundary name on the inner first-coordinate face
+
+[^rg-d42c6e4726b6]: x3-outer — boundary name on the outer third-coordinate face
+
+[^rg-f1deea8dad7e]: forcing — forcing options block: a map with one sub-block per forcing component
+
+[^rg-c82d9b68904e]: type — implementation selector for the enclosing options block
+
+[^rg-809be4d3f9f0]: bounds — coordinate bounds
+
+[^rg-10ab5bffdcb5]: x1min — lower bound of the first coordinate
+
+[^rg-d79568ee973b]: x1max — upper bound of the first coordinate
+
+[^rg-b115e17b940c]: x2min — lower bound of the second coordinate
+
+[^rg-af2dc6224b7d]: x2max — upper bound of the second coordinate
+
+[^rg-76518649f79f]: x3min — lower bound of the third coordinate
+
+[^rg-1bbca3a08d89]: x3max — upper bound of the third coordinate
+
+[^rg-a1f4e77675c4]: cells — cell counts and ghost-width options
+
+[^rg-c6b56440ed70]: nx1 — number of cells in the first coordinate direction
+
+[^rg-e49c72c32257]: nx2 — number of cells in the second coordinate direction
+
+[^rg-d0681286875c]: nx3 — number of cells in the third coordinate direction
+
+[^rg-8fd6ffd55072]: vertical — options for the vertical reconstruction
+
+[^rg-ff5f79e61217]: horizontal — options for the horizontal reconstruction
+
+[^rg-dee65088947a]: const-gravity — constant-gravity forcing component
+
+[^rg-bc3127656067]: grav1 — gravity component along the first coordinate
+
+[^rg-9f9cfab229ca]: x1-outer — boundary name on the outer first-coordinate face
+
+[^rg-578811b43af6]: x2-inner — boundary name on the inner second-coordinate face
+
+[^rg-0e6812dc53be]: x2-outer — boundary name on the outer second-coordinate face
+
+[^rg-f528a638e9c3]: integration — time-integration options
+
+[^rg-b703d495f357]: cfl — Courant-number limit for the time step
+
+[^rg-c07a7b10dcd1]: tlim — simulation end time
+
+[^rg-afb2348f9eea]: dt — time-step duration
+
+[^rg-96965ca8c480]: double_precision — whether an output stream writes NetCDF variables as `NC_DOUBLE` instead of `NC_FLOAT` (default false)
+
+[^rg-d6598b149464]: EOS — equation of state
+
+[^rg-98eadbdb85b3]: scale — scaling in the enclosing component: a reconstruction switch or values of a thermal-transport profile
+
+[^rg-4332d59d9d1a]: scalar — passive-scalar options
+
+[^rg-401f567dfb65]: CPU — central processing unit
+<!-- end reader glossary notes -->
