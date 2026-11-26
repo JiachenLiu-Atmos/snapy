@@ -113,3 +113,101 @@ def test_every_read_at_link_of_the_committed_fragment_names_its_anchor():
     import check_citations as cc
     links = [c for c in cc.find_citations(g.FRAGMENT) if c.form == "url" and c.ranges]
     assert links and all(c.anchor for c in links), [c.text for c in links if not c.anchor][:3]
+
+
+# --- the options schema (src/options/*.yaml) and the parsers' struct defaults -----------------------------------
+
+GEN_OPTIONS = r'''
+import yaml
+from pathlib import Path
+
+
+def row(d):
+    r = dict(read="fallback" if d.get("key") else "none", alias={})
+    r.update(d)
+    return r
+
+
+def load_tables(paths):
+    out = []
+    for p in paths:
+        for d in yaml.safe_load_all(Path(p).read_text()):
+            d = dict(dict(extra_keys={}, checks=[]), **d)
+            d["rows"] = [row(r) for r in d["options"]]
+            out.append(d)
+    return out
+
+
+def lit(r, v):
+    if isinstance(v, dict) and "cpp" in v:
+        return v["cpp"]
+    if v is None:
+        return None
+    if r["type"] == "string":
+        return '"' + str(v) + '"'
+    return {"bool": lambda: "true" if v else "false", "int": lambda: str(int(v)),
+            "double": lambda: repr(float(v))}[r["type"]]()
+'''
+
+SCHEMA = r'''module: bar
+yaml_node: foo/bar
+extra_keys:
+  "": [inner, dead]
+options:
+  - {name: speed, key: speed, type: double, default: 2., doc: "a fallback"}
+  - {name: mode, key: mode, type: string, default: slow, read: if_present, doc: "kept by the struct"}
+  - {name: list, key: list, type: double, read: if_present, doc: "no default"}
+  - {name: lo, key: inner/lo, alias: {lo_pi: pi}, type: double, default: 0., doc: "a sub-block row"}
+  - {name: need, key: need, type: double, default: 1., doc: "required by a check"}
+checks:
+  - {cond: 'node["need"]', message: "need is required"}
+'''
+
+STRUCT_PARSER = r'''
+BazOptions BazOptionsImpl::from_yaml(YAML::Node const& node) {
+  auto op = BazOptionsImpl::create();
+  check_keys(node, "baz", {"gamma", "type"});
+  op->gamma() = node["gamma"].as<double>(op->gamma());
+  op->type() = node["type"].as<std::string>(op->type());
+  return op;
+}
+'''
+
+
+def schema_tree(tmp_path):
+    t = tree(tmp_path)
+    (t / "tools").mkdir()
+    (t / "tools" / "gen_options.py").write_text(GEN_OPTIONS)
+    (t / "src" / "options").mkdir()
+    (t / "src" / "options" / "bar.yaml").write_text(SCHEMA)
+    (t / "src" / "baz").mkdir()
+    (t / "src" / "baz" / "baz.cpp").write_text(STRUCT_PARSER)
+    (t / "src" / "baz" / "baz.hpp").write_text(
+        'struct BazOptionsImpl {\n  ADD_ARG(double, gamma) = 1.4;\n  ADD_ARG(std::string, type) = "hllc";\n};\n')
+    (t / "src" / "foo" / "other.hpp").write_text('struct X {\n  ADD_ARG(std::string, type) = "roe";\n};\n')
+    sys.modules.pop("gen_options", None)
+    return t
+
+
+def test_the_schema_rows_are_keys_with_their_defaults(tmp_path):
+    rows = {f"{r['path']}/{r['key']}": r for r in g.extract(schema_tree(tmp_path))}
+    d = {k: (r["default"]["kind"], r["default"]["value"]) for k, r in rows.items() if k.startswith("foo/bar")}
+    assert d["foo/bar/speed"] == ("fallback", "2.0")
+    assert d["foo/bar/mode"] == ("struct", '"slow"')
+    assert d["foo/bar/list"] == ("guarded", "")
+    assert d["foo/bar/inner/lo"] == ("fallback", "0.0")
+    assert d["foo/bar/inner/lo_pi"] == ("guarded", "")
+    assert d["foo/bar/need"] == ("required", "")
+    assert d["foo/bar/inner"] == ("block", "")
+    assert d["foo/bar/dead"] == ("unread", "")
+    cited = rows["foo/bar/dead"]["default"]
+    line = (tmp_path / cited["file"]).read_text().split("\n")[cited["line"] - 1]
+    assert "dead" in line  # the extra_keys line that names the key
+
+
+def test_a_struct_fallback_is_the_options_default_of_the_parsers_own_struct(tmp_path):
+    rows = {f"{r['path']}/{r['key']}": r for r in g.extract(schema_tree(tmp_path))}
+    assert (rows["baz/gamma"]["default"]["kind"], rows["baz/gamma"]["default"]["value"]) == ("struct", "1.4")
+    # `type` is a member of two structs; the one beside the parser wins
+    assert rows["baz/type"]["default"]["value"] == '"hllc"'
+    assert rows["baz/type"]["default"]["file"] == "src/baz/baz.hpp"

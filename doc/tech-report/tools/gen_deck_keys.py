@@ -202,6 +202,17 @@ def _default(key, node, body, body_off, text, rel, ctx, depth=0) -> dict:
         if m:
             val = m[1].strip() if how == "arg" and m[1] else value
             return {"kind": "fallback", "value": val, "file": rel, "line": at(m.start())}
+    # a key named in a local array of keys (`char const* keys[3] = {...}`) whose node is iterated: a map
+    if re.search(r'\w+\s*\[\d*\]\s*=\s*\{[^}]*"%s"' % k, body) and re.search(
+            r'for\s*\([^:;]+:\s*%s\[\w+(?:\[\w+\])?\]\s*\)' % n, body):
+        m = re.search(r'for\s*\([^:;]+:\s*%s\[\w+(?:\[\w+\])?\]\s*\)' % n, body)
+        return {"kind": "map", "value": "", "file": rel, "line": at(m.start())}
+    # the key built at run time (`"x" + ... + side`) and read once as `node[var].as<T>(fallback)`
+    computed = [(v, f) for v, f in re.findall(r'%s\[(\w+)\]\.as<[^>]+>\(([^()]*)\)' % n, body)
+                if f.strip() and re.search(r'\bauto\s+%s\s*=\s*"' % v, body)]  # a key built from a literal
+    if computed and len({f for _, f in computed}) == 1 and f'"{key}"' not in body.replace('"' + key + '"', '', 1):
+        m = re.search(r'%s\[\w+\]\.as<[^>]+>\(' % n, body)
+        return {"kind": "fallback", "value": computed[0][1].strip(), "file": rel, "line": at(m.start())}
     m = re.search(r'TORCH_CHECK\(\s*%s\["%s"\]\s*,\s*"[^"]*required' % (n, k), body)
     if m:
         return {"kind": "required", "value": "", "file": rel, "line": at(m.start())}
@@ -238,6 +249,12 @@ def _default(key, node, body, body_off, text, rel, ctx, depth=0) -> dict:
     if len({a for a, *_ in found}) == 1:
         arg, f, ln = sorted(found)[0]
         return {"kind": "fallback", "value": arg, "file": f, "line": ln}
+    # read in another parser through its own node variable, `<node>["key"].as<T>(fallback)`, with one fallback
+    found = {(m[1], f, _line(t, m.start())) for f, t in texts
+             for m in re.finditer(r'\w+\["%s"\]\s*\.as<[^>]+>\(([^()]*(?:\(\))?)\)' % k, t)}
+    if found and len({a for a, *_ in found}) == 1 and body.count(f'"{key}"') == 1:
+        arg, f, ln = sorted(found)[0]
+        return {"kind": "fallback", "value": arg, "file": f, "line": ln}
     if body.count(f'"{key}"') == 1:  # named only in the check_keys list
         return {"kind": "unread", "value": "", "file": rel, "line": 0}
     return {"kind": "none", "value": "", "file": rel, "line": 0}
@@ -267,8 +284,106 @@ def _anchor(line: str, key: str) -> str | None:
     return names[0] if names else None
 
 
+#: check_keys calls whose path is the parser's parameter: the paths its callers pass at the pin, each with the file
+#: whose first brace list after the parser's name gives the keys (None: the keys are the call's own list)
+PARAM_PATHS = {
+    "src/riemann/riemann.cpp": [("dynamics/riemann-solver", None), ("scalar/riemann-solver", None)],
+    "src/recon/reconstruct.cpp": [("dynamics/reconstruct/<section>", "src/recon/reconstruct.hpp"),
+                                  ("scalar/reconstruct", "src/scalar/scalar_options.cpp")],
+}
+
+
+def _load_schema(tree: Path):
+    """(file, lines, tables) of src/options/*.yaml, read with the tree's own loader (tools/gen_options.py)."""
+    tables_dir = tree / "src" / "options"
+    if not tables_dir.is_dir():
+        return None, []
+    sys.path.insert(0, str(tree / "tools"))
+    try:
+        import gen_options
+    finally:
+        sys.path.pop(0)
+    return gen_options, [(f, f.read_text().split("\n"), gen_options.load_tables([f]))
+                         for f in sorted(tables_dir.glob("*.yaml"))]
+
+
+def _schema_nodes(tree: Path) -> set[str]:
+    """Every deck node the schema reads: each table's node and the sub-blocks of its rows."""
+    _, tables = _load_schema(tree)
+    out = set()
+    for _, _, ts in tables:
+        for t in ts:
+            base = t["yaml_node"].replace("[]", "/<fid>")
+            out.add(base)
+            for r in t["rows"]:
+                if r.get("key") and "/" in r["key"]:
+                    out.add(base + "/" + r["key"].rsplit("/", 1)[0])
+    return out
+
+
+def _schema_rows(tree: Path, paths: set[str]) -> list[dict]:
+    """The keys of the options schema, src/options/*.yaml, read with the tree's own loader (tools/gen_options.py)."""
+    gen_options, tables = _load_schema(tree)
+    rows = []
+    for f, lines, ts in tables:
+        rel = f.relative_to(tree).as_posix()
+        for t in ts:
+            # a check whose condition is the key's presence makes it required (`node["btemp"]`)
+            required = {m[1] for c in t["checks"] for m in [re.fullmatch(r'node\["([^"]+)"\]', str(c.get("cond", "")))]
+                        if m}
+            base = t["yaml_node"].replace("[]", "/<fid>")
+            def at(word, start=0):
+                for i in range(start, len(lines)):
+                    if re.search(r"(?<![\w-])" + re.escape(word) + r"(?![\w-])", lines[i]):
+                        return i + 1
+                return 0
+            opt0 = at("options:")
+            accepted = {}
+            for r in t["rows"]:
+                if not r.get("key"):
+                    continue  # an environment-only row: no deck key
+                *sub, key = r["key"].split("/")
+                path = "/".join([base] + sub)
+                line = at("key: " + r["key"], opt0) or at(key, opt0)
+                read = r["read"]
+                if read == "required" or r["key"] in required:
+                    d = {"kind": "required", "value": ""}
+                elif read in ("if_present", "optional"):
+                    v = gen_options.lit(r, r.get("default")) if r.get("default") is not None else None
+                    d = {"kind": "struct", "value": v} if v is not None else {"kind": "guarded", "value": ""}
+                else:
+                    v = r.get("read_default") if r.get("read_default") is not None else r.get("default")
+                    v = gen_options.lit(r, v)
+                    d = {"kind": "fallback", "value": v} if v is not None else {"kind": "guarded", "value": ""}
+                d.update(file=rel, line=line)
+                accepted[(path, key)] = {"path": path, "key": key, "reader": "snapy", "check": f"{rel}:{line}",
+                                         "default": d, "anchor": key}
+                for akey in r["alias"]:
+                    aline = at(akey, opt0) or line
+                    accepted[(path, akey)] = {"path": path, "key": akey, "reader": "snapy", "check": f"{rel}:{aline}",
+                                              "default": {"kind": "guarded", "value": "", "file": rel, "line": aline},
+                                              "anchor": akey}
+            for sub, keys in t["extra_keys"].items():
+                path = "/".join([base] + ([sub] if sub else []))
+                ek = at("extra_keys:")
+                for key in keys:
+                    line = at(key, ek) or ek  # the line of the extra_keys list that names the key
+                    if (path, key) in accepted:
+                        continue
+                    full = f"{path}/{key}"
+                    nested = any(_matches(p, full) or p.startswith(full + "/") for p in paths) or any(
+                        k[0] == full or k[0].startswith(full + "/") for k in accepted)
+                    kind = "block" if nested else "unread"
+                    accepted[(path, key)] = {"path": path, "key": key, "reader": "snapy", "check": f"{rel}:{line}",
+                                             "default": {"kind": kind, "value": "", "file": rel, "line": line},
+                                             "anchor": key}
+            rows += list(accepted.values())
+    return rows
+
+
 def extract(tree: Path) -> list[dict]:
-    """One record per (block path, key) accepted by a check_keys call under src/."""
+    """One record per (block path, key): the options schema's rows, and every key a check_keys call under src/
+    accepts that the schema does not."""
     files = sorted(p for p in (tree / "src").rglob("*.cpp") if p.relative_to(tree).parts[:2] != ("src", "input"))
     texts = [(p.relative_to(tree).as_posix(), p.read_text(errors="replace")) for p in files]
     members = _add_arg_defaults(tree)
@@ -280,8 +395,19 @@ def extract(tree: Path) -> list[dict]:
             args = _args(text[m.end():end - 1])
             if len(args) < 3:
                 continue
-            calls.append((rel, text, m.start(), _path(args[1]), args))
-    paths = {c[3] for c in calls}
+            path = _path(args[1])
+            if not [seg for seg in path.split("/") if not seg.startswith("<")]:  # the path is a parameter
+                for p, keys_from in PARAM_PATHS[rel]:  # KeyError: a new parameter-path parser to map
+                    a = list(args)
+                    if keys_from:
+                        src = (tree / keys_from).read_text(errors="replace")
+                        name = "from_node" if "reconstruct" in rel else "from_yaml"
+                        i = src.index(name + "(")
+                        a[2] = src[src.index("{", i):src.index("}", src.index("{", i)) + 1]
+                    calls.append((rel, text, m.start(), p, a))
+                continue
+            calls.append((rel, text, m.start(), path, args))
+    paths = {c[3] for c in calls} | _schema_nodes(tree)
     rows = []
     for rel, text, pos, path, args in calls:
         start, end = _function_body(text, pos)
@@ -301,6 +427,16 @@ def extract(tree: Path) -> list[dict]:
                     rec["default"] = {"kind": "block", "value": "", "file": rel, "line": _line(text, pos)}
                 else:
                     rec["default"] = _default(k, args[0], body, start, text, rel, ctx)
+                    d = rec["default"]
+                    mm = d["kind"] == "fallback" and re.fullmatch(r"op->(?:\w+\(\)->)*(\w+)\(\)", d["value"])
+                    if mm:  # the options struct's default; a member name several structs share: the parser's own
+                        cands = members.get(mm[1], [])
+                        if len({v for v, *_ in cands}) > 1:
+                            here = rel.rsplit("/", 1)[0] + "/"
+                            cands = [c for c in cands if c[1].startswith(here)]
+                        if len({v for v, *_ in cands}) == 1:
+                            value, hpath, hline = cands[0]
+                            rec["default"] = {"kind": "struct", "value": value, "file": hpath, "line": hline}
                     # a placeholder block (`forcing/diffusion/<key>`) is this key when the parser reads it as a
                     # node, not as a value: no scalar fallback for it
                     d = rec["default"]
@@ -316,7 +452,9 @@ def extract(tree: Path) -> list[dict]:
                 if anchor:
                     rec["anchor"] = anchor
                 rows.append(rec)
-    return rows
+    schema = _schema_rows(tree, paths)
+    have = {(r["path"], r["key"]) for r in schema}
+    return schema + [r for r in rows if (r["path"], r["key"]) not in have]
 
 
 def refresh(checkout: Path | None) -> int:
