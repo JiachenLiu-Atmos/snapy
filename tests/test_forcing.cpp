@@ -596,6 +596,59 @@ TEST(forcing, relax_bottom_composition_preserves_state) {
   expect_only_bottom(du, block);
 }
 
+// exchange: mole swaps gas mole for mole with a reservoir at the cell's own T
+// and p: after one full relaxation (dt = tau) the vapour holds xfrac of the gas
+// moles, T, p and the velocity are unchanged, the cloud is untouched, and the
+// density moves by the molar-mass difference.
+TEST(forcing, relax_bottom_composition_mole_exchange_keeps_t_and_p) {
+  auto block = make_block();
+  auto w = make_primitive(block);
+  auto peos = block->phydro->peos;
+  auto temp = peos->compute("W->T", {w});
+  auto u = peos->compute("W->U", {w});
+  auto du = torch::zeros_like(w);
+  auto op = RelaxBotCompOptionsImpl::from_yaml(YAML::Load(
+      "relax-bot-comp: {tau: 2., species: [vapor], xfrac: [0.2], "
+      "exchange: mole}"));
+  RelaxBotComp forcing(op, block->phydro.get());
+
+  forcing->forward(du, w, temp, 2.);
+
+  auto updated = peos->compute("U->W", {u + du});
+  auto bot = bottom4(block);
+  auto bot3 = bottom3(block);
+  auto old_bot = w.index(bot);
+  auto new_bot = updated.index(bot);
+
+  auto pthermo = forcing->pthermo_y;
+  auto inv_mu = pthermo->inv_mu.to(w.options());
+  auto conc = [&](torch::Tensor const& wb) {
+    return pthermo->compute("DY->V", {wb[IDN], wb.narrow(0, ICY, 2)}) *
+           inv_mu;
+  };
+  auto c_old = conc(old_bot), c_new = conc(new_bot);
+  auto gas_old = c_old.narrow(-1, 0, 2).sum(-1);
+  auto gas_new = c_new.narrow(-1, 0, 2).sum(-1);
+  EXPECT_TRUE(torch::allclose(gas_new, gas_old, 1.e-12, 0.));
+  EXPECT_TRUE(torch::allclose(c_new.select(-1, 1) / gas_new,
+                              torch::full_like(gas_new, 0.2), 1.e-12, 0.));
+  EXPECT_TRUE(torch::allclose(c_new.select(-1, 2), c_old.select(-1, 2),
+                              1.e-12, 0.));  // cloud untouched
+  EXPECT_FALSE(torch::allclose(new_bot[IDN], old_bot[IDN]));
+  EXPECT_TRUE(torch::allclose(new_bot.narrow(0, IVX, 3),
+                              old_bot.narrow(0, IVX, 3), 1.e-12, 1.e-12));
+  EXPECT_TRUE(torch::allclose(new_bot[IPR], old_bot[IPR], 1.e-12, 0.));
+  EXPECT_TRUE(torch::allclose(peos->compute("W->T", {updated}).index(bot3),
+                              temp.index(bot3), 1.e-12, 0.));
+  expect_only_bottom(du, block);
+}
+
+TEST(forcing, relax_bottom_composition_rejects_unknown_exchange) {
+  EXPECT_ANY_THROW(RelaxBotCompOptionsImpl::from_yaml(YAML::Load(
+      "relax-bot-comp: {tau: 1., species: [vapor], xfrac: [0.1], "
+      "exchange: volume}")));
+}
+
 TEST(forcing, implicit_correction_reports_total_energy_delta) {
   auto make_hydro_block = [](bool implicit) {
     auto options = MeshBlockOptionsImpl::from_yaml("test_diffusion_moist.yaml");

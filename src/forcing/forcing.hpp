@@ -414,12 +414,18 @@ struct RelaxBotCompOptionsImpl {
     os << "-- relax bottom composition options --\n";
     os << "* tau = " << tau() << "\n"
        << "* species = " << fmt::format("{}", species()) << "\n"
-       << "* xfrac = " << fmt::format("{}", xfrac()) << "\n";
+       << "* xfrac = " << fmt::format("{}", xfrac()) << "\n"
+       << "* exchange = " << exchange() << "\n";
   }
 
   ADD_ARG(double, tau) = 0.0;
   ADD_ARG(std::vector<std::string>, species) = {};
   ADD_ARG(std::vector<double>, xfrac) = {};
+  //! mass: swap mass for mass at fixed density and temperature (adds
+  //! (cv_dry - cv_i) T per kg swapped); mole: exchange with a reservoir at
+  //! the cell's own T and p, mole for mole over the gas phase (T and p kept,
+  //! density changes, the exchanged mass keeps the local velocity)
+  ADD_ARG(std::string, exchange) = "mass";
 };
 using RelaxBotCompOptions = std::shared_ptr<RelaxBotCompOptionsImpl>;
 
@@ -446,6 +452,10 @@ class RelaxBotCompImpl : public torch::nn::Cloneable<RelaxBotCompImpl> {
 
   torch::Tensor forward(torch::Tensor du, torch::Tensor w, torch::Tensor temp,
                         double dt);
+
+ private:
+  torch::Tensor forward_mole(torch::Tensor du, torch::Tensor w,
+                             torch::Tensor temp, double dt);
 };
 TORCH_MODULE(RelaxBotComp);
 
