@@ -1761,7 +1761,7 @@
       "notation_group": "8",
       "source": "https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/relax_bot_temp.cpp#L102-L105",
       "meaning_by_file": {
-        "chapters/07-diffusion-forcing/_viscosity.qmd": "a relaxation time scale (named); `tau` in the code"
+        "chapters/07-diffusion-forcing/_viscosity.qmd": "a relaxation time scale (named); it scales the bottom-temperature relaxation `heating` in the code"
       },
       "section": "sec-appa-8"
     },

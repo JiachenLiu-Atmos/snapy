@@ -423,7 +423,7 @@ coefficient by a factor of about 500 (@sec-ch07-wallcoef). No species or tracer 
 
 [^rg-53f5eb4413f2]: $c_v, c_p$ — mixture specific heats **per unit total mass**, $c_v = \sum_n y_n c_{v,n}$ over dry air and every species [J kg$^{-1}$ K$^{-1}$]; a chapter that needs the per-dry-mass form writes it out and says so
 
-[^rg-ca412aea0cc9]: $\tau$ — a relaxation time scale (named); `tau` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/relax_bot_temp.cpp#L102-L105)
+[^rg-ca412aea0cc9]: $\tau$ — a relaxation time scale (named); it scales the bottom-temperature relaxation `heating` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/relax_bot_temp.cpp#L102-L105)
 
 [^rg-34899b57fc9e]: $R_{\mathrm{d}}$, $R_n$ — specific gas constants of dry air and species $n$ [J kg$^{-1}$ K$^{-1}$]; `Rd` and `Ri` in the code; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/eos/ideal_moist.cpp#L40-L43)
 
