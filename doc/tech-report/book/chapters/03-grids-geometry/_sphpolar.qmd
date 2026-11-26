@@ -348,9 +348,9 @@ $(p_{i+1/2}-p_{i-1/2})/\Delta x_{1,i}$, the second checks that two cell pressure
 are given. The face-pressure cases run on CPU and, through the `DeviceTest` parameter, on CUDA when it is built; the
 reference-formula case runs on CPU only. All are one block, one rank. No case checks the $m_2$ and $m_3$ source
 terms. At the pin `test_coordinate.release`, `test_x1_centroid_rest_python` and `test_stretched_x1_ref.release` pass,
-the face-pressure cases also on a GPU.[^sph-run]
+the face-pressure cases also on a GPU.[^sphpolar-run]
 
-[^sph-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
+[^sphpolar-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own inputs; run: `ctest -j1
     --output-on-failure -R <pattern>` with one anchored pattern over the 49 ctests the sections of this chapter cite,
     in the `tests` directory of a README CUDA Release build at the pin; CPU, and one CUDA GPU (Quadro RTX 4000) for the
     CUDA cases, no gtest case skipped; one process, two for the `_mp` entries, up to six for `test_exchange_decomp`;

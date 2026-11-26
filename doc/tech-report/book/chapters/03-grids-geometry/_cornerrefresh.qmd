@@ -49,7 +49,7 @@ and it reaches the panel seams when $x_2$ and $x_3$ name `custom`, as every cube
 
 [^cr-src]: [source: `chengcli/snapy#337`, "Fix radial wall refresh at cubed-sphere panel seams": the identity rule
     `is_custom_noop` and its four `test_cubed_sphere_exchange` cases. The cards: `grep -l "layout: cubed-sphere"` over
-    `examples/` and `tests/` at the pin finds 16 files, and each names `custom` on all four tangential faces.]
+    `examples/` and `tests/` at the pin finds 18 files, and each names `custom` on all four tangential faces.]
 
 ### Derivation
 

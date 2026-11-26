@@ -14,9 +14,12 @@ def make_fig():
             corner = abs(dx) + abs(dy) == 2
             fs.cell_box(ax, dx, dy, 0.92, 0.92, ghost=(dx, dy) != (0, 0))
             col = fs.PURPLE if corner else fs.BLACK
-            ax.text(dx + 0.46, dy + 0.6, "id %d" % bid, ha="center", fontsize=fs.SMALL_PT, color=col)
+            box = dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor="none")
+            ax.text(dx + 0.46, dy + (0.18 if (dx, dy) == (0, -1) else 0.74), "id %d" % bid, ha="center", va="center", fontsize=fs.SMALL_PT, color=col,
+                    bbox=box)
             if corner:
-                ax.text(dx + 0.46, dy + 0.3, "diagonal or\nsynthesised", ha="center", fontsize=fs.SMALL_PT, color=fs.PURPLE)
+                ax.text(dx + 0.46, dy + 0.3, "diagonal or\nsynthesised", ha="center", va="center",
+                        fontsize=fs.SMALL_PT, color=fs.PURPLE, linespacing=1.0, bbox=box)
             elif (dx, dy) != (0, 0):
                 ax.annotate("", xy=(0.46 + 0.3 * dx, 0.46 + 0.3 * dy), xytext=(dx + 0.46 - 0.2 * dx, dy + 0.46 - 0.2 * dy),
                             arrowprops=dict(arrowstyle="->", color=fs.ORANGE, lw=1.2))

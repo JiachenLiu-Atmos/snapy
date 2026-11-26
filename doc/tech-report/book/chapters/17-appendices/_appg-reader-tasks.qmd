@@ -193,7 +193,7 @@
 - Choose between outflow, reflecting and periodic boundary conditions. See Register and classify block faces, @sec-ch11-registry.
 - Understand what the vertically implicit correction is and when to use it. See VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch09-vic-options.
 - Convert an Athena++ input file into a snapy YAML deck. See YAML scheme selection and setup guards, @sec-ch12-yaml.
-- Use non-uniform vertical spacing. See Cartesian metric, @sec-ch03-cartesian.
+- Use non-uniform vertical spacing. See Cartesian and stretched $x_1$ grids, @sec-ch03-cartesian.
 - Add a test for new code. See Build options and test registration, @sec-ch12-build.
 - Initialise the model from a sounding exported from another code. See `balance_column`: projection of ghost-free columns onto the scheme's discrete balance (C++ and Python API), @sec-ch05-balcol.
 - Reproduce a documented test case and check it against the documented result. See Reading verification evidence, @sec-ch16-metrics.
