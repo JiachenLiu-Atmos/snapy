@@ -27,7 +27,8 @@ and it may rise only together with a move of that pin:
     target branch: a higher count there fails unless `code_pin.yml` differs between `<ref>` and the head, so a
     baseline raised by hand fails too.
 
-OWNERS (`tools/chapter-owners.tsv`): one row per chapter, `chapter owner`, the owner given by GitHub handle only:
+OWNERS (`tools/chapter-owners.tsv`): one row per chapter, `chapter owner [checker]`, each given by GitHub handle only
+(`-` for no checker; `check` fails when a checker is also the row's owner). The owner is
 the single owner of the chapter's rewrite (the lock) and the owner its counts are charged to in the per-owner
 burn-down table that `counts` and `check` print. That table also gives each owner's figures and tables (distinct
 `fig-`/`tbl-` labels in their chapters), which are not ratcheted. `check` fails when a chapter has no owner or more
@@ -372,8 +373,10 @@ def read_owners(root: pathlib.Path) -> tuple[dict[str, list[str]], list[str]]:
     lines = [l for l in path.read_text().split("\n") if l.strip() and not l.startswith("#")]
     for line in lines[1:]:
         f = line.split("\t")
-        if len(f) != 2 or not f[1].strip():
-            return owners, [f"tools/chapter-owners.tsv: malformed row {line!r} (want: chapter, handle)"]
+        if len(f) not in (2, 3) or not f[1].strip() or (len(f) == 3 and not f[2].strip()):
+            return owners, [f"tools/chapter-owners.tsv: malformed row {line!r} (want: chapter, handle[, checker])"]
+        if len(f) == 3 and f[2].strip() == f[1].strip():
+            return owners, [f"tools/chapter-owners.tsv: {f[0]} has the same writer and checker ({f[1].strip()})"]
         owners.setdefault(f[0], []).append(f[1].strip())
     return owners, []
 

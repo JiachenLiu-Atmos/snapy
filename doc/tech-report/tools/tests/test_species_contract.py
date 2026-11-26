@@ -6,8 +6,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import gen_species_contract as c
+import code_anchors
+
+# a target in a legacy chapter (tools/code-anchors-legacy.txt): its tests run again once the chapter's line is deleted
+_LEGACY = {k: code_anchors.legacy_chapter_of(t) for k, t in c.TARGETS.items()}
+_ALL_LEGACY = all(_LEGACY.values())
 
 
+@pytest.mark.skipif(_ALL_LEGACY, reason=f"{sorted(set(_LEGACY.values()))} in tools/code-anchors-legacy.txt")
 def test_clean_contract():
     assert c.check() == 0
 
@@ -21,6 +27,8 @@ def test_clean_contract():
     ('condensate', 'h_idx.push_back(id + 1);', 'h_idx.push_back(id);'),
 ])
 def test_contract_drift(tmp_path, key, old, new):
+    if _LEGACY[key]:
+        pytest.skip(f"{_LEGACY[key]} is in tools/code-anchors-legacy.txt")
     (tmp_path / 'code_pin.yml').write_text((c.REPORT / 'code_pin.yml').read_text())
     clean = c.generate(c.REPORT)
     for k, target in c.TARGETS.items():

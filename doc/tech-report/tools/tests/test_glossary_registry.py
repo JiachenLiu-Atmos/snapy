@@ -109,9 +109,9 @@ MISSED = {('acronym', 'PDE'): 'sec-appa-index', ('acronym', 'SI'): 'sec-appa-ind
           ('key', 'limiter'): 'sec-ch12-yaml', ('key', 'vertical'): 'sec-ch12-yaml',
           ('key', 'horizontal'): 'sec-ch12-yaml', ('key', 'scale'): 'sec-ch12-yaml', ('key', 'shock'): 'sec-ch12-yaml',
           ('key', 'x1-inner'): 'sec-ch12-yaml', ('key', 'x3-outer'): 'sec-ch12-yaml',
-          ('key', 'const-gravity'): 'sec-ch06-cell', ('key', 'nu_iso'): 'sec-ch09-viscosity',
-          ('key', 'kappa_iso'): 'sec-ch09-viscosity', ('key', 'body-heat'): 'sec-ch09-heating',
-          ('key', 'top-cool'): 'sec-ch09-heating', ('key', 'bot-heat'): 'sec-ch09-heating',
+          ('key', 'const-gravity'): 'sec-ch06-cell', ('key', 'nu_iso'): 'sec-ch07-viscosity',
+          ('key', 'kappa_iso'): 'sec-ch07-viscosity', ('key', 'body-heat'): 'sec-ch07-heating',
+          ('key', 'top-cool'): 'sec-ch07-heating', ('key', 'bot-heat'): 'sec-ch07-heating',
           ('key', 'gammad'): 'sec-ch02-ideal-moist'}
 
 
@@ -149,7 +149,7 @@ def test_a_roll_up_section_fails_the_registry(data):
 READER_TERMS = {'MeshBlock': 'sec-ch01-construction', 'tensor layout': 'sec-ch01-layout',
                 'grid type': 'sec-ch03-choosing',
                 'ghost exchange': 'sec-ch03-exchange', 'halo exchange': 'sec-ch03-exchange',
-                'steady state': 'sec-ch07-vic-steady',
+                'steady state': 'sec-ch09-vic-steady',
                 'ghost zone': 'sec-ch04-framework', 'latent heat': 'sec-ch10-satadj',
                 'hydrostatic primitive-equation core': 'sec-ch02-pecore',
                 'mixing ratio': 'sec-ch10-tracer', 'Python bindings': 'sec-ch01-python',
@@ -178,8 +178,8 @@ def test_reader_terms_are_defined_where_they_route(data):
     assert all(READER_TERMS[t] in defs[('concept', t)] for t in READER_TERMS)
     routes = {(e['kind'], e['term']): (e['section'], e.get(registry.MARK)) for e in data['entries']}
     assert routes[('key', 'nghost')] == ('sec-ch04-framework', False)
-    assert routes[('acronym', 'VIC')] == ('sec-ch07-vic-options', False)  # Q333 H17
-    assert routes[('acronym', 'CFL')] == ('sec-ch07-cfl', False)  # Q333 H24
+    assert routes[('acronym', 'VIC')] == ('sec-ch09-vic-options', False)  # Q333 H17
+    assert routes[('acronym', 'CFL')] == ('sec-ch09-cfl', False)  # Q333 H24
     assert routes[('key', 'uv-solver')] == ('sec-ch10-satadj', False)
 
 

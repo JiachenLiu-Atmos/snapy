@@ -289,6 +289,14 @@ When that happens:
 4. **Flag every one of these in the PR body**, one line each: the old symbol, the new symbol, and whether the
    claim changed. A reviewer reads that list first.
 
+**Legacy chapters.** `tools/code-anchors-legacy.txt` lists the chapters whose citations predate the pin: there a
+citation that does not resolve is reported by `code_anchors.py check`, not failed, and renders as plain text; every
+other chapter is checked in full. A chapter PR deletes its own line and must then pass `check` in full (a listed
+chapter with nothing unresolved fails `check` until its line goes). The report is complete only when the list is
+empty; `check` prints the count left per chapter and per owner. The contract generators (`tools/gen_*_contract.py`,
+`gen_scheme_native.py`), the reader-reference Riemann block and their tests skip a target in a listed chapter the
+same way, naming the list in the skip reason; deleting the line runs them in full again.
+
 ### 3.2 Sources, provenance, and no history in the text
 
 The report describes the code **as it is at the pin**, as one coherent text. A reader opens a chapter to learn

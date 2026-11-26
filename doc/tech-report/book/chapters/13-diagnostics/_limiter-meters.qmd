@@ -107,7 +107,7 @@ is described with the scheme that fills it (@sec-ch04-conv4). At the default key
 a reader listing the module's buffers sees five. The cycle line sums the counts and the two flux totals over
 blocks and ranks, takes the MIN of $\Theta$, and prints the ratio only when the offered total is positive, through
 `limcut` ({{< code src/mesh/meshblock.cpp print_cycle_diagnostics >}}). The hit count is not printed. It is read by the step acceptance
-(@sec-ch07-redo) through the EOS[^rg-b14888cbe998] limiter marks, `limiter_hits` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::limiter_hits >}}).
+(@sec-ch09-redo) through the EOS[^rg-b14888cbe998] limiter marks, `limiter_hits` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::limiter_hits >}}).
 
 ### Code
 

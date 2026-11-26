@@ -7,7 +7,7 @@ extension, characteristic selection and admissibility), the ownership rule that 
 fillers writes a ghost and when, the line optimum of the mask rectification, the reflecting closure of the
 implicit system against a solid, and the wall continuation of the hydrostatic reference. Every claim is read
 from the code at the pin named in each scheme's provenance block; no solver run is reported here, and the
-solver tests the schemes cite are catalogued, with their assertions, in @sec-ch15-ch11.
+solver tests the schemes cite are catalogued, with their assertions, in @sec-ch16-ch11.
 
 @fig-ch11-opening-dependencies shows which scheme needs which. The complete switch matrix is
 @sec-ch12-matrix; the stage ownership map is @sec-ch01-stage.
@@ -23,16 +23,16 @@ make_fig()
 
 | scheme | switch | default | order | main test |
 |---|---|---|---|---|
-| @sec-ch11-registry | `boundary-condition/external/*` | `reflecting` on every face | exact dispatch; solver order unmeasured | @sec-ch15-ch11 |
-| @sec-ch11-reflecting | `reflecting` | on (the default face name) | exact parity; wall order unmeasured | @sec-ch15-ch11 |
-| @sec-ch11-periodic | `periodic` | off | exact permutation; seam order unmeasured | @sec-ch15-ch11 |
-| @sec-ch11-extrapolation | `extrapolation` | off; the fallback of `outflow` for scalars and shallow water | $O(h)$ ghost consistency; solver order unmeasured | @sec-ch15-ch11 |
-| @sec-ch11-outflow | `outflow` | off | locally linear characteristic selection; reflection fraction below $0.05$ in the pulse test | @sec-ch15-ch11 |
-| @sec-ch11-custom | `custom`, `solid` | off | exact identity and constant fill | @sec-ch15-ch11 |
-| @sec-ch11-timing | `apply_boundaries`, `exchange_ghost_zones` | fixed by the driver | exact ownership; no order of accuracy | @sec-ch15-ch11 |
-| @sec-ch11-exchange | `SyncOptions` | `interpolate` off, `skip_corner` on | exact copy on matched cells; corners averaged | @sec-ch15-ch11 |
-| @sec-ch11-solids | `boundary-condition/internal/*`, `vars["solid"]` | `max-iter`[^rg-7dbcba12602b] 5, density $10^3$, pressure $10^9$ | line optimum of the mask; closure exact; geometry first order (staircase) | @sec-ch15-ch11 |
-| @sec-ch11-wb | `dynamics/wb-wall-clamp` | true | $O(h^2)$ reference bias at the wall cells (truncation argument) | @sec-ch15-ch11 |
+| @sec-ch11-registry | `boundary-condition/external/*` | `reflecting` on every face | exact dispatch; solver order unmeasured | @sec-ch16-ch11 |
+| @sec-ch11-reflecting | `reflecting` | on (the default face name) | exact parity; wall order unmeasured | @sec-ch16-ch11 |
+| @sec-ch11-periodic | `periodic` | off | exact permutation; seam order unmeasured | @sec-ch16-ch11 |
+| @sec-ch11-extrapolation | `extrapolation` | off; the fallback of `outflow` for scalars and shallow water | $O(h)$ ghost consistency; solver order unmeasured | @sec-ch16-ch11 |
+| @sec-ch11-outflow | `outflow` | off | locally linear characteristic selection; reflection fraction below $0.05$ in the pulse test | @sec-ch16-ch11 |
+| @sec-ch11-custom | `custom`, `solid` | off | exact identity and constant fill | @sec-ch16-ch11 |
+| @sec-ch11-timing | `apply_boundaries`, `exchange_ghost_zones` | fixed by the driver | exact ownership; no order of accuracy | @sec-ch16-ch11 |
+| @sec-ch11-exchange | `SyncOptions` | `interpolate` off, `skip_corner` on | exact copy on matched cells; corners averaged | @sec-ch16-ch11 |
+| @sec-ch11-solids | `boundary-condition/internal/*`, `vars["solid"]` | `max-iter`[^rg-7dbcba12602b] 5, density $10^3$, pressure $10^9$ | line optimum of the mask; closure exact; geometry first order (staircase) | @sec-ch16-ch11 |
+| @sec-ch11-wb | `dynamics/wb-wall-clamp` | true | $O(h^2)$ reference bias at the wall cells (truncation argument) | @sec-ch16-ch11 |
 
 : Boundary scheme map. {#tbl-ch11-opening-schemes}
 

@@ -75,7 +75,7 @@ _CHECK = re.compile(r"\b([\w-]+_check\.py)\b")
 _CLINE = re.compile(r"\[C\d+\]")
 _NOTE = re.compile(r"docs/derivations/|(?<![\w/])sources/")
 #: chapters that are not schemes: the verification catalogue restates the other chapters' checks
-EXCLUDE = {"sec-ch15"}
+EXCLUDE = {"sec-ch16"}
 _INCLUDE = re.compile(r"\{\{<\s*include\s+(\S+)\s*>\}\}")
 
 

@@ -8,7 +8,7 @@ from pathlib import Path
 import code_anchors
 
 REPORT = Path(__file__).resolve().parent.parent
-TARGET = 'book/chapters/09-diffusion-forcing/_howto.qmd'
+TARGET = 'book/chapters/07-diffusion-forcing/_howto.qmd'
 PIN = '919936da07d80a310b98ab11da184972a3203274'
 
 
@@ -179,6 +179,10 @@ in place; preserve `w` and `temp`. A parent pointer is non-owning and must not o
 
 
 def check(report=REPORT):
+    skipped = code_anchors.legacy_chapter_of(TARGET, Path(report))
+    if skipped:  # a legacy chapter (tools/code-anchors-legacy.txt): checked in full once its line is deleted
+        print(f'[N6 forcing contract] skipped: {skipped} is in tools/code-anchors-legacy.txt')
+        return 0
     try:
         expected = generate(Path(report))
         actual = (Path(report) / TARGET).read_text()

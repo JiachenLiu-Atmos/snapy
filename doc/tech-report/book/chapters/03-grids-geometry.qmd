@@ -77,7 +77,7 @@ the defining integral or copy up to round-off. Test names omit the `.release` su
 
 {{< include 03-grids-geometry/_choosing.qmd >}}
 
-The limits this chapter states are collected with those of the other chapters in @sec-ch16-wrong, @sec-ch16-restricted, @sec-ch16-usability and @sec-ch16-pending.
+The limits this chapter states are collected with those of the other chapters in @sec-ch17-wrong, @sec-ch17-restricted, @sec-ch17-usability and @sec-ch17-pending.
 
 <!-- reader glossary notes -->
 [^rg-65581851d3d4]: $x_1, x_2, x_3$ — the three coordinate directions; $x_1$ is always the vertical (radial) direction

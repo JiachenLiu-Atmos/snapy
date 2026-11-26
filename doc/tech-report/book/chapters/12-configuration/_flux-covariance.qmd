@@ -132,7 +132,7 @@ the arms are set by each script's `main` ({{< code tests/test_horizontal_flux_co
 ctest environments by {{< code tests/CMakeLists.txt >}}.
 
 No snapy runtime test is executed for this chapter. CUDA and multi-rank entries describe registration only.
-The independent checks and their outputs are catalogued in @sec-ch15-ch12-tests.
+The independent checks and their outputs are catalogued in @sec-ch16-ch12-tests.
 
 The independent report check verifies the covariance identity and shared-face cancellation in `[C4]`.[^ch12-flux-covariance-run]
 It models the stated contract; it does not execute the compiled solver.

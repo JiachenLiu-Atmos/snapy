@@ -6,7 +6,7 @@ the switches select are described where they belong, in @sec-ch04, @sec-ch05 and
 section keeps its selector, its default, its couplings and guards, and the registered evidence, and points at
 its home for the derivation. No solver run is reported in this chapter; the independent checks of the
 chapter's contracts are the script `src/snapy_report/ch12/checks/configuration_check.py` with its committed output,
-and the solver tests are catalogued with their assertions in @sec-ch15-ch12-tests.
+and the solver tests are catalogued with their assertions in @sec-ch16-ch12-tests.
 
 The five numerics switches are environment variables, written in the figures and tables of this chapter by
 two-letter abbreviations: WB[^rg-8cb4b02fa280] is `SNAP_WB_REF4`, XC `SNAP_X1_CENTROID_EXACT`, MC[^rg-52dc4b39bbdc] `SNAP_X1_MASS_COVARIANCE`, FC

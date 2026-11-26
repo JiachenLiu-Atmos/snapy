@@ -36,5 +36,5 @@ make_fig()
 
 : Chapter scope; `<b>` is the build suffix (`release` by default). Operator order belongs to the physics chapters. {#tbl-ch01-overview-schemes}
 
-The ctests named here have not been run for this report at the pin. @sec-ch15-ch01 records their device and rank
+The ctests named here have not been run for this report at the pin. @sec-ch16-ch01 records their device and rank
 coverage and the runs that are missing; the chapter's own checks are ports that import no snapy.

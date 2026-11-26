@@ -25,7 +25,9 @@ def marker(name, body):
     return f'<!-- generated reader-reference: {name} -->\n{body.rstrip()}\n<!-- end reader-reference: {name} -->'
 
 
-def source_values(report):
+def source_values(report, riemann=True):
+    """The pinned values the generated blocks quote; riemann=False leaves out the Riemann parser's (its block is in
+    a legacy chapter, tools/code-anchors-legacy.txt)."""
     repo, sha = code_anchors.read_pin(report / 'code_pin.yml')
     checkout = code_anchors.find_commit(repo, sha)
 
@@ -41,7 +43,8 @@ def source_values(report):
         return m[1], text[:m.start()].count('\n') + 1
 
     cmake, project = read('CMakeLists.txt'), read('pyproject.toml')
-    header, parser = read('src/riemann/riemann_solver.hpp'), read('src/riemann/riemann_solver.cpp')
+    header = read('src/riemann/riemann_solver.hpp') if riemann else ''
+    parser = read('src/riemann/riemann_solver.cpp') if riemann else ''
     values = {}
     for key, path, text, pattern in [
         ('cmake', 'CMakeLists.txt', cmake, r'^cmake_minimum_required\(VERSION ([\d.]+)\)'),
@@ -52,7 +55,7 @@ def source_values(report):
          r'^  ADD_ARG\(std::string, type\) = "([^"]+)";'),
         ('no_type', 'src/riemann/riemann_solver.cpp', parser,
          r'^  op->type\(\) = node\["type"\]\.as<std::string>\("([^"]+)"\);'),
-    ]:
+    ][:None if riemann else 4]:
         value, line = match(pattern, text)
         values[key] = value
         values[key + '_cite'] = f'[`{path}:{line}`](https://github.com/{repo}/blob/{sha}/{path}#L{line})'
@@ -65,7 +68,8 @@ def source_values(report):
 
 
 def defaults_blocks(report):
-    v = source_values(report)
+    riemann_legacy = code_anchors.legacy_chapter_of(RIEMANN, Path(report))
+    v = source_values(report, riemann=not riemann_legacy)
     install = (
         f'**What you need.** Python `{v["python"]}` ({v["python_cite"]}), '
         f'CMake {v["cmake"]} or later ({v["cmake_cite"]}), a C++{v["cxx"]} compiler '
@@ -82,6 +86,8 @@ def defaults_blocks(report):
         'cmake -B build -DCMAKE_BUILD_TYPE=Release \\\n'
         '  -DBUILD_EXAMPLES=ON -DNETCDF=ON -DPNETCDF=OFF -DUCX=OFF\n'
         'cmake --build build --parallel 6\npip install .\n```')
+    if riemann_legacy:  # checked in full once its chapter's line is deleted from the legacy list
+        return [(INSTALL, 'install', install)]
     riemann = (
         f'For hydrodynamics, omitting the `riemann-solver` block preserves `{v["no_block"]}` '
         f'({v["no_block_cite"]}); a present block without `type` selects `{v["no_type"]}` '
@@ -197,8 +203,8 @@ def glossary_outputs(report):
     seen, outputs, uses = {}, {}, 0
     for path in topics.book_order(report / 'book'):
         rel = path.relative_to(report / 'book').as_posix()
-        m = re.match(r'chapters/(\d\d)-', rel)
-        if not m or int(m[1]) > 16:
+        m = re.match(r'chapters/(\d\d)-(?!appendices)', rel)  # a chapter, not the appendices' directory
+        if not m:
             continue
         chapter = m[1]
         used = seen.setdefault(chapter, set())

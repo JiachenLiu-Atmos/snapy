@@ -159,7 +159,7 @@ The neighbour assertion is the top-level `assert` in {{< code tests/test_mesh_ex
 
 **Not provided:** a round-off derivation for each tolerance, because the cited tests give acceptance
 criteria without deriving each round-off bound, and this book does not derive those bounds.
-Device/rank distinctions and missing runs are recorded in @sec-ch15-ch11.
+Device/rank distinctions and missing runs are recorded in @sec-ch16-ch11.
 
 The report-only checks `[C4]` establish that the constant residual is zero, while an affine counterexample rules
 out a general corner reconstruction claim.[^ch11-exchange-run]

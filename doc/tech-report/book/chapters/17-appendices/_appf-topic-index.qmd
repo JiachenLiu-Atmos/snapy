@@ -14,7 +14,7 @@
 
 **adding an output field**: NetCDF output: per-block files and the combine, @sec-ch14-netcdf.
 
-**agreement with a reference result**: Reading verification evidence, @sec-ch15-metrics.
+**agreement with a reference result**: Reading verification evidence, @sec-ch16-metrics.
 
 **$\alpha_{\mathrm{adm}}$**: [8a. Radiation and the radiating boundary](#sec-appa-8a).
 
@@ -22,17 +22,17 @@
 
 *aneos*, see **equation of state, tabulated**.
 
-**angular momentum, global axial**: Invariant checks: zero in, zero out, and the global budgets, @sec-ch15-invariants.
+**angular momentum, global axial**: Invariant checks: zero in, zero out, and the global budgets, @sec-ch16-invariants.
 
 **API**: Driver loop and accepted steps, @sec-ch01-driver.
 
-**`_apply_implicit_correction` and its inputs**: Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4, @sec-ch07-vic-stage.
+**`_apply_implicit_correction` and its inputs**: Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4, @sec-ch09-vic-stage.
 
 **`Ar`**: Temperature-dependent moist thermodynamics, @sec-ch02-moist-mixture.
 
 **array indices of interior cells**: Locate tensor rows, faces and ghost slabs, @sec-ch01-layout.
 
-**`at-face`**: Bottom relaxation of temperature, velocity and composition, @sec-ch09-relax.
+**`at-face`**: Bottom relaxation of temperature, velocity and composition, @sec-ch07-relax.
 
 *atmosphere at rest*, see **well-balanced scheme**.
 
@@ -72,23 +72,23 @@
 
 *blocks_per_process*, see **several blocks in one process**; **several blocks per process**.
 
-**blow-up, NaN and negative density**: Step acceptance and redo: six causes, one collective decision, halving up to `max_redo`, @sec-ch07-redo.
+**blow-up, NaN and negative density**: Step acceptance and redo: six causes, one collective decision, halving up to `max_redo`, @sec-ch09-redo.
 
-**`body-heat`**: Body heating, top cooling and bottom heating, @sec-ch09-heating.
+**`body-heat`**: Body heating, top cooling and bottom heating, @sec-ch07-heating.
 
 *body heating*, see **heating and cooling**.
 
 **$\boldsymbol\delta_i$**: [7. Time integration and the implicit solver](#sec-appa-7).
 
-**`bot-heat`**: Body heating, top cooling and bottom heating, @sec-ch09-heating.
+**`bot-heat`**: Body heating, top cooling and bottom heating, @sec-ch07-heating.
 
-**`bot-sponge-lyr`**: The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**`bot-sponge-lyr`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
 **bottom and top boundary, hydrostatic**: Wall clamp and the wall continuation of the default reference, @sec-ch05-wallclamp.
 
 *bottom cell*, see **index direction in x1**.
 
-**bottom heating, top cooling**: Body heating, top cooling and bottom heating, @sec-ch09-heating.
+**bottom heating, top cooling**: Body heating, top cooling and bottom heating, @sec-ch07-heating.
 
 *bottom relaxation*, see **relaxation at the bottom**.
 
@@ -124,13 +124,13 @@
 
 *box domain*, see **Cartesian grid**.
 
-**break test**: Invariant checks: zero in, zero out, and the global budgets, @sec-ch15-invariants.
+**break test**: Invariant checks: zero in, zero out, and the global budgets, @sec-ch16-invariants.
 
 *breaking a check on purpose*, see **break test**.
 
 *bryan.yaml*, see **warm bubble, first run**.
 
-**`btemp`**: Bottom relaxation of temperature, velocity and composition, @sec-ch09-relax.
+**`btemp`**: Bottom relaxation of temperature, velocity and composition, @sec-ch07-relax.
 
 **build from source**: [Install and run](#sec-preface-install).
 
@@ -164,13 +164,13 @@
 
 *centred polynomial*, see **reconstruction, centred**.
 
-**CFL**: Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch07-cfl. See also **time step**.
+**CFL**: Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch09-cfl. See also **time step**.
 
 **`cfl`**: Driver loop and accepted steps, @sec-ch01-driver.
 
 *cfl key*, see **time step**.
 
-**CFL number, meaning**: Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch07-cfl.
+**CFL number, meaning**: Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch09-cfl.
 
 *channel*, see **Cartesian grid**.
 
@@ -236,7 +236,7 @@
 
 *configure.h*, see **compile-time definitions**.
 
-**conservation budget, measured drift**: Invariant checks: zero in, zero out, and the global budgets, @sec-ch15-invariants.
+**conservation budget, measured drift**: Invariant checks: zero in, zero out, and the global budgets, @sec-ch16-invariants.
 
 **conservation from output files**: Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle.
 
@@ -262,7 +262,7 @@
 
 *convergence order*, see **verification evidence, reading**.
 
-**convergence order, measured**: Spatial discretization evidence, @sec-ch15-ch04-tests.
+**convergence order, measured**: Spatial discretization evidence, @sec-ch16-ch04-tests.
 
 *convergence tests*, see **verification, discretization**.
 
@@ -272,9 +272,9 @@
 
 *conversion-order*, see **cell average to point value, x1 conversion**.
 
-**`coriolis`**: The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**`coriolis`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
-**Coriolis force**: Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch09-coriolis; The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**Coriolis force**: Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch07-coriolis; The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
 **corner ghost cells, walls**: $x_1$-wall corner refresh inside tangential ghost slabs, @sec-ch03-cornerrefresh.
 
@@ -400,7 +400,7 @@
 
 **`diff_T`**: Precipitation and evaporation kinetics in the example drivers (driver-level coupling), @sec-ch10-kinetics.
 
-**`diffusion`**: The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**`diffusion`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
 *diffusion*, see **viscosity and heat conduction**.
 
@@ -418,7 +418,7 @@
 
 *dispatch stub*, see **GPU kernels, CPU and CUDA dispatch**.
 
-**dissipation and damping**: Isotropic viscosity and heat conduction, @sec-ch09-viscosity; Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch09-sponge.
+**dissipation and damping**: Isotropic viscosity and heat conduction, @sec-ch07-viscosity; Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch07-sponge.
 
 **`distribute`**: Advance several blocks in one process, @sec-ch01-mesh.
 
@@ -444,15 +444,15 @@
 
 *dry air EOS*, see **equation of state, ideal gas**.
 
-**`dt`**: VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column, @sec-ch07-vic-assembly.
+**`dt`**: VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column, @sec-ch09-vic-assembly.
 
 *dt*, see **time step**.
 
-**`dTdt`**: The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**`dTdt`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
 *dtype*, see **precision**.
 
-**`dynamic`**: Isotropic viscosity and heat conduction, @sec-ch09-viscosity.
+**`dynamic`**: Isotropic viscosity and heat conduction, @sec-ch07-viscosity.
 
 *dynamical-core test cases*, see **test problems**.
 
@@ -550,7 +550,7 @@
 
 *equilibrium state*, see **steady state**.
 
-**Euler flux**: VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column, @sec-ch07-vic-assembly.
+**Euler flux**: VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column, @sec-ch09-vic-assembly.
 
 *every YAML key*, see **deck keys, full list**.
 
@@ -594,13 +594,13 @@
 
 *float64*, see **precision**.
 
-**floor, what it changes**: Invariant checks: zero in, zero out, and the global budgets, @sec-ch15-invariants.
+**floor, what it changes**: Invariant checks: zero in, zero out, and the global budgets, @sec-ch16-invariants.
 
 **floors, at faces**: Reconstruction-stage floors, @sec-ch08-reconfloors.
 
 **floors, density and pressure**: The equation-of-state limiter: two passes, floors and marks, @sec-ch08-eoslimiter.
 
-**`flux`**: Body heating, top cooling and bottom heating, @sec-ch09-heating.
+**`flux`**: Body heating, top cooling and bottom heating, @sec-ch07-heating.
 
 *flux covariance*, see **face averages, lateral correction**.
 
@@ -614,11 +614,11 @@
 
 **`forcing`**: Well-balanced $x_1$ reconstruction: perturbations about a hydrostatic reference (gravity on), @sec-ch05-wbx1.
 
-**forcing, adding a new one**: The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**forcing, adding a new one**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
-**forcing block**: The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**forcing block**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
-**forcing, from Python**: User stage forcings: TorchScript modules called every stage, @sec-ch09-user.
+**forcing, from Python**: User stage forcings: TorchScript modules called every stage, @sec-ch07-user.
 
 *forcing key*, see **forcing block**.
 
@@ -672,7 +672,7 @@
 
 **ghost exchange, what is carried**: Sync types and the velocity frame at seams, @sec-ch03-synctype.
 
-**ghost exchange, when in a step**: Ghost exchange within a stage: before the stage for a MeshBlock, after it for a Mesh (driver API), @sec-ch07-exchange.
+**ghost exchange, when in a step**: Ghost exchange within a stage: before the stage for a MeshBlock, after it for a Mesh (driver API), @sec-ch09-exchange.
 
 *ghost slabs*, see **ghost cells, where they sit**.
 
@@ -764,7 +764,7 @@
 
 **$\hat s_n$**: [2. State, thermodynamics and species](#sec-appa-2).
 
-**heating and cooling**: Body heating, top cooling and bottom heating, @sec-ch09-heating.
+**heating and cooling**: Body heating, top cooling and bottom heating, @sec-ch07-heating.
 
 *height coordinate*, see **vertical coordinate**.
 
@@ -816,43 +816,43 @@
 
 **`implicit-advection-cfl`**: YAML scheme selection and setup guards, @sec-ch12-yaml.
 
-**implicit correction, what it is**: VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch07-vic-options.
+**implicit correction, what it is**: VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch09-vic-options.
 
 *implicit-explicit coupling*, see **implicit scheme, time order with Runge-Kutta**.
 
-**`implicit_radial`**: Viscosity and heat conduction on the cubed sphere, @sec-ch09-csdiffusion.
+**`implicit_radial`**: Viscosity and heat conduction on the cubed sphere, @sec-ch07-csdiffusion.
 
-**implicit radial conduction**: Viscosity and heat conduction on the cubed sphere, @sec-ch09-csdiffusion.
+**implicit radial conduction**: Viscosity and heat conduction on the cubed sphere, @sec-ch07-csdiffusion.
 
 **`implicit-scheme`**: YAML scheme selection and setup guards, @sec-ch12-yaml.
 
-**implicit scheme**: VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch07-vic-options; VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column, @sec-ch07-vic-assembly; Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4, @sec-ch07-vic-stage; Block Thomas sweep and back substitution: one serial pass up, one down, per column, @sec-ch07-vic-sweep; LU pivot tolerance: refuse a pivot within $8N\epsilon_{\mathrm m}$ of its row, @sec-ch07-vic-pivot; VIC rejection and rollback: three guards, a latch and redo cause 32, @sec-ch07-vic-reject; VIC constituent redistribution: the solved mass change as face transfers, moved donor-upwind, @sec-ch07-vic-redistribute; VIC column closure: a mirror ghost folded into the end blocks, @sec-ch07-vic-closure; What is shown about steady states with the VIC: the fixed point is the explicit one, @sec-ch07-vic-steady.
+**implicit scheme**: VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch09-vic-options; VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column, @sec-ch09-vic-assembly; Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4, @sec-ch09-vic-stage; Block Thomas sweep and back substitution: one serial pass up, one down, per column, @sec-ch09-vic-sweep; LU pivot tolerance: refuse a pivot within $8N\epsilon_{\mathrm m}$ of its row, @sec-ch09-vic-pivot; VIC rejection and rollback: three guards, a latch and redo cause 32, @sec-ch09-vic-reject; VIC constituent redistribution: the solved mass change as face transfers, moved donor-upwind, @sec-ch09-vic-redistribute; VIC column closure: a mirror ghost folded into the end blocks, @sec-ch09-vic-closure; What is shown about steady states with the VIC: the fixed point is the explicit one, @sec-ch09-vic-steady.
 
 **implicit scheme, clamp meter**: VIC clamp meter: how far the availability clamp broke the face telescoping, @sec-ch13-vicclamp.
 
-**implicit scheme, failure and rollback**: VIC rejection and rollback: three guards, a latch and redo cause 32, @sec-ch07-vic-reject.
+**implicit scheme, failure and rollback**: VIC rejection and rollback: three guards, a latch and redo cause 32, @sec-ch09-vic-reject.
 
 **implicit scheme, gravity work**: Gravity work inside the vertical implicit operator, @sec-ch06-vic.
 
 *implicit-scheme key*, see **implicit scheme, turning on**.
 
-**implicit scheme, linear system**: VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column, @sec-ch07-vic-assembly.
+**implicit scheme, linear system**: VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column, @sec-ch09-vic-assembly.
 
 **implicit scheme, positivity**: Dry-channel positivity inside the implicit solve, @sec-ch08-vic.
 
-**implicit scheme, solve**: Block Thomas sweep and back substitution: one serial pass up, one down, per column, @sec-ch07-vic-sweep.
+**implicit scheme, solve**: Block Thomas sweep and back substitution: one serial pass up, one down, per column, @sec-ch09-vic-sweep.
 
-**implicit scheme, solver tolerance**: LU pivot tolerance: refuse a pivot within $8N\epsilon_{\mathrm m}$ of its row, @sec-ch07-vic-pivot.
+**implicit scheme, solver tolerance**: LU pivot tolerance: refuse a pivot within $8N\epsilon_{\mathrm m}$ of its row, @sec-ch09-vic-pivot.
 
-**implicit scheme, steady state**: What is shown about steady states with the VIC: the fixed point is the explicit one, @sec-ch07-vic-steady.
+**implicit scheme, steady state**: What is shown about steady states with the VIC: the fixed point is the explicit one, @sec-ch09-vic-steady.
 
-**implicit scheme, time order with Runge-Kutta**: Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4, @sec-ch07-vic-stage.
+**implicit scheme, time order with Runge-Kutta**: Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4, @sec-ch09-vic-stage.
 
-**implicit scheme, top and bottom boundary**: VIC column closure: a mirror ghost folded into the end blocks, @sec-ch07-vic-closure.
+**implicit scheme, top and bottom boundary**: VIC column closure: a mirror ghost folded into the end blocks, @sec-ch09-vic-closure.
 
-**implicit scheme, tracers and condensates**: VIC constituent redistribution: the solved mass change as face transfers, moved donor-upwind, @sec-ch07-vic-redistribute.
+**implicit scheme, tracers and condensates**: VIC constituent redistribution: the solved mass change as face transfers, moved donor-upwind, @sec-ch09-vic-redistribute.
 
-**implicit scheme, turning on**: VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch07-vic-options.
+**implicit scheme, turning on**: VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch09-vic-options.
 
 *implicit solver*, see **implicit scheme**.
 
@@ -896,7 +896,7 @@
 
 *interpolation to faces*, see **reconstruction**.
 
-**invariant check**: Invariant checks: zero in, zero out, and the global budgets, @sec-ch15-invariants.
+**invariant check**: Invariant checks: zero in, zero out, and the global budgets, @sec-ch16-invariants.
 
 *invariant test*, see **invariant check**.
 
@@ -916,17 +916,17 @@
 
 **$\kappa$**: [8. Diffusion, sedimentation, forcing](#sec-appa-8).
 
-**`kappa_iso`**: Isotropic viscosity and heat conduction, @sec-ch09-viscosity.
+**`kappa_iso`**: Isotropic viscosity and heat conduction, @sec-ch07-viscosity.
 
 **$\kappa_{\mathrm{R}}$**: [8a. Radiation and the radiating boundary](#sec-appa-8a).
 
-**`kappa_scale_x1`**: x1 profiles of the diffusion coefficients and the mean-of-products face coefficient, @sec-ch09-x1profile.
+**`kappa_scale_x1`**: x1 profiles of the diffusion coefficients and the mean-of-products face coefficient, @sec-ch07-x1profile.
 
 *key defaults*, see **default of a YAML key**.
 
 *kinetics*, see **condensation and evaporation, rates**.
 
-**kinetics, when in a step**: Operator-split pieces at the step boundary: saturation adjustment and kinetics, @sec-ch07-split.
+**kinetics, when in a step**: Operator-split pieces at the step boundary: saturation adjustment and kinetics, @sec-ch09-split.
 
 *kintera*, see **dependencies**.
 
@@ -936,13 +936,13 @@
 
 *known bugs*, see **known limits, wrong results possible**.
 
-**known limits, gravity work and vertical seams**: Limits of the default gravity work and the $x_1$ seams, @sec-ch16-pending.
+**known limits, gravity work and vertical seams**: Limits of the default gravity work and the $x_1$ seams, @sec-ch17-pending.
 
-**known limits, performance and usability**: Performance and usability, @sec-ch16-usability.
+**known limits, performance and usability**: Performance and usability, @sec-ch17-usability.
 
-**known limits, restricted applicability**: Restricted applicability, @sec-ch16-restricted.
+**known limits, restricted applicability**: Restricted applicability, @sec-ch17-restricted.
 
-**known limits, wrong results possible**: Wrong results possible, @sec-ch16-wrong.
+**known limits, wrong results possible**: Wrong results possible, @sec-ch17-wrong.
 
 ## L {.unnumbered .unlisted}
 
@@ -998,11 +998,11 @@
 
 *low-Mach Riemann solver*, see **Riemann solver, LMARS**.
 
-**lower boundary without a surface, relaxation**: Bottom relaxation of temperature, velocity and composition, @sec-ch09-relax.
+**lower boundary without a surface, relaxation**: Bottom relaxation of temperature, velocity and composition, @sec-ch07-relax.
 
-**lower boundary without a surface, sponge**: Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch09-sponge.
+**lower boundary without a surface, sponge**: Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch07-sponge.
 
-**LU**: Block Thomas sweep and back substitution: one serial pass up, one down, per column, @sec-ch07-vic-sweep.
+**LU**: Block Thomas sweep and back substitution: one serial pass up, one down, per column, @sec-ch09-vic-sweep.
 
 **$\lVert\cdot\rVert_\infty$, $\lVert\cdot\rVert_1$**: [9. Diagnostics and errors](#sec-appa-9).
 
@@ -1214,7 +1214,7 @@
 
 **notation index, refreshing**: How to use and refresh the index, @sec-appa-refresh.
 
-**`nu_iso`**: Isotropic viscosity and heat conduction, @sec-ch09-viscosity.
+**`nu_iso`**: Isotropic viscosity and heat conduction, @sec-ch07-viscosity.
 
 **$\nu_{nk}$**: [2a. Species thermodynamics, phase change and reactions](#sec-appa-2a).
 
@@ -1222,7 +1222,7 @@
 
 *number of cells*, see **resolution, choosing**.
 
-**numerical diffusion/dissipation**: Isotropic viscosity and heat conduction, @sec-ch09-viscosity.
+**numerical diffusion/dissipation**: Isotropic viscosity and heat conduction, @sec-ch07-viscosity.
 
 **`nx1`**: Construct a MeshBlock and its modules, @sec-ch01-construction.
 
@@ -1238,9 +1238,9 @@
 
 **$\omega^{\mathrm{lo}}_i, \omega^{\mathrm{hi}}_i$**: [7. Time integration and the implicit solver](#sec-appa-7).
 
-**`omega1`**: Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch09-coriolis.
+**`omega1`**: Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch07-coriolis.
 
-**operator splitting**: Operator-split pieces at the step boundary: saturation adjustment and kinetics, @sec-ch07-split.
+**operator splitting**: Operator-split pieces at the step boundary: saturation adjustment and kinetics, @sec-ch09-split.
 
 **$\operatorname{cov}_i(a,b)$**: [4. Operators and averages](#sec-appa-4).
 
@@ -1334,13 +1334,13 @@
 
 *plotting output*, see **output, reading in Python**.
 
-**plume forcing (not installed)**: Plume forcing: accepted by the parser, never installed, @sec-ch09-plume.
+**plume forcing (not installed)**: Plume forcing: accepted by the parser, never installed, @sec-ch07-plume.
 
 *plume-roe*, see **Riemann solver, shallow water**.
 
-**`pmax`**: The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**`pmax`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
-**`pmin`**: The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**`pmin`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
 **PNETCDF**: Build options and test registration, @sec-ch12-build.
 
@@ -1376,7 +1376,7 @@
 
 **precision**: Expose the C++ API to Python, @sec-ch01-python.
 
-**precision, implicit solver**: LU pivot tolerance: refuse a pivot within $8N\epsilon_{\mathrm m}$ of its row, @sec-ch07-vic-pivot.
+**precision, implicit solver**: LU pivot tolerance: refuse a pivot within $8N\epsilon_{\mathrm m}$ of its row, @sec-ch09-vic-pivot.
 
 **precision, output files**: NetCDF output: per-block files and the combine, @sec-ch14-netcdf.
 
@@ -1460,7 +1460,7 @@
 
 **`rate-constant`**: Fixed-volume fixed-energy phase equilibrium, @sec-ch02-saturation.
 
-**Rayleigh drag**: Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch09-sponge. See also **sponge layer**.
+**Rayleigh drag**: Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch07-sponge. See also **sponge layer**.
 
 **`reactions`**: Fixed-volume fixed-energy phase equilibrium, @sec-ch02-saturation.
 
@@ -1500,13 +1500,13 @@
 
 *registered tests*, see **test index**.
 
-**`relax-bot-comp`**: The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**`relax-bot-comp`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
-**`relax-bot-temp`**: The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**`relax-bot-temp`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
-**`relax-bot-velo`**: The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**`relax-bot-velo`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
-**relaxation at the bottom**: Bottom relaxation of temperature, velocity and composition, @sec-ch09-relax.
+**relaxation at the bottom**: Bottom relaxation of temperature, velocity and composition, @sec-ch07-relax.
 
 *repository layout*, see **source tree**.
 
@@ -1570,7 +1570,7 @@
 
 **Riemann step**: LMARS, @sec-ch04-lmars.
 
-**RK**: The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**RK**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
 **RK3**: The $x_2$ and $x_3$ face-flux covariance and centroid terms, @sec-ch04-fluxcov.
 
@@ -1598,7 +1598,7 @@
 
 *Runge-Kutta*, see **time integrator**.
 
-**Runge–Kutta average**: User stage forcings: TorchScript modules called every stage, @sec-ch09-user.
+**Runge–Kutta average**: User stage forcings: TorchScript modules called every stage, @sec-ch07-user.
 
 **Runge–Kutta stage**: Accumulate and combine one stage, @sec-ch01-stage.
 
@@ -1618,7 +1618,7 @@
 
 **saturation adjustment**: Saturation adjustment in the step, @sec-ch10-satadj.
 
-**saturation adjustment, when in a step**: Operator-split pieces at the step boundary: saturation adjustment and kinetics, @sec-ch07-split.
+**saturation adjustment, when in a step**: Operator-split pieces at the step boundary: saturation adjustment and kinetics, @sec-ch09-split.
 
 **saturation, phase equilibrium**: Fixed-volume fixed-energy phase equilibrium, @sec-ch02-saturation.
 
@@ -1670,7 +1670,7 @@
 
 **shocks, Riemann solver**: HLLC, @sec-ch04-hllc.
 
-**Shu–Osher form**: Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch07-rk.
+**Shu–Osher form**: Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk.
 
 **SI**: The notation index, @sec-appa-index.
 
@@ -1712,7 +1712,7 @@
 
 *source term module*, see **forcing, adding a new one**.
 
-**source terms, how they enter a step**: The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**source terms, how they enter a step**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
 **source tree**: Source tree map, @sec-appj.
 
@@ -1734,11 +1734,11 @@
 
 *splitting*, see **operator splitting**.
 
-**sponge layer**: Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch09-sponge.
+**sponge layer**: Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch07-sponge.
 
 *src directories*, see **modules of the source**.
 
-**SSP**: Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch07-rk.
+**SSP**: Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk.
 
 *SSP-RK*, see **time integrator**.
 
@@ -1754,13 +1754,13 @@
 
 **state vector layout**: Locate tensor rows, faces and ghost slabs, @sec-ch01-layout.
 
-**steady state**: What is shown about steady states with the VIC: the fixed point is the explicit one, @sec-ch07-vic-steady.
+**steady state**: What is shown about steady states with the VIC: the fixed point is the explicit one, @sec-ch09-vic-steady.
 
 **step acceptance, driver**: Driver loop and accepted steps, @sec-ch01-driver.
 
 *step boundary*, see **operator splitting**.
 
-**step rejection and redo**: Step acceptance and redo: six causes, one collective decision, halving up to `max_redo`, @sec-ch07-redo.
+**step rejection and redo**: Step acceptance and redo: six causes, one collective decision, halving up to `max_redo`, @sec-ch09-redo.
 
 **step rejection and redo, floor test**: The floor detector and the redo decision, @sec-ch08-redo.
 
@@ -1822,7 +1822,7 @@
 
 **$\tau$**: [8. Diffusion, sedimentation, forcing](#sec-appa-8).
 
-**`tau`**: Bottom relaxation of temperature, velocity and composition, @sec-ch09-relax.
+**`tau`**: Bottom relaxation of temperature, velocity and composition, @sec-ch07-relax.
 
 **$\tau_{\mathrm{rad}}$**: [8a. Radiation and the radiating boundary](#sec-appa-8a).
 
@@ -1832,9 +1832,9 @@
 
 **temperature from energy**: Temperature-dependent moist thermodynamics, @sec-ch02-moist-mixture.
 
-**`temperature_inner`**: Viscosity and heat conduction on the cubed sphere, @sec-ch09-csdiffusion.
+**`temperature_inner`**: Viscosity and heat conduction on the cubed sphere, @sec-ch07-csdiffusion.
 
-**`temperature_outer`**: Viscosity and heat conduction on the cubed sphere, @sec-ch09-csdiffusion.
+**`temperature_outer`**: Viscosity and heat conduction on the cubed sphere, @sec-ch07-csdiffusion.
 
 *tensor axis order*, see **conventions at a glance**.
 
@@ -1844,11 +1844,11 @@
 
 *terrain*, see **immersed solids**.
 
-**test case, reproducing**: Reading verification evidence, @sec-ch15-metrics.
+**test case, reproducing**: Reading verification evidence, @sec-ch16-metrics.
 
 **test index**: Test index, @sec-appc.
 
-**test problems**: Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch07-rk; Reading verification evidence, @sec-ch15-metrics; Test index, @sec-appc.
+**test problems**: Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk; Reading verification evidence, @sec-ch16-metrics; Test index, @sec-appc.
 
 **test suite, running**: [Install and run](#sec-preface-install); Build options and test registration, @sec-ch12-build.
 
@@ -1872,7 +1872,7 @@
 
 *thetamin*, see **positivity limiter, how much it acted**.
 
-**`thickness`**: Body heating, top cooling and bottom heating, @sec-ch09-heating.
+**`thickness`**: Body heating, top cooling and bottom heating, @sec-ch07-heating.
 
 *Thomas algorithm*, see **implicit scheme, solve**.
 
@@ -1880,31 +1880,31 @@
 
 **$\tilde s_i[q]$**: [4. Operators and averages](#sec-appa-4).
 
-**time integrator**: Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch07-rk.
+**time integrator**: Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk.
 
 *time loop*, see **driver loop**.
 
-**time order of accuracy**: Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch07-rk.
+**time order of accuracy**: Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk.
 
-**time step**: Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch07-cfl.
+**time step**: Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch09-cfl.
 
 *time step agreement*, see **global decisions across ranks**.
 
-**time step, halving after a failure**: Step acceptance and redo: six causes, one collective decision, halving up to `max_redo`, @sec-ch07-redo.
+**time step, halving after a failure**: Step acceptance and redo: six causes, one collective decision, halving up to `max_redo`, @sec-ch09-redo.
 
-**time step, implicit vertical**: Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch07-cfl.
+**time step, implicit vertical**: Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch09-cfl.
 
-**time step, why it is small**: Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch07-cfl.
+**time step, why it is small**: Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch09-cfl.
 
 **`tlim`**: Driver loop and accepted steps, @sec-ch01-driver.
 
 *tlim*, see **end time and number of steps**.
 
-**`top-cool`**: Body heating, top cooling and bottom heating, @sec-ch09-heating.
+**`top-cool`**: Body heating, top cooling and bottom heating, @sec-ch07-heating.
 
 *top sponge*, see **sponge layer**.
 
-**`top-sponge-lyr`**: The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+**`top-sponge-lyr`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
 *torchrun*, see **multiple processes, launching**.
 
@@ -1920,13 +1920,13 @@
 
 *tracers per dry air*, see **passive scalars**.
 
-**`traditional`**: Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch09-coriolis.
+**`traditional`**: Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch07-coriolis.
 
 **`Tref`**: Constant-heat-capacity moist mixture, @sec-ch02-ideal-moist.
 
 *tridiagonal solve*, see **implicit scheme, solve**.
 
-**turbulence closure (not built)**: Turbulence closure: not built, @sec-ch09-turbulence.
+**turbulence closure (not built)**: Turbulence closure: not built, @sec-ch07-turbulence.
 
 **TVD**: The notation index, @sec-appa-index.
 
@@ -2002,29 +2002,29 @@
 
 **velocities across cubed-sphere seams**: Sync types and the velocity frame at seams, @sec-ch03-synctype.
 
-**verification, boundary conditions**: Boundary-condition evidence, @sec-ch15-ch11.
+**verification, boundary conditions**: Boundary-condition evidence, @sec-ch16-ch11.
 
-**verification, configuration**: Configuration and switch evidence, @sec-ch15-ch12-tests.
+**verification, configuration**: Configuration and switch evidence, @sec-ch16-ch12-tests.
 
-**verification, discretization**: Spatial discretization evidence, @sec-ch15-ch04-tests.
+**verification, discretization**: Spatial discretization evidence, @sec-ch16-ch04-tests.
 
-**verification evidence, reading**: Reading verification evidence, @sec-ch15-metrics.
+**verification evidence, reading**: Reading verification evidence, @sec-ch16-metrics.
 
-**verification evidence, test problems**: Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch07-rk; Reading verification evidence, @sec-ch15-metrics; Test index, @sec-appc.
+**verification evidence, test problems**: Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk; Reading verification evidence, @sec-ch16-metrics; Test index, @sec-appc.
 
-**verification, grids**: Grids and geometry evidence, @sec-ch15-ch03-tests.
+**verification, grids**: Grids and geometry evidence, @sec-ch16-ch03-tests.
 
-**verification, moist physics**: Moist physics coupling evidence, @sec-ch15-ch10-tests.
+**verification, moist physics**: Moist physics coupling evidence, @sec-ch16-ch10-tests.
 
-**verification, overview tests**: Overview and code-map verification, @sec-ch15-ch01.
+**verification, overview tests**: Overview and code-map verification, @sec-ch16-ch01.
 
-**verification, thermodynamics**: Thermodynamics evidence, @sec-ch15-ch02-tests.
+**verification, thermodynamics**: Thermodynamics evidence, @sec-ch16-ch02-tests.
 
-**verification, well-balance**: Hydrostatic and well-balanced evidence, @sec-ch15-ch05-tests.
+**verification, well-balance**: Hydrostatic and well-balanced evidence, @sec-ch16-ch05-tests.
 
 **`vertical`**: YAML scheme selection and setup guards, @sec-ch12-yaml.
 
-**vertical acoustics, implicit**: VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch07-vic-options.
+**vertical acoustics, implicit**: VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch09-vic-options.
 
 **vertical coordinate**: One global grid, sliced per block, @sec-ch03-globalgrid; [1. Coordinates and grids](#sec-appa-1).
 
@@ -2034,17 +2034,17 @@
 
 *vertically implicit correction*, see **implicit scheme**.
 
-**VIC**: VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch07-vic-options. See also **implicit scheme**.
+**VIC**: VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch09-vic-options. See also **implicit scheme**.
 
 *virtual potential temperature*, see **diagnostics in output**.
 
-**viscosity and heat conduction**: Isotropic viscosity and heat conduction, @sec-ch09-viscosity.
+**viscosity and heat conduction**: Isotropic viscosity and heat conduction, @sec-ch07-viscosity.
 
-**viscosity and heat conduction, cubed sphere**: Viscosity and heat conduction on the cubed sphere, @sec-ch09-csdiffusion.
+**viscosity and heat conduction, cubed sphere**: Viscosity and heat conduction on the cubed sphere, @sec-ch07-csdiffusion.
 
-**viscosity at a wall**: Diffusion face coefficient at a wall: one-sided extrapolation instead of the ghost (automatic), @sec-ch09-wallcoef.
+**viscosity at a wall**: Diffusion face coefficient at a wall: one-sided extrapolation instead of the ghost (automatic), @sec-ch07-wallcoef.
 
-**viscosity, height-dependent profile**: x1 profiles of the diffusion coefficients and the mean-of-products face coefficient, @sec-ch09-x1profile.
+**viscosity, height-dependent profile**: x1 profiles of the diffusion coefficients and the mean-of-products face coefficient, @sec-ch07-x1profile.
 
 **`vm`**: Precipitation and evaporation kinetics in the example drivers (driver-level coupling), @sec-ch10-kinetics.
 
@@ -2070,9 +2070,9 @@
 
 **wall ghosts, isentropic (legacy)**: Legacy $x_1$ wall routines: isentropic wall ghosts and the wall-face state copy (no switch), @sec-ch05-legacy.
 
-**wall temperature, prescribed**: Viscosity and heat conduction on the cubed sphere, @sec-ch09-csdiffusion.
+**wall temperature, prescribed**: Viscosity and heat conduction on the cubed sphere, @sec-ch07-csdiffusion.
 
-**`wall_velocity`**: Viscosity and heat conduction on the cubed sphere, @sec-ch09-csdiffusion.
+**`wall_velocity`**: Viscosity and heat conduction on the cubed sphere, @sec-ch07-csdiffusion.
 
 **warm bubble, first run**: [Install and run](#sec-preface-install).
 
@@ -2114,7 +2114,7 @@
 
 *which grid to use*, see **grid type, choosing**.
 
-**`width`**: Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch09-sponge.
+**`width`**: Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch07-sponge.
 
 ## X {.unnumbered .unlisted}
 
@@ -2126,7 +2126,7 @@
 
 **$x^{\mathrm{m}}_{1,i}$**: [1. Coordinates and grids](#sec-appa-1).
 
-**`x1`**: x1 profiles of the diffusion coefficients and the mean-of-products face coefficient, @sec-ch09-x1profile.
+**`x1`**: x1 profiles of the diffusion coefficients and the mean-of-products face coefficient, @sec-ch07-x1profile.
 
 **`x1-inner`**: YAML scheme selection and setup guards, @sec-ch12-yaml.
 
@@ -2166,7 +2166,7 @@
 
 *xarray*, see **output, reading in Python**.
 
-**`xfrac`**: Bottom relaxation of temperature, velocity and composition, @sec-ch09-relax.
+**`xfrac`**: Bottom relaxation of temperature, velocity and composition, @sec-ch07-relax.
 
 **$\xi, \eta$**: [1. Coordinates and grids](#sec-appa-1).
 

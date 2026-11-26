@@ -121,7 +121,7 @@ warm start on. It writes the new $y_n\rho$ back into the species rows; momentum 
 rewritten. The physical ghosts are filled afterwards (@sec-ch02-laws). The warm start reuses the last active set
 only for the same shape and device. Failed cells are counted from a negative diagnostic,
 $-(100\cdot\mathrm{status}+\mathrm{iterations})$; on CPU kintera warns at once, on CUDA the count is read by the
-caller, and the rejection and redo belong to @sec-ch07 and @sec-ch10.
+caller, and the rejection and redo belong to @sec-ch09 and @sec-ch10.
 
 In `auto` mode with disjoint vapour-cloud pairs the partition solve runs first; on failure it restores the input
 and the KKT solve runs. With non-disjoint reactions `auto` goes to KKT directly

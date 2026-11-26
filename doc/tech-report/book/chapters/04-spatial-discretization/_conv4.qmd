@@ -200,7 +200,7 @@ A screened cell keeps the second-order $\mathbf W(\overline{\mathbf U})$, so the
 cell-local: a run can be fourth order over most of the grid and second order in the cells the screen caught. The
 screened state is handed to the equation of state as the plain average, and, with the limiter on, the redo marks
 and vapour failures this extra call raised are restored from the copies taken before it, so the step-acceptance
-test of @sec-ch07-redo never sees them. The count of screened cells per stage, ghosts included, goes into
+test of @sec-ch09-redo never sees them. The count of screened cells per stage, ghosts included, goes into
 `conversion_trips` (@sec-ch13-limiter-meters).
 
 **Ghosts, walls and seams.** $\mathsf Q$ is centred in every cell the stencil fits, which includes every ghost but

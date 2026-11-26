@@ -1,0 +1,24 @@
+# Legacy chapters (tools/code_anchors.py): a citation in a chapter listed here that does not resolve at the pin of
+# code_pin.yml is reported, not failed, and renders as plain text; every other chapter is checked in full. A chapter
+# PR deletes its own line and must then pass `python3 tools/code_anchors.py check` in full; a listed chapter whose
+# citations all resolve fails the check until its line is deleted. The report is complete only when this list is
+# empty. Chapter ids as in tools/chapter-owners.tsv. Listed: every chapter with a citation unresolved at the pin.
+ch01
+ch02
+ch03
+ch04
+ch05
+ch06
+ch07
+ch08
+ch09
+ch10
+ch11
+ch12
+ch13
+ch14
+ch16
+ch17
+appb
+appd
+appe

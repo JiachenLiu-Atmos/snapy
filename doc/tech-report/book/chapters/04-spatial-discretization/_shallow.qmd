@@ -73,7 +73,7 @@ wave index, $\lambda_\ell$ the wave speeds [m s$^{-1}$] and $\mathbf r_\ell$ the
 4. *Not the Rusanov flux of the conserved rows.* The dissipation acts on the jump of $\boldsymbol\psi$, the stored
    primitive rows, not on the jump of the conserved quantities whose flux $\mathbf f$ is.
 5. *It cannot be set up.* The plume forcing is parsed only when the equation of state is `plume-eos`
-   (@sec-ch09-plume), and
+   (@sec-ch07-plume), and
    `EquationOfStateImpl::create` has no such type ("EquationOfState: Unknown type"). With any registered equation
    of state the solver refuses every direction but $x_3$, and refuses the $x_1$ face-pressure request of a
    compressible deck (@sec-ch04-riemann).

@@ -136,7 +136,7 @@ The thresholds are `TOL_ON` and `TOL_OFF` ({{< code tests/test_x1_centroid_rest.
 are registered in {{< code tests/CMakeLists.txt >}}.
 
 No snapy runtime test is executed for this chapter. CUDA and multi-rank entries describe registration only.
-The independent checks and their outputs are catalogued in @sec-ch15-ch12-tests.
+The independent checks and their outputs are catalogued in @sec-ch16-ch12-tests.
 
 The independent report check verifies the spherical mean moments and pressure identities in `[C3]`.[^ch12-centroid-run]
 It models the stated contract; it does not execute the compiled solver.

@@ -138,7 +138,7 @@ CUDA execution. CUDA-only registrations and other switch combinations require a
 separate configure and listing; none were checked here. Dependency counts can
 also change with the compiler and available dependencies. The table does not
 record individual numerical tolerances: follow each test's assertions and the
-chapter's Tests layer for those. For measured verification see @sec-ch15, and for
+chapter's Tests layer for those. For measured verification see @sec-ch16, and for
 configuration combinations see @sec-ch12-matrix.
 
 [^appc-provenance]: Inventory refreshed from a clean checkout of chengcli/snapy

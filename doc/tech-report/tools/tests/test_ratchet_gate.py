@@ -360,6 +360,18 @@ def test_owner_lock(tmp_path, capsys):
     assert check(root) == 1                                     # no owner file
 
 
+def test_owner_checker_column(tmp_path, capsys):
+    root = make(tmp_path)
+    assert rg.main(["--root", str(root), "update"]) == 0
+    tsv = root / "tools" / "chapter-owners.tsv"
+    tsv.write_text("chapter\towner\tchecker\npreface\ted\t-\nch01\talice\tbob\nch02\tbob\talice\n")
+    assert check(root) == 0                                     # a checker column is accepted
+    tsv.write_text("chapter\towner\tchecker\npreface\ted\t-\nch01\talice\talice\nch02\tbob\talice\n")
+    assert check(root) == 1                                     # the writer checks their own chapter
+    tsv.write_text("chapter\towner\tchecker\npreface\ted\t-\nch01\talice\t\nch02\tbob\talice\n")
+    assert check(root) == 1                                     # an empty checker field
+
+
 def test_owner_table_counts_figures_and_tables(tmp_path, capsys):
     fig = "\n```{python}\n#| label: fig-ch01-a\nplot()\n```\n\n![B](b.png){#fig-ch01-b}\n"
     tbl = "\n| a |\n|---|\n| 1 |\n\n: One. {#tbl-ch01-a}\n\n<!-- {#tbl-ch01-hidden} -->\n"

@@ -79,7 +79,7 @@ energy rows. Row $i$ of the column system reads $\mathsf B_i\boldsymbol\delta_{i
 with $\boldsymbol\delta_i$[^rg-b2213240fb46] the implicit solve's unknown (appendix A, notation group 7). Next to a solid below, the ghost increment is
 the reflection $\boldsymbol\delta_{i-1}=\mathsf H\boldsymbol\delta_i$, so the lower term becomes $\mathsf B_i\mathsf H\boldsymbol\delta_i$ and
 joins the diagonal; next to a solid above, $\boldsymbol\delta_{i+1}=\mathsf H\boldsymbol\delta_i$ and $\mathsf C_i\mathsf H\boldsymbol\delta_i$ joins it.
-This is the closure of @sec-ch07-vic-closure, where $\mathsf H$ is written `Bnd`. Thus
+This is the closure of @sec-ch09-vic-closure, where $\mathsf H$ is written `Bnd`. Thus
 
 $$
 \begin{aligned}
@@ -234,7 +234,7 @@ which reports the mass error of the fluid segments; the threshold is applied in 
 
 **Not provided:** a round-off derivation for each tolerance, because the cited tests give acceptance
 criteria without deriving each round-off bound, and this book does not derive those bounds.
-Device/rank distinctions and missing runs are recorded in @sec-ch15-ch11.
+Device/rank distinctions and missing runs are recorded in @sec-ch16-ch11.
 
 The report-only checks `[C5]`, `[C6]` establish that all 508 binary inputs match exhaustive line minimization;
 three block-substitution residuals vanish and reflection squared is identity.[^ch11-solids-run]

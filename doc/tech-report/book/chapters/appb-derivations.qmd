@@ -23,7 +23,7 @@ Local symbols: this guide introduces no mathematical variables. Symbols in the t
 1. Find the scheme and follow its equation link. `scheme_rows` emits one row per labelled equation in the Derivation layer; a layer with no label instead gets a prose row.
 2. Read the statement in its chapter context. An entry in `tools/derivation-statements/chNN.json` overrides the automatically selected lead sentence, so the short statement is not the full derivation.
 3. Follow the code citation from the chapter. The generator associates a nearby citation with the equation; proximity alone does not establish that every assumption is implemented.
-4. Run the named check and read its claim. A script is listed when its name appears in the scheme and the file exists; that condition does not execute it. @sec-ch15 is deliberately excluded from the scheme census.
+4. Run the named check and read its claim. A script is listed when its name appears in the scheme and the file exists; that condition does not execute it. @sec-ch16 is deliberately excluded from the scheme census.
 
 These operations parse strings and count rows with Python integers. They perform no floating-point reduction;
 there is no accumulated round-off term to bound. Exact regeneration tests the rendering contract, not a physical tolerance.

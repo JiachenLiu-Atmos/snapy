@@ -40,7 +40,7 @@ alone then runs the kinetics step. (4) `check_redo` accepts, redoes or stops. (5
 :::
 
 Local symbols: $n_{\mathrm{redo}}$ is the number of redos of the current step (`current_redo`);
-$\Delta t_{\mathrm{bound}}$ is the block's local step bound before the Courant number $C$[^rg-25ec79df3164] (`cfl`[^rg-d9e768dc5199], @sec-ch07) is applied.
+$\Delta t_{\mathrm{bound}}$ is the block's local step bound before the Courant number $C$[^rg-25ec79df3164] (`cfl`[^rg-d9e768dc5199], @sec-ch09) is applied.
 
 ### Derivation
 
@@ -127,9 +127,9 @@ integration:
 ```
 
 **Not provided:** a safe range or a maximum for `cfl`; 0.9 is the value the code ships, not a measured stability
-limit. The limit depends on the integrator (@sec-ch07-rk), the reconstruction and the Riemann solver (@sec-ch04)
+limit. The limit depends on the integrator (@sec-ch09-rk), the reconstruction and the Riemann solver (@sec-ch04)
 together, and no test at the pin integrates a run at increasing $C$ to find where it fails. What $C$ multiplies is
-in @sec-ch07-cfl.
+in @sec-ch09-cfl.
 
 Refused: any other key under `integration`, with its path in the error; `implicit-advection-cfl`[^rg-cb6cdb706a5c] or `shear-cfl`[^rg-be87d6fbf19d]
 without `implicit-scheme`, because they bound an implicit direction that does not exist (@sec-ch12-yaml). A

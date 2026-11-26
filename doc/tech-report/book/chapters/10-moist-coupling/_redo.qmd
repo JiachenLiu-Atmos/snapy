@@ -11,7 +11,7 @@ status: draft
 ### Summary
 
 The redo machinery itself (how $\Delta t$[^rg-e08a4caa8890] is halved, what the driver does with the return value) belongs to
-@sec-ch07-redo and is outlined in @sec-ch01-driver. This section covers the two causes moist physics raises and the
+@sec-ch09-redo and is outlined in @sec-ch01-driver. This section covers the two causes moist physics raises and the
 parts of the rule that matter to them. A species deficit that the conserved limiter repairs
 (@sec-ch10-borrow, @sec-ch10-fixvapor) sets the limiter mark, cause 4, when it was larger than round-off of the
 cell's gas density before the repair; how far the repair then moved other cells does not count. A vapour column
@@ -24,7 +24,7 @@ cause 16. Either one, on any rank, rejects the step everywhere.
 
 **Data.** Reads the block's limiter marks and kintera's failure count; writes their two bits of the cause word.
 
-**Placement.** Counter drained at stage 0 and once more after the step, in `check_redo`; rule in @sec-ch07-redo.
+**Placement.** Counter drained at stage 0 and once more after the step, in `check_redo`; rule in @sec-ch09-redo.
 
 **Activation.** Cause 4 with `limiter: true`; cause 16 with a ThermoY; `max_redo` (default 5) is set from code only.
 
@@ -37,7 +37,7 @@ Local symbols: $f_\iota$, $\iota=0..5$, the six redo flags of a rank, each 0 or 
 $c_{\mathrm{redo}}=\sum_\iota2^\iota f_\iota$ the cause word ($\iota$ is the bit index: $r$[^rg-0cf14ab9beae], $i$[^rg-9ac74714d98c], $j$, $k$[^rg-362f2334766b] are reserved).
 
 The saturation cause is always on when the thermo has a ThermoY; the limiter cause is on with `limiter: true`.
-What a redo restores, and how the step is retried, is @sec-ch07-redo.
+What a redo restores, and how the step is retried, is @sec-ch09-redo.
 
 ### Derivation
 
@@ -50,7 +50,7 @@ The scheme is a decision rule, not a discretization. Its why-steps are:
 2. *One rank's failure is every rank's.* The flags are reduced with MAX over ranks before packing. For 0/1 values
    MAX is OR, so the packed word is the bitwise OR of every rank's word, and every rank takes the same decision
    (`[C2]`, all 4096 two-rank combinations).
-3. *A redo restores and retries with a smaller step* (@sec-ch07-redo). `apply_redo` restores the saved state unless the attempt count exceeds
+3. *A redo restores and retries with a smaller step* (@sec-ch09-redo). `apply_redo` restores the saved state unless the attempt count exceeds
    `max_redo`; past it, a step with a moist cause terminates with the rejected state in memory, and only the
    VIC[^rg-132a64cd545b] cause 32 restores first (`[C3]`).
 4. *No round-off enters the decision.* The flags are integers compared and OR-ed exactly; the only rounded quantity
@@ -77,7 +77,7 @@ failure counted by a ThermoY call between steps (a diagnostic from Python, say) 
 `local_redo_flag_tensor` reads the limiter marks after the floor test's conversion, so a repair that conversion
 makes counts as cause 4, and drains the saturation counter exactly once for cause 16
 ({{< code src/mesh/meshblock.cpp MeshBlockImpl::local_redo_flag_tensor >}}). How the flags are read back and reduced
-over blocks and ranks is @sec-ch07-redo.
+over blocks and ranks is @sec-ch09-redo.
 
 ```{python}
 #| label: fig-ch10-redo-flow
@@ -171,7 +171,7 @@ round-off redoes the step even when it would be harmless; a smaller one is repai
 :::
 
 - A driver that carries state across a rejected step which the restore does not reset can make every attempt
-  fail; what the restore covers is listed in @sec-ch07-redo.
+  fail; what the restore covers is listed in @sec-ch09-redo.
 - Past `max_redo` a moist failure terminates with the rejected state in memory; only the VIC cause restores first
   (`redo_check.py` `[C3]`).
 - Moist redo combinations are absent from the switch coverage matrix (@sec-ch12-matrix).

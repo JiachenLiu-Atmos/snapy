@@ -1,1 +1,1 @@
-"""Chapter 7 (time integration): figures and executable checks."""
+"""Chapter 9 (diffusion, viscosity and forcing): figures and executable checks."""

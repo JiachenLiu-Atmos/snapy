@@ -485,7 +485,7 @@ relaxation and port the plain factor only; the relaxation is covered by `relativ
 
 1. **The ghost fill is a precondition, not a check.** If a caller scales before filling $\Theta$'s ghost layer, the
    two ranks of a seam face apply different factors. Conservation then breaks silently. The code says so in its
-   header; nothing asserts it at runtime. @sec-ch15-invariants measures what such a seam costs: two sides of one
+   header; nothing asserts it at runtime. @sec-ch16-invariants measures what such a seam costs: two sides of one
    interior face differing by one part in a thousand move the volume-weighted mass total by
    $4\times10^{-14}$ of itself per step, three orders above the round-off the same run shows with one flux per
    face.

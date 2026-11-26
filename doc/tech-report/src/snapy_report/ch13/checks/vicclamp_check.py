@@ -2,7 +2,7 @@
 
 What is checked: the clamp residual of ImplicitHydroImpl::forward_masked (src/implicit/implicit_hydro.cpp:358-378)
 at snapy@e894700ff7aee30b52882e5202b16461413780b0, computed on the output of the chapter 7 port of
-vic_constituent_column (src/snapy_report/ch07/vic_port.py). Claims C1-C3.
+vic_constituent_column (src/snapy_report/ch09/vic_port.py). Claims C1-C3.
 
 Run: python3 vicclamp_check.py   (numpy only; exits with the number of failed claims)
 """
@@ -11,7 +11,7 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "ch07"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "ch09"))
 import vic_port as vp  # noqa: E402
 
 

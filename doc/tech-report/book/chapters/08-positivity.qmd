@@ -82,7 +82,7 @@ the solve of the time-integration chapter, and the redo budget that ends a redo 
 
 {{< include 08-positivity/_drycarry.qmd >}}
 
-The limits this chapter states are collected with those of the other chapters in @sec-ch16-wrong, @sec-ch16-restricted, @sec-ch16-usability and @sec-ch16-pending.
+The limits this chapter states are collected with those of the other chapters in @sec-ch17-wrong, @sec-ch17-restricted, @sec-ch17-usability and @sec-ch17-pending.
 
 <!-- reader glossary notes -->
 [^rg-9411b882dbd0]: limiter — whether the enclosing component enables its limiter

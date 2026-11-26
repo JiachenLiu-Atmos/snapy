@@ -1,30 +1,32 @@
-# The single owner of each chapter (the lock: one rewrite owner per chapter) and the owner its ratchet counts are
-# charged to in the per-owner burn-down table (tools/ratchet_gate.py). From the rewrite queue of the tech-report lead.
-chapter	owner
-preface	chengcli
-ch01	jihenghu
-ch02	jihenghu
-ch03	XinyueWang05
-ch04	XinyueWang05
-ch05	XinyueWang05
-ch06	gitlinffff
-ch07	XinyueWang05
-ch08	happysky19
-ch09	XinyueWang05
-ch10	XinyueWang05
-ch11	jihenghu
-ch12	jihenghu
-ch13	gitlinffff
-ch14	zoeyzyhu
-ch15	happysky19
-ch16	gitlinffff
-appa	jihenghu
-appb	jihenghu
-appc	jihenghu
-appd	jihenghu
-appe	jihenghu
-appf	gitlinffff
-appg	gitlinffff
-apph	gitlinffff
-appi	gitlinffff
-appj	gitlinffff
+# The single owner of each chapter (the lock: one rewrite owner per chapter, the writer) and the owner its ratchet counts
+# are charged to in the per-owner burn-down table (tools/ratchet_gate.py), and the chapter's checker, who is not its
+# owner (`-`: none assigned). From the chapter list of the tech-report lead.
+chapter	owner	checker
+preface	chengcli	XinyueWang05
+ch01	jihenghu	JiachenLiu-Atmos
+ch02	chengcli	XinyueWang05
+ch03	chengcli	jihenghu
+ch04	XinyueWang05	JiachenLiu-Atmos
+ch05	XinyueWang05	cshsgy
+ch06	chengcli	zoeyzyhu
+ch07	chengcli	zoeyzyhu
+ch08	JiachenLiu-Atmos	cshsgy
+ch09	zoeyzyhu	chengcli
+ch10	jihenghu	XinyueWang05
+ch11	gitlinffff	jihenghu
+ch12	gitlinffff	chengcli
+ch13	jihenghu	gitlinffff
+ch14	zoeyzyhu	jihenghu
+ch15	cshsgy	gitlinffff
+ch16	gitlinffff	chengcli
+ch17	XinyueWang05	gitlinffff
+appa	JiachenLiu-Atmos	cshsgy
+appb	JiachenLiu-Atmos	chengcli
+appc	cshsgy	gitlinffff
+appd	jihenghu	gitlinffff
+appe	jihenghu	JiachenLiu-Atmos
+appf	gitlinffff	jihenghu
+appg	gitlinffff	JiachenLiu-Atmos
+apph	gitlinffff	zoeyzyhu
+appi	gitlinffff	jihenghu
+appj	gitlinffff	chengcli

@@ -71,7 +71,8 @@ This branch (`tech-report` on UCzhangxi/snapy) holds a technical description of 
   and `check --base-ref <target>` (what CI runs) fails when the committed baseline is higher than the target
   branch's without a pin change between them. `python3 tools/ratchet_gate.py counts -v` lists every instance.
   **Owners.** `tools/chapter-owners.tsv` names one rewrite owner per chapter: it is the lock (one owner per chapter;
-  `check` fails on none or two) and the source of the per-owner burn-down table that `counts` and `check` print.
+  `check` fails on none or two) and the source of the per-owner burn-down table that `counts` and `check` print. Its
+  third column names the chapter's checker (`-` for none), who may not be the owner.
   **Review record.** One tab-separated line per event, newest last: `file kind reviewer author pin sha256 date
   note`. A `review` says the reviewer read the file at this content and this pin and stands behind its status. A
   `restamp` is the same reviewer confirming that review after the file or the pin changed without changing the

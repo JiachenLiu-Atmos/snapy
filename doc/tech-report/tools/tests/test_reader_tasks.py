@@ -124,7 +124,7 @@ def test_every_anchor_is_a_section_of_its_own(real):
     assert [r["id"] for r in rows if not r["where"].startswith("not provided")
             and g.rollup(r["where"], labs, g.BOOK)] == []
     assert {r["id"]: r["where"] for r in rows if r["id"] in ("Q-031c", "Q-032", "Q-047")} == {
-        "Q-031c": "sec-ch15-metrics", "Q-032": "sec-ch15-metrics", "Q-047": "sec-ch15-metrics"}
+        "Q-031c": "sec-ch16-metrics", "Q-032": "sec-ch16-metrics", "Q-047": "sec-ch16-metrics"}
 
 
 @pytest.mark.parametrize("rid,text", [

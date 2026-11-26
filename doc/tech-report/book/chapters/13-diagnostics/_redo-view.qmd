@@ -11,7 +11,7 @@ status: draft
 When a step goes wrong, snapy throws it away and tries again with a smaller step. This section explains what the
 log says when that happens, and what it says when a run ends, so a user can tell a normal stop from a failure.
 How a step is accepted or rejected (the six causes, the collective decision, the halving and the restore) is
-@sec-ch07-redo.
+@sec-ch09-redo.
 
 ::: {.callout-note title="At a glance"}
 **Purpose.** Prints the causes of every rejected step, and at the end why the run stopped, with exit status 1 if abnormal.
@@ -64,7 +64,7 @@ from snapy_report.ch13.figures.fig_redo_view import make_fig
 make_fig()
 ```
 
-See @sec-ch07-redo for redo / rollback. `apply_redo` prints the cause list and the two terminal messages
+See @sec-ch09-redo for redo / rollback. `apply_redo` prints the cause list and the two terminal messages
 ({{< code src/mesh/meshblock.cpp MeshBlockImpl::apply_redo >}}). `finalize` writes the final
 output, prints the stop reason with the final `time`, `cycle`, `tlim` and `nlim`, and returns the status
 ({{< code src/mesh/meshblock.cpp MeshBlockImpl::finalize >}}). The example driver returns that status from `main` as `status`, so a shell
@@ -116,7 +116,7 @@ past `max_redo` redos with "Maximum number of redo attempts exceeded. Terminatin
 | `tests/test_uranus_cycle1_abort.cpp` (`test_uranus_cycle1_abort.release`), `abnormal_termination_exits_nonzero` | a floor deck whose log says "Terminating abnormally" exits nonzero | exit status | contract |
 | same file, `column_finishes_the_two_cycles`, `column_reaches_cycle_40` | the logs say "Terminating on cycle limit" and contain no "Maximum number of redo attempts exceeded"; the second contains no "Redoing the step" at all | log text; exit status 0 | contract |
 | `tests/test_check_redo_saturation.py` (`test_check_redo_saturation_python`, CUDA twin) | a saturation failure alone redoes with cause 16 | logical | contract |
-| tests of the decision itself | listed in @sec-ch07-redo | — | — |
+| tests of the decision itself | listed in @sec-ch09-redo | — | — |
 | this section's check, `redo_view_check.py` | `[C1]`–`[C3]` | per claim | stated in the check |
 
 : Tests of the redo causes and termination status. {#tbl-ch13-redo-view-tests}
@@ -139,9 +139,9 @@ status 1.
 
 ::: {.callout-warning title="Limits"}
 The log names the causes but not the cells or the rank that raised them; the MAX reduction keeps only whether
-any rank did. Only a VIC refusal prints its column, rank, step, stage and retry (@sec-ch07-vic-reject).
+any rank did. Only a VIC refusal prints its column, rank, step, stage and retry (@sec-ch09-vic-reject).
 :::
 
 1. **No count.** No meter counts the redos of a run; the count is the number of "Redoing" lines in the log.
-2. **Single-block signals.** Only the Mesh path checks signals before the redo decision (@sec-ch07-redo).
+2. **Single-block signals.** Only the Mesh path checks signals before the redo decision (@sec-ch09-redo).
 3. **Untested combinations.** The switch combinations that a test exercises are listed in @sec-ch12-matrix.

@@ -14,7 +14,7 @@ budget, the redo causes and termination status as a diagnostic view, the diagnos
 request, and the tests that assert conservation to round-off.
 
 The chapter owns the bookkeeping and the printout, not the schemes being measured. The positivity
-limiter belongs to @sec-ch08, the VIC[^rg-a857d6ac8b55] and the step acceptance to @sec-ch07, and the physics of the gravity-work
+limiter belongs to @sec-ch08, the VIC[^rg-a857d6ac8b55] and the step acceptance to @sec-ch09, and the physics of the gravity-work
 fixer to @sec-ch06-fixer.
 The directory `src/diagnostics/` is legacy code from Athena++ and canoe. It is not in the library's source glob,
 `src_files` ({{< code src/CMakeLists.txt >}}), so it is not compiled, and nothing in it is described here as live.
@@ -45,7 +45,7 @@ The directory `src/diagnostics/` is legacy code from Athena++ and canoe. It is n
 
 {{< include 13-diagnostics/_regression.qmd >}}
 
-The limits this chapter states are collected with those of the other chapters in @sec-ch16-wrong, @sec-ch16-restricted and @sec-ch16-usability.
+The limits this chapter states are collected with those of the other chapters in @sec-ch17-wrong, @sec-ch17-restricted and @sec-ch17-usability.
 
 <!-- reader glossary notes -->
 [^rg-f6dd05c80d82]: ncycle_out — number of cycles between printed cycle lines; 0 turns the line off

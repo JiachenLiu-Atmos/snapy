@@ -15,11 +15,11 @@
 
 - Choose between the pip install and a source build. See [Install and run](#sec-preface-install).
 - Understand what a finite-volume method is and why cell values are averages. See The finite-volume update and the flux divergence, @sec-ch04-divergence.
-- Find the time order of the combined implicit/explicit step and its derivation. See Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4, @sec-ch07-vic-stage.
+- Find the time order of the combined implicit/explicit step and its derivation. See Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4, @sec-ch09-vic-stage.
 - List the reconstructions and limiters with stencil width, ghost count and defaults. See The reconstruction framework, @sec-ch04-framework.
 - Understand how the hydrostatic state is preserved and which reference is subtracted. See Well-balanced $x_1$ reconstruction: perturbations about a hydrostatic reference (gravity on), @sec-ch05-wbx1.
 - Check whether reconstruction accounts for stretched or curvilinear spacing and what order it reaches. See The reconstruction framework, @sec-ch04-framework.
-- List the time integrators with key names, stage counts and SSP coefficients. See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch07-rk.
+- List the time integrators with key names, stage counts and SSP coefficients. See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk.
 - Check whether density and pressure positivity is guaranteed and what happens when it fails. See The equation-of-state limiter: two passes, floors and marks, @sec-ch08-eoslimiter.
 - Find how radiation is coupled to the dynamics. See Locate dependencies outside snapy, @sec-ch01-dependencies.
 - Understand how kintera and pyharp plug in and whether my first run needs them. See External component interfaces, @sec-appe-components.
@@ -37,17 +37,17 @@
 - Register a process group and call a snapy collective across two processes. See Communication backends: Gloo, UCX through commux, an external group, @sec-ch14-backends.
 - Understand what a ghost zone is. See Locate tensor rows, faces and ghost slabs, @sec-ch01-layout.
 - Find how many ghost cells the default reconstruction needs. See The reconstruction framework, @sec-ch04-framework.
-- Understand what the CFL number means and which value to use. See Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch07-cfl.
+- Understand what the CFL number means and which value to use. See Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch09-cfl.
 - Understand what a MeshBlock is. See Construct a MeshBlock and its modules, @sec-ch01-construction.
 - List the available equations of state. See EOS interface and dispatch, @sec-ch02-interface.
 - Find which slope limiter is on by default. See PLM, the van Leer harmonic-mean slope, @sec-ch04-plm.
-- Find which time integrator is used and its order. See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch07-rk.
+- Find which time integrator is used and its order. See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk.
 - Tell primitive, conserved and hydro variables apart. See Conventions at a glance, @sec-appa-conventions.
 - Add a new diagnostic or output field, select it and find it in the output file. See Add a new output field, @sec-ch14-add-output-field.
 - Add a new Riemann solver. See The reconstruction framework, @sec-ch04-framework.
 - Find whether the vertical coordinate is height or pressure. See Conventions at a glance, @sec-appa-conventions.
 - Run the first example (the Straka cold bubble) on a single GPU. See [Install and run](#sec-preface-install).
-- Add Newtonian relaxation of the whole column toward an equilibrium temperature profile. See User stage forcings: TorchScript modules called every stage, @sec-ch09-user.
+- Add Newtonian relaxation of the whole column toward an equilibrium temperature profile. See User stage forcings: TorchScript modules called every stage, @sec-ch07-user.
 - Add a new passive tracer: name it in the scalar block and find its state-vector row. See Transport passive scalars with dry mass, @sec-ch01-scalar.
 - List what changes when porting from a hydrostatic primitive-equation core. See How snapy differs from a hydrostatic primitive-equation core, @sec-ch02-pecore.
 - Run a deck that exercises the conservation laws and stage ordering. See Conservation laws and stage ordering, @sec-ch02-laws.
@@ -89,14 +89,14 @@
 - Turn on the gravity-work fixer. See Gravity-work fixer, @sec-ch06-fixer.
 - Turn on the corrected-PE face gravity work (SNAP_GRAVITY_WORK_RADIAL_EXACT). See The corrected-PE face gravity work, @sec-ch06-dwork.
 - Run with the vertical implicit scheme so gravity work enters the implicit operator. See Gravity work inside the vertical implicit operator, @sec-ch06-vic.
-- Install two forcing modules (constant gravity and body heating) from YAML. See The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
-- Add a rotation about the polar axis (Coriolis) on a spherical-polar or cubed-sphere grid. See Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch09-coriolis.
-- Turn on isotropic viscosity and heat conduction. See Isotropic viscosity and heat conduction, @sec-ch09-viscosity.
-- Install a reflecting x1 face so the wall diffusion coefficient rule fires. See Diffusion face coefficient at a wall: one-sided extrapolation instead of the ghost (automatic), @sec-ch09-wallcoef.
-- Give the diffusion coefficients an x1 profile. See x1 profiles of the diffusion coefficients and the mean-of-products face coefficient, @sec-ch09-x1profile.
-- Drive convection with bottom heating and top cooling. See Body heating, top cooling and bottom heating, @sec-ch09-heating.
-- Relax the bottom layer toward a temperature, rest and a vapour source. See Bottom relaxation of temperature, velocity and composition, @sec-ch09-relax.
-- Add Rayleigh sponge layers near the top and bottom. See Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch09-sponge.
+- Install two forcing modules (constant gravity and body heating) from YAML. See The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
+- Add a rotation about the polar axis (Coriolis) on a spherical-polar or cubed-sphere grid. See Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch07-coriolis.
+- Turn on isotropic viscosity and heat conduction. See Isotropic viscosity and heat conduction, @sec-ch07-viscosity.
+- Install a reflecting x1 face so the wall diffusion coefficient rule fires. See Diffusion face coefficient at a wall: one-sided extrapolation instead of the ghost (automatic), @sec-ch07-wallcoef.
+- Give the diffusion coefficients an x1 profile. See x1 profiles of the diffusion coefficients and the mean-of-products face coefficient, @sec-ch07-x1profile.
+- Drive convection with bottom heating and top cooling. See Body heating, top cooling and bottom heating, @sec-ch07-heating.
+- Relax the bottom layer toward a temperature, rest and a vapour source. See Bottom relaxation of temperature, velocity and composition, @sec-ch07-relax.
+- Add Rayleigh sponge layers near the top and bottom. See Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch07-sponge.
 - Print the cycle-line budget every ten cycles. See Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle.
 - Turn on the limiter so the positivity meters count. See Positivity-limiter meters: `limcut`, `thetamin`, `thetasevere`, @sec-ch13-limiter-meters.
 - Run with VIC so the clamp meter is printed. See VIC clamp meter: how far the availability clamp broke the face telescoping, @sec-ch13-vicclamp.
@@ -127,44 +127,44 @@
 - Change one setting of an example (resolution, end time, initial temperature) and rerun it. See [Install and run](#sec-preface-install).
 - Look up snapy names, units and sign conventions for winds, pressure, temperature, density and tracers. See Conventions at a glance, @sec-appa-conventions.
 - Set the planet radius. See Spherical-polar metric and sources, @sec-ch03-sphpolar.
-- Set the planet rotation rate. See Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch09-coriolis.
+- Set the planet rotation rate. See Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch07-coriolis.
 - Set gravity (constant or height-dependent). See Constant gravity and the cell form of the gravity work, @sec-ch06-cell.
 - Set the gas properties of an H2-He atmosphere, including ortho/para. See Constant-heat-capacity moist mixture, @sec-ch02-ideal-moist.
 - Choose a grid type (Cartesian, spherical-polar, cubed sphere) and its resolution. See Choosing a grid: Cartesian, spherical-polar or cubed sphere, @sec-ch03-choosing.
 - Pick the lower boundary condition for a planet with no surface. See Register and classify block faces, @sec-ch11-registry.
-- Replace a Rayleigh bottom drag. See Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch09-sponge.
-- Impose a bottom heat flux. See Body heating, top cooling and bottom heating, @sec-ch09-heating.
+- Replace a Rayleigh bottom drag. See Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch07-sponge.
+- Impose a bottom heat flux. See Body heating, top cooling and bottom heating, @sec-ch07-heating.
 - Set up condensable species and choose what happens to the condensate (rain out, retained, advected). See Saturation adjustment in the step, @sec-ch10-satadj.
 - Decide between float32 and float64. See Expose the C++ API to Python, @sec-ch01-python.
 - Read the exact equation set snapy solves, with every source term. See Conservation laws and stage ordering, @sec-ch02-laws.
 - Understand the overall discretization: finite volume and which variables are reconstructed. See The finite-volume update and the flux divergence, @sec-ch04-divergence.
-- Understand the vertical implicit scheme: implicit terms, the block system, linearization, solves per stage. See VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column, @sec-ch07-vic-assembly.
+- Understand the vertical implicit scheme: implicit terms, the block system, linearization, solves per stage. See VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column, @sec-ch09-vic-assembly.
 - List the Riemann solvers, their key names and default, and which support a moist EOS. See The Riemann solver framework and the face-local frame, @sec-ch04-riemann.
 - Understand what the reconstruction, Riemann solver, limiter and CFL keys mean and what a wrong choice does. See YAML scheme selection and setup guards, @sec-ch12-yaml.
 - Check whether the halo width is tied to the reconstruction order and refused when too narrow. See The reconstruction framework, @sec-ch04-framework.
 - Understand low-Mach behaviour of the Riemann solver and the shock/carbuncle treatment. See LMARS, @sec-ch04-lmars.
 - Check whether well-balancing is exact to round-off and which test shows it. See Well-balanced $x_1$ reconstruction: perturbations about a hydrostatic reference (gravity on), @sec-ch05-wbx1.
-- Find the known limits of validity (Mach range, aspect ratio, deep vs shallow, curvature terms). See Restricted applicability, @sec-ch16-restricted.
+- Find the known limits of validity (Mach range, aspect ratio, deep vs shallow, curvature terms). See Restricted applicability, @sec-ch17-restricted.
 - Find the formal order of accuracy in space. See The reconstruction framework, @sec-ch04-framework.
-- Find the formal order of accuracy in time. See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch07-rk.
-- Find a convergence test with the measured order against resolution. See Reading verification evidence, @sec-ch15-metrics.
-- Measure convergence myself and know how much the answer should change when I double the resolution. See Reading verification evidence, @sec-ch15-metrics.
+- Find the formal order of accuracy in time. See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk.
+- Find a convergence test with the measured order against resolution. See Reading verification evidence, @sec-ch16-metrics.
+- Measure convergence myself and know how much the answer should change when I double the resolution. See Reading verification evidence, @sec-ch16-metrics.
 - Check whether total energy is conserved with gravity on. See What each form conserves (summary and oracle guide), @sec-ch06-conserves.
-- Find how the Coriolis term is discretized. See Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch09-coriolis.
+- Find how the Coriolis term is discretized. See Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch07-coriolis.
 - Find how geometric source terms are discretized and placed in the stage. See Geometric sources on the spherical-polar grid: placement in the stage, @sec-ch04-sphsrc.
-- Check how the implicit solve treats the top and bottom walls. See VIC column closure: a mirror ghost folded into the end blocks, @sec-ch07-vic-closure.
-- Find the wave speed that sets the time step with an implicit vertical, the CFL key and its default. See Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch07-cfl.
-- Understand why the time step is what it is and why refinement slows the run. See Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch07-cfl.
+- Check how the implicit solve treats the top and bottom walls. See VIC column closure: a mirror ghost folded into the end blocks, @sec-ch09-vic-closure.
+- Find the wave speed that sets the time step with an implicit vertical, the CFL key and its default. See Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch09-cfl.
+- Understand why the time step is what it is and why refinement slows the run. See Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch09-cfl.
 - Switch the Riemann solver or reconstruction for one run and compare two runs. See The Riemann solver framework and the face-local frame, @sec-ch04-riemann.
 - Understand how tracers and condensates are advected and kept bounded. See Transport passive scalars with dry mass, @sec-ch01-scalar.
 - Call one component (e.g. the Riemann solver) from Python on given states and compare with a reference. See Expose the C++ API to Python, @sec-ch01-python.
-- Find which dissipation is tunable (viscosity, sponge) so a paper can report it. See Isotropic viscosity and heat conduction, @sec-ch09-viscosity.
+- Find which dissipation is tunable (viscosity, sponge) so a paper can report it. See Isotropic viscosity and heat conduction, @sec-ch07-viscosity.
 - Understand how moist thermodynamics is closed (latent heat, condensate heat capacity, EOS consistency). See Temperature-dependent moist thermodynamics, @sec-ch02-moist-mixture.
-- Find which standard benchmarks snapy is validated on, with reference numbers. See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch07-rk.
-- Compare my run with a published or analytic result and decide what counts as agreement. See Reading verification evidence, @sec-ch15-metrics.
+- Find which standard benchmarks snapy is validated on, with reference numbers. See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk.
+- Compare my run with a published or analytic result and decide what counts as agreement. See Reading verification evidence, @sec-ch16-metrics.
 - Diagnose a run that stopped with negative density or NaN. See Redo causes and termination status: what the log says about a rejected step and the end of a run, @sec-ch13-redo-view.
 - Check that total mass is conserved to round-off and find the test that shows the drift. See Mass-conservation regression checks: which test holds which total, to what tolerance, @sec-ch13-regression.
-- Check free-stream preservation and exact seam fluxes on curvilinear grids. See Grids and geometry evidence, @sec-ch15-ch03-tests.
+- Check free-stream preservation and exact seam fluxes on curvilinear grids. See Grids and geometry evidence, @sec-ch16-ch03-tests.
 - Check that positivity limiters and vapour fixers conserve tracer and condensate mass. See The tracer flux positivity limiter, @sec-ch08-theta.
 - See how large the limiter corrections were in a run (logged meters). See Positivity-limiter meters: `limcut`, `thetamin`, `thetasevere`, @sec-ch13-limiter-meters.
 - Find which boundaries are closed or open and whether outflow or sponges leak mass or energy. See Select outgoing acoustic and advected perturbations, @sec-ch11-outflow.
@@ -176,10 +176,10 @@
 - Arrange checkpoints around a wall-time limit and resume without overwriting output. See Restart files: write, bundle, read, @sec-ch14-restart.
 - Check after a restart that there is no gap or duplicated output time. See Restart files: write, bundle, read, @sec-ch14-restart.
 - Choose output formats, layout and frequency, and read variables, units, coordinates and times. See NetCDF output: per-block files and the combine, @sec-ch14-netcdf.
-- Add a new forcing module: implement the interface, register it and check its effect. See User stage forcings: TorchScript modules called every stage, @sec-ch09-user.
-- Find the exact signature of a forcing call, its input shapes with ghosts and whether it updates in place. See User stage forcings: TorchScript modules called every stage, @sec-ch09-user.
-- Prototype a forcing in Python without recompiling, and know its cost against C++. See User stage forcings: TorchScript modules called every stage, @sec-ch09-user.
-- Find whether a stiff forcing can be treated implicitly. See The forcing loop: parsing, registration and the stage increment, @sec-ch09-framework.
+- Add a new forcing module: implement the interface, register it and check its effect. See User stage forcings: TorchScript modules called every stage, @sec-ch07-user.
+- Find the exact signature of a forcing call, its input shapes with ghosts and whether it updates in place. See User stage forcings: TorchScript modules called every stage, @sec-ch07-user.
+- Prototype a forcing in Python without recompiling, and know its cost against C++. See User stage forcings: TorchScript modules called every stage, @sec-ch07-user.
+- Find whether a stiff forcing can be treated implicitly. See The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 - Show that my forcing changes mass, momentum and energy only as intended, per step. See Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle.
 - Test that a new condensate conserves total water and moist energy through a phase change. See Saturation adjustment in the step, @sec-ch10-satadj.
 - Add a new condensate species: declare its data and saturation formula and find its state-vector row. See Saturation adjustment in the step, @sec-ch10-satadj.
@@ -188,15 +188,15 @@
 - Find which tests a new module needs and how to register them. See Build options and test registration, @sec-ch12-build.
 - Find why adding GPUs can slow my run, and tell the causes apart. See GPU execution, @sec-ch14-gpu.
 - Find the vertical coordinate and translate my old levels, model top and bottom. See Conventions at a glance, @sec-appa-conventions.
-- Reproduce an old forcing: Newtonian relaxation, internal heat flux or a radiative scheme. See Bottom relaxation of temperature, velocity and composition, @sec-ch09-relax.
+- Reproduce an old forcing: Newtonian relaxation, internal heat flux or a radiative scheme. See Bottom relaxation of temperature, velocity and composition, @sec-ch07-relax.
 - Start from an old model's regridded equilibrated state and keep it balanced. See `balance_column`: projection of ghost-free columns onto the scheme's discrete balance (C++ and Python API), @sec-ch05-balcol.
 - Choose between outflow, reflecting and periodic boundary conditions. See Register and classify block faces, @sec-ch11-registry.
-- Understand what the vertically implicit correction is and when to use it. See VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch07-vic-options.
+- Understand what the vertically implicit correction is and when to use it. See VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch09-vic-options.
 - Convert an Athena++ input file into a snapy YAML deck. See YAML scheme selection and setup guards, @sec-ch12-yaml.
 - Use non-uniform vertical spacing. See Cartesian metric, @sec-ch03-cartesian.
 - Add a test for new code. See Build options and test registration, @sec-ch12-build.
 - Initialise the model from a sounding exported from another code. See `balance_column`: projection of ghost-free columns onto the scheme's discrete balance (C++ and Python API), @sec-ch05-balcol.
-- Reproduce a documented test case and check it against the documented result. See Reading verification evidence, @sec-ch15-metrics.
+- Reproduce a documented test case and check it against the documented result. See Reading verification evidence, @sec-ch16-metrics.
 - Check mass and energy conservation from the output files. See Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle.
 
 ## Undocumented {.unnumbered .unlisted}

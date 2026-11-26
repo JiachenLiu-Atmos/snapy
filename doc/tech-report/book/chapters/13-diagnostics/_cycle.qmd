@@ -38,7 +38,7 @@ $x_{1,i}$[^rg-1443f7d5a753] and $\epsilon_{\mathrm m}$[^rg-3eba0bd97326] are def
 `energy=` (Mesh line) is the integrated total energy $E_{\mathrm{tot}}=\sum_iV_iE_i$, with $E$[^rg-9750bb6bd4f2] the total energy
 density. `pe=` is the potential energy in a constant $x_1$[^rg-27e526b3a6fc] gravity. All are read from the conserved state
 `hydro_u`, never from the primitives `hydro_w`. The example drivers print the line after `check_redo` has rewritten
-`hydro_w` from the accepted `hydro_u` (@sec-ch07-redo); a driver that skips `check_redo` would leave `hydro_w` one
+`hydro_w` from the accepted `hydro_u` (@sec-ch09-redo); a driver that skips `check_redo` would leave `hydro_w` one
 stage behind, and the line does not depend on it. Which energy sum
 to compare between two lines depends on the gravity-work form: @tbl-ch06-conserves-summary
 (@sec-ch06-conserves) gives, for each form, the invariant that is exact on a closed column and the logged sum

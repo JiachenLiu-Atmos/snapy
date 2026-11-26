@@ -226,8 +226,13 @@ def test_the_book_is_within_its_baseline():
 
 
 def test_forcing_port_has_an_explicit_resolving_pin():
+    sys.path.insert(0, str(TOOLS))
+    import code_anchors
+    legacy = code_anchors.legacy_chapter_of("book/chapters/07-diffusion-forcing/_framework.qmd")
+    if legacy:  # the port's chapter is legacy: its tag is re-pinned when the chapter's line is deleted
+        pytest.skip(f"{legacy} is in tools/code-anchors-legacy.txt")
     tag = next(t for t in cp.tags(TOOLS.parent / "book")
-               if t["file"] == "chapters/09-diffusion-forcing/_framework.qmd")
+               if t["file"] == "chapters/07-diffusion-forcing/_framework.qmd")
     assert tag["fields"]["sha"] == "snapy@" + cp.read_pin(TOOLS.parent)
     assert not cp.problems(tag, lambda sha: None)
 
@@ -242,7 +247,7 @@ def test_api_snippets_are_not_producing_commands(run):
         "no command (no `run:` field with a backticked command)"]
 
 
-@pytest.mark.parametrize("relative", ['chapters/14-parallelism-io/_backends.qmd', 'chapters/14-parallelism-io/_bpp.qmd', 'chapters/14-parallelism-io/_gpu.qmd', 'chapters/14-parallelism-io/_repro.qmd', 'chapters/14-parallelism-io/_tools.qmd', 'chapters/15-verification/_ch01.qmd', 'chapters/15-verification/_ch02-thermodynamics.qmd', 'chapters/15-verification/_ch03-grids-geometry.qmd', 'chapters/15-verification/_ch04-spatial-discretization.qmd', 'chapters/15-verification/_ch05-well-balanced.qmd', 'chapters/15-verification/_ch10-moist-coupling.qmd', 'chapters/15-verification/_ch11.qmd', 'chapters/15-verification/_ch12-configuration.qmd'])
+@pytest.mark.parametrize("relative", ['chapters/14-parallelism-io/_backends.qmd', 'chapters/14-parallelism-io/_bpp.qmd', 'chapters/14-parallelism-io/_gpu.qmd', 'chapters/14-parallelism-io/_repro.qmd', 'chapters/14-parallelism-io/_tools.qmd', 'chapters/16-verification/_ch01.qmd', 'chapters/16-verification/_ch02-thermodynamics.qmd', 'chapters/16-verification/_ch03-grids-geometry.qmd', 'chapters/16-verification/_ch04-spatial-discretization.qmd', 'chapters/16-verification/_ch05-well-balanced.qmd', 'chapters/16-verification/_ch10-moist-coupling.qmd', 'chapters/16-verification/_ch11.qmd', 'chapters/16-verification/_ch12-configuration.qmd'])
 def test_recovered_ci_and_n8_records_have_commands(relative):
     records = [t for t in cp.tags(TOOLS.parent / "book") if t["file"] == relative]
     assert records

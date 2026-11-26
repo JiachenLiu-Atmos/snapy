@@ -19,15 +19,15 @@ switch the code does not know is ignored without a message. Older releases also 
 chapter 6. So build the pin, as below, before you try any example.
 
 <!-- generated reader-reference: install -->
-**What you need.** Python `>=3.10` ([`pyproject.toml:24`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/pyproject.toml#L24)), CMake 3.22 or later ([`CMakeLists.txt:1`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/CMakeLists.txt#L1)), a C++17 compiler ([`CMakeLists.txt:3`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/CMakeLists.txt#L3)), and the NetCDF C library. Install the latter with `brew install netcdf` on macOS or `sudo apt install libnetcdf-dev` on Debian/Ubuntu.
+**What you need.** Python `>=3.10` ([`pyproject.toml:25`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/pyproject.toml#L25)), CMake 3.22 or later ([`CMakeLists.txt:1`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/CMakeLists.txt#L1)), a C++17 compiler ([`CMakeLists.txt:3`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/CMakeLists.txt#L3)), and the NetCDF C library. Install the latter with `brew install netcdf` on macOS or `sudo apt install libnetcdf-dev` on Debian/Ubuntu.
 
-**Build the source pin.** The Python dependencies below follow [`pyproject.toml`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/pyproject.toml); the CMake options explicitly enable the example drivers and disable the optional UCX and parallel-NetCDF backends for this single-machine build.
+**Build the source pin.** The Python dependencies below follow [`pyproject.toml`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/pyproject.toml); the CMake options explicitly enable the example drivers and disable the optional UCX and parallel-NetCDF backends for this single-machine build.
 
 ```bash
 python3 -m venv snapy-env && source snapy-env/bin/activate
-pip install numpy pyyaml "kintera>=2.6.3" torch==2.10.0
+pip install numpy pyyaml "kintera>=2.6.13" torch==2.10.0
 git clone https://github.com/chengcli/snapy && cd snapy
-git checkout 919936da07d80a310b98ab11da184972a3203274
+git checkout 73c45a7c8c991209924e1137992352c335575062
 cmake -B build -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_EXAMPLES=ON -DNETCDF=ON -DPNETCDF=OFF -DUCX=OFF
 cmake --build build --parallel 6
@@ -38,7 +38,7 @@ pip install .
 `-DUCX=OFF` builds the Gloo backend only, which is all a single machine needs; @sec-ch14-backends describes UCX.
 The build also compiles the tests (`BUILD_TESTS` is on by default). A test named in a Tests layer runs with
 `ctest --test-dir build -R <name>`; to reproduce a documented test case and check it against the book, follow
-@sec-ch15-metrics. The last line installs the Python package from the same build, which the Python
+@sec-ch16-metrics. The last line installs the Python package from the same build, which the Python
 listings of the chapters import (`import snapy`), and puts the tools `pd-run`, `pd-combine` and `pd-inspect` on
 the path.
 

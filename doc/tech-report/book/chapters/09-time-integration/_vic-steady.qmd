@@ -1,0 +1,119 @@
+## What is shown about steady states with the VIC: the fixed point is the explicit one (`integration/implicit-scheme`) {#sec-ch09-vic-steady}
+
+<!-- PROVENANCE
+pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
+sources: src/implicit/forward_sweep_impl.h, src/implicit/vic_redistribute_impl.h, src/implicit/implicit_hydro.cpp,
+         src/hydro/hydro.cpp, tests/test_x1_centroid_rest.py, tests/test_implicit_gravity_tall_column.py at the pin;
+         the VIC sections of this chapter, the rest tests of chapters 5 and 6
+author: Zoey Hu
+status: draft
+-->
+
+### Summary
+
+A steady state is a state whose explicit stage increment is zero, so that a step leaves it unchanged. A reader who
+turns on the vertically implicit correction (VIC) asks whether it moves that state. This section collects what the
+report shows. The algebra of the solve says no: the correction is formed from the explicit increment and is zero
+when that increment is zero, whatever the implicit operator is. The tests show a resting column staying at rest with
+the VIC at large vertical Courant numbers. What is not shown is any steady state with motion, or a long run.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** States when a VIC step leaves a steady state of the explicit scheme unchanged; @eq-ch09-vic-steady-fixed.
+
+**Data.** Reads the explicit increment $\Delta\mathbf U^{(0)}$ and the solved increment $\boldsymbol\delta$; writes nothing.
+
+**Placement.** Every stage with a VIC (@sec-ch09-vic-stage).
+
+**Activation.** `integration/implicit-scheme` 1 or 9 (@sec-ch09-vic-options).
+
+**Guarantee / limits.** Same fixed point while the solve succeeds and no clamp binds; rest states only are tested.
+
+**Evidence.** @tbl-ch09-vic-steady-tests.
+:::
+
+Local symbols: $\Delta\mathbf U^{(0)}_{\mathrm{sv}}$, $\boldsymbol\delta$, $\mathsf M$ and $\Delta t_c$ (in s) as in
+@sec-ch09-vic-stage; $\mathbf U^\ast$ a steady state of the explicit scheme.
+
+### Derivation
+
+The solve of @sec-ch09-vic-stage returns
+
+$$
+\boldsymbol\delta = (\mathsf I + \Delta t_c\,\mathsf M)^{-1}\,\Delta\mathbf U^{(0)}_{\mathrm{sv}} ,
+\qquad\text{so}\qquad
+\Delta\mathbf U^{(0)}_{\mathrm{sv}} = \mathbf 0 \iff \boldsymbol\delta = \mathbf 0 .
+$$ {#eq-ch09-vic-steady-fixed}
+
+1. *The explicit fixed point is kept.* At $\mathbf U^\ast$ the explicit increment is zero, so its solved-variable form
+   is zero, and the solve returns $\boldsymbol\delta=\mathbf 0$ for any invertible $\mathsf I+\Delta t_c\mathsf M$.
+2. *No new fixed point appears.* If $\boldsymbol\delta=\mathbf 0$, multiplying by $\mathsf I+\Delta t_c\mathsf M$ gives
+   $\Delta\mathbf U^{(0)}_{\mathrm{sv}}=\mathbf 0$.
+3. *The operator does not enter.* Steps 1 and 2 hold for any $\mathsf M$. So the frozen Roe matrices of
+   @sec-ch09-vic-assembly and the closed-wall closure of @sec-ch09-vic-closure, where $\mathsf M$ differs from the
+   explicit operator, change how a state approaches $\mathbf U^\ast$, not $\mathbf U^\ast$ itself.
+4. *The rows after the solve.* The momentum and energy rows of the stage are set to the entries of
+   $\boldsymbol\delta$. The density rows receive face transfers built from the solved-minus-explicit mass change.
+   The post-solve energy terms are formed from the moved mass, the solved momentum or the same difference. Each is zero
+   when $\Delta\mathbf U^{(0)}$ and $\boldsymbol\delta$ are zero, as long as no availability clamp of
+   @sec-ch09-vic-redistribute binds. This step is read from the code; no test asserts it on its own.
+
+In the code, the solved right-hand side of @eq-ch09-vic-steady-fixed is formed in `ForwardSweep`
+({{< code src/implicit/forward_sweep_impl.h ForwardSweep >}}); the rows of step 4 are written by
+`vic_redistribute_cell` ({{< code src/implicit/vic_redistribute_impl.h vic_redistribute_cell >}}) from the transfers
+of `vic_constituent_column` ({{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}}).
+
+### Numerical method
+
+N/A: no scheme of its own; the solve is @sec-ch09-vic-sweep. A discrete steady state has an explicit increment of
+round-off size, not exactly zero. How the solve maps that residual is bounded by the norm of
+$(\mathsf I+\Delta t_c\mathsf M)^{-1}$, which the report does not estimate: the pivot guard is not a condition-number
+estimate (@sec-ch09-vic-pivot).
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| right-hand side from the explicit increment | {{< code src/implicit/forward_sweep_impl.h ForwardSweep >}} | `rhs` | `implicit-scheme` |
+| face transfers from the mass difference | {{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}} | `phi` | |
+| rows set from $\boldsymbol\delta$ | {{< code src/implicit/vic_redistribute_impl.h vic_redistribute_cell >}} | `delta` | |
+| post-solve energy terms | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}} | `projection_work` | |
+| energy reference removed and restored | {{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}} | `internal_energy_offset` | |
+
+: Code map of the steady-state statement. {#tbl-ch09-vic-steady-code}
+
+**How to use it.** To check that the VIC does not move a steady state of a deck, run it to the state with
+`implicit-scheme: 0` and then continue with 1 or 9; the stage increment should stay at its explicit size. This is
+the shape of the two rest tests below. Refused: nothing here; the VIC's own refusals are @sec-ch09-vic-options.
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `tests/test_x1_centroid_rest.py` (`test_x1_centroid_rest_python`) | a resting spherical column, explicit and VIC: the rest force with the centroid switch is at round-off in both (@tbl-ch05-x1cent-rest) | $10^{-10}$ on | `TOL_ON` (@sec-ch05-x1cent) |
+| `tests/test_implicit_gravity_tall_column.py` (`test_implicit_gravity_tall_column_python`) | a discretely balanced $11.3H$ rest column under `implicit-scheme: 9`, vertical acoustic Courant 6.6 to 250, stays at rest | $\max\lvert v_1\rvert<10^{-7}$ m s$^{-1}$; settled $<10^{-10}$ m s$^{-1}$ | `W_TOL`, `W_SETTLED` (@tbl-ch06-dwork-tests) |
+
+: The tests that show a steady state under the VIC. {#tbl-ch09-vic-steady-tests}
+
+In @tbl-ch05-x1cent-rest the rows with `implicit` 0 and 1 at $r_0=5$ show the same rest imbalance to two digits
+with the centroid switch off, and both are at round-off with it on: the VIC neither adds a rest imbalance nor
+removes one the explicit operator has, as step 1 says. That table is one RK3[^rg-f32143297bae] step. The tall-column test (@sec-ch06-dwork) runs to its settled threshold; the
+same section records a counter-case in which part of the gravity work was booked only after the solve, and the rest
+column grew from round-off at the largest Courant numbers of the test. That is a loss of stability on the way to the state, not a
+different state.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- Only states at rest are tested; no steady flow and no statistically steady state is compared with and without the
+  VIC.
+- A binding availability clamp, a rejected solve or a redo changes the step, and the fixed-point statement does not
+  hold for that step (@sec-ch09-vic-redistribute, @sec-ch09-vic-reject).
+:::
+
+The correction is a linearised backward Euler, first order in time (@sec-ch09-vic-stage), so transients differ from
+the explicit ones even where the end state agrees. Whether a time mean of an equilibrated run depends on the step with
+the VIC is not shown. The runs the cited sections record are CPU runs.
+
+<!-- reader glossary notes -->
+[^rg-f32143297bae]: RK3 — third-order Runge–Kutta
+<!-- end reader glossary notes -->

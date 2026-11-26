@@ -136,7 +136,7 @@ The assertion is the ghost-slab loop of `test2` ({{< code tests/test_rectify.cpp
 
 **Not provided:** a round-off derivation for each tolerance, because the cited tests give acceptance
 criteria without deriving each round-off bound, and this book does not derive those bounds.
-Device/rank distinctions and missing runs are recorded in @sec-ch15-ch11.
+Device/rank distinctions and missing runs are recorded in @sec-ch16-ch11.
 
 The report-only checks `[C1]` establish that copy, parity, idempotence and corner ownership hold
 exactly.[^ch11-custom-run]

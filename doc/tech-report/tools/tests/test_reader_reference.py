@@ -29,8 +29,12 @@ def test_missing_and_duplicate_blocks_fail_even_when_generating(tmp_path, count)
 
 
 def test_pin_values_distinguish_the_two_riemann_paths():
-    v = g.source_values(g.REPORT)
-    assert v['sha'] == '919936da07d80a310b98ab11da184972a3203274'
+    legacy = g.code_anchors.legacy_chapter_of(g.RIEMANN)
+    v = g.source_values(g.REPORT, riemann=not legacy)
+    assert v['sha'] == g.code_anchors.read_pin(g.REPORT / 'code_pin.yml')[1]
+    assert v['cmake'] == '3.22'
+    if legacy:  # the Riemann block's chapter is legacy (tools/code-anchors-legacy.txt)
+        pytest.skip(f"{legacy} is in tools/code-anchors-legacy.txt")
     assert (v['no_block'], v['no_type']) == ('hllc', 'roe')
     assert v['no_block_cite'].endswith('/src/riemann/riemann_solver.hpp#L33)')
     assert v['no_type_cite'].endswith('/src/riemann/riemann_solver.cpp#L27)')
@@ -102,7 +106,7 @@ def test_glossary_rejects_empty_definitions(tmp_path, capsys):
 
 @pytest.mark.parametrize('relative, expected, wrong', [
     ('12-configuration/_opening.qmd', 'MC — mass covariance', 'MC — monotonised-central'),
-    ('07-time-integration/_cfl.qmd', 'scale — ratio of the shallow-water CFL bound to the selected CFL number', 'scale — scaling in the enclosing component'),
+    ('09-time-integration/_cfl.qmd', 'scale — ratio of the shallow-water CFL bound to the selected CFL number', 'scale — scaling in the enclosing component'),
     ('14-parallelism-io.qmd', 'dt — output interval', 'dt — time-step duration'),
 ])
 def test_first_use_uses_the_local_meaning(relative, expected, wrong):

@@ -49,7 +49,7 @@ _LABEL = re.compile(r"\{#tbl-[\w-]+\}\s*$")
 
 
 def chapter_of(rel: str) -> str:
-    """`book/chapters/07-time-integration/_rk.qmd` -> `ch07`; `book/chapters/appd-switches/...` -> `appd`"""
+    """`book/chapters/09-time-integration/_rk.qmd` -> `ch07`; `book/chapters/appd-switches/...` -> `appd`"""
     parts = rel.split("/")
     name = parts[2] if len(parts) > 2 else rel
     m = re.match(r"(\d\d)", name)

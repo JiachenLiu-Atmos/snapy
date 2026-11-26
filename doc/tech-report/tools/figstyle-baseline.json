@@ -2,7 +2,7 @@
   "about": "per-chapter count of figure styling outside snapy_report.figstyle; may only shrink (tools/check_figstyle.py)",
   "chapters": {
     "ch05": 29,
-    "ch07": 55,
+    "ch09": 55,
     "ch11": 9,
     "ch12": 13,
     "package": 1

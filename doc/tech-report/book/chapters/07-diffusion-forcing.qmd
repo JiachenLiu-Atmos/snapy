@@ -1,0 +1,102 @@
+# Diffusion, viscosity and forcing {#sec-ch07}
+
+<!-- PROVENANCE
+pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml); kintera@c55b13b2204997d2d09e04498558ab9495d8ee77; pyharp@4721715855e937c1e8b218e964c0655f46e56e29
+sources: OUTLINE.md, the diffusion, viscosity and forcing entry; the code at the pin
+status: draft
+-->
+
+This chapter covers every source term snapy adds to the stage increment besides the flux divergence and constant
+gravity: the forcing loop that parses, installs and sums them; user stage forcings written in TorchScript; the
+Coriolis force; the isotropic viscosity and heat conduction, with their face coefficient at walls and their
+optional $x_1$[^rg-2e085e796dc5] profiles, and its operator on the cubed sphere; prescribed heating and cooling; the bottom relaxations of temperature, velocity and
+composition; and the sponge layers. All of them are explicit and act through one increment, and every native
+module reads the same stage-entry state, so their order does not change the result. Constant gravity is the first module of the same loop; it and its work
+are @sec-ch06; sedimentation is @sec-ch10-sed; the tracers that ride the dry-air part of these sources are
+@sec-ch10-tracer. Two entries record code that is present but never runs: the plume forcing and the turbulence
+closure, which is not built.
+
+```{python}
+#| label: fig-ch07-deps
+#| fig-cap: "Dependency map of the schemes of this chapter. Solid arrows read 'is part of', dashed arrows 'hands its dry-air increment to', dotted arrows 'needs'. Every native module runs inside the forcing loop; the wall face coefficient and the $x_1$ profiles are parts of the viscosity and conduction module; the forcing loop and the user stage forcings both hand their dry-air density change to the passive tracers; the wall coefficient needs $x_1$ boundary functions with a recorded wall name, and the composition relaxation needs kintera's thermodynamics."
+#| fig-alt: "Directed graph of twelve boxes: user stage forcings, forcing loop and dry-air tracers on top; Coriolis, viscosity and conduction, heating and cooling, bottom relaxation and sponge layers in the middle; x1 coefficient profiles, wall face coefficient, named x1 walls and kintera thermo at the bottom, joined by solid, dashed and dotted arrows."
+#| echo: false
+from snapy_report.ch07.figures.fig_deps import make_fig
+make_fig()
+```
+
+| scheme | switch | default | order | main test |
+|---|---|---|---|---|
+| Forcing loop (@sec-ch07-framework) | `forcing:` keys | none | n/a | `test_forcing` |
+| User stage forcings (@sec-ch07-user) | `set_user_stage_forcings` | none | user | `test_stage_forcing_dry_tracer_python` |
+| Coriolis (@sec-ch07-coriolis) | `coriolis`[^rg-9a9d811520ed] | off | exact pointwise | `test_forcing` |
+| Viscosity and conduction (@sec-ch07-viscosity) | `diffusion`[^rg-c78179e38016] | off | 2 (1 at walls) | `test_diffusion` |
+| Wall face coefficient (@sec-ch07-wallcoef) | automatic | on at named walls | 2 | `test_diffusion` |
+| Viscosity and conduction, cubed sphere (@sec-ch07-csdiffusion) | `diffusion` on `gnomonic-equiangle`, `implicit_radial`[^rg-311cb1f16924] | off | 2 (heat, measured) | `test_diffusion_cubed_sphere` |
+| $x_1$ coefficient profiles (@sec-ch07-x1profile) | `nu_scale_x1`, `kappa_scale_x1`[^rg-971e3415e0b5] | none | 2 | `test_diffusion_x1_scale` |
+| Heating and cooling (@sec-ch07-heating) | `body-heat`[^rg-56ffaf2ed264], `top-cool`[^rg-f91638da49de], `bot-heat`[^rg-8786644fbc4f] | off | exact pointwise | `test_forcing` |
+| Bottom relaxation (@sec-ch07-relax) | `relax-bot-temp`[^rg-b6f16609de29], `-velo`, `-comp` | off | 1 in time | `test_forcing` |
+| Sponge layers (@sec-ch07-sponge) | `top-sponge-lyr`[^rg-24d92b4619a2], `bot-sponge-lyr`[^rg-0f7085e7d2e2] | off | 1 in time | `test_forcing` |
+| Plume forcing (@sec-ch07-plume) | `plume-forcing` | never installed | n/a | none |
+| Turbulence (@sec-ch07-turbulence) | none | not built | n/a | none |
+
+: The schemes of this chapter. "Order" is the spatial order of the discrete operator, or the order in time for the
+relaxations; all are explicit. Full ctest names and tolerances are in each scheme's Tests layer. {#tbl-ch07-schemes}
+
+{{< include 07-diffusion-forcing/_framework.qmd >}}
+
+{{< include 07-diffusion-forcing/_user.qmd >}}
+
+{{< include 07-diffusion-forcing/_coriolis.qmd >}}
+
+{{< include 07-diffusion-forcing/_viscosity.qmd >}}
+
+{{< include 07-diffusion-forcing/_wallcoef.qmd >}}
+
+{{< include 07-diffusion-forcing/_x1profile.qmd >}}
+
+{{< include 07-diffusion-forcing/_csdiffusion.qmd >}}
+
+{{< include 07-diffusion-forcing/_heating.qmd >}}
+
+{{< include 07-diffusion-forcing/_relax.qmd >}}
+
+{{< include 07-diffusion-forcing/_sponge.qmd >}}
+
+{{< include 07-diffusion-forcing/_plume.qmd >}}
+
+{{< include 07-diffusion-forcing/_turbulence.qmd >}}
+
+The limits this chapter states are collected with those of the other chapters in @sec-ch17-wrong, @sec-ch17-restricted and @sec-ch17-usability.
+
+The derived round-off checks use one shared provenance note.[^ch07-roundoff]
+
+[^ch07-roundoff]: `python src/snapy_report/ch07/checks/ch09_dropin_check.py`, output `ch09_dropin_check.out`;
+    D1–D6 compare float64 ports with exact rational arithmetic on stored inputs (D5 uses symbolic differentiation), seed 9.
+    Recorded environment: Python 3.11.13, numpy 2.4.6, sympy 1.14.0. Printed round-off digits are environment-dependent;
+    compare the asserted bounds. D6 covers interior faces; D3b checks wall extrapolation.
+    Each operator mutation is exercised by `src/tests/test_ch09_dropins.py`.
+
+<!-- reader glossary notes -->
+[^rg-2e085e796dc5]: $x_1, x_2, x_3$ — the three coordinate directions; $x_1$ is always the vertical (radial) direction
+
+[^rg-9a9d811520ed]: coriolis — Coriolis-force options
+
+[^rg-c78179e38016]: diffusion — viscosity and heat-diffusion options
+
+[^rg-311cb1f16924]: implicit_radial — whether radial heat conduction on the cubed sphere is solved implicitly, split around the explicit step (default false)
+
+[^rg-971e3415e0b5]: kappa_scale_x1 — piecewise-linear vertical multiplier for thermal transport
+
+[^rg-56ffaf2ed264]: body-heat — volumetric heating options
+
+[^rg-f91638da49de]: top-cool — top cooling options
+
+[^rg-8786644fbc4f]: bot-heat — bottom heating options
+
+[^rg-b6f16609de29]: relax-bot-temp — bottom temperature-relaxation options
+
+[^rg-24d92b4619a2]: top-sponge-lyr — top sponge-layer options
+
+[^rg-0f7085e7d2e2]: bot-sponge-lyr — bottom sponge-layer options
+<!-- end reader glossary notes -->

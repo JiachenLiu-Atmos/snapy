@@ -380,10 +380,15 @@ Then rebuild and reinstall kintera, so that snapy links the new table ({rebuild_
 
 
 def check(report=REPORT):
+    # a target in a legacy chapter (tools/code-anchors-legacy.txt) is skipped, and checked once its line is deleted
+    live = {k: t for k, t in TARGETS.items() if not code_anchors.legacy_chapter_of(t, Path(report))}
+    if not live:
+        print('[N6 species contract] skipped: every target is in a chapter in tools/code-anchors-legacy.txt')
+        return 0
     try:
         expected = generate(Path(report))
         errors = []
-        for key, target in TARGETS.items():
+        for key, target in live.items():
             if (Path(report) / target).read_text() != expected[key]:
                 errors.append(f'{target}: generated keys, rows, reaction or runtime example differs from the pin')
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:

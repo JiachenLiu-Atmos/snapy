@@ -52,11 +52,11 @@ $$
 $$
 
 Here $\mathbf g=(g_1,g_2,g_3)$ is the acceleration in m s$^{-2}$. Coriolis, diffusion and the configured sources
-add their own terms (@sec-ch09); the geometric momentum terms enter through the coordinate operator (@sec-ch03).
+add their own terms (@sec-ch07); the geometric momentum terms enter through the coordinate operator (@sec-ch03).
 
 The equations above keep the full vertical momentum equation, so the vertical velocity is prognostic and sound
-waves are resolved; the explicit step is then bounded by the acoustic time-step limit (@sec-ch07-cfl) unless the
-vertically implicit correction removes it in $x_1$[^rg-88d9f77d83d1] (@sec-ch07-vic-options). A side-by-side list of the
+waves are resolved; the explicit step is then bounded by the acoustic time-step limit (@sec-ch09-cfl) unless the
+vertically implicit correction removes it in $x_1$[^rg-88d9f77d83d1] (@sec-ch09-vic-options). A side-by-side list of the
 differences from a hydrostatic primitive-equation core is answered at @sec-ch02-pecore.
 
 The flux-only increment follows in three steps.
@@ -126,8 +126,8 @@ in that order: the last `apply_boundaries` call of `MeshBlockImpl::advance_local
 @fig-ch02-laws-flow shows one stage. `MeshBlockImpl::advance_local` runs it in this order:
 
 1. `HydroImpl::forward`: reconstruct face states, solve the Riemann problems, limit the fluxes, form the divergence
-   `_div`, start `du` from $-\Delta t$ times `_div` on interior cells, add the forcing modules (@sec-ch09) and the
-   vertical implicit correction if it is on (@sec-ch07);
+   `_div`, start `du` from $-\Delta t$ times `_div` on interior cells, add the forcing modules (@sec-ch07) and the
+   vertical implicit correction if it is on (@sec-ch09);
 2. the user stage forcings, after `HydroImpl::forward` returns;
 3. the RK averaging of `pintg->forward` and the conserved limiter;
 4. the solid refill, if there are solids;
@@ -136,7 +136,7 @@ in that order: the last `apply_boundaries` call of `MeshBlockImpl::advance_local
 6. `apply_boundaries`, which fills the physical ghosts.
 
 The EOS conversions inside these steps have no spatial stencil. Ghost exchange and seam flux agreement belong to
-@sec-ch03 and @sec-ch07.
+@sec-ch03 and @sec-ch09.
 
 ```{python}
 #| label: fig-ch02-laws-flow
@@ -228,7 +228,7 @@ The ctest case runs on CPU[^rg-d5c518c05d4f] and CUDA[^rg-6f633b2ccc44] where av
 
 1. **Limiters and sources change the budget.** The conserved limiter and the forcing modules add or remove mass
    and energy by design; the telescoping statement covers the flux-only increment.
-2. **No measured convergence order** for the complete stage is given here; @sec-ch04 and @sec-ch07 own the
+2. **No measured convergence order** for the complete stage is given here; @sec-ch04 and @sec-ch09 own the
    spatial and temporal orders.
 3. **Untested combinations.** Switch-combination coverage is in @sec-ch12-matrix.
 

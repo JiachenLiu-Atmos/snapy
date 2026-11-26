@@ -28,7 +28,13 @@ _FILE = re.compile(r"^(?:(?P<num>\d\d)(?P<split>[a-z]?)|app(?P<app>[a-z]))-[\w-]
 
 
 def outline_chapters(outline: Path) -> list[int]:
-    """Chapter numbers of OUTLINE.md, in order (`## Chapter 6. Gravity and energy` gives 6)."""
+    """Chapter numbers of the outline, in order (`## Chapter 6. Gravity and energy` gives 6). The V3 structure
+    (STRUCTURE.md, `### Chapter 17. Known limits`) numbers the chapters when it sits beside OUTLINE.md."""
+    structure = outline.parent / "STRUCTURE.md"
+    if structure.exists():
+        found = [int(n) for n in re.findall(r"^### Chapter (\d+)\.", structure.read_text(), re.M)]
+        if found:
+            return found
     return [int(n) for n in re.findall(r"^## Chapter (\d+)\.", outline.read_text(), re.M)]
 
 

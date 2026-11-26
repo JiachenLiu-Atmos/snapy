@@ -49,7 +49,7 @@ as `fixgrav=`.[^ch06-fixer-src]
 Per stage $s$ the defect $\mathcal D^{(s)}$ is @eq-ch06-cell-defect plus, with an implicit scheme, the change of
 $\sum_iV_i(E_i+\phi_i\rho_i)$ across the implicit solve. Its weight in the step follows in three steps.
 
-1. Stage $s$ forms $\mathbf U\leftarrow w_0^{(s)}\mathbf U^n+w_1^{(s)}\mathbf U+w_2^{(s)}\Delta\mathbf U^{(s)}$ (@sec-ch07-rk), so its
+1. Stage $s$ forms $\mathbf U\leftarrow w_0^{(s)}\mathbf U^n+w_1^{(s)}\mathbf U+w_2^{(s)}\Delta\mathbf U^{(s)}$ (@sec-ch09-rk), so its
    increment enters the stage result with the factor $w_2^{(s)}$.
 2. Each later stage $s'>s$ multiplies the current $\mathbf U$[^rg-d88d62d31f0d] by $w_1^{(s')}$ and adds terms that do not contain
    $\Delta\mathbf U^{(s)}$, so the factor becomes $w^{(s)}_{\mathrm{step}}=w_2^{(s)}\prod_{s'>s}w_1^{(s')}$.

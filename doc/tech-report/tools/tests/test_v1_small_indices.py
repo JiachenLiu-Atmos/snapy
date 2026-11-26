@@ -7,10 +7,10 @@ import gen_notation_index as n
 
 def test_dropin_checks_are_equation_specific():
     rows = [r for _, _, rows in g.collect(g.BOOK, g.load_statements(g.STATEMENTS), g.CHECKS) for r in rows]
-    selected = {r.equation: r.check for r in rows if r.equation and r.equation.startswith('eq-ch09-')}
-    assert 'ch09_dropin_check.py' in selected['eq-ch09-coriolis-force']
-    assert 'ch09_dropin_check.py' not in selected['eq-ch09-coriolis-sph']
-    assert 'ch09_dropin_check.py' not in selected['eq-ch09-viscosity-dt']
+    selected = {r.equation: r.check for r in rows if r.equation and r.equation.startswith('eq-ch07-')}
+    assert 'ch09_dropin_check.py' in selected['eq-ch07-coriolis-force']
+    assert 'ch09_dropin_check.py' not in selected['eq-ch07-coriolis-sph']
+    assert 'ch09_dropin_check.py' not in selected['eq-ch07-viscosity-dt']
 
 def test_notation_generator_uses_current_pin():
     text = n.fragment(n.NOTATION.read_text(), n.BOOK)

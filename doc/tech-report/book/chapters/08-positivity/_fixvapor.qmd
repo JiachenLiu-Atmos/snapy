@@ -110,7 +110,7 @@ and in the conversion of `check_redo`, on the CPU and on CUDA alike, the failure
 repair adds its count to a 0-d count, `vapor_failures_`: on CUDA the kernel adds it on the device with no read back,
 and on the CPU the kernel returns it and the caller adds it. The column is copied back as the kernel left it.
 `check_redo` carries the count in its one device-to-host copy and turns a nonzero count into a redo of the step,
-which restores the step's start state (@sec-ch07-redo); stage 0 zeroes it. Every other call raises at once. A
+which restores the step's start state (@sec-ch09-redo); stage 0 zeroes it. Every other call raises at once. A
 failure in the vapour path is therefore never a silent repair: it redoes the step inside one and stops the caller
 outside one.
 
@@ -223,7 +223,7 @@ only the stale-count one was run, and it passed.[^ch08-fixvapor-pyrun]
 
 ::: {.callout-warning title="Limits"}
 - An unrepairable vapour column inside a step redoes the step at half the step; a column no smaller step repairs
-  stops the run after `max_redo` retries (@sec-ch07-redo). Outside a step, a direct conversion for example, it
+  stops the run after `max_redo` retries (@sec-ch09-redo). Outside a step, a direct conversion for example, it
   throws at once. Neither is a degraded run, and both are the intended behaviour rather than a defect.
 - The repair sees the whole column only on the two stage calls, which pass `whole_column` true. On a split $x_1$
   axis those calls gather across ranks, so they are a collective operation inside what is otherwise a local limiter.

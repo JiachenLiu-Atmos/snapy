@@ -209,7 +209,7 @@ def plotted_series(fig) -> list[tuple[str, list[float]]]:
             if arr is not None:
                 add(f"{where}.coll{ci}.array", np.asarray(arr).ravel())
         # ax.stairs draws a StepPatch, which carries its numbers in get_data() and has neither
-        # get_height nor get_width, so the bar branch below never saw it. fig-ch09-sponge-profile
+        # get_height nor get_width, so the bar branch below never saw it. fig-ch07-sponge-profile
         # draws its committed data this way: without this, changing those values changed nothing.
         steps = [p for p in ax.patches if hasattr(p, "get_data") and not hasattr(p, "get_height")]
         for si, patch in enumerate(steps):

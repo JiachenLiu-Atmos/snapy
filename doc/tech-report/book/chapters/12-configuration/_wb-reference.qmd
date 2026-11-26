@@ -131,7 +131,7 @@ The thresholds are `ORDER_ON` and `ORDER_OFF` ({{< code tests/test_wb_ref4_order
 registered in {{< code tests/CMakeLists.txt >}}.
 
 No snapy runtime test is executed for this chapter. CUDA and multi-rank entries describe registration only.
-The independent checks and their outputs are catalogued in @sec-ch15-ch12-tests.
+The independent checks and their outputs are catalogued in @sec-ch16-ch12-tests.
 
 The independent report check verifies the face moments in `[C2]`.[^ch12-wb-reference-run] The check itself is
 unchanged, so its committed output line still reads `filter, cubic wall continuation and face moments`; those

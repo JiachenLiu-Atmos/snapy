@@ -22,7 +22,7 @@ the two neighbouring cells at their own centroids, not where the mass crosses. T
 integral of that defect once per step.
 
 Where the planet constants are set: gravity is `forcing/const-gravity/grav1..3` (this section); the rotation rate is
-`forcing/coriolis/omega1..3` [s$^{-1}$] (@sec-ch09-coriolis); and there is no planet-radius key: on a
+`forcing/coriolis/omega1..3` [s$^{-1}$] (@sec-ch07-coriolis); and there is no planet-radius key: on a
 spherical-polar or cubed-sphere grid the radius is $x_1$, so the deck sets it through the bounds
 `geometry/bounds/x1min` and `x1max`[^rg-896a4d0cea2b] [m] (@sec-ch03-sphpolar).
 

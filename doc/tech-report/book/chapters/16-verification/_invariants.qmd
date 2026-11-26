@@ -1,0 +1,537 @@
+## Invariant checks: zero in, zero out, and the global budgets {#sec-ch16-invariants}
+
+<!-- PROVENANCE
+pin: snapy@919936da07d80a310b98ab11da184972a3203274
+sources: src/snapy_report/ch16/checks/invariants_zero_check.py;
+  src/snapy_report/ch16/checks/invariants_budget_check.py;
+  src/snapy_report/ch16/evidence/aam_budget_run.py;
+  src/snapy_report/ch16/evidence/absent_species_run.py;
+  src/snapy_report/ch16/evidence/port_validation.py;
+  src/hydro/flux_positivity.cpp; src/eos/equation_of_state.cpp;
+  src/coord/coordinate.cpp; src/coord/gnomonic_equiangle.cpp at the pin.
+  Motivated by chengcli/kintera#147 and #151 (a 1e-300 concentration floor made
+  absent species go negative) and chengcli/snapy#314 (global axial angular
+  momentum drifts on the cubed sphere).
+status: draft
+-->
+
+### Summary
+
+The sections before this one read assertions that a test already makes. This one asks a different question:
+which properties of the solver would survive every test in the catalogue and still be wrong? Two answers recur in
+this project's own defect record.[^ch16-inv-motive] The first is a species that is not there: a floor meant to keep
+a divide finite instead reports an absent amount as present, the update consumes it, and the row goes negative.
+The second is a global total that no test watches: mass, energy or angular momentum drifts slowly, and because no
+single step is wrong by much, nothing fails.
+
+Both are invariant defects. The checks here are built to fail on exactly those: one asks that an absent species
+have a zero rate and no negative amount after many implicit steps, and lists every positivity floor, clamp and
+epsilon in the covered paths with a measurement of what that floor changes; the other accumulates global mass,
+total energy and, for the cubed sphere, global axial angular momentum over many steps and reports the drift per
+step and where it comes from. Every claim carries a break arm that removes one term and makes it red. A check
+that cannot be made to fail is not finished, so the green run executes every break arm and requires it to fail.
+Two claims carry no arm and the chapter does not pretend otherwise: `[Z5]` is an inventory, and an inventory
+cannot be broken from inside the check that owns the list; and `[Z6]`/`[B6]` are the arm-runners themselves.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** States the invariants a catalogue of per-test assertions does not cover: zero in, zero out, and the three global budgets.
+
+**Data.** Ported operators on a six-panel gnomonic-equiangular shell; a measured run of a build at the pin for the drift of a flowing state.
+
+**Placement.** Analysis of the update operator, outside the solver step; the run record is a full six-panel integration.
+
+**Activation.** None for the checks; the run record needs a build at the pin and, for its GPU[^rg-d1be4fb0f62d] arm, a CUDA-enabled one.
+
+**Guarantee / limits.** Exact identities and measured drifts for the configurations tested; a budget that closes here is not a claim about any other deck.
+
+**Evidence.** The Tests layer below, @tbl-ch16-inv-claims and @tbl-ch16-inv-run.
+:::
+
+Local symbols: $\theta_{15}$ the dimensionless positivity scale factor of the flux limiter [-]; $L_z$ the global
+axial angular momentum [$\mathrm{kg\,m^2\,s^{-1}}$]; $\Omega_c$ the solid angle of one cubed-sphere cell [sr];
+$\lambda$ the latitude [rad]. The rest is appendix A: $V_i$, $A_{i\pm1/2}$, $\rho$, $\epsilon_{\mathrm m}$, $x_1,
+x_2, x_3$ and the cell indices $i, j, k$.
+
+### Derivation
+
+Four identities carry the claims below. Each is tied to the statement in the code that makes it true, and each
+has a term whose removal makes it false.
+
+#### Zero in, zero out
+
+Let $u \geq 0$ be one species row and let $A_{j\pm1/2}F_{j\pm1/2}$ be the area-weighted face fluxes the
+divergence uses. The flux limiter
+({{< code src/hydro/flux_positivity.cpp flux_positivity_theta >}}) accumulates the *outgoing* part of those
+fluxes only, through a rectifier on the upper face and on the negated lower face, and compares it with what the
+cell has:
+
+$$
+\begin{aligned}
+D_i&=\Delta t\sum_{\text{faces}}\max(\pm A F, 0),\\
+\theta_{15,i}&=\begin{cases}
+\min\!\left(1,\;\dfrac{\max(u_i,0)\,V_i\,(1-4096\,\epsilon_{\mathrm m})}{D_i}\right), & D_i>0,\\[2ex]
+1, & D_i=0 .
+\end{cases}
+\end{aligned}
+$$ {#eq-ch16-inv-theta}
+
+The numerator is the cell's own amount put through a rectifier, not through a floor. For an absent row
+$u_i = 0$ the numerator is exactly zero, so $\theta_{15,i}=0$, and the scaling pass
+({{< code src/hydro/flux_positivity.cpp flux_positivity_scale_ >}}) multiplies every donor face of that cell by
+it. The row cannot be drained at all, and stays bitwise zero for any number of steps. Replace the rectifier by a
+floor at $10^{-300}$ and the numerator is positive: the cell is treated as holding that amount, the update
+removes it, and the row goes negative — which is the defect this check exists to catch.
+
+That guarantee is only ever *exercised* where the absent row is actually drained. $\theta_{15}$ is
+$\min(1,\,\text{avail}/\text{drain})$ on the cells with $\text{drain}>0$ and exactly $1$ everywhere else
+({{< code src/hydro/flux_positivity.cpp flux_positivity_theta >}}, the `torch::where` on `drain > 0.`), and the
+numerator — the only place the rectifier appears — is not consulted on the `else` branch. An identically zero
+row reconstructs to zero on both sides of every face, which is claim `[Z4]` below, so its species flux, and
+hence its drain, is identically zero: the rectifier is never reached for such a row. Instrumenting
+`flux_positivity_theta` at the pin and running the compiled record of @tbl-ch16-inv-run measures exactly that —
+over the 162 limiter calls of three cycles on six panels, the two absent channels have
+$\max(\text{drain}) = 0$ and no cell at all with $\text{drain}>0$, against a maximum drain of
+$2.274\times10^{13}$ over 2456 cells for the present control channel.
+
+So the two pieces of evidence below are credited with different things, and this is the sharpest statement each
+supports. `[Z1]` tests the rectifier, because it prescribes the face fluxes of the absent row directly and can
+therefore put it in the draining state the solver will not produce on its own; replacing the rectifier by the
+floor turns `[Z1]` red. The compiled record tests something weaker but end-to-end: that an absent row survives
+the implicit solve, the moist limiter and the cross-panel exchange still bitwise zero. It does **not** test the
+rectifier, and we should not claim it does — with the rectifier replaced by a $10^{-300}$ floor in the built
+library the record stays green on both CPU and CUDA, exactly because the drain it would act on is zero. The
+honest reading is that two independent mechanisms protect an absent row, a zero flux and a zero factor, and that
+the record exercises the first while `[Z1]` exercises the second.
+
+Two further absent-species paths close the same way. The condensate repair
+({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}}) borrows a deficit
+$\min(c,0)$ from the parent vapour and then writes $\max(c,0)$; both are exactly zero for $c=0$, so an absent
+condensate borrows nothing. The reconstruction's face clamp
+({{< code src/recon/reconstruct.cpp >}}) has nothing to repair, because a limited slope over an identically zero
+stencil is zero before any clamp.
+
+#### A floor is only honest if you can say what it changes
+
+A floor is not a property of the scheme; it is a repair, and a repair that nobody measures is indistinguishable
+from a bug. The inventory in the Tests layer therefore sorts every floor, clamp and epsilon in the covered paths
+into six kinds and measures each: a **state** floor changes a stored value and is reported as the mass, energy or
+pressure it invents; a **guard** sits under a division and is shown to bind only at or below its own value; a
+**select** keeps a sign or a cap; a **domain** clamp holds an argument inside the domain of the next function; an
+**index** clamp changes which cell is read and never a value; an **eps** decides a branch or leaves a stated
+fraction behind; and a **cap** is a deck choice that changes the answer whenever it binds. The one guard that
+shares its value with the defect that motivated this section, the $10^{-300}$ under the drain division, is shown
+to change no *selected* value at all: the surrounding `where` picks the quotient only where the denominator is
+positive, so the guard exists to stop the discarded branch evaluating $1/0$.
+
+#### The volume-weighted budget and its measure
+
+@eq-ch16-budget already gives the telescoping identity: the volume-weighted total is constant when both
+neighbours of every face use the same flux. Two things can break it without any test noticing. The first is a
+seam where two blocks do not share a face flux; the second is a volume measure that is not the exact integral of
+the same solid angle the $x_1$ face area uses. On the cubed sphere the cell volume is
+({{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::cell_volume >}})
+
+$$
+V_{kji}=\frac{r_{i+1/2}^3-r_{i-1/2}^3}{3}\,\Omega_{c,kj},
+\qquad
+A_{1,kji\pm1/2}=r_{i\pm1/2}^2\,\Omega_{c,kj},
+$$ {#eq-ch16-inv-volume}
+
+with $\Omega_{c,kj}$ the exact solid angle of the gnomonic cell, a corner sum of
+$\arctan\!\big(xy/\sqrt{1+x^2+y^2}\big)$ over the four corners
+({{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::face_area1 >}}). Because the same $\Omega_c$
+appears in both, the discrete divergence of the radial field $r\hat{\mathbf r}$ is exactly $3$, and the six
+panels' volumes sum to the shell's. The trapezoid $\tfrac12(A_{i-1/2}+A_{i+1/2})\,\Delta r$ passes neither, by
+$O((\Delta r/r)^2)$.
+
+#### Why the uniform-pressure state exerts no tangential force
+
+The axial angular momentum of a closed, unforced shell is exactly conserved, so any drift is numerical. The first
+place to look is the resting state. On the cubed sphere an $x_2$ face carries, in the local orthonormal frame,
+only the normal pressure; the covariance transform
+({{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::flux2global2_ >}}) leaves the covariant rows
+$p\sin\vartheta_{j\pm1/2}$ and $0$. The geometric source of the same row
+({{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::forward >}}) is $p$[^rg-3bafdb78128c] times the cached quantity
+built in ({{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::reset >}}),
+
+$$
+\left(\frac{x}{rD}\right)_{kji}
+=\frac{\big(A_{2}\sin\vartheta\big)_{k,j+1/2,i}-\big(A_{2}\sin\vartheta\big)_{k,j-1/2,i}}{V_{kji}} .
+$$ {#eq-ch16-inv-metric}
+
+The numerator is the difference of the *same product* that the pressure flux divergence forms, so for a uniform
+$p$ the two cancel exactly: only the order of two multiplications differs between them. The cancellation is not
+a truncation statement but an identity, and it is what keeps a resting atmosphere from spinning itself up.
+Replace @eq-ch16-inv-metric by the analytic metric derivative — the same term to truncation order, a different
+number — and the resting state acquires a tangential force of order the term itself.
+
+The axial projection needs the Cartesian velocity, which the panel transform
+({{< code src/coord/cubed_sphere_utils.cpp cs_contra_to_cart_ >}}) supplies from the contravariant components
+after the covariant momentum is raised; then
+
+$$
+L_z=\sum_{kji}\rho_{kji}\,\big(\mathbf r\times\mathbf v\big)_{z,kji}\,V_{kji}
+=\sum_{kji}\rho_{kji}\,u_{\text{east},kji}\,r_i\cos\lambda_{kj}\,V_{kji}.
+$$ {#eq-ch16-inv-lz}
+
+### Numerical method
+
+The two checks are ports: they execute no compiled snapy, so they run from a fresh clone with numpy alone, and
+`src/tests` discovers them like any other check in this report. A port is only worth its numbers if it is the
+same arithmetic, so every geometric quantity and the velocity transform were compared cell by cell against a
+build at the pin, on all six panels, at four resolutions up to 45 cells per panel edge. At the coarsest
+resolution 14 of the 16 compared quantities agree **bit for bit**; the rest agree within the conditioning of the
+formula, which is derived in the Limits layer and is not a port error.
+
+The run record is the complement: a six-panel integration of the real solver on a shell, with a discretely
+balanced isothermal rest state and a solid-body zonal wind, closed radial walls, no drag, no sponge and no
+topography. Its system has no external torque, so the exact drift of all three budgets is zero and every measured
+slope is numerical. It runs on CPU and, with a CUDA-enabled build, on the GPU.
+
+| run | mass | energy and potential | $L_z$ |
+|---|---|---|---|
+| CPU, 8 cells per panel edge, 400 cycles | $-6.0\times10^{-17}$ | $-1.0\times10^{-10}$ | $+6.0\times10^{-8}$ |
+| CPU, 16, 400 cycles | $-6.0\times10^{-17}$ | $+1.8\times10^{-11}$ | $-5.0\times10^{-10}$ |
+| CPU, 24, 400 cycles | $-5.6\times10^{-17}$ | $-1.6\times10^{-11}$ | $-5.9\times10^{-10}$ |
+| CPU, 16, 2000 cycles | $-5.9\times10^{-17}$ | $-2.4\times10^{-12}$ | $-9.9\times10^{-10}$ |
+| CPU, 8, 400 cycles, at rest | $-6.0\times10^{-17}$ | $-4.8\times10^{-17}$ | $L_z \equiv 0$ |
+| CUDA, 8, 400 cycles | $-6.0\times10^{-17}$ | $-1.0\times10^{-10}$ | $+6.0\times10^{-8}$ |
+| CUDA, 16, 400 cycles | $-5.9\times10^{-17}$ | $+1.8\times10^{-11}$ | $-5.0\times10^{-10}$ |
+| CUDA, 8, 400 cycles, at rest | $-6.0\times10^{-17}$ | $-4.8\times10^{-17}$ | $L_z \equiv 0$ |
+
+: Measured relative drift per cycle of the three global budgets, six panels on a shell at the code pin. {#tbl-ch16-inv-run}
+
+Read @tbl-ch16-inv-run as follows.[^ch16-inv-run] Mass is at round-off at every resolution and on both devices:
+the volume-weighted total of @eq-ch16-budget holds in the solver, not only in the port. Energy, with the
+potential carried, is also at round-off in the resting state, $-4.8\times10^{-17}$ per cycle, which says that the
+gravity work booked at the faces closes the budget exactly; with the flow it is four to six orders larger, and
+that part is the scheme's own dissipation, not a bookkeeping error. $L_z$ is the one budget that is neither: it
+is $10^{-8}$ to $10^{-10}$ of itself per cycle, far above mass and above the resting energy drift, it changes
+sign and falls steeply between the coarsest grid and the next, and in the resting state it stays identically
+zero. So the drift is a property of the flowing solution, not of the geometry, and it is not at round-off.
+
+CPU and CUDA agree to all four printed digits of the energy and $L_z$ drift of the two flowing runs, and differ
+in the last digit of the mass round-off; in the resting run, where the energy drift is itself at round-off, the
+two differ in its third digit ($-4.829\times10^{-17}$ against $-4.837\times10^{-17}$). No row is a device-only
+result: every row of @tbl-ch16-inv-run exists on CPU, and the three CUDA rows repeat CPU rows on the GPU.
+
+`[Z1]` is a statement about the limiter alone, so it has a run record of its own: the same shell, with the
+four-species moist thermodynamics and the NH$_3$ + H$_2$S nucleation of `tests/test_condensate_conservation.yaml`,
+the conserved limiter switched **on**, an implicit $x_1$ solve, and a warm bubble to make the implicit solve and
+the species transport do real work. NH$_3$ is present and is the control; H$_2$S and its condensate NH$_4$SH are
+set to exactly zero. Six green arms were run.[^ch16-inv-absent] In all six — 2000 cycles at 8 cells per panel
+edge, 200 at 16, implicit schemes 9 and 1 and the explicit scheme 0, on CPU and on the GPU — **both absent rows hold zero non-zero
+entries in every interior cell of all six panels at every cycle**, and their global masses stay at exactly
+$0$. The present row is never driven negative either: its smallest value over 2000 cycles is
+$+2.97\times10^{-6}$, against an initial $10^{-3}$. The CPU and GPU arms agree to every printed digit, including
+the final species masses $5.831574\times10^{15}$ and $5.186102\times10^{15}$ kg.
+
+A species repaired *inside* a stage is back at or above zero by the time the cycle ends, so reading the state at
+the cycle boundary cannot see it; the only trace is the line the thermodynamics prints when it repairs one. The
+script therefore captures file descriptor 1 across the whole run and counts those lines. **Every green arm
+reports zero of them.** That is the stronger statement: not merely that the absent rows are zero when each cycle
+ends, but that nothing was repaired at any stage of any cycle.
+
+The break arm makes the counter fire. `blob-no-limiter` gives the two rows a discontinuous top-hat of
+$10^{-6}$ and switches the conserved limiter off; the reconstruction then undershoots across the edge of the hat
+and, on CPU, the run reports `Warning: Negative concentration for species 2 = -8.7005e-321. Setting it to zero.`
+twice, and the script exits 1. `blob-limiter` is the same top-hat with the limiter back on: zero repair lines.
+The pair is what identifies the responsible term — the limiter, not the smoothness of the field. This is the
+same pathology `tests/test_flux_positivity.py` describes at the pin, "the very repair-instead-of-prevention
+pathology the limiter removes" ({{< code tests/test_flux_positivity.py >}}), reproduced on the six-panel shell.
+
+Two results of that run are negative findings and are reported as such. First, `--break floor-seed`, which starts
+the two rows at the $10^{-300}$ a concentration floor would leave behind, **does not go red**: over 200 implicit
+cycles the seeded rows stay at or above zero and nothing is repaired. The kintera defect needed an implicit
+kinetics source to consume the floored amount; this deck runs transport, the limiter and the equation of state
+and no kinetics, and that is not enough on its own. Second, `blob-no-limiter` is red on CPU and **not** on the
+GPU, where the same arm reports zero repair lines. Whether the GPU arm does not undershoot or the repair is
+reported only from the host path is a hypothesis this report has not tested.
+
+The port was validated against the build at the pin.[^ch16-inv-port] Sixteen quantities, on six panels, at four
+resolutions: all sixteen agree within the conditioning bound at every resolution, and fourteen agree bit for bit
+at the coarsest.
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| positivity factor | {{< code src/hydro/flux_positivity.cpp flux_positivity_theta >}} | `flux_positivity_theta` | none |
+| scaling of the donor faces | {{< code src/hydro/flux_positivity.cpp flux_positivity_scale_ >}} | `flux_positivity_scale_` | none |
+| flux divergence | {{< code src/coord/coordinate.cpp CoordinateImpl::divergence >}} | `CoordinateImpl::divergence` | none |
+| conserved-state repairs | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}} | `apply_conserved_limiter_` | `limiter`[^rg-b06d1779eb4d] |
+| primitive-state repairs | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_primitive_limiter_ >}} | `apply_primitive_limiter_` | `limiter` |
+| cubed-sphere volume | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::cell_volume >}} | `cell_volume` | `gnomonic-equiangle` |
+| cubed-sphere radial face area | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::face_area1 >}} | `face_area1` | `gnomonic-equiangle` |
+| cached metric differences | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::reset >}} | `x_ov_rD_kji`, `y_ov_rC_kji` | `gnomonic-equiangle` |
+| covariance of an $x_2$ face flux | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::flux2global2_ >}} | `flux2global2_` | `gnomonic-equiangle` |
+| geometric sources | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::forward >}} | `src1`, `src2`, `src3` | `gnomonic-equiangle` |
+| panel to Cartesian velocity | {{< code src/coord/cubed_sphere_utils.cpp cs_contra_to_cart_ >}} | `cs_contra_to_cart_` | `cubed-sphere` |
+| covariant to contravariant | {{< code src/coord/coord_utils_impl.h coord_vec_raise_impl >}} | `coord_vec_raise_impl` | none |
+| face clamps of the reconstruction | {{< code src/recon/reconstruct.cpp >}} | `clamp_min_` on the face rows | `shock`[^rg-d1873d074a8e] |
+| gravity work at the faces | {{< code src/hydro/hydro_forward.cpp >}} | `face_gravity_work` | `gravity-work`[^rg-9d4a892bae32] |
+
+: Where the invariants live in the code. {#tbl-ch16-inv-code}
+
+**How to run the checks.** They import numpy and nothing else. From the report directory (@sec-appa-refresh):
+
+```bash
+PYTHONPATH=src python3 src/snapy_report/ch16/checks/invariants_zero_check.py
+PYTHONPATH=src python3 src/snapy_report/ch16/checks/invariants_budget_check.py
+```
+
+Each prints one `[Cn] PASS` line per claim, exits 0, and ends with the count of claims that passed. The last
+claim of each runs every break arm and requires it to fail, so a green run is also the evidence that the arms go
+red.
+
+**How to run one break arm on its own.** `--list-breaks` names them; `--break <arm>` runs that one and is
+**expected to exit nonzero**:
+
+```bash
+PYTHONPATH=src python3 src/snapy_report/ch16/checks/invariants_zero_check.py --list-breaks
+PYTHONPATH=src python3 src/snapy_report/ch16/checks/invariants_budget_check.py --break B1-seam
+```
+
+**How to reproduce the run record.** It needs a build at the pin installed in the active Python, and a
+CUDA-enabled one for `--device cuda`:
+
+```bash
+PYTHONPATH=src python3 src/snapy_report/ch16/evidence/aam_budget_run.py \
+    --device cpu --nx 16 --cycles 2000 --omega 2.0e-5
+PYTHONPATH=src python3 src/snapy_report/ch16/evidence/absent_species_run.py \
+    --device cpu --nx 8 --cycles 2000 --scheme 9
+PYTHONPATH=src python3 src/snapy_report/ch16/evidence/port_validation.py --nx 45 --nr 8
+```
+
+`absent_species_run.py` is the one run record that asserts: it exits nonzero if either absent row acquires a
+non-zero entry at any cycle. The other two report and exit 0.
+
+A CUDA-enabled build needs one extra step, which `aam_budget_run.py` performs for its `cuda` arm: the extension
+passes the CUDA sidecar to the linker but references no symbol in it, because its kernels register themselves
+through static initialisers, so the linker drops it under `--as-needed` and a device tensor reaches an empty
+dispatcher. The sidecar is loaded explicitly, after torch and with global visibility, before the first device
+tensor exists.
+
+**The rectifier in the code.** The numerator of @eq-ch16-inv-theta in
+({{< code src/hydro/flux_positivity.cpp flux_positivity_theta >}}) is
+
+```cpp
+double margin = kPositivityRoundoffUlp * machine_epsilon(u.scalar_type());
+auto avail = u.relu() * pcoord->cell_volume() * (1. - margin);
+```
+
+`relu`, not `clamp_min` with a small positive value: that one choice is what makes an absent row's factor exactly
+zero rather than a tiny positive number.
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `invariants_zero_check.py` `[Z1]` (report only) | an absent species has a zero rate and no negative amount after 2000 limiter steps | exact zero | the rectifier of @eq-ch16-inv-theta; break arm `Z1-floor` |
+| `[Z2]` (report only) | the absent row is zeroed in float64 and float32, and $10^{-300}$ is not representable in float32 | exact zero | the same rectifier in both precisions; break arm `Z2-floor` |
+| `[Z3]` (report only) | an absent condensate borrows nothing over 500 limiter calls | exact zero | $\min(c,0)$ and $\max(c,0)$ are *no-ops* at $c=0$, so this tests that nothing in the call manufactures a condensate, not the clamp; defect-injection arm `Z3-floor` |
+| `[Z4]` (report only) | an absent species reconstructs to zero on both sides of every face | exact zero | the limited slope of a zero stencil is zero *before* the clamp, so the clamp is a no-op here; `Z4-noclamp` seeds a negative cell and tests that separate claim |
+| `[Z5]` (report only) | every floor, clamp and epsilon in the covered paths is listed with what it changes | 65 sites in 29 groups | the sites found in the covered paths at the pin; **no break arm** -- see below |
+| `[Z6]` (report only) | every break arm of this check turns its claim red | all arms red | a claim that cannot fail is not a check |
+| `invariants_budget_check.py` `[B1]` (report only) | global mass over 2000 steps of the divergence | the reduction bound of @eq-ch16-budget | sequential-reduction round-off; break arm `B1-seam` |
+| `[B2]` (report only) | that the *cell-velocity* booking does not conserve while the face booking does | the same bound | the same round-off; arm `B2-cellwork`. Deleting the face term alone is **not** detectable here -- see below |
+| `[B3]` (report only) | six-panel solid angle, volume, and $\nabla\cdot(r\hat{\mathbf r})=3$ | $10^{-14}$, $10^{-12}$ | exactness of @eq-ch16-inv-volume; break arm `B3-trapezoid` |
+| `[B4]` (report only) | no tangential force on a uniform-pressure resting shell | $10^{-12}$ relative | the identity of @eq-ch16-inv-metric; break arm `B4-analytic` |
+| `[B5]` (report only) | $L_z$ over 2000 steps of that state | $10^{-20}$ per step | tightened so it separates the shipped source from its deletion; arms `B5-odd-panel`, `B5-nosource` |
+| `[B6]` (report only) | every break arm of this check turns its budget red | all arms red | a claim that cannot fail is not a check |
+
+: The invariant claims and the arm that breaks each. {#tbl-ch16-inv-claims}
+
+Both checks were run for this chapter and their output is the committed
+`invariants_zero_check.out` and `invariants_budget_check.out`.[^ch16-inv-checks-run] The green numbers:
+
+- **[Z1]** the absent row's first-step tendency is $0$ in all 48 cells and the row holds 0 non-zero entries after
+  2000 steps, minimum $+0$. Under `Z1-floor` the same row's tendency is $6.2\times10^{-299}$, it holds 96000
+  non-zero entries and its minimum is $-2.0\times10^{-297}$. The same claim holds in the compiled solver, with
+  the implicit $x_1$ solve and the moist limiter on: see the run record above.[^ch16-inv-absent]
+- **[Z5]** 65 sites in 29 groups: 15 state, 19 guard, 5 select, 6 domain, 6 index, 5 eps, 2 cap, 7 meter. The
+  state group invents, on 4000 probe cells, $5.1\times10^{-4}$ of dry mass at the density floor and
+  $3.9\times10^{1}$ of total energy at the energy floor; the $10^{-300}$ drain guard changes none of the
+  *selected* quotients.
+- **[B1]** relative mass drift $+1.6\times10^{-19}$ per step and $-1.3\times10^{-16}$ over 2000 steps, against
+  the reduction bound $5.7\times10^{-14}$. Under `B1-seam`, with the two sides of one interior face differing by
+  one part in a thousand, it is $-4.1\times10^{-14}$ per step and $-8.1\times10^{-11}$ over the run.
+- **[B2]** relative energy drift $-5.2\times10^{-19}$ per step and $-1.6\times10^{-16}$ over the run; under
+  `B2-cellwork` $+2.9\times10^{-15}$ per step and $+5.8\times10^{-12}$ over the run.
+- **[B3]** the six panels' solid angles sum to $-1.1\times10^{-16}$ of $4\pi$, their volumes to $0$ of the
+  shell's, and $\max|\nabla\cdot(r\hat{\mathbf r})-3| = 3.2\times10^{-14}$ over 6912 cells; under
+  `B3-trapezoid` the volumes miss by $1.1\times10^{-5}$ and the divergence by $3.4\times10^{-5}$.
+- **[B4]** the largest covariant tangential force density on the resting shell is $2.5\times10^{-17}$ against a
+  single term of $1.35\times10^{-2}$, i.e. $1.8\times10^{-15}$ relative; under `B4-analytic` the same quantity is
+  $1.0\times10^{-1}$, which is $7.6$ times the term itself.
+
+  `B4-analytic` is a **wrong-formula arm, not a truncation-order variant**: it is not "the same term to
+  truncation order" that the name might suggest. Measured against the discrete source at $p_0=10^5$, the
+  largest $|\mathrm{src}_2|$ is
+
+  ```
+  n_ang      discrete       analytic    analytic/discrete
+      8    1.3499e-02    1.1622e-01      8.61
+     16    1.4994e-02    2.3622e-01     15.75
+     32    1.5773e-02    4.7525e-01     30.13
+     45    1.6004e-02    6.6946e-01     41.83
+  ```
+
+  The discrete source converges with refinement while the analytic branch grows roughly like
+  $n_\mathrm{ang}$, i.e. like the inverse cell width, so the two never approach each other: the gap widens from
+  $7.6$ to $40.8$ times the discrete term between 8 and 45 cells per panel edge. The ratio tracks
+  $n_\mathrm{ang}$ closely enough to suggest a single missing angular factor, but restoring a $d\beta$ and the
+  $C/D$ ratio only stops the growth and leaves a constant factor near $2.9$, so the arm is not one factor away
+  from being a truncation-order variant; we leave it as the wrong-formula arm it is rather than ship a
+  substitute we cannot derive. It remains a valid break arm -- it shows the claim is sensitive to this source
+  term -- but it does not demonstrate the delicacy a truncation-order perturbation would.
+- **[B5]** $L_z$ drifts $+5.5\times10^{-8}\ \mathrm{kg\,m^2\,s^{-1}}$ per step, which is $8.7\times10^{-34}$ of
+  what the same cells carry at one metre per second eastward; under `B5-odd-panel`, with one of the six panels
+  assembled from the analytic metric and the other five from the discrete one, the drift is
+  $-6.9\times10^{24}$ per step, or $11\%$ of that reference every step.
+
+  This claim's bound is $10^{-20}$ per step. A bound of $10^{-15}$ cannot see this claim's own term being
+  deleted: removing the geometric pressure source outright on **all six** panels leaves the drift at
+  $-2.1\times10^{-18}$ per step, and replacing it by the analytic derivative on all six leaves it at
+  $-1.5\times10^{-17}$, and both clear $10^{-15}$. The odd-panel arm catches only the *inconsistency* between
+  panels, never the term itself. The arm `B5-nosource` deletes the source on all six panels and is red against
+  the bound set here, which the shipped operator clears with fourteen orders of margin
+  ($8.7\times10^{-34}$ against $10^{-20}$).
+
+### What each claim does and does not test
+
+An independent review asked a sharper question than "does the arm go red": does the claim still pass when the
+term it credits is **deleted**? That is not what most of the arms above do -- they inject a defect (a positive
+floor, an odd panel) rather than removing a guard. Running each term-removal explicitly, on the committed
+checks at this pin:
+
+- `[Z1]`, the rectifier `u.relu()`: **goes red** -- but on the *present* control row, which reaches
+  $-9.9\times10^{-324}$, two subnormal units, not on the absent row.
+- `[Z2]`, both reconstruction clamps, or the rectifier: still passes. For $u=0$ exactly, `relu(u)` and `u` are
+  the same number.
+- `[Z3]`, the $\max(c,0)$ clamp, or the $\min(c,0)$ borrow gate: still passes.
+- `[Z4]`, the reconstruction face clamp, on a genuinely zero row: still passes.
+- `[B2]`, the potential-flux face term: still passes.
+- `[B5]`, the geometric pressure source on all six panels: passes against a $10^{-15}$ bound; **fails** against
+  the $10^{-20}$ bound this chapter sets.
+
+The pattern in the zero-in/zero-out family is one fact, not five: **every one of these guards is a no-op on an
+exactly zero row.** A limited slope over a zero stencil is zero before any clamp; $\min(0,0)$ and $\max(0,0)$
+are zero; `relu(0)` is `0`. So the right reading of `[Z2]`--`[Z4]` is that *nothing in the absent-species path
+manufactures a non-zero from zero*, which is a real and checkable property, and not that any particular clamp
+is what holds the row at zero. The guards earn their place on rows that have gone slightly negative, which is a
+different claim, and `Z4-noclamp` -- which seeds one cell at $-10^{-18}$ -- is in fact a test of that different
+claim rather than of `[Z4]` as stated. The arms that remain are defect-injection arms, and they are the right
+ones for this family: the failure mode worth guarding against is the positive concentration floor of the
+kintera defect this section opens with, not a missing clamp. `[Z2]` carries `Z2-floor` on the same principle.
+
+`[B2]` is narrowed rather than re-armed. The diagnostic is $\sum (E + \rho\phi)V$, and dropping the
+potential-flux face term leaves $\phi_\mathrm{cell}\,\nabla\!\cdot\!(A F_m)$ cancelling against the
+potential term identically, so the global total is conserved whatever that face term does. No tolerance can
+recover sensitivity here; the check genuinely tests only that the cell-velocity booking fails where the face
+booking holds. Showing that the face term is right locally needs a different diagnostic, which this chapter
+does not have.
+
+`[B5]` is the one case where tightening the claim is enough, and it matters: against $10^{-15}$ the claim
+passes with its own source deleted on all six panels.
+
+### Limits
+
+**The checks do not integrate a flowing solution.** `[B4]` and `[B5]` establish an identity of the resting state
+and accumulate its round-off; they say nothing about a state with a circulation, because the port carries no
+Riemann solver and no cross-panel exchange. The measured drift of a flowing state is in the run record, and only
+there.
+
+**Each run record is one deck.** The budget record is six panels in one process on a thin shell, dry ideal gas,
+closed radial walls, constant radial gravity, solid-body rotation and no forcing. A budget that closes on it is
+not a claim about a deck with sedimentation, sponges or more than one block per panel. The angular-momentum drift
+it measures is the drift of *this* configuration; it is reported, not explained. The absent-species record adds
+the moist thermodynamics, the conserved limiter and an implicit $x_1$ solve to the same shell, but it is still
+one block per panel in one process, and it runs no kinetics between steps: the reaction is declared so that the
+species rows exist, and the driver-level kinetics of @sec-ch10-kinetics is not called. An absent species crossing
+a *rank* seam, and an absent species through a kinetics source, are outside both records.
+
+**The angular metric is ill-conditioned at high resolution.** The angular cell widths are an arccosine of a
+quantity that approaches one as the grid refines: $1-u \approx (d/2)^2$ for an angular width $d$, so arccosine
+amplifies a last-bit difference in $u$ by $1/\sqrt{1-u^2}$, and the relative error of the width itself grows as
+$\epsilon_{\mathrm m}/d^2$. Two conforming implementations of the same formula therefore differ by that much, and
+the cached difference of two such widths by about four times more: $3.7\times10^{-13}$ at 8 cells per panel edge
+and $1.2\times10^{-11}$ at 45. That is a bound on how precisely any statement about the metric can be made at
+those resolutions, and it is six orders below the angular-momentum drift measured above, so it does not account
+for it.
+
+**An inventory is a snapshot of one pin.** The 65 sites of `[Z5]` are the floors, clamps and epsilons of the
+paths this chapter covers at the code pin, not of every path in the repository; a floor added elsewhere is
+outside it until the inventory is rerun. The pin predates the work on the angular-momentum
+drift,[^ch16-inv-pinlag] so nothing here measures any fix for it: the numbers describe the code at the pin and
+must be read again when the pin moves.
+
+**Round-off at subnormal magnitudes.** The 4096-epsilon margin of @eq-ch16-inv-theta is a *relative* margin, so
+it underflows once a cell is drained into the subnormal range. `[Z1]`'s present control row reaches
+$-4.9\times10^{-324}$, one subnormal unit below zero, after 2000 steps. The absent row never does, because its
+factor is exactly zero rather than merely small — which is the distinction the whole section is about.
+
+[^ch16-inv-motive]: [source: chengcli/kintera#147 and #151, a 1e-300 concentration floor driving absent species
+    negative; chengcli/snapy#314, global axial angular momentum rising almost linearly in long cubed-sphere runs,
+    about 3.7 times faster at 45 cells per panel edge than at 90, with total mass constant to five or more
+    significant digits]
+
+[^ch16-inv-checks-run]: [sha: snapy@ccf40f9565642c32be69f4b9ef0cfa6daff3f201; deck: the checks themselves; run:
+    `PYTHONPATH=src python3 src/snapy_report/ch16/checks/invariants_zero_check.py` and
+    `… invariants_budget_check.py`, CPU, 1 process; Python 3.12.15, numpy 2.5.4 (the interpreter the report
+    CI[^rg-97940a7e792f] uses and the pin in `src/pyproject.toml`); output identical to the committed `.out` files. The
+    round-off digits these checks print are reproducible only on that pair: the budget check's per-step
+    slopes move with numpy's reduction order (2.4.6 prints +1.600e-19 and -5.169e-19 where 2.5.4 prints
+    +5.869e-20 and -4.151e-19 for [B1] and [B2]), and [B3]'s solid-angle sum prints -1.11e-16 on Python
+    3.11.13 against +0.00e+00 on 3.12.15 under one and the same numpy. Every claim passes either way;
+    only the printed digits move. Every break arm was also run on its own; the eight commands, their printed FAIL
+    lines and their exit codes are in `src/snapy_report/ch16/evidence/logs/break_arms.log`]
+
+[^ch16-inv-run]: [sha: snapy@ccf40f9565642c32be69f4b9ef0cfa6daff3f201; deck: the one built in
+    `src/snapy_report/ch16/evidence/aam_budget_run.py`; run:
+    `PYTHONPATH=src python3 src/snapy_report/ch16/evidence/aam_budget_run.py --device cpu --nx 16 --cycles 2000 --omega 2.0e-5`
+    and the same with the device, resolution and cycle count of each other row, 1 process, 6 blocks, double
+    precision; snapy 2.11.12 built from source with `-DCUDA=ON`, torch 2.10.0+cu128, Python 3.11.13, NVIDIA RTX
+    5090; full output in `src/snapy_report/ch16/evidence/logs/aam_budget.log`]
+
+[^ch16-inv-absent]: [sha: snapy@ccf40f9565642c32be69f4b9ef0cfa6daff3f201; deck: the one built in
+    `src/snapy_report/ch16/evidence/absent_species_run.py`, four species with the NH3 + H2S nucleation of
+    `tests/test_condensate_conservation.yaml`, `limiter: true`; run:
+    `PYTHONPATH=src python3 src/snapy_report/ch16/evidence/absent_species_run.py --device cpu --nx 8 --cycles 2000 --scheme 9`
+    and five further arms (`--nx 16 --cycles 200`; `--scheme 1`; `--scheme 0`; `--device cuda` at `--nx 8` and
+    `--nx 16`), 1 process, 6 blocks, double precision; wall 59.5 s for the 2000-cycle CPU arm, 25.7 s and 27.1 s
+    for the two GPU arms (200 cycles each), as recorded in
+    `src/snapy_report/ch16/evidence/logs/absent_species.log`; scope: the cycle loop only, from after the initial
+    state is built to after the last
+    cycle, excluding the mesh build and the per-cycle budget reduction's first call; reps: 1 (one run of each
+    arm, not a timing study — the numbers are reported so a reader can budget the rerun, and no claim rests on
+    them); snapy 2.11.12 built from source with `-DCUDA=ON`, torch 2.10.0+cu128, Python 3.11.13,
+    NVIDIA RTX 5090; all six arms exited 0, which for this script is the assertion that no absent row acquired a
+    non-zero entry and that nothing was repaired at any stage. The break arms were run as
+    `… --break blob-no-limiter` (CPU: exit 1, 2 repair lines; CUDA: exit 0, 0 repair lines),
+    `… --break blob-limiter` (exit 0, 0 repair lines) and `… --break floor-seed` (exit 0, 0 repair lines). Full
+    output of all ten arms in `src/snapy_report/ch16/evidence/logs/absent_species.log`]
+
+[^ch16-inv-port]: [sha: snapy@ccf40f9565642c32be69f4b9ef0cfa6daff3f201; deck: the one built in
+    `src/snapy_report/ch16/evidence/port_validation.py`; run:
+    `PYTHONPATH=src python3 src/snapy_report/ch16/evidence/port_validation.py --nx 45 --nr 8` and the same at 8,
+    16 and 24 cells per panel edge, CPU, 1 process, double precision; snapy 2.11.12, torch 2.10.0+cu128, Python
+    3.11.13; output in `src/snapy_report/ch16/evidence/logs/port_validation.log`]
+
+[^ch16-inv-pinlag]: [source: the code pin of `code_pin.yml` is dated before the first proposed fixer for the
+    cubed-sphere angular-momentum drift (chengcli/snapy#318, opened 2026-10-23). The pin is not moved for this
+    section; moving it is the editor's]
+
+<!-- reader glossary notes -->
+[^rg-d1be4fb0f62d]: GPU — graphics processing unit
+
+[^rg-3bafdb78128c]: $p$ — pressure [Pa]
+
+[^rg-b06d1779eb4d]: limiter — whether the enclosing component enables its limiter
+
+[^rg-d1873d074a8e]: shock — whether reconstruction uses its shock handling
+
+[^rg-9d4a892bae32]: gravity-work — form of the $x_1$ gravity work: `face` (default), `face-wallc` or `cell`
+
+[^rg-97940a7e792f]: CI — continuous integration
+<!-- end reader glossary notes -->

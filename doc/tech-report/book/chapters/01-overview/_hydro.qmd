@@ -46,8 +46,8 @@ in their owning chapters.
 4. The lateral fluxes with the face-flux covariance (@sec-ch04-fluxcov) and the tracer positivity limiter with its raw
    donor-factor exchange (@sec-ch08).
 5. The flux divergence with the geometric sources (@sec-ch04).
-6. The forcing and the gravity work (@sec-ch09, @sec-ch06).
-7. The implicit correction (@sec-ch07). Its time step is the stage weight times $\Delta t$ for an integrator of
+6. The forcing and the gravity work (@sec-ch07, @sec-ch06).
+7. The implicit correction (@sec-ch09). Its time step is the stage weight times $\Delta t$ for an integrator of
    three or more stages (`rk3`, `rk3s4`) and $\Delta t$ for `rk1` and `rk2`, with a one-time warning when the caller never published a stage.
 
 The function ends by accumulating the gravity-work fix with the stage weight `cw` of @eq-ch01-stage-weight.

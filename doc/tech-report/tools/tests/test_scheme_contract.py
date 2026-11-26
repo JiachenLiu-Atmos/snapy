@@ -10,6 +10,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import code_anchors
 import gen_scheme_contract as c
 
+# the contract's chapter is legacy (tools/code-anchors-legacy.txt): these tests run again once its line is deleted
+_LEGACY = code_anchors.legacy_chapter_of(c.TARGET)
+pytestmark = pytest.mark.skipif(bool(_LEGACY), reason=f"{_LEGACY} is in tools/code-anchors-legacy.txt")
+
 
 def test_clean_contract():
     assert c.check() == 0

@@ -48,7 +48,7 @@ $c_s$[^rg-00cabad0ec0e] [m s$^{-1}$] the sound speed.
 
 ### Derivation
 
-The one cost that follows from the metric alone is the explicit time step. @sec-ch07-cfl bounds it by the smallest
+The one cost that follows from the metric alone is the explicit time step. @sec-ch09-cfl bounds it by the smallest
 ratio of a cell's centre width to $\lvert v\rvert+c_s$ in each direction (in $x_1$ unless the vertically implicit
 correction replaces that bound). On the spherical-polar grid the
 centre width in $x_3$ is

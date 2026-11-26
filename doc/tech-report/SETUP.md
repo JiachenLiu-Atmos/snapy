@@ -27,8 +27,8 @@ is unpacked; a mismatch stops the run rather than installing the file.
 | HDF5 | 1.14.6, built | `tools/env-pins.json` | netcdf-c is a thin layer over it, so both come from the pin or neither does |
 | pydisort | 1.8.13 | `tools/env-pins.json` | the report pins no pydisort; `FindDisort.cmake` needs it importable |
 | pyharp | `47217158` | `tools/package-pins.json` | the report's pin |
-| kintera | `b6ad3739` (v2.6.3) | `tools/env-pins.json` | see "The two kintera revisions" below |
-| snapy | `ccf40f95` | `code_pin.yml` | the report's pin |
+| kintera | `0429d795` (v2.6.13) | `tools/env-pins.json` | see "The kintera revision" below |
+| snapy | `73c45a7c` | `code_pin.yml` | the report's pin |
 
 `tools/requirements-linux-x86_64.lock.txt` is the exact Python closure verified on linux-x86_64;
 install it instead of `tools/requirements.txt` when you need that environment byte for byte.
@@ -55,51 +55,30 @@ It also sets `SNAPY_REPO` to a clone of `chengcli/snapy` at `code_pin.yml`, whic
 With it, `tools/code_anchors.py` resolves every `{{< code >}}` without touching the network; without
 it, the tool fetches into `SNAPY_REPORT_CACHE` on every run.
 
-## The two kintera revisions
+## The kintera revision
 
-`tools/package-pins.json` and `tools/env-pins.json` name different kintera commits on purpose.
+`tools/package-pins.json` (the commit the chapters cite) and `tools/env-pins.json` (the commit
+`setup.sh` installs) name one kintera revision: **v2.6.13, `0429d795f79a0665afeca565e5a05c87ab4ba1e2`**
+(the tag `v2.6.13` of chengcli/kintera). It is the kintera snapy at `code_pin.yml` builds against:
+its CI installs `kintera==2.6.13` (`.github/workflows/ci.yml:86` and `:162` at the pin), and
+`CMakeLists.txt:120` requires `find_package(Kintera 2.6.13 REQUIRED)`.
 
-- **`tools/package-pins.json`: `c55b13b2` (v2.6.2)** is the commit the chapters *cite*. 296 citations
-  in 70 files resolve there, and `tools/ratchet_gate.py` counts any other kintera sha as `offpin`.
-- **`tools/env-pins.json`: `b6ad3739` (v2.6.3)** is the commit that must be *installed*. snapy at
-  `code_pin.yml` says, at `CMakeLists.txt:104`, `find_package(Kintera 2.6.3 REQUIRED)`, so v2.6.2
-  cannot configure it:
-
-  ```
-  Could NOT find Kintera: Found unsuitable version "2.6.2", but required is at least "2.6.3"
-    Reason given by package: snapy requires kintera >= 2.6.3 (... explicit kinetics rate constants
-    from forward_with_rate_constants()), found 2.6.2
-  ```
-
-  v2.6.3 is the smallest revision at or above that floor — exactly one commit after the citation pin.
-
-Until this report was audited there was one field for both questions, and it held v2.6.2, so no
-native command of the report could be reproduced at the pins the report gives.
-
-**The citation pin is still below the floor, and closing that is chapter work, not setup work.**
-The reason is structural, not clerical: the commit that satisfies snapy's floor *is* the commit that
-rewrote `src/kinetics/evaporation.cpp` and `src/kinetics/kinetics.cpp` — the explicit same-call rate
-constants for the kinetics Jacobian — and chapter 10's kinetics section cites those files by line.
-Every revision at or above the floor contains that rewrite, so no choice of revision avoids it.
-
-`python3 tools/kintera_pin_migration.py` checks every kintera citation at both revisions and compares
-the cited lines byte for byte. Against a clone holding both (`bash setup.sh --with-native` leaves one
-in `.report-env/src/kintera`):
+The chapters' existing kintera links still carry the sha they were written at, `c55b13b2` (v2.6.2);
+`tools/ratchet_gate.py` counts them as `offpin` until each chapter's rewrite re-points them.
+`python3 tools/kintera_pin_migration.py` compares every such citation at both revisions, byte for byte
+(a clone holding both: `KINTERA_REPO`, or `bash setup.sh --with-native`, which leaves one in
+`.report-env/src/kintera`):
 
 ```
 194 citation(s) found
-  identical, the sha can simply be swapped : 180
-  same code at new line numbers            :   4
-  BLOCKED, the cited code is gone          :  10
+  identical, the sha can simply be swapped :  29
+  same code at new line numbers            :  52
+  BLOCKED, the cited code is gone          : 113
 ```
 
-The ten are eight in `book/chapters/10-moist-coupling/_kinetics.qmd` and two in
-`reviews/code-anchors-unmapped*.tsv`. The tool prints each one with its file, line and cited range,
-and exits 1 while any remains. Until a chapter owner re-reads those claims against v2.6.3, moving the
-pin would either point at code that is not there or raise ch10's ratchet `offpin` count — a bare move
-takes the total from 92 to 230 and fails nine chapters. The project's own rule for the snapy pin says
-the same thing: `code_anchors.py bump` lists the cited symbols whose body changed so their claims can
-be re-read. `python3 tools/check_env.py` reports the gap on every run so it stays visible.
+The blocked ones are in chapters 02, 09, 10 and 16 and in appendices A and E; the tool prints each with
+its file, line and cited range. Re-pointing them is chapter work: the claim beside each has to be
+re-read against v2.6.13.
 
 ## The pins are installed, not just written down
 
@@ -188,7 +167,7 @@ setup failures:
   |---|---|
   | `book/chapters/04-spatial-discretization.qmd:85` | 04 — **excluded** |
   | `book/chapters/04-spatial-discretization/_fluxcov.qmd:334` | 04 — **excluded** |
-  | `book/chapters/07-time-integration.qmd:49` | 07 |
+  | `book/chapters/09-time-integration.qmd:49` | 07 |
   | `book/chapters/10-moist-coupling.qmd:60` | 10 |
 
 ### Authorship exclusions
@@ -286,7 +265,7 @@ clone with an empty prefix and empty caches:
 | `bash setup.sh` | exit 0 |
 <!-- generated by tools/setup_notes.py --write; do not edit by hand -->
 | `bash setup.sh --with-native` | exit 0; pydisort 1.8.13, pyharp 2.7.1, kintera 2.6.3, pinc 0.2.0, snapy 2.13.4, torch 2.10.0+cu128, netCDF 4.9.3 |
-| `python3 tools/code_anchors.py check` | 3943 citations, 889 distinct, 0 unresolved |
+| `python3 tools/code_anchors.py check` | 3943 citations, 710 distinct, 0 unresolved |
 <!-- end generated -->
 | `python3 tools/check_env.py` | 5 passed, 1 reported, 0 failed |
 | `python3 -m pytest tools/tests -q` | see the branch's own run |
