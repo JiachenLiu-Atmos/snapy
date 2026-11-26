@@ -1,12 +1,22 @@
-# Positivity, floors and limiters {#sec-ch08}
+# Moist physics, positivity, floors and limiters {#sec-ch08}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
-sources: OUTLINE.md 8
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md section 6, sections 8.1-8.6; OUTLINE.md 8
 status: draft
 -->
 
-This chapter is every mechanism that keeps the state physically admissible, or detects that it is not.
+This chapter is the moist side of a stage and every mechanism that keeps the state physically admissible, or
+detects that it is not. In the V3 outline it has six parts: the saturation adjustment and the vapour repair
+(@sec-ch08-satadj, @sec-ch08-fixvapor, @sec-ch08-borrow), sedimentation (@sec-ch08-sed), the flux positivity limiter
+and its census (@sec-ch08-theta, with @sec-ch08-scalar and @sec-ch08-roundoff), the settling carry on a prescribed
+face (@sec-ch08-carry), the EOS[^rg-5c35e4c74097] floors and the limiter marks (@sec-ch08-eoslimiter), and the record a block keeps of
+what all of them did, `EfStatus` (@sec-ch08-efstatus), which the redo decision and the budget read. Four sections
+here belong to other chapters in that outline: the reconstruction-stage floors (@sec-ch08-reconfloors) to the hydro
+sweep of @sec-ch04, the well-balanced face fallback (@sec-ch08-wbface) to @sec-ch05, the dry clamp inside the implicit
+solve (@sec-ch08-vic) to @sec-ch06, and the floor detector and redo decision (@sec-ch08-redo) to step acceptance in
+@sec-ch07. They stay here, in their old order, until those chapters are rewritten, and the three new sections follow
+them, so that every reference into this chapter keeps resolving.
 
 The most important thing to say comes first, because the rest of the chapter reads differently once it is said.
 **snapy guarantees no thermodynamic positivity of density or pressure.** There is exactly one guarantee in this
@@ -32,10 +42,12 @@ make_fig()
 
 | scheme | switch | default | guarantee | main test |
 |---|---|---|---|---|
+| Saturation adjustment (@sec-ch08-satadj) | top-level `reactions`[^rg-53cf667a2fb2] | on with reactions | $E$[^rg-a52517094335] exact, water to the solve's tolerance | `test_wall_saturation` |
+| Sedimentation (@sec-ch08-sed) | top-level `sedimentation`[^rg-722154fdf077] | off | donor-cell, sealed at walls | `test_sedimentation_guards` |
 | Tracer flux limiter (@sec-ch08-theta) | `limiter`[^rg-9411b882dbd0], or a covariance row | on in 2-D and 3-D through the covariance rows; otherwise off | non-negative tracers under transport, per stage | `test_flux_positivity` |
 | Energy and momentum carry (@sec-ch08-carry) | with the tracer limiter | as the tracer limiter | the withheld mass keeps its energy | `test_flux_positivity_carry` |
 | Passive-scalar limiter (@sec-ch08-scalar) | `limiter`, or the scalar's covariance row | as the tracer limiter | the same, for scalars | none |
-| EOS[^rg-5c35e4c74097] limiter and floors (@sec-ch08-eoslimiter) | `limiter` | off | none; a clamp that invents mass | none |
+| EOS limiter and floors (@sec-ch08-eoslimiter) | `limiter` | off | none; a clamp that invents mass | none |
 | Condensate borrow (@sec-ch08-borrow) | with the limiter | off | conservative in mass and elements | none |
 | Vapour column repair (@sec-ch08-fixvapor) | with the limiter | off | conservative in mass, moves only the deficit, or it throws | `test_fix_vapor_deficit` |
 | Face floors (@sec-ch08-reconfloors) | `limiter`; density and pressure also need `shock`[^rg-0ecdbd193411] false | off | none; a clamp at the face | `test_species_face_clamp` |
@@ -44,6 +56,7 @@ make_fig()
 | Round-off thresholds (@sec-ch08-roundoff) | none | always | separates a repair from arithmetic | this chapter's check |
 | Floor detector and redo (@sec-ch08-redo) | none | always | detection only | none |
 | Dry-carry zero-base guard (@sec-ch08-drycarry) | with scalars and dry sources | none | finiteness, *not* positivity | `test_dry_carry_zero_base` |
+| Block status record (@sec-ch08-efstatus) | none | always | a record, not a repair | `test_cycle_diagnostics` |
 
 : The mechanisms of this chapter. "Guarantee" is what the mechanism actually promises; most promise
 nothing and repair instead. {#tbl-ch08-schemes}
@@ -82,12 +95,24 @@ the solve of the time-integration chapter, and the redo budget that ends a redo 
 
 {{< include 08-positivity/_drycarry.qmd >}}
 
+{{< include 08-positivity/_satadj.qmd >}}
+
+{{< include 08-positivity/_sed.qmd >}}
+
+{{< include 08-positivity/_efstatus.qmd >}}
+
 The limits this chapter states are collected with those of the other chapters in @sec-ch16-wrong, @sec-ch16-restricted, @sec-ch16-usability and @sec-ch16-pending.
 
 <!-- reader glossary notes -->
-[^rg-9411b882dbd0]: limiter — whether the enclosing component enables its limiter
-
 [^rg-5c35e4c74097]: EOS — equation of state
+
+[^rg-53cf667a2fb2]: reactions — reaction definitions
+
+[^rg-a52517094335]: $E$ — total energy density, internal plus kinetic, $\rho e + \tfrac12\rho\lvert\mathbf v\rvert^2$ [J m$^{-3}$]; excludes potential energy
+
+[^rg-722154fdf077]: sedimentation — sedimentation-model options
+
+[^rg-9411b882dbd0]: limiter — whether the enclosing component enables its limiter
 
 [^rg-0ecdbd193411]: shock — whether reconstruction uses its shock handling
 <!-- end reader glossary notes -->

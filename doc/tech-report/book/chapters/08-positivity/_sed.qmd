@@ -1,0 +1,186 @@
+## Sedimentation of condensates (`sedimentation`) {#sec-ch08-sed}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 8.2; src/sedimentation/sed_hydro.cpp, sed_hydro_impl.h, sed_hydro_dispatch.hpp,
+         src/eos/moist_base.cpp, src/eos/ideal_moist.cpp, src/hydro/hydro_forward.cpp and the tests below, at the pin
+status: draft
+author: Jiachen Liu
+-->
+
+### Summary
+
+Condensate particles fall through the gas at their terminal velocity. snapy adds that motion as an extra $x_1$ flux of
+the condensate's mass, the momentum it carries and its energy, on top of the advective flux the Riemann solver
+returns. The velocity is the slip-corrected Stokes velocity of a sphere in the background gas, or a prescribed
+constant. The flux is donor-cell, sealed at physical $x_1$ walls and open at internal block seams. Dry air does not
+settle. The settling flux is posted to the block's flux register, and its species part is the settling buffer that the
+positivity limiter and its carry read (@sec-ch08-theta, @sec-ch08-carry).
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Lets each listed condensate settle at a terminal velocity, as a donor-cell $x_1$ flux; @eq-ch08-sed-stokes.
+
+**Data.** Reads the cell primitives, the EOS temperature and species energy, each condensate's radius and density; posts to the register's $x_1$ total.
+
+**Placement.** Every RK stage, in the hydro forward, after the $x_1$ Riemann solve.
+
+**Activation.** Top-level YAML `sedimentation` (off when absent); requires `forcing/const-gravity` with $g_1\neq0$.
+
+**Guarantee / limits.** First order in space; sealed at physical $x_1$ walls, open at seams; no time-step bound.
+
+**Evidence.** @tbl-ch08-sed-tests.
+:::
+
+Local symbols: $a_n$ is the particle radius of condensate $n$ [m], $\rho_{\mathrm p,n}$ its material density
+[kg m$^{-3}$], $w_{\mathrm s,n}$ its settling velocity along $x_1$ [m s$^{-1}$], $\beta_n$ the Cunningham slip factor
+[-], $\lambda$ the mean free path of the background gas [m], $\mathrm{Kn}=\lambda/a_n$ the ratio of that path to the particle radius [-], and
+$m_{\mathrm{mol}}$, $d_{\mathrm{mol}}$, $\epsilon_{\mathrm{LJ}}$ the molecular mass [kg], molecular diameter [m] and
+Lennard-Jones well depth [J] of the background gas (YAML `a-mass`, `a-diameter`, `a-epsilon-LJ`). $k_{\mathrm B}$ is
+Boltzmann's constant and $\mu$[^rg-a1f5839c34f2] the dynamic viscosity of appendix A.
+
+### Derivation
+
+Why the terminal velocity has this form:
+
+1. *Stokes drag.* A sphere of radius $a_n$ moving slowly at velocity $w$ through a gas of viscosity $\mu$ feels the drag
+   $6\pi\mu a_nw$.
+2. *Balance.* Setting it equal to the buoyant weight $\tfrac43\pi a_n^3(\rho_{\mathrm p,n}-\rho)g_1$ gives
+   $w=2a_n^2g_1(\rho_{\mathrm p,n}-\rho)/(9\mu)$. With $g_1<0$ a particle denser than the gas moves to $-x_1$.
+3. *Slip.* When the mean free path is not small compared with the particle, the drag is reduced by the Cunningham
+   factor $\beta_n=1+\mathrm{Kn}\,(1.256+0.4\,e^{-1.1/\mathrm{Kn}})$, which tends to 1 as $\mathrm{Kn}\to0$ and to
+   $1.656\,\mathrm{Kn}$ as $\mathrm{Kn}\to\infty$.
+4. *Hence*, unless a non-zero `const-vsed`[^rg-2b73543203a2] replaces it,
+
+$$
+w_{\mathrm{s},n} = \frac{2\beta_n\,a_n^2\,g_1\,(\rho_{\mathrm{p},n}-\rho)}{9\,\mu},
+$$ {#eq-ch08-sed-stokes}
+
+and either value is then clamped to $[-w_{\max},w_{\max}]$ with $w_{\max}$ the key `upper-limit`. The viscosity is the
+Chapman-Enskog value for a Lennard-Jones gas,
+
+$$
+\mu = \frac{5}{16}\,\frac{\sqrt{\pi\,m_{\mathrm{mol}}\,k_{\mathrm B}T}\,(k_{\mathrm B}T/\epsilon_{\mathrm{LJ}})^{0.16}}{1.22\,\pi\,d_{\mathrm{mol}}^2},
+\qquad
+\lambda = \frac{\mu}{p}\sqrt{\frac{\pi k_{\mathrm B}T}{2m_{\mathrm{mol}}}} ,
+$$ {#eq-ch08-sed-viscosity}
+
+the Chapman-Enskog viscosity $\tfrac5{16}\sqrt{\pi m_{\mathrm{mol}}k_{\mathrm B}T}\big/(\pi d_{\mathrm{mol}}^2\,\Omega_{\mathrm c})$
+with the collision integral approximated as $\Omega_{\mathrm c}=1.22\,(k_{\mathrm B}T/\epsilon_{\mathrm{LJ}})^{-0.16}$
+(local symbol). Both are `eta` and `lambda` in `sedimentation_donor_impl`
+({{< code src/sedimentation/sed_hydro_impl.h sedimentation_donor_impl >}}), written there as
+$\tfrac5{16}\sqrt{\pi k_{\mathrm B}}\sqrt{m_{\mathrm{mol}}}\sqrt T\,(k_{\mathrm B}T/\epsilon_{\mathrm{LJ}})^{0.16}/(1.22\,\pi d_{\mathrm{mol}}^2)$,
+the same expression. @eq-ch08-sed-stokes is `vsed = beta / (9 * eta) * drive` with `drive` $=2a_n^2g_1(\rho_{\mathrm p,n}-\rho)$.
+
+**The fluxes.** The flux through the $x_1$ face between cells $i-1$ and $i$ takes its donor from cell $i$ for a
+particle that settles ($w_{\mathrm s,n}<0$) and from cell $i-1$ for one that rises ($w_{\mathrm s,n}>0$); each donor cell
+evaluates its own velocity. The donor carries
+
+$$
+F_{\rho_n} = \rho_n w_{\mathrm s,n},\qquad
+F_{\mathbf m} = \mathbf v\,\rho_n w_{\mathrm s,n},\qquad
+F_E = w_{\mathrm s,n}\,\rho_n\big(u^{\star}_n + c_{v,n}T + \tfrac12\lvert\mathbf v\rvert^2\big),
+$$ {#eq-ch08-sed-fluxes}
+
+with $\rho_n=\rho\,y_n$ of the donor. The energy factor is the EOS's species energy, `W->E`
+({{< code src/eos/moist_base.cpp MoistEOSImpl::species_energy >}}): $\rho y_n$ times the species enthalpy minus its
+pressure share. For the ideal-moist EOS the enthalpy is $u^{\star}_n+c_{v,n}T+\tfrac12\lvert\mathbf v\rvert^2$ plus
+$R_nT$ for a vapour, and the pressure share is $R_nT$ for a vapour and 0 for a condensate
+({{< code src/eos/ideal_moist.cpp IdealMoistImpl::species_enthalpy >}};
+{{< code src/eos/ideal_moist.cpp IdealMoistImpl::species_pressure_share >}}), so the difference is the bracket of
+@eq-ch08-sed-fluxes: a condensate does no pressure work. Faces at or below a physical lower wall and above a physical
+upper wall carry nothing, so with both walls sealed the column's condensate mass changes only by what the advective
+flux does.
+
+### Numerical method
+
+One kernel serves every equation of state, registered for the CPU, CUDA and MPS behind the dispatch stub `call_sedimentation_flux`
+({{< code src/sedimentation/sed_hydro_dispatch.hpp sedimentation_flux >}}). `SedHydroImpl::forward`
+({{< code src/sedimentation/sed_hydro.cpp SedHydroImpl::forward >}}) asks the EOS for the temperature (`W->T`) and the
+species energy (`W->E`), sets the wall bounds `il` and `iu` only where the block's lower or upper $x_1$ face is a
+physical boundary, and runs the kernel. Per face, `sedimentation_flux_impl`
+({{< code src/sedimentation/sed_hydro_impl.h sedimentation_flux_impl >}}) zeroes the face velocities, returns at a
+sealed face, and otherwise calls the donor function twice, once with cell $i$ for settling particles and once with
+cell $i-1$ for rising ones. The donor function skips a particle moving away from the face before it evaluates the
+viscosity, so the transcendental part runs at most once per donor cell. Seams between blocks stay open, because their
+bounds are not set.
+
+`SedHydroImpl::post` ({{< code src/sedimentation/sed_hydro.cpp SedHydroImpl::post >}}) fills the module's fixed
+buffer `settling` with $-0$, adds the kernel's flux into it, and adds it to the register's $x_1$ total under the name
+`sedimentation`, one `add` per run of consecutive rows: the condensate rows, the three momentum rows and the energy
+row. The hydro forward calls it after the $x_1$ Riemann solve when the $x_1$ flux is on and the module settles
+({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). With species present and the limiter or the face-flux
+covariance rows on, the species rows of that buffer are kept as `fsed1`, the settling part the positivity limiter
+reads: a cell the settling flux drains keeps the plain factor (@sec-ch08-theta), and the carry withholds the settling
+part with its own donor's energy (@sec-ch08-carry). @fig-ch08-sed-donor shows one column.
+
+```{python}
+#| label: fig-ch08-sed-donor
+#| fig-cap: "Donor cells of the settling flux in one $x_1$ column. Light-blue boxes are interior cells, hatched pink boxes ghosts, thick black lines physical walls. Orange arrows show settling fluxes, each taken from the cell above its face; the two wall faces carry no flux."
+#| fig-alt: "A column of four interior cells between two hatched ghost cells; downward arrows at the three interior faces; the wall faces are labelled sealed."
+#| echo: false
+from snapy_report.ch08.figures.fig_sed_donor import make_fig
+make_fig()
+```
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| the inputs, the wall bounds, the kernel call | {{< code src/sedimentation/sed_hydro.cpp SedHydroImpl::forward >}} | `SedParams` | `sedimentation` |
+| refused without gravity | {{< code src/sedimentation/sed_hydro.cpp SedHydroImpl::reset >}} | `grav` | |
+| a null op at $g_1=0$ or with no species | {{< code src/sedimentation/sed_hydro.cpp SedHydroImpl::settles >}} | `settles` | |
+| per face: sealing and the two donors | {{< code src/sedimentation/sed_hydro_impl.h sedimentation_flux_impl >}} | `sedimentation_flux_impl` | |
+| per donor: velocity, clamp and fluxes, @eq-ch08-sed-stokes, @eq-ch08-sed-fluxes | {{< code src/sedimentation/sed_hydro_impl.h sedimentation_donor_impl >}} | `vsed` | `const-vsed`, `upper-limit` |
+| the post to the register | {{< code src/sedimentation/sed_hydro.cpp SedHydroImpl::post >}} | `settling` | |
+| the call in the stage and `fsed1` | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `fsed1` | limiter or covariance rows |
+| the species energy | {{< code src/eos/moist_base.cpp MoistEOSImpl::species_energy >}} | `species_energy` | |
+
+: Code map of the sedimentation flux. {#tbl-ch08-sed-code}
+
+**How to use it.** A top-level `sedimentation` block lists cloud species by name, and the card needs constant gravity:
+
+<!-- reader glossary keys -->Keys in this fragment: `const-gravity`[^rg-56a270dd8412], `grav1`[^rg-96299ae860bd], `radius`[^rg-478a5bd5cdfc].
+```yaml
+forcing:
+  const-gravity: {grav1: -22.}
+sedimentation:
+  radius:  {"H2O(l,p)": 1.0e-10}     # a_n [m]; quote the name: YAML splits an unquoted key at the comma
+  density: {"H2O(l,p)": 1000.}       # rho_p,n [kg m^-3]
+  const-vsed: {"H2O(l,p)": -1.0}     # optional: replaces eq-ch08-sed-stokes, still clamped
+```
+
+Refused: a card with `sedimentation` and no `forcing/const-gravity` ("sedimentation reads grav1"), and `radius` and
+`density` lists of different sizes ({{< code src/sedimentation/sed_hydro.cpp SedHydroImpl::reset >}}).
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `tests/test_sedimentation_guards.cpp` (`test_sedimentation_guards.release`) | the settling energy is the EOS species energy and a cloud's energy flux is its enthalpy times its mass flux; the kernel's arguments follow a device or dtype move; a permuted input settles like a contiguous one; the particle buffers are the module's own; a card without gravity is refused; nothing settles with the $x_1$ flux off; a rising cloud is taken from the cell below | $10^{-9}$ relative on the face fluxes; FP32 against FP64 `allclose(1e-6, 1e-6)`; bitwise (`torch::equal`) on the permuted input and on the stage with the flux off | the fluxes are products of the same factors in another order; FP32 has 24 bits ({{< code tests/test_sedimentation_guards.cpp sedimentation.settling_energy_is_the_eos_species_energy >}}) |
+| `tests/test_sedimentation_cubed_seam.cpp` (two-rank parallel test) | a two-rank vertical seam with sedimentation and the species limiter: both ranks hold the same seam-face flux, the condensate mass is conserved, the limiter acted, and the seam-face momentum and energy flux sums equal the recorded values | condensate mass $10^{-12}$ relative; absolute $10^{-7}$ on the momentum sum and $5\times10^{-3}$ on the energy sum | sums of order $10^5$; the energy sum is recorded with kintera 2.6.13's gas constant, per the test's comment ({{< code tests/test_sedimentation_cubed_seam.cpp >}}) |
+
+: Tests of the sedimentation flux. {#tbl-ch08-sed-tests}
+
+The parallel test needs two ranks (`torchrun`); the run record of @sec-ch08-theta says whether it ran.
+
+### Limits
+
+- First order in space: the donor cell's velocity and density, no reconstruction.
+- No time-step bound: a settling Courant number above one is not refused, and the positivity limiter of @sec-ch08-theta
+  is what keeps the condensate rows non-negative.
+- The collision integral is a fit, $\Omega_{\mathrm c}=1.22\,(k_{\mathrm B}T/\epsilon_{\mathrm{LJ}})^{-0.16}$, and the
+  background gas defaults to $\mathrm H_2$; a card for another atmosphere must set `a-mass`, `a-diameter` and
+  `a-epsilon-LJ`. The defaults are not re-read in this section.
+- MPS: the kernel is registered for MPS, but no test of it on MPS is cited here.
+
+<!-- reader glossary notes -->
+[^rg-a1f5839c34f2]: $\mu$, $\nu$ — dynamic and kinematic viscosity; the diffusion module calls the kinematic one `nu_iso`; [source](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/forcing/diffusion.cpp#L621-L626)
+
+[^rg-2b73543203a2]: const-vsed — prescribed sedimentation velocities indexed by species
+
+[^rg-56a270dd8412]: const-gravity — constant-gravity forcing component
+
+[^rg-96299ae860bd]: grav1 — gravity component along the first coordinate
+
+[^rg-478a5bd5cdfc]: radius — particle radii indexed by species
+<!-- end reader glossary notes -->

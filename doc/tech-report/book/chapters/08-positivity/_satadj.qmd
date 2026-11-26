@@ -1,0 +1,214 @@
+## Saturation adjustment in the step (top-level `reactions`) {#sec-ch08-satadj}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 8.1; src/mesh/meshblock_advance.cpp, src/mesh/meshblock_redo.cpp, src/mesh/stage_executor.cpp,
+         tests/test_wall_saturation.cpp, tests/test_check_redo_saturation.py at the pin; the phase solve itself is
+         section ch02-saturation
+status: draft
+author: Jiachen Liu
+-->
+
+### Summary
+
+Phase change is fast compared with the dynamics, so snapy does not resolve it inside the RK[^rg-bd3114a3f37c] stages. The stages advect
+vapour and condensate as tracers that carry their own reference energies. Once per step, on the last stage, snapy hands
+each interior cell to kintera's equilibrium solve at fixed density and fixed internal energy density
+(@sec-ch02-saturation) and writes the new mass fractions back. Latent heat is the difference of the species reference
+energies, never a separate source, so moving mass between phases at fixed $\rho e$ changes the temperature and leaves
+the total energy alone. This section is the snapy side of that solve: when it runs, what it is handed, what it writes,
+and what happens when a cell does not converge. The column repair it calls first is @sec-ch08-fixvapor.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Brings each interior cell to phase equilibrium once per step at fixed $\rho$ and $\rho e$; @eq-ch08-satadj-state.
+
+**Data.** Reads $\rho$, $\rho e$, $y_n$[^rg-32bcad2af68f] of the interior cells; writes only the species rows $\rho_n=\rho y_n$.
+
+**Placement.** The `saturation` op of the last stage, after the RK combine and before the chemistry slot and the boundary fill.
+
+**Activation.** On whenever the thermo lists reactions; kintera's `max-iter`, `ftol`, `uv-solver` tune it.
+
+**Guarantee / limits.** $E$ unchanged bit for bit; total water to the solve's tolerance; an unconverged cell redoes the step.
+
+**Evidence.** @tbl-ch08-satadj-tests.
+:::
+
+Local symbols: none beyond appendix A; $\rho$, $\rho e$, $y_n$, $\rho_n$ and $\rho_{\mathrm d}$ are its entries.
+
+The adjustment is on whenever the top-level `reactions` list of the card is nonempty; no key turns it off while keeping
+the reactions. A cell the solve does not converge in does not stop the step: kintera counts it, and the redo decision
+of @sec-ch08-redo turns the count into the `saturation` cause. Ghost cells are not adjusted; the boundary fill that ends
+the stage refills the physical ghosts from the adjusted interior.
+
+### Derivation
+
+The equilibrium itself, its internal-energy-density constraint and its active-set solve, is @sec-ch02-saturation; it
+is not repeated here. What this section adds is the state handed to the solve and the proof that the write-back
+changes only the species rows.
+
+`stage_saturation` ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}}) first forms the total
+state `ut` with `total_u`, which adds the hydrostatic reference where the block stores anomalies, and then, in every
+cell,
+
+$$
+\begin{aligned}
+\rho &= \rho_{\mathrm{d}} + \sum_{n}\rho_n,\\
+\rho e &= E - \tfrac12\rho\lvert\mathbf v\rvert^2,\\
+y_n &= \rho_n/\rho ,
+\end{aligned}
+$$ {#eq-ch08-satadj-state}
+
+as `rho`, `ie` and `yfrac`, with the kinetic energy from the equation of state's `U->K`. kintera's `forward` receives
+$\rho$ and $\rho e$ of the interior cells and overwrites $y_n$; snapy then writes $\rho_n \leftarrow \rho\,y_n$ into the
+species rows of the stored state, with the same $\rho$ it handed in. The species rows are never stored as anomalies,
+so this write is the same with and without a reference.
+
+Why the write-back changes only the species rows, and what it keeps:
+
+1. *The energy row is not written*, so $E$ is unchanged to the last bit; the momentum rows are not written either.
+2. *The dry row is not written*, so $\rho_{\mathrm d}$ is unchanged.
+3. *After the write-back the total density is* $\rho_{\mathrm d}+\rho\sum_ny^{\mathrm{new}}_n$, so
+   $\rho^{\mathrm{new}}-\rho=\rho\,(\sum_ny^{\mathrm{new}}_n-\sum_ny_n)$: $\rho$ is kept exactly when the solve keeps
+   $\sum_ny_n$.
+4. *The phase reactions move mass between species rows and never create it*, so the solve returns fractions whose sum
+   equals the input sum to its own tolerance (@sec-ch02-saturation); $\rho$, and with it $\rho e=E-\tfrac12\rho\lvert
+   \mathbf v\rvert^2$, is kept to that tolerance.
+5. *Hence* the energy is conserved exactly and the total water to the tolerance of the phase solve;
+   `test_wall_saturation` asserts both below $10^{-12}$ relative over a whole run.
+6. *Round-off of the write-back.* A cell the solve leaves alone gets $\rho_n$ back as $(\rho_n/\rho)\rho$: one division
+   and one multiplication, each rounded once, so $\lvert\hat\rho_n-\rho_n\rvert\le2\epsilon_{\mathrm m}\rho_n$ to first
+   order, not always bitwise. This bound is derived here, not measured.
+
+### Numerical method
+
+@fig-ch08-satadj-order places the adjustment in the step. Each stage is a fixed list of ops that the stage executor
+installs ({{< code src/mesh/stage_executor.cpp StageExecutor::build_schedule >}}): `advance`, `forcing`[^rg-ad21c4b4bd61], `combine`,
+`saturation`, `chemistry`, `boundaries`. The `combine` op ends with a whole-column call of the conserved limiter
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}}). On the last stage, and only if the thermo
+has reactions, `saturation` calls the limiter once more and then the solve. With `limiter: true` that call removes
+negative species first (@sec-ch08-borrow, @sec-ch08-fixvapor), so kintera sees none. With the default `limiter: false`
+the call returns at once ({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::apply_conserved_limiter_ >}}),
+and a negative species density left by transport reaches the solve.
+
+The solve sees only the interior cells, the `exterior(false)` part of the block, and passes `warm_start = true`, so
+kintera may reuse the active set of its previous call. After the solve snapy posts rows 1 and 2 of kintera's failure
+counter, the temperature and pressure solves that did not converge, to the flux register's monitor as the counts
+`thermo.temp_solve` and `thermo.pres_solve` (@sec-ch10). Those counts are not redo causes. Row 0, the cells the
+adjustment left unconverged, is consumed by the redo decision in place on the device
+({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}}); `stage_advance` zeroes the counter at
+stage 0, and a redo restores the active set kintera had at the start of the attempt
+({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::apply_redo >}}). The `saturation` op has no reason to run eager,
+so on a CUDA block in cuda-graph execution it is captured with the rest of the stage (@sec-ch11). Every quantity here
+is a cell average; the adjustment is pointwise, with no stencil.
+
+```{python}
+#| label: fig-ch08-satadj-order
+#| fig-cap: "Where the saturation adjustment sits in one RK step. Each box is one step of the stage update, read top to bottom; the boxes marked last stage run on the last stage only, and the final box is the driver's call after the step."
+#| fig-alt: "Six boxes in a column: stage-0 resets; the per-stage ops ending in the whole-column limiter; the last-stage limiter and UV adjustment; the chemistry slot; the boundary fill; check_redo after the step."
+#| echo: false
+from snapy_report.ch08.figures.fig_satadj_order import make_fig
+make_fig()
+```
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| the gate, the state of @eq-ch08-satadj-state, the solve and the write-back | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}} | `yfrac` | reactions |
+| the op order of a stage | {{< code src/mesh/stage_executor.cpp StageExecutor::build_schedule >}} | `saturation` | |
+| the per-stage whole-column limiter | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}} | `apply_conserved_limiter_` | `limiter` |
+| the failure counter zeroed at stage 0 | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}} | `reset_failures` | |
+| row 0 of the counter, the redo cause | {{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}} | `consume_failures` | |
+| the active set restored on a redo | {{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::apply_redo >}} | `restore_active_set` | |
+
+: Code map of the saturation adjustment in the step. {#tbl-ch08-satadj-code}
+
+The gate, the solve and the write-back are these lines of `stage_saturation`
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}}):
+
+```cpp
+  if (stage == pintg->stages.size() - 1 && phydro->options->eos()->thermo() &&
+      phydro->options->eos()->thermo()->reactions().size() > 0) {
+    phydro->peos->apply_conserved_limiter_(hydro_u, /*whole_column=*/true);
+    int ny = hydro_u.size(0) - ICY;  // number of species
+    // thermodynamics needs totals; only the species rows are written back
+    auto ut = phydro->total_u(hydro_u);
+    auto ke = phydro->peos->compute("U->K", {ut});
+    auto rho = ut[IDN] + ut.narrow(0, ICY, ny).sum(0);
+    auto ie = ut[IPR] - ke;
+    auto yfrac = hydro_u.narrow(0, ICY, ny) / rho;
+    ...
+    pthermo->forward(rho.index(sub3), ie.index(sub3), yfrac.index(sub),
+                     /*warm_start=*/true);
+    hydro_u.narrow(0, ICY, ny) = yfrac * rho;
+```
+
+`rho`, `ie` and `yfrac` are the three lines of @eq-ch08-satadj-state; the last line is the write-back of steps 1 to 3.
+The step prints no message of its own; the redo log line of @sec-ch08-redo names the `saturation` cause.
+
+**How to use it.** The adjustment follows from the card's reactions. The solve's tuning keys sit in the
+equation-of-state block, which passes them to kintera
+({{< code src/eos/equation_of_state.cpp EquationOfStateOptionsImpl::from_yaml >}}):
+
+<!-- reader glossary keys -->Keys in this fragment: `reference-state`[^rg-e5b6ea90bcc1], `Tref`[^rg-de9da7f4783a], `Pref`[^rg-96af9038665e], `rate-constant`[^rg-bd7a36e2d26d], `formula`[^rg-6332d193d0a6].
+```yaml
+reference-state: {Tref: 300., Pref: 1.e5}   # without it kintera builds no thermo, and no adjustment runs
+reactions:
+  - equation: NH3 <=> NH3(s)
+    type: nucleation
+    rate-constant: {formula: nh3_ideal}
+dynamics:
+  equation-of-state:
+    type: ideal-moist
+    limiter: true      # repair negative species before the solve (default false)
+    max-iter: 20       # kintera's iteration limit; ftol and uv-solver likewise
+```
+
+Refused: a key of the equation-of-state block outside both its own list and kintera's `max-iter`, `ftol` and
+`uv-solver`; and a moist equation of state without a thermo.
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `tests/test_wall_saturation.cpp` (`test_wall_saturation.release`) | a column next to a lower and an upper wall, once condensing and once evaporating: the volume-integrated total energy and the total water drift less than $10^{-12}$ relative, and the cloud actually forms or disappears | $10^{-12}$ relative on energy and water; the cloud changes by more than $10^{-6}$ or falls below $10^{-6}$ of its start | the test's thresholds ({{< code tests/test_wall_saturation.cpp WallSaturation.phase_change_preserves_energy_and_water >}}); the energy is exact by step 1 and the water bound is the solve's tolerance |
+| `tests/test_check_redo_saturation.py` (`test_check_redo_saturation_python`) | one strongly supersaturated cell with `max-iter: 1` leaves cells unadjusted: `check_redo` redoes the step with the `saturation` cause alone and drains the count, so the restored state is accepted; the default `max-iter` is accepted; a failure counted between steps is not the next step's; on a two-block Mesh the count of block 1 is read | bitwise (`torch.equal`) on the restored state | the failure protocol ({{< code tests/test_check_redo_saturation.py run >}}) |
+| `tests/test_fix_vapor_deficit.cpp` (`test_fix_vapor_deficit.release`) | the column repair the adjustment calls first (@sec-ch08-fixvapor) | `EXPECT_NEAR` $10^{-15}$ relative on the column mass | @sec-ch08-fixvapor |
+
+: Tests of the saturation adjustment in the step. {#tbl-ch08-satadj-tests}
+
+The wall test is registered on CPU and, in CUDA builds, on CUDA; no test runs the adjustment on more than one rank. The
+run record of these ctests at the pin is in @sec-ch08-theta.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+Only interior cells are adjusted; ghosts are copies, so a scheme that reads ghost species before the next boundary
+fill sees unadjusted values. An unconverged cell costs a redo of the whole step.
+:::
+
+- The warm start is discarded whenever kintera is called with another shape or device in between; correctness is
+  unaffected, the cost is not measured.
+- With the default `limiter: false` the species handed to kintera are not repaired first; a negative partial density
+  from transport enters the phase solve as it is.
+- Water is conserved to the phase solve's tolerance, not to round-off.
+- kintera's side of the solve is described from snapy's calls at the pin; kintera's own code is not cited in this
+  section. The equilibrium solve, its tolerances and its active-set reuse are @sec-ch02-saturation's.
+
+<!-- reader glossary notes -->
+[^rg-bd3114a3f37c]: RK — Runge–Kutta
+
+[^rg-32bcad2af68f]: $y_n$ — mass fraction of species $n$ **per unit total mass**, $\rho_n = \rho y_n$, dimensionless [-]; this is snapy's composition variable and the only one the state vector carries
+
+[^rg-ad21c4b4bd61]: forcing — forcing options block: a map with one sub-block per forcing component
+
+[^rg-e5b6ea90bcc1]: reference-state — thermodynamic reference-state options
+
+[^rg-de9da7f4783a]: Tref — thermodynamic reference temperature
+
+[^rg-96af9038665e]: Pref — thermodynamic reference pressure
+
+[^rg-bd7a36e2d26d]: rate-constant — reaction-rate model options
+
+[^rg-6332d193d0a6]: formula — registered reaction-rate formula
+<!-- end reader glossary notes -->

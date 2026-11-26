@@ -1,7 +1,7 @@
 ## The tracer flux positivity limiter (`equation-of-state/limiter`) {#sec-ch08-theta}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: OUTLINE.md 8.1; chengcli/snapy#338 (the relative factor); chengcli/snapy#307 (PR body and squash-merge commit message); chengcli/snapy#332 (the
          stage-forcing clip: PR body and squash-merge commit message)
 status: draft
@@ -120,10 +120,12 @@ $$ {#eq-ch08-theta-dry}
 <!-- equation-check: eq-ch08-theta-dry relative_check.py [C1] -->
 
 $\Theta^{\mathrm d}_i < 1$ means the stage drains more dry air from the cell than it holds, which happens at a mass
-Courant number above one. The dry density is not limited, so its explicit value can go negative there, and the stage
-relies on what follows to bring it back: the implicit $x_1$[^rg-8de83003300b] correction and the inflow along $x_2$ and $x_3$. That
-reliance is the code's stated premise ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}, the comment above
-`td`); this section does not prove it.
+Courant number above one. The dry density is not limited, so its explicit value can go negative there. Whatever brings
+it back, the implicit $x_1$[^rg-8de83003300b] correction or the inflow along $x_2$ and $x_3$, is outside this limiter: the comment
+above `td` in `PositivityLimiter::theta` ({{< code src/hydro/flux_positivity.cpp PositivityLimiter::theta >}}) says only
+that where the dry air drains too, the species drain as far as the poorer neighbour repays. **Unverified:** that the
+later operations of the stage restore a non-negative dry density in such a cell is neither stated in the code at the
+pin nor proved here.
 
 Take first a uniform mixing ratio: every outgoing species flux is $r_{n,i}$ times the dry flux on the same face, so
 $\mathrm{out}_i = r_{n,i}\,\mathrm{out}^{\mathrm d}_i$ and $u_i = r_{n,i}\rho_{\mathrm d,i}$. Then
@@ -147,7 +149,7 @@ $$ {#eq-ch08-theta-relax}
 
 where $r^{\min}_{n,i}$ is the smallest $r_n$[^rg-9d4612fa1068] of the two neighbours along $x_1$ and, for each of $x_2$ and $x_3$ that has
 more than one cell, of the two neighbours along it. @eq-ch08-theta-relax is the block after `flux_positivity_theta` in
-the stage ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}, `td` and `phi`), with $\Xi$ computed by
+the stage (`td` and `phi` in {{< code src/hydro/flux_positivity.cpp PositivityLimiter::theta >}}), with $\Xi$ computed by
 `flux_positivity_share` ({{< code src/hydro/flux_positivity.cpp flux_positivity_share >}}). What it allows follows in
 five steps.
 
@@ -196,15 +198,14 @@ At a uniform ratio step 2 gives $\Theta_i = \Theta^{\mathrm d}_i$, so $\Theta_i/
 $r^{\min}_{n,i} = r_{n,i}$ gives $\Xi_{n,i} = 1$: $\Theta'_i = 1$ and nothing is withheld, so the species flux stays
 $r_{n,i}$ times the dry flux. In the hydro path one more cell keeps the plain factor: where the settling flux leaves
 the cell through either $x_1$ face, $\Xi_{n,i}$ is set to 0, because settling mass is not dry air and nothing refills
-it (`masked_fill_`, {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}; @sec-ch08-carry).
+it (`masked_fill_`, {{< code src/hydro/flux_positivity.cpp PositivityLimiter::theta >}}; @sec-ch08-carry).
 
 The steps are algebraic identities; nothing is truncated. `relative_check.py` checks them: `[C1]` the relaxed drain of
 step 3, `[C2]` the uniform-ratio and empty-neighbour limits, `[C3]` @eq-ch08-theta-bound-relaxed as an identity in the
 case $\Theta_i/\Theta^{\mathrm d}_i\le1$, all in sympy, and `[C4]` a numpy port of `flux_positivity_share`.[^ch08-rel-run]
 
-[^ch08-rel-run]: [sha: snapy@919936da07d80a310b98ab11da184972a3203274; deck: the check itself, symbolic and seed 7;
-    run: `python3 src/snapy_report/ch08/checks/relative_check.py`, CPU[^rg-2951cd52e369], double, 1 process; Python 3.13.15, numpy 2.5.4,
-    sympy 1.14.0; output identical to the committed file]. Output `relative_check.out`, lines `[C1]`–`[C4]`.
+[^ch08-rel-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the check itself, symbolic and seed 7;
+    run: `python3 src/snapy_report/ch08/checks/relative_check.py`, CPU[^rg-2951cd52e369], double, 1 process; Python 3.13.15, numpy 2.4.6, sympy 1.14.0; output identical to the committed file]. Output `relative_check.out`, lines `[C1]`–`[C4]`.
 
 ### Numerical method
 
@@ -237,12 +238,29 @@ margin is @sec-ch08-roundoff. And ghost cells are given $\Theta = 1$ here, becau
 The caller must fill the ghost layer the way conserved variables are filled before scaling. Otherwise the two ranks
 sharing a face would apply different factors and conservation would fail.
 
-The scaling is `flux_positivity_scale_` at {{< code src/hydro/flux_positivity.cpp flux_positivity_scale_ >}}, which
-selects the donor per face with a `where` on the sign of the flux. The call site is `narrow`
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}), which also keeps the census that @sec-ch08-roundoff
-describes. The ghost fill it depends on follows at `pmb`
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}), a raw copy that is never interpolated because an
-interpolated ghost is not the neighbour's factor.
+The per-face factor is `flux_positivity_factor` ({{< code src/hydro/flux_positivity.cpp flux_positivity_factor >}}),
+which selects the donor per face with a `where` on the sign of the flux. The limiter does not rewrite the fluxes
+itself: `PositivityLimiter::post_` ({{< code src/hydro/flux_positivity.cpp PositivityLimiter::post_ >}}) hands the
+factor to the block's flux register as a `scale`[^rg-5ffbb1ee9f71] of the species rows, named `positivity.withhold`, so the register
+books the withheld flux (@sec-ch10). The stage builds the inputs and calls the limiter at `PositivityLimiter`
+({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). One call runs four steps in order
+({{< code src/hydro/flux_positivity.cpp PositivityLimiter::apply >}}): the factors, the census of the interior cells
+(below), the ghost fill of the factors, and the posts. The ghost fill is `flux_positivity_sync_theta_`
+({{< code src/hydro/flux_positivity.cpp flux_positivity_sync_theta_ >}}), a raw copy with `interpolate(false)`,
+because an interpolated ghost is not the neighbour's factor.
+
+**The census.** Before the ghost fill, `census_` ({{< code src/hydro/flux_positivity.cpp PositivityLimiter::census_ >}})
+counts what the factors did on the interior cells and adds it to three slots of the block's `EfStatus`
+(@sec-ch08-efstatus). `kPosHits` counts the (cell, species) entries with $\Theta_i<1$. `kPosSevere` counts the entries
+with $\Theta_i<0.9$ whose withheld mass $(1-\Theta_i)\,\Delta t\,\mathrm{out}_i$ is above
+$4096\,\epsilon_{\mathrm m}$ (64 in single precision) of the cell's gas mass $(
+ho_{\mathrm d,i}+\sum_n u_{n,i})V_i$,
+the round-off bound of @sec-ch08-roundoff. `kPosMin` keeps the smallest $\Theta$ seen. The counts are taken in the wide
+dtype of the precision policy (@sec-ch12), FP64 except on MPS[^rg-aba28acf8ad1]. The passive-scalar call counts only its hits, into
+`kScalarPosHits` (@sec-ch08-scalar). On the $x_1$ faces `post_` also adds the flux offered and the flux removed to the
+meters `kLimFlux` and `kLimCut`. None of these counts is read by the redo decision: the budget printer reads them after
+the step (@sec-ch08-efstatus), and a capture warm-up leaves no count because the executor saves and restores every
+slot.
 
 **The covariance gate.** The face-flux covariance rows of @sec-ch04-fluxcov can export tracer that a cell does not
 hold. So the stage runs this limiter whenever they are on, not only when `limiter` is set. The condition is
@@ -258,17 +276,19 @@ $2.4\times10^{-10}$ and the same as in the limited arm, is the panel-seam leak o
 the gate.[^ch08-gate-numbers]
 
 **The relaxation in the stage.** Right after the species factors, the stage builds $\Theta^{\mathrm d}$ with
-the same `flux_positivity_theta` from the dry-density row of `u` and the dry-density rows of the three face fluxes,
-which no limiter has touched, and $\Xi$ from `uy / rho`, the species rows over the dry density, ghosts included. It
+the same `flux_positivity_theta` from the dry density `rho_dry` and the dry-density rows `mass` of the three face
+fluxes, which no limiter has touched, and $\Xi$ from `u / rho_dry`, the species rows over the dry density, ghosts
+included. The stage fills both inputs (`PositivityInputs`); `rho_dry` is `dry_density(u)`, the total even when the
+block stores anomalies. It
 then applies @eq-ch08-theta-relax before the census and before the ghost fill of the factors
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). `flux_positivity_share` takes the neighbours with
+({{< code src/hydro/flux_positivity.cpp PositivityLimiter::theta >}}). `flux_positivity_share` takes the neighbours with
 `roll`, which wraps at the array ends; the wrapped value reaches only the first and last index along each direction
 (`relative_check.py` `[C4]`), and those are ghost cells, whose factors the ghost fill then replaces. So the relaxed
 factor of every interior cell sees only its true neighbours, ghosts included.
 
 **User stage forcings.** A user stage forcing (`set_user_stage_forcings`) is added to the stage increment after this
 limiter and after the implicit correction, and before the stage average and the conserved pass of
-@sec-ch08-eoslimiter ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}). Its sink is computed from the
+@sec-ch08-eoslimiter ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_forcing >}}). Its sink is computed from the
 stage-input state, so on its own it could take a cell that this limiter had nearly emptied below zero. With the
 limiter on, user forcings present and species rows in the state, the stage keeps a copy, `species_base`, of the
 species increment before the forcings, $\Delta t\,\Delta u^{\mathrm{tr}}_i$, and afterwards replaces the species
@@ -278,7 +298,7 @@ $$
 \Delta t\,\Delta u_i \leftarrow \max\!\Big(\Delta t\,\Delta u_i,\ \min\big(\Delta t\,\Delta u^{\mathrm{tr}}_i,\ -u_i\big)\Big).
 $$ {#eq-ch08-theta-forcing-clip}
 
-This is `clip_species` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}). Adding $u_i$ to both
+This is `clip_species` ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_forcing >}}). Adding $u_i$ to both
 arguments of the max bounds the result in one line:
 
 $$
@@ -302,11 +322,11 @@ cell.
 3. Both cells of a face use one factor, so the scaled flux telescopes when the divergence is summed. The only error is
    the rounding of that sum, at most $(n_f - 1)\,\tfrac12\epsilon_{\mathrm m}$ times the sum of the face magnitudes over
    $n_f$ faces; `[C3]` measures $1.7\times10^{-16}$ of the flux scale.
-4. The ghost factors are a raw copy, never interpolated ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}):
+4. The ghost factors are a raw copy, never interpolated ({{< code src/hydro/flux_positivity.cpp flux_positivity_sync_theta_ >}}):
    the donor of a seam face is the neighbour's edge cell, and an interpolated ghost is not its factor.
 5. A user stage forcing's species increment is clipped by @eq-ch08-theta-forcing-clip, so it cannot undo the bound
    this limiter gave the stage. The clip reads the limiter switch itself, not the covariance gate
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}).
+   ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_forcing >}}).
 
 ### Code
 
@@ -317,16 +337,18 @@ The symbol column is the citation's anchor.
 | the factors | {{< code src/hydro/flux_positivity.cpp flux_positivity_theta >}} | `flux_positivity_theta` | limiter on, tracers present |
 | the repaid share $\Xi$, @eq-ch08-theta-relax | {{< code src/hydro/flux_positivity.cpp flux_positivity_share >}} | `flux_positivity_share` | |
 | its contract, written out | {{< code src/hydro/flux_positivity.hpp flux_positivity_share >}} | `flux_positivity_share` | |
-| the dry-air factor and the relaxation in the stage | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `td` | $0<\Theta^{\mathrm d}<1$ |
-| the settling guard | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `masked_fill_` | settling flux recorded (@sec-ch08-carry) |
+| the dry-air factor and the relaxation | {{< code src/hydro/flux_positivity.cpp PositivityLimiter::theta >}} | `td` | $0<\Theta^{\mathrm d}<1$ |
+| the settling guard | {{< code src/hydro/flux_positivity.cpp PositivityLimiter::theta >}} | `masked_fill_` | settling flux recorded (@sec-ch08-carry) |
 | the outgoing sum | {{< code src/hydro/flux_positivity.cpp flux_positivity_theta >}} | `relu` | |
 | the round-off margin | {{< code src/hydro/flux_positivity.cpp flux_positivity_theta >}} | `margin` | |
-| the scaling | {{< code src/hydro/flux_positivity.cpp flux_positivity_scale_ >}} | `flux_positivity_scale_` | |
-| the call in the stage | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `flux_positivity_theta` | |
-| the ghost fill it needs | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `interpolate` | |
+| the donor factor per face | {{< code src/hydro/flux_positivity.cpp flux_positivity_factor >}} | `flux_positivity_factor` | |
+| the scaling, posted to the register | {{< code src/hydro/flux_positivity.cpp PositivityLimiter::post_ >}} | `scale` | |
+| the census | {{< code src/hydro/flux_positivity.cpp PositivityLimiter::census_ >}} | `kPosSevere` | |
+| the call in the stage | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `PositivityLimiter` | |
+| the ghost fill it needs | {{< code src/hydro/flux_positivity.cpp flux_positivity_sync_theta_ >}} | `interpolate` | |
 | the gate, with the covariance rows | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `cov2` | `limiter` or covariance rows |
 | the contract, written out | {{< code src/hydro/flux_positivity.hpp flux_positivity_theta >}} | `flux_positivity_theta` | |
-| the clip of a user forcing's species increment, @eq-ch08-theta-forcing-clip | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `clip_species` | `limiter: true`, a user stage forcing, species rows |
+| the clip of a user forcing's species increment, @eq-ch08-theta-forcing-clip | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_forcing >}} | `clip_species` | `limiter: true`, a user stage forcing, species rows |
 
 : Code map of the tracer flux positivity limiter. {#tbl-ch08-theta-code}
 
@@ -348,35 +370,43 @@ limiter is skipped when there are no tracer rows. The factor is these lines of `
 ```cpp
   double margin = kPositivityRoundoffUlp * machine_epsilon(u.scalar_type());
   auto avail = u.relu() * pcoord->cell_volume() * (1. - margin);
-  auto drain = out.mul_(dt);
+  auto drain = dt.mul_into(out);
   if (drain_out) *drain_out = drain;
+  // finfo(dtype).tiny: 1e-300 was 0 in float32 (only where() discards it)
+  double tiny = drain.scalar_type() == torch::kFloat
+                    ? std::numeric_limits<float>::min()
+                    : std::numeric_limits<double>::min();
   return torch::where(drain > 0.,
-                      (avail / drain.clamp_min(1e-300)).clamp_max(1.0),
+                      (avail / drain.clamp_min(tiny)).clamp_max(1.0),
                       torch::ones_like(u));
 ```
 
+`dt.mul_into(out)` multiplies by the step, a device value in a captured stage (@sec-ch11). The lower clamp of the
+denominator is the smallest normal number of the working dtype; it matters only where `drain` is zero, and there
+the `where` discards the quotient.
+
 `avail` is the mass the cell can afford, `drain` the mass it would lose unlimited, and the ratio is clamped at one. A
-cell that drains nothing keeps the factor one. The relaxation, @eq-ch08-theta-relax, follows in the stage
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}): `td` is $\Theta^{\mathrm d}$, `phi` is $\Xi$, and the
-`where` applies the blend only where $0<\Theta^{\mathrm d}<1$:
+cell that drains nothing keeps the factor one. The relaxation, @eq-ch08-theta-relax, follows in `PositivityLimiter::theta`
+({{< code src/hydro/flux_positivity.cpp PositivityLimiter::theta >}}): `td` is $\Theta^{\mathrm d}$ and `phi` is $\Xi$:
 
 ```cpp
-      auto rho = u.narrow(0, IDN, 1);
-      auto td = flux_positivity_theta(rho, m(_flux1), m(_flux2), m(_flux3),
-                                      pmb->pcoord, dt);
-      auto phi = flux_positivity_share(uy / rho);
-      // settling mass is not dry air: nothing refills it, so a cell it drains
-      // keeps the plain theta
-      if (fsed1.defined()) {
-        auto out = fsed1.clamp_min(0.).roll(-1, DIM1) + (-fsed1).clamp_min(0.);
-        phi.masked_fill_(out > 0., 0.);
-      }
-      theta = torch::where((td < 1.) & (td > 0.),
-                           theta + phi * ((theta / td).clamp_max(1.) - theta),
-                           theta);
+  auto theta = flux_positivity_theta(in.u, in.flux[0], in.flux[1], in.flux[2],
+                                     pc, in.dt, drain);
+  // where the dry air drains too, drain as far as the poorer neighbour repays
+  auto td = flux_positivity_theta(in.rho_dry, in.mass[0], in.mass[1],
+                                  in.mass[2], pc, in.dt);
+  auto phi = flux_positivity_share(in.u / in.rho_dry);
+  // nothing refills settling mass: a cell it drains keeps the plain theta
+  if (in.fsed1.defined()) {
+    auto out = in.fsed1.clamp_min(0.).roll(-1, 3) + (-in.fsed1).clamp_min(0.);
+    phi.masked_fill_(out > 0., 0.);
+  }
+  return flux_positivity_relax(theta, td, phi);
 ```
 
-`m` takes the dry-density row of a face flux. The share is `flux_positivity_share`
+`flux_positivity_relax` ({{< code src/hydro/flux_positivity.cpp flux_positivity_relax >}}) applies the blend only
+where $0<\Theta^{\mathrm d}<1$: `torch::where((td < 1.) & (td > 0.), theta + phi * ((theta / td).clamp_max(1.) - theta),
+theta)`. `in.mass[d]` is the dry-density row of the face flux of direction $d$. The share is `flux_positivity_share`
 ({{< code src/hydro/flux_positivity.cpp flux_positivity_share >}}):
 
 ```cpp
@@ -394,7 +424,7 @@ torch::Tensor flux_positivity_share(torch::Tensor const& q) {
 Array dimension 3 is $x_1$, 2 is $x_2$ and 1 is $x_3$; a direction of one cell is skipped. The gate in the stage is
 `if ((options->eos()->limiter() || cov2 || cov3) && ny > 0)`
 ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). The clip of a user forcing is these lines of
-`advance_local` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}):
+`stage_forcing` ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_forcing >}}):
 
 ```cpp
   int nspec = hydro_u.size(0) - ICY;
@@ -442,7 +472,7 @@ they are **missing evidence** at a pinned sha.
 `test_forcing_species_clip` makes the forcing clip bind.[^ch08-theta-clip-run] With the wind at
 $-20$ m s$^{-1}$ transport leaves the slot at $1.842720\times10^{-18}$ kg m$^{-3}$ and the forcing asks for
 $-3.612378\times10^{-11}$, which would leave $-3.612378\times10^{-11}$; after the stage the slot holds exactly $0$,
-the cell below holds $1.09596613082898916\times10^{-6}$, which is transport plus forcing to the last digit, and the
+the cell below holds $1.09596609271863694\times10^{-6}$, which is transport plus forcing to the last digit, and the
 step is accepted with no halving. With the wind at $+20$ m s$^{-1}$ the slot keeps $9.985322\times10^{-5}$, the clip
 does not bind, and the step is accepted with no halving.
 
@@ -455,16 +485,15 @@ $8.5\times10^{-1}$. `[C5]`: every shipped integrator forms a stage as $w_0 U^n +
 with $\alpha_{\mathrm{st}} \le 1$. `[C7]`: $46\,000$ interior faces follow the donor rule with no mismatch. `[C10]`: the
 cells non-negative at stage entry end at worst exactly $0$, while $4150$ of $7839$ entry-negative cells are still
 negative after the limited step. `[C11]`: the convex split holds exactly in rational arithmetic. The ctests named
-above have not been run for this report at the pin: **pending a pinned ctest run**. That includes
+above pass at the pin, on CPU only.[^ch08-ctest-pin] That includes
 `test_tracer_ratio_python`, whose deck is built in the script itself (`column` and `carry`,
 {{< code tests/test_tracer_ratio.py column >}}): a stretched isothermal column balanced by `balance_column`, WENO5[^rg-04b9929e35f9]
 and LMARS[^rg-0c0155505208], `rk3`, with a passive tracer and vapour plus cloud species, and the six-cell column of
 `test_flux_positivity_carry.yaml` widened to $n_{x_2}=4$. The `positivity_check.py` claims above predate the
 relaxation and port the plain factor only; the relaxation is covered by `relative_check.py`.
 
-[^ch08-theta-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: the check itself, synthetic numpy states;
-    run: `python3 src/snapy_report/ch08/checks/positivity_check.py`, CPU, double, 1 process; Python 3.11.13,
-    numpy 2.4.6, sympy 1.14.0; output identical to the committed file]. Output
+[^ch08-theta-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the check itself, synthetic numpy states;
+    run: `python3 src/snapy_report/ch08/checks/positivity_check.py`, CPU, double, 1 process; Python 3.13.15, numpy 2.4.6, sympy 1.14.0; output identical to the committed file]. Output
     `positivity_check.out`, lines `[C1]`, `[C2]`, `[C3]`, `[C5]`, `[C7]`, `[C10]` and `[C11]`.
 
 ### Limits
@@ -501,14 +530,37 @@ relaxation and port the plain factor only; the relaxation is covered by `relativ
    a hypothesis based on the convex-combination argument `[C5]` verifies for the shipped weights,
    not a measurement of a multi-stage run.
 
-[^ch08-theta-clip-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck:
-    `tests/test_forcing_species_clip.yaml` with the state and the forcing built in `tests/test_forcing_species_clip.py`;
-    run: `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 PYTHONPATH="$SITE" ctest -R "test_forcing_species_clip|test_fix_vapor_reports_failure_python|test_fix_vapor_counts_every_column|test_fix_vapor_stale_count_python" -V`, in the build's `tests` directory of a Release build (`cmake -B build -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DCUDA=OFF`), CPU, double (float32 cases as named), 1 process; GCC 13.3.1, Python 3.11.13, torch 2.10.0, numpy 2.4.6, kintera 2.6.6; `$SITE` is the directory the build was installed into with `pip install --no-deps --no-build-isolation --target`]. The numbers are the test's own printed lines; it prints `RESULT PASS`.
+[^ch08-theta-clip-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: `tests/test_forcing_species_clip.yaml` with the state and the forcing built in `tests/test_forcing_species_clip.py`; run: the command of the run record of @sec-ch08-theta, restricted to the tests named here and with `-V` so that their own printed lines show; same build, CPU, versions as there]. The numbers are the script's own printed lines; it ends `RESULT PASS`.
 [^ch08-gate-numbers]: Source: the chengcli/snapy#307 body, section "Positivity gate", and the commit message
     of that round's squash-merge, which is an ancestor of this book's pin. Deck: the test named above. Run: not
     recorded.
 [^ch08-gate-arms]: Source: the chengcli/snapy#307 body, section "Test dispositions", and the commit message of
     that round's squash-merge.
+
+[^ch08-ctest-pin]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: each test's own card, column or
+    script; run: `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 ctest -j1 -R "<the names>" --timeout 900 --output-on-failure`
+    in the build directory of a Release build (`cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON
+    -DPNETCDF=OFF -DCUDA=OFF -DUCX=OFF -DBUILD_TESTS=ON`), the package installed with `pip install --no-deps
+    --no-build-isolation --target` and put on `PYTHONPATH`; CPU (arm64), double and the float32 cases as named, 1
+    process except the two-rank `test_sedimentation_cubed_seam.release`; Apple clang 21.0.0, CMake 4.4.2, Python
+    3.11.15, torch 2.10.0, numpy 2.4.6, kintera 2.6.13, pyharp 2.7.17]. The names are the 30 ctests of this chapter's
+    Tests tables: `test_backward_substitution.release`, `test_check_redo_saturation_python`,
+    `test_check_redo_vapor_deficit.release`, `test_condensate_conservation.release`, `test_cycle_diagnostics.release`,
+    `test_dry_carry_zero_base_python`, `test_eos.release`, `test_fix_vapor_counts_every_column_python`,
+    `test_fix_vapor_deficit.release`, `test_fix_vapor_reports_failure_python`, `test_fix_vapor_stale_count_python`,
+    `test_fix_vapor_volume.release`, `test_flux_positivity_python`, `test_flux_positivity_carry.release`,
+    `test_flux_positivity_cubedsphere_python`, `test_flux_positivity_cubedsphere_cov_off_python`,
+    `test_flux_positivity_cubedsphere_moist_python`, `test_forcing.release`, `test_forcing_species_clip_python`,
+    `test_fp32_compute_python`, `test_graph_positivity_meters_match_eager_python`, `test_scalar.release`,
+    `test_scalar_cov_x1_split_python`, `test_scalar_flux_covariance_python`, `test_sedimentation_guards.release`,
+    `test_sedimentation_cubed_seam.release`, `test_species_face_clamp.release`, `test_stage_forcing_dry_tracer_python`,
+    `test_tracer_ratio_python` and `test_wall_saturation.release`. Result: 29 passed and 1 skipped. The skipped one is
+    `test_graph_positivity_meters_match_eager_python`: its CPU arm ran and passed (the cuda-graph setting runs eager
+    and its meters equal eager's, FP64 and FP32, both cases), and it skips its CUDA[^rg-addac7a45546] arm on a build without CUDA. Four
+    tests (`test_scalar.release`, `test_cycle_diagnostics.release`, `test_forcing.release`,
+    `test_sedimentation_cubed_seam.release`) failed on a first run inside a process sandbox that refused their file
+    and socket access, and passed when run again without it; the result above is that second run. No CUDA or MPS arm
+    was run.
 
 <!-- reader glossary notes -->
 [^rg-b0ecd497e453]: $\Delta t$ — the step
@@ -529,6 +581,10 @@ relaxation and port the plain factor only; the relaxation is covered by `relativ
 
 [^rg-2951cd52e369]: CPU — central processing unit
 
+[^rg-5ffbb1ee9f71]: scale — scaling in the enclosing component: a reconstruction switch or values of a thermal-transport profile
+
+[^rg-aba28acf8ad1]: MPS — Metal Performance Shaders
+
 [^rg-6879e5c9f18a]: dynamics — hydrodynamic options block
 
 [^rg-5c31940d8939]: equation-of-state — equation-of-state options
@@ -538,4 +594,6 @@ relaxation and port the plain factor only; the relaxation is covered by `relativ
 [^rg-04b9929e35f9]: WENO5 — fifth-order weighted essentially non-oscillatory reconstruction
 
 [^rg-0c0155505208]: LMARS — low-Mach approximate Riemann solver
+
+[^rg-addac7a45546]: CUDA — NVIDIA's parallel computing platform
 <!-- end reader glossary notes -->
