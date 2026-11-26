@@ -418,6 +418,8 @@ snapy_add_python_test(test_implicit_options_type TIMEOUT 60 LABELS "python;impli
 snapy_add_python_test(test_shear_cfl TIMEOUT 60 LABELS "python;hydro;implicit")
 snapy_add_python_test(test_check_redo_floor TIMEOUT 60 LABELS "python;mesh;redo")
 snapy_add_python_test(test_check_redo_saturation TIMEOUT 60 LABELS "python;mesh;redo;eos")
+# a redo restores the EfStatus positivity meters with the flux register
+snapy_add_python_test(test_redo_positivity_meters TIMEOUT 300 LABELS "python;mesh;redo;positivity")
 # lane K, S-K1: the ThermoY failure counter in the reset list and the retry stack
 snapy_add_python_test(test_sk1_failure_counter TIMEOUT 120 LABELS "python;mesh;redo;eos")
 # lane K, S-K2: the active set snapshot at stage 0, restored on a retry (K-G5)
