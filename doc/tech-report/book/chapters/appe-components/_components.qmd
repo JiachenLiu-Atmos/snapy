@@ -74,7 +74,8 @@ the same, and the version a build accepts is not bounded, in four steps:
    `KINTERA_LIBRARY` among the `PUBLIC` link libraries of the `snap` target ({{< code src/CMakeLists.txt >}}), and the
    top-level `find_package(Disort REQUIRED)` and `find_package(Harp REQUIRED)` stop the configure without them.
 3. *The locators read a version but are given none to compare.* `FindHarp` and `FindDisort` run
-   `import pyharp; print(pyharp.__version__)` (likewise for pydisort) and stop if that fails. They pass the result as
+   `import pyharp; print(pyharp.__version__)` (likewise for pydisort) once the library is found, and stop if that
+   import fails. They pass the result as
    `VERSION_VAR`, but `find_package` is called without a version argument, so any found version is accepted
    ({{< code cmake/modules/FindHarp.cmake >}}, {{< code cmake/modules/FindDisort.cmake >}}).
 4. *Hence* their absence from `pyproject.toml` is a packaging gap, not evidence that they are optional, and no
@@ -91,16 +92,19 @@ recorded separately.
 ### Numerical method
 
 **kintera: thermodynamics.** Both moist equations of state own a kintera `ThermoY` module. The closed-form
-`ideal-moist` EOS creates one and reads its molecular weights and the constant-$c_v$ perturbation-pressure helper
-({{< code src/eos/ideal_moist.cpp IdealMoistImpl::reset >}}); the `moist-mixture` EOS creates one and computes
+`ideal-moist` EOS creates one and reads its molecular weights and reference heat capacities into buffers
+({{< code src/eos/ideal_moist.cpp IdealMoistImpl::reset >}}), and calls the constant-$c_v$ perturbation-pressure helper
+when it forms the anomaly pressure ({{< code src/eos/ideal_moist.cpp IdealMoistImpl::perturbations >}}); the
+`moist-mixture` EOS creates one and computes
 through it ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::reset >}}). The conversion from conserved to
 primitive variables writes two fixed buffers in place, the inverse volumes (`DY->V`) and the temperature
 (`VU->T`), then forms the pressure (`VT->P`) ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_cons2prim >}});
 the mixture heat capacity is `VT->cv` over the same volumes
 ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::specific_heat_cv >}}), and the primitive cache is refilled
 from pressure and volume (`PV->T`) ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_ensure_cache >}}). The
-EOS reader takes the thermodynamic options from the deck's `kintera` block
-({{< code src/eos/equation_of_state.cpp EquationOfStateOptionsImpl::from_yaml >}}) and refills kintera's species table
+EOS reader hands the deck file to kintera, whose `ThermoOptionsImpl::from_yaml` takes its keys straight from
+`dynamics/equation-of-state` (snapy's own key check lists `max-iter`, `ftol` and `uv-solver` as the keys kintera reads
+there) ({{< code src/eos/equation_of_state.cpp EquationOfStateOptionsImpl::from_yaml >}}), and refills kintera's species table
 before it caches the cloud parents, because a later deck can declare other species
 ({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::cache_cloud_parents_ >}}).
 
@@ -146,7 +150,8 @@ step a no-op.
 ({{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}}). Each stage calls `pintg->forward` to combine the stage
 start, the current state and the increment into the next state, for the hydro and for the scalars
 ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}}); the dry-source carry takes the same
-combination of the density alone ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}}), and
+combination of the density and of the scalar state, to form the mixing ratio it carries
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}}), and
 the flux register reads the stage's weights to book amounts. The weights of the three-stage `rk3` are pyharp's
 ([`pyharp integrator.cpp:49-60`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L49-L60)).
 This is active solver use of pyharp, independent of any radiation functionality that package may provide.
@@ -187,8 +192,12 @@ build ([Install and run](#sec-preface-install)).
 **What the build refuses, and why.** In order, at configure time:
 
 1. *An importable package is missing.* `FindKintera`, `FindHarp` and `FindDisort` each import their Python package
-   to read its version, and stop with "cannot determine PEP 440 version of ..." if the import fails. The C++ library
-   is located from the Python package.
+   to locate its files (`kintera.__file__` and the like, with errors silenced); when that import fails the path is
+   empty, the `cmake_path` calls error, `find_path` and `find_library` find nothing, and
+   `find_package_handle_standard_args` stops with "Could NOT find Kintera (missing: ...)" (likewise Harp and
+   Disort). The version import, and its "cannot determine PEP 440 version of ..." stop, run only after the library
+   is found (`if(KINTERA_LIBRARY)`), so that message means a found library whose Python package does not import.
+   The C++ library is located from the Python package.
 2. *kintera is older than 2.6.13.* `FindKintera` stops with "snapy requires kintera >= 2.6.13 (...), found ...".
 3. *A library or its headers is not found.* Each locator's `REQUIRED_VARS` fails the `REQUIRED` `find_package`.
 4. *`PNETCDF=ON` without pinc*, or *`CUDA=ON` with UCX but without commux's CUDA sidecar*: the configure stops with
@@ -215,7 +224,7 @@ of item 2.
 | moist-mixture thermo | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::reset >}} | `ThermoYImpl` | `eos/type: moist-mixture` |
 | temperature and pressure | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_cons2prim >}} | `compute_into` | component API |
 | mixture heat capacity | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::specific_heat_cv >}} | `compute` | component API |
-| thermo options from the deck | {{< code src/eos/equation_of_state.cpp EquationOfStateOptionsImpl::from_yaml >}} | `ThermoOptionsImpl` | the deck's `kintera` block |
+| thermo options from the deck | {{< code src/eos/equation_of_state.cpp EquationOfStateOptionsImpl::from_yaml >}} | `ThermoOptionsImpl` | `dynamics/equation-of-state`, read by kintera |
 | species table refill | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::cache_cloud_parents_ >}} | `populate_thermo` | component API |
 | prepare before adjustment or capture | {{< code src/mesh/meshblock.cpp MeshBlockImpl::prepare_thermo overload=2 >}} | `prepare` | component API |
 | final-stage saturation adjustment | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}} | `forward` | an EOS with a thermo |
