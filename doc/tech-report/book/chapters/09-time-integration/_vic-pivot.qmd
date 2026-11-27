@@ -1,16 +1,17 @@
 ## LU pivot tolerance: refuse a pivot within $8N\epsilon_{\mathrm m}$ of its row (`ludcmp`) {#sec-ch09-vic-pivot}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
-sources: OUTLINE.md 7.10; src/math/ludcmp.h; docs/derivations/290-lu-pivot-tolerance.md; tests/test_lu_failure.cpp
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (chengcli/snapy)
+sources: OUTLINE.md 7.10; src/math/ludcmp.h; src/implicit/forward_sweep_impl.h; src/hydro/hydro.cpp;
+         src/mesh/precision_policy.hpp; docs/derivations/290-lu-pivot-tolerance.md; tests/test_lu_failure.cpp
 status: draft
 -->
 
 ### Summary
 
 `ludcmp` is the Crout factorisation with scaled partial pivoting. It returns the sign of the row permutation, or
-0 for a refusal. The refusal turns into a failed column (@sec-ch09-vic-sweep), which turns into a rejected step
-(@sec-ch09-vic-reject).
+0 for a refusal. The refusal turns into a failed column (@sec-ch09-vic-sweep). A column that failed in a float32
+solve is solved again in float64; one that fails in float64 turns into a rejected step (@sec-ch09-vic-reject).
 
 ::: {.callout-note title="At a glance"}
 **Purpose.** Refuses a VIC block whose pivot is within $\epsilon_{\mathrm{piv}} = 8N\epsilon_{\mathrm m}$ of its row, or any non-finite value; @eq-ch09-vic-pivot.
@@ -59,7 +60,7 @@ The values are $2.861\times10^{-6}$ and $4.768\times10^{-6}$ in float, and $5.32
 double, for $N=3$ and 5 (`[C1]`). A ratio $0.99\,\epsilon_{\mathrm{piv}}$ is refused and $1.01\,\epsilon_{\mathrm{piv}}$ accepted,
 with $\epsilon_{\mathrm{piv}} = 24\epsilon_{\mathrm m}$ at $N=3$, in both types (`[C2]`).
 
-[^ch09-pivot-note]: `docs/derivations/290-lu-pivot-tolerance.md@919936da07d80a310b98ab11da184972a3203274`, opening section.
+[^ch09-pivot-note]: `docs/derivations/290-lu-pivot-tolerance.md@73c45a7c8c991209924e1137992352c335575062`, opening section.
 
 The units of the decision follow from the same ratio:
 
@@ -95,6 +96,23 @@ sum, and it carries the original row scale `scale` through the row swaps ({{< co
 itself is one line, through `tolerance` ({{< code src/math/ludcmp.h ludcmp >}}). A last scan with `isfinite` refuses a
 nonfinite factor ({{< code src/math/ludcmp.h ludcmp >}}).
 
+A third template argument, `Implicit`, chooses how the pivot row is picked. With the default `true` the candidates
+are weighted by the reciprocal of their row scale, `vv`, as in Numerical Recipes. With `false` they are compared as
+given, because the caller has already scaled the rows. The sweep uses `false` only for float32 $5\times5$ blocks:
+it multiplies each row of the eliminated block, of $\mathsf C_i$ and of the right-hand side by the power of two nearest
+the reciprocal of the largest entry of that row of $[\mathsf B_i\ \mathsf A_i\ \mathsf C_i]$, taken before the elimination
+({{< code src/implicit/forward_sweep_impl.h ForwardSweep >}}). Powers of
+two are exact, so the refusal test, whose ratio is per row, gives the same decision either way (step 4, `[C3]`); only
+the choice of pivot row can change.
+
+The working precision comes from the precision table: the solve computes in float32 when
+`integration/implicit-precision` is `float32`, or when it is `auto` (the default) and `dynamics.precision` is
+`float32`; a non-`auto` `implicit-precision` overrides the block, so `dynamics.precision: float32` with
+`implicit-precision: float64` solves in float64 ({{< code src/mesh/precision_policy.hpp PrecisionPolicy::PrecisionPolicy >}}).
+On MPS[^rg-d270ddd850e7], which has no float64, every row is float32. A float32 solve needs a Cartesian
+ideal-moist block. With `implicit-fallback-fp64` (default true), the columns whose float32 solve failed are solved
+again from the float64 inputs, and only those columns ({{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}}).
+
 ### Code
 
 | what | code link | symbol | switch |
@@ -102,12 +120,15 @@ nonfinite factor ({{< code src/math/ludcmp.h ludcmp >}}).
 | factorisation | {{< code src/math/ludcmp.h ludcmp >}} | `ludcmp` | |
 | tolerance | {{< code src/math/ludcmp.h ludcmp >}} | `tolerance` | |
 | pivot test | {{< code src/math/ludcmp.h ludcmp >}} | `tolerance` | |
-| use in the sweep | {{< code src/implicit/forward_sweep_impl.h ForwardSweep >}} | `ludcmp` | |
+| use in the sweep; float32 row scaling | {{< code src/implicit/forward_sweep_impl.h ForwardSweep >}} | `ludcmp`, `rowscale` | |
+| working precision of the solve | {{< code src/mesh/precision_policy.hpp PrecisionPolicy::PrecisionPolicy >}} | `Quantity::kImplicit` | `implicit-precision` |
+| float64 retry of failed columns | {{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}} | `retry` | `implicit-fallback-fp64` |
 
 : Code map of the LU pivot tolerance. {#tbl-ch09-vic-pivot-code}
 
-**How to use it.** There is no key: the tolerance is set in the header, and the only lever is the working
-precision, float64 or float32 (Limits 1). The tolerance and the test of @eq-ch09-vic-pivot are these lines
+**How to use it.** There is no key for the tolerance: it is set in the header. The levers are the working
+precision, `integration/implicit-precision`, and the float64 retry, `integration/implicit-fallback-fp64`
+(@sec-ch09-vic-options; Limits 1). The tolerance and the test of @eq-ch09-vic-pivot are these lines
 ({{< code src/math/ludcmp.h ludcmp >}}):
 
 ```cpp
@@ -126,23 +147,27 @@ failed column.
 |---|---|---|---|
 | `tests/test_lu_failure.cpp` (`test_lu_failure.release`), `float_three`, `float_five`, `double_three`, `double_five` | regular matrices return $\pm1$; near-singular rows at several scales, a final zero pivot, nonfinite entries and an overflowing elimination return 0 | exact (logical) | contract |
 | `tests/test_lu_failure.cpp`, `float_rest_column_finite_vicclamp`, `double_rest_column_finite_vicclamp` | a column at rest is not refused and gives a zero correction | exact | contract |
+| `tests/test_lu_failure.cpp`, `fp64_retry_solves_the_failed_column_only`, `fp64_retry_that_fails_again_fails_the_step` | a column that fails in float32 is the only one solved again in float64, every other column is left bit for bit; a retried column that fails again fails the step | exact | contract |
 | this section's check, `vic_pivot_check.py` | `[C1]`–`[C5]` | exact; 0.99 and 1.01 of $\epsilon_{\mathrm{piv}}$ | stated in the check |
 
 : Tests of the LU pivot tolerance (@tbl-ch09-ctest-run for the run at the pin). {#tbl-ch09-vic-pivot-tests}
 
 `test_lu_failure.release` passes at the pin (@tbl-ch09-ctest-run), with
 {{< code tests/test_lu_failure.cpp lu_failure.float_three >}} and
-{{< code tests/test_lu_failure.cpp lu_failure.float_rest_column_finite_vicclamp >}} among its cases.
+{{< code tests/test_lu_failure.cpp lu_failure.float_rest_column_finite_vicclamp >}} and
+{{< code tests/test_lu_failure.cpp lu_failure.fp64_retry_solves_the_failed_column_only >}} among its cases.
 `vic_pivot_check.py` ports `ludcmp` for float32 and float64.[^ch09-vic-pivot-run] `[C1]` reproduces the four
 tolerances; `[C2]` refuses at $0.99\,\epsilon_{\mathrm{piv}}$ and accepts at $1.01\,\epsilon_{\mathrm{piv}}$; `[C3]` changes no decision
-of 400 matrices under power-of-two row factors (130 refused on this run); `[C4]` gives double $-1$, float32 0, NaN 0
+of 400 matrices under power-of-two row factors (131 refused on this run); `[C4]` gives double $-1$, float32 0, NaN 0
 and zero row 0; `[C5]` counts the Crout inner products and gives the ratio of the tolerance to $\zeta_N$. CPU and
-CUDA share the header; only the CPU path ran.
+CUDA share the header; only the CPU path ran. The port is of the `Implicit = true` path; the float32 row scaling is
+covered by step 4's argument and `[C3]`, not ported.
 
-[^ch09-vic-pivot-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; deck: the check itself; run:
+[^ch09-vic-pivot-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the check itself; run:
     `python3 src/snapy_report/ch09/checks/vic_pivot_check.py`,
-    CPU, float32 and float64, 1 process; Python 3.12.10, numpy 2.5.3; output identical to the committed
-    `vic_pivot_check.out`].
+    CPU, float32 and float64, 1 process; Python 3.12.3, numpy 2.2.4; output identical to the committed
+    `vic_pivot_check.out`, which this rewrite regenerated: the refused count of `[C3]` is 131 with numpy 2.2.4 and was
+    130 with numpy 2.5.3, the borderline matrix of step 5].
 
 ### Limits
 
@@ -153,12 +178,13 @@ conditioned, and acceptance does not mean an accurate step.
 
 1. **Float32.** The guard is about $5\times10^8$ times stricter in `float32`. The derivation note records an independent
    probe of random $3\times3$ matrices: 166 of 5000 refused at condition number $10^6$ and 4915 of 5000 at $10^8$ in
-   `float32`, none from $10^4$ to $10^{14}$ in double.[^ch09-pivot-probe] A smaller step need not cure such a column;
-   use float64.
+   `float32`, none from $10^4$ to $10^{14}$ in double.[^ch09-pivot-probe] A smaller step need not cure such a column.
+   The float64 retry of failed columns, on by default, re-solves such a column in float64; with
+   `implicit-fallback-fp64: false` the column fails the step.
 2. **Fixed factor.** The factor 8 is a choice, not a derived bound: step 3 derives the scale $\zeta_N$, not the
    guard band.
 
-[^ch09-pivot-probe]: `docs/derivations/290-lu-pivot-tolerance.md@919936da07d80a310b98ab11da184972a3203274`, "Float32 VIC conditioning limitation",
+[^ch09-pivot-probe]: `docs/derivations/290-lu-pivot-tolerance.md@73c45a7c8c991209924e1137992352c335575062`, "Float32 VIC conditioning limitation",
     which credits the probe to an independent review.
 
 <!-- reader glossary notes -->
@@ -169,4 +195,6 @@ conditioned, and acceptance does not mean an accurate step.
 [^rg-cecbfc2fcc72]: SI — International System of Units; notation only; see @sec-appa
 
 [^rg-10dfdc92d517]: $\epsilon_{\mathrm{piv}}$ — LU pivot tolerance; {{< code src/math/ludcmp.h ludcmp >}}
+
+[^rg-d270ddd850e7]: MPS — Metal Performance Shaders
 <!-- end reader glossary notes -->

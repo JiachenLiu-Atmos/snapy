@@ -1,7 +1,7 @@
 ## What is shown about steady states with the VIC: the fixed point is the explicit one (`integration/implicit-scheme`) {#sec-ch09-vic-steady}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (chengcli/snapy, code_pin.yml)
 sources: src/implicit/forward_sweep_impl.h, src/implicit/vic_redistribute_impl.h, src/implicit/implicit_hydro.cpp,
          src/hydro/hydro.cpp, tests/test_x1_centroid_rest.py, tests/test_implicit_gravity_tall_column.py at the pin;
          the VIC sections of this chapter, the rest tests of chapters 5 and 6
@@ -53,9 +53,10 @@ $$ {#eq-ch09-vic-steady-fixed}
    explicit operator, change how a state approaches $\mathbf U^\ast$, not $\mathbf U^\ast$ itself.
 4. *The rows after the solve.* The momentum and energy rows of the stage are set to the entries of
    $\boldsymbol\delta$. The density rows receive face transfers built from the solved-minus-explicit mass change.
-   The post-solve energy terms are formed from the moved mass, the solved momentum or the same difference. Each is zero
-   when $\Delta\mathbf U^{(0)}$ and $\boldsymbol\delta$ are zero, as long as no availability clamp of
-   @sec-ch09-vic-redistribute binds. This step is read from the code; no test asserts it on its own.
+   The post-solve energy terms are formed from the moved mass, the solved momentum or the same difference, and with
+   the exact radial work the energy row also carries, before the solve, the slope applied to the explicit mass
+   change. Each is zero when $\Delta\mathbf U^{(0)}$ and $\boldsymbol\delta$ are zero, as long as no availability
+   clamp of @sec-ch09-vic-redistribute binds. This step is read from the code; no test asserts it on its own.
 
 In the code, the solved right-hand side of @eq-ch09-vic-steady-fixed is formed in `ForwardSweep`
 ({{< code src/implicit/forward_sweep_impl.h ForwardSweep >}}); the rows of step 4 are written by
@@ -76,7 +77,8 @@ estimate (@sec-ch09-vic-pivot).
 | right-hand side from the explicit increment | {{< code src/implicit/forward_sweep_impl.h ForwardSweep >}} | `rhs` | `implicit-scheme` |
 | face transfers from the mass difference | {{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}} | `phi` | |
 | rows set from $\boldsymbol\delta$ | {{< code src/implicit/vic_redistribute_impl.h vic_redistribute_cell >}} | `delta` | |
-| post-solve energy terms | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}} | `projection_work` | |
+| post-solve energy terms | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::book_remainder_ >}} | `projection_work` | |
+| exact radial work: the slope on the explicit mass change | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}} | `rx_mass0` | |
 | energy reference removed and restored | {{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}} | `internal_energy_offset` | |
 
 : Code map of the steady-state statement. {#tbl-ch09-vic-steady-code}

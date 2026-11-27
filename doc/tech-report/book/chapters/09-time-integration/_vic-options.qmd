@@ -1,9 +1,10 @@
 ## VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$ (`ImplicitOptions`) {#sec-ch09-vic-options}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (chengcli/snapy)
 sources: OUTLINE.md 7.6; src/implicit/implicit_hydro.cpp; src/implicit/implicit_hydro.hpp; src/hydro/hydro.cpp;
-         src/hydro/hydro_options.cpp; tests/test_implicit_options_type.py; tests/test_hydro_options.cpp
+         src/hydro/hydro_options.cpp; tests/test_implicit_options_type.py; tests/test_hydro_options.cpp;
+         tests/test_lu_failure.cpp
 status: draft
 -->
 
@@ -14,13 +15,14 @@ vertical sound waves do not limit the step (@sec-ch09-cfl). It is one linear blo
 (@sec-ch09-vic-assembly), weighted into each stage (@sec-ch09-vic-stage).
 The scheme value is a bit field. Bit 0 makes $x_1$ implicit and bit 3 selects the full system; bits 1 and 2 only
 change the time-step bound of @sec-ch09-cfl. Only the values 0, 1 and 9 build. Any other value stops the run when
-the solver object is constructed. A VIC run also needs the whole $x_1$ column on one rank and a constant
-gravity.
+the solver object is constructed, and a solver object built from code with the value 0 is refused there too. A VIC
+run also needs the whole $x_1$ column on one rank and a constant gravity. Two further keys set the precision of
+the column solve and its FP64 retry (@sec-ch09-vic-pivot).
 
 ::: {.callout-note title="At a glance"}
 **Purpose.** Decides whether a run has a vertically implicit correction (VIC) and its system size; @eq-ch09-vic-size.
 
-**Data.** Reads `integration/implicit-scheme` and the two bound keys once per block; writes the type and $N$.
+**Data.** Reads `integration/implicit-scheme`, the two bound keys and the two precision keys once per block; writes the type and $N$.
 
 **Placement.** At setup; the one-block and gravity conditions at the first correction.
 
@@ -55,7 +57,8 @@ and the steps that fix what a value means are:
    builds, although the time-step bound reads those bits (`[C1]`).
 4. *No round-off.* The value is an integer and $N$ a bit test, so nothing is rounded.
 
-In the code, @eq-ch09-vic-size is `size` ({{< code src/implicit/implicit_hydro.hpp ImplicitOptionsImpl::size >}}).
+In the code, @eq-ch09-vic-size is `size`, the value of the `VicMatrix` that `matrix` picks
+({{< code src/implicit/implicit_hydro.hpp ImplicitOptionsImpl::size >}}).
 
 ### Numerical method
 
@@ -73,11 +76,14 @@ make_fig()
 The options come from the `integration` block, which pyharp's integrator also reads, so its keys are checked
 against both readers ({{< code src/implicit/implicit_hydro.cpp ImplicitOptionsImpl::from_yaml overload=1 >}}). A value of 0 returns no options at all from `from_yaml`, so 0 is
 a true explicit spelling that also runs with several blocks in $x_1$ ({{< code src/implicit/implicit_hydro.cpp ImplicitOptionsImpl::from_yaml overload=2 >}}).
-The two bound keys without a scheme are an error, not ignored (`[C3]`). `implicit-advection-cfl` must be finite and
-positive, and `shear-cfl` finite and non-negative (`[C2]`).
+The two bound keys, and the precision keys `implicit-precision` and `implicit-fallback-fp64`, without a scheme are an
+error, not ignored (`[C3]`). `implicit-advection-cfl` must be finite and positive, and `shear-cfl` finite and
+non-negative (`[C2]`). `implicit-precision` must be `auto`, `float32` or `float64`
+({{< code src/implicit/implicit_hydro.cpp ImplicitOptionsImpl::from_yaml overload=1 >}}).
 
 `HydroImpl` creates the solver object, `picorr`, only when the options exist ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}). Its `reset`
-calls `type`, which is what refuses an unsupported value ({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::reset >}}). The
+calls `type`, which is what refuses an unsupported value, and then refuses the value 0, which only options built
+from code can carry ({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::reset >}}). The
 first correction then checks with `is_physical_boundary` that both $x_1$ faces of the block are physical
 boundaries, since the column solve has no cross-rank coupling ({{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}}). It also requires a constant gravity, through
 `grav` ({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}}) (`[C4]`).
@@ -90,7 +96,7 @@ boundaries, since the column solve has no cross-rank coupling ({{< code src/hydr
 | scheme value to options | {{< code src/implicit/implicit_hydro.cpp ImplicitOptionsImpl::from_yaml overload=2 >}} | `from_yaml` | `implicit-scheme` |
 | names and refusal | {{< code src/implicit/implicit_hydro.cpp ImplicitOptionsImpl::type >}} | `type` | |
 | block size | {{< code src/implicit/implicit_hydro.hpp ImplicitOptionsImpl::size >}} | `size` | |
-| defaults | {{< code src/implicit/implicit_hydro.hpp ImplicitOptionsImpl >}} | `advection_cfl` | |
+| defaults | {{< code src/implicit/implicit_hydro.hpp ImplicitOptionsImpl >}} | `advection_cfl`, `precision`, `fallback_fp64` | `implicit-precision`, `implicit-fallback-fp64` |
 | hydro options entry | {{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}} | `icorr` | |
 | construction | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `picorr` | |
 | refusal at construction | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::reset >}} | `reset` | |
@@ -101,10 +107,10 @@ boundaries, since the column solve has no cross-rank coupling ({{< code src/hydr
 **How to use it.** The scheme is an integer in the `integration` block, not a name
 ({{< code src/implicit/implicit_hydro.cpp ImplicitOptionsImpl::from_yaml overload=2 >}}):
 
-<!-- reader glossary keys -->Keys in this fragment: `forcing`[^rg-83856cb12a4a], `const-gravity`[^rg-f91ff1ef44fb], `grav1`[^rg-1cec6f60e835].
+<!-- reader glossary keys -->Keys in this fragment: `const-gravity`[^rg-f91ff1ef44fb], `grav1`[^rg-1cec6f60e835].
 ```yaml
 forcing:
-  const-gravity: {grav1: -9.8}   # the solve needs a constant gravity
+  const-gravity: {grav1: -10.}   # the solve needs a constant gravity
 integration:
   type: rk3
   implicit-scheme: 1             # 0 or absent: explicit; 1: vic-partial (N = 3); 9: vic-full (N = 5)
@@ -116,6 +122,12 @@ What is refused, and why:
   `node.as<int>()`.
 - Any value other than 0, 1 or 9 stops at construction with "Unsupported implicit scheme", because no other value
   has a solver ({{< code src/implicit/implicit_hydro.cpp ImplicitOptionsImpl::type >}}).
+- Options built from code with the value 0 stop at construction with "[ImplicitHydro] implicit-scheme 0 has no
+  module", because the explicit spelling is to leave the options unset, or to write `implicit-scheme: 0` in YAML
+  ({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::reset >}}).
+- The bound or precision keys without a scheme stop with "integration/implicit-advection-cfl and shear-cfl bound
+  an implicit direction: set implicit-scheme or remove them"; the message names only the bound keys
+  ({{< code src/implicit/implicit_hydro.cpp ImplicitOptionsImpl::from_yaml overload=1 >}}).
 - At the first correction, a block that is not the whole $x_1$ column stops with "[Hydro] implicit scheme requires
   nb1 = 1 (no x1 decomposition): the vertical solve has no cross-rank coupling."
   ({{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}}).
@@ -125,23 +137,23 @@ What is refused, and why:
 
 On a build of the pin, values 1 and 9 build, 3 gives "Unsupported implicit scheme", `{type: vic}` gives "bad
 conversion", and a card without gravity still builds, so that refusal comes only at the first
-correction.[^ch09-vic-options-card] The last two refusals were read from the code, not run. @eq-ch09-vic-size is
+correction.[^ch09-vic-options-card] The one-block and gravity refusals were read from the code, not run; the scheme-0
+refusal is run by `test_lu_failure` (@tbl-ch09-vic-options-tests). @eq-ch09-vic-size is
 
 ```cpp
-  int size() const {
-    if ((scheme() >> 3) & 1) {  // full
-      return 5;
-    } else {
-      return 3;
-    }
+  VicMatrix matrix() const {
+    return (scheme() >> 3) & 1 ? VicMatrix::full : VicMatrix::partial;
   }
+  int size() const { return static_cast<int>(matrix()); }
 ```
 
-where `(scheme() >> 3) & 1` is $\lfloor n_{\mathrm{vic}}/8\rfloor \bmod 2$ of step 1.
+where `(scheme() >> 3) & 1` is $\lfloor n_{\mathrm{vic}}/8\rfloor \bmod 2$ of step 1, and the two values of `VicMatrix` are
+the sizes, `partial = 3` and `full = 5` ({{< code src/implicit/implicit_hydro.hpp ImplicitOptionsImpl::matrix >}}).
 
-[^ch09-vic-options-card]: `MeshBlockOptions.from_yaml` and `MeshBlock` on the card with geometry, an ideal-moist
-    equation of state and reflecting $x_1$ walls added; snapy@6fbb39750f62b83df096058a4746e77d0a634bc5 Release build,
-    CPU, Python 3.12.10.
+[^ch09-vic-options-card]: `MeshBlockOptions.from_yaml` and `MeshBlock` on the card with a dry species, a 6-cell
+    cartesian geometry, an ideal-gas equation of state, reflecting $x_1$ walls and `forcing: {const-gravity: {grav1:
+    -10}}` added, and removed for the gravity case; snapy@73c45a7c8c991209924e1137992352c335575062 Release build,
+    CPU, Python 3.12.3, pyharp 2.8.2, kintera 2.6.13.
 
 ### Tests
 
@@ -150,21 +162,24 @@ where `(scheme() >> 3) & 1` is $\lfloor n_{\mathrm{vic}}/8\rfloor \bmod 2$ of st
 | `tests/test_implicit_options_type.py` (`test_implicit_options_type_python`) | `type()` is `none`, `vic-partial`, `vic-full` for 0, 1, 9; 5 raises; `type` cannot be set | exact | contract |
 | `tests/test_backward_substitution.cpp` (`test_backward_substitution.release`), `parses_implicit_scheme_bits` | 1 gives size 3, 9 gives size 5 | exact | contract |
 | `tests/test_hydro_options.cpp` (`test_hydro_options.release`), `reject_unsupported_implicit_scheme` | a MeshBlock builds with 1 and stops with "Unsupported implicit scheme" for 3 | exact | contract |
+| `tests/test_lu_failure.cpp` (`test_lu_failure.release`), `a_scheme_zero_module_is_refused` | a scheme-0 module built from code is refused with a message naming the YAML spelling | exact | contract |
 | this section's check, `vic_options_check.py` | `[C1]`–`[C4]` | exact | integer logic (step 4) |
 
 : Tests of the VIC options (@tbl-ch09-ctest-run for the run at the pin). {#tbl-ch09-vic-options-tests}
 
-The three ctest cases pass at the pin (@tbl-ch09-ctest-run): {{< code tests/test_implicit_options_type.py main >}},
-{{< code tests/test_backward_substitution.cpp implicit_options.parses_implicit_scheme_bits >}} and
-{{< code tests/test_hydro_options.cpp hydro_options.reject_unsupported_implicit_scheme >}}. `vic_options_check.py` ports
+The four ctest cases pass at the pin (@tbl-ch09-ctest-run): {{< code tests/test_implicit_options_type.py main >}},
+{{< code tests/test_backward_substitution.cpp implicit_options.parses_implicit_scheme_bits >}},
+{{< code tests/test_hydro_options.cpp hydro_options.reject_unsupported_implicit_scheme >}} and
+{{< code tests/test_lu_failure.cpp lu_failure.a_scheme_zero_module_is_refused >}}. `vic_options_check.py` ports
 the option logic on Python dicts.[^ch09-vic-options-run] `[C1]` builds 0, 1 ($N=3$) and 9 ($N=5$) and refuses 2 to 8
-and 10; `[C2]` gives the defaults 1 and 0 and refuses 4 of 4 bad values; `[C3]` refuses the bound keys without a
-scheme; `[C4]` builds `nb1` = 1, refuses `nb1` = 2, and runs scheme 0 at `nb1` = 2. The option logic has no device
+and 10; `[C2]` gives the defaults 1 and 0 and refuses 4 of 4 bad values; `[C3]` refuses the two bound keys and the
+two precision keys without a scheme (5 of 5 cases); `[C4]` builds `nb1` = 1, refuses `nb1` = 2, and runs scheme 0 at `nb1` = 2. The option logic has no device
 path.
 
-[^ch09-vic-options-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: the check itself; run:
+[^ch09-vic-options-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the check itself; run:
     `python3 src/snapy_report/ch09/checks/vic_options_check.py`,
-    CPU, 1 process; Python 3.12.10, numpy 2.5.4, sympy 1.14.0; output identical to the committed `vic_options_check.out`].
+    CPU, 1 process; Python 3.12.3; output identical to the committed `vic_options_check.out`, whose `[C3]` this
+    rewrite extends from 3 to 5 cases with the precision keys].
 
 ### Limits
 
@@ -176,13 +191,14 @@ The VIC is $x_1$ only. A run cut into several blocks in $x_1$ cannot use it.
    so a $x_2$ or $x_3$ implicit direction cannot be reached.
 2. **Late checks.** The one-block and gravity conditions are checked at the first correction, not when the options
    are read, so a deck that breaks them builds and stops on its first step.
+3. **A refusal message that names too little.** `implicit-precision` or `implicit-fallback-fp64` without a scheme
+   is refused with a message that names only `implicit-advection-cfl` and `shear-cfl`
+   ({{< code src/implicit/implicit_hydro.cpp ImplicitOptionsImpl::from_yaml overload=1 >}}).
 
 <!-- reader glossary notes -->
 [^rg-ac68953207bb]: RK — Runge–Kutta
 
 [^rg-254203656f50]: nb1 — number of blocks along the first coordinate direction
-
-[^rg-83856cb12a4a]: forcing — forcing options block: a map with one sub-block per forcing component
 
 [^rg-f91ff1ef44fb]: const-gravity — constant-gravity forcing component
 

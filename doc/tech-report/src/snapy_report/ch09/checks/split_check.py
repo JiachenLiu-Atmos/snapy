@@ -1,10 +1,12 @@
-"""Executable check of the operator split at the step boundary (chapter 7, _split.qmd).
+"""Executable check of the operator split at the step boundary (chapter 9, _split.qmd).
 
-What is checked: the Lie (sequential) split of MeshBlockImpl::advance_local and the example driver
-(src/mesh/meshblock.cpp:795-841, examples/run_hydro.cpp:166-191 at
-snapy@6fbb39750f62b83df096058a4746e77d0a634bc5): the dynamics advance a whole step, then the saturation
-adjustment, then the kinetics, each on the result of the one before. Two non-commuting linear operators stand in
-for them. Claims C1-C4; C4 is exact (sympy).
+What is checked: the Lie (sequential) split of the last stage's operations at
+snapy@73c45a7c8c991209924e1137992352c335575062 (MeshBlockImpl::stage_combine, stage_saturation and
+stage_chemistry, src/mesh/meshblock_advance.cpp:309-390; ChemistrySource::forward,
+src/chemistry/chemistry_source.cpp:23-58): the dynamics advance a whole step, then the saturation adjustment, then
+the chemistry, each on the result of the one before. Two non-commuting linear operators stand in for them. C2's
+symmetric order is the one of the radial conduction half steps around the stages (DiffusionImpl::begin_split and
+finish_split, src/forcing/diffusion_radial.cpp:16-25). Claims C1-C4; C4 is exact (sympy).
 
 Run: python3 split_check.py   (numpy and sympy; exits with the number of failed claims)
 """
@@ -56,7 +58,7 @@ def check_C2_strang_for_contrast():
     exact = expm((A + B) * T) @ U0
     errs = [np.abs(split(n, True) - exact).max() for n in (20, 40, 80)]
     order = np.log2(errs[1] / errs[2])
-    return report("C2", abs(order - 2.) < 0.05, "a symmetric (Strang) split would be second order; snapy does not use it",
+    return report("C2", abs(order - 2.) < 0.05, "a symmetric (Strang) split, the order of the radial conduction half steps, is second order",
                   "fitted order %.3f" % order)
 
 

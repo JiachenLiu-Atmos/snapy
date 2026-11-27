@@ -1,8 +1,8 @@
-"""Executable check of the time-step bound (chapter 7, _cfl.qmd).
+"""Executable check of the time-step bound (chapter 9, _cfl.qmd).
 
-What is checked: HydroImpl::max_time_step (src/hydro/hydro.cpp:311-398) and the Courant factor and redo
-halving of MeshBlockImpl::max_time_step (src/mesh/meshblock.cpp:510-529) at
-snapy@e894700ff7aee30b52882e5202b16461413780b0, ported line for line on one column of cells (x1 is the
+What is checked: HydroImpl::max_time_step (src/hydro/hydro.cpp:333-416) and the Courant factor and redo
+halving of MeshBlockImpl::global_time_step (src/mesh/meshblock_advance.cpp:65-72) at
+snapy@73c45a7c8c991209924e1137992352c335575062, ported line for line on one column of cells (x1 is the
 last axis, x2 the middle one). Claims C1-C5.
 
 Run: python3 cfl_check.py   (numpy only; exits with the number of failed claims)

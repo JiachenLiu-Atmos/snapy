@@ -1,7 +1,7 @@
 # Time integration {#sec-ch09}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy); pyharp@4721715855e937c1e8b218e964c0655f46e56e29
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (chengcli/snapy); pyharp@4721715855e937c1e8b218e964c0655f46e56e29
 sources: OUTLINE.md 7
 status: draft
 -->
@@ -37,7 +37,8 @@ their marks.
 
 | ctest name | result at the pin |
 |---|---|
-| `test_forcing.release`, `test_wall_saturation.release`, `test_diffusion.release` | passed |
+| `test_forcing.release`, `test_wall_saturation.release`, `test_diffusion.release`, `test_diffusion_cubed_sphere.release` | passed |
+| `test_sk4_chemistry_source_python`, `test_sk4_mesh_chemistry_python` | passed |
 | `test_implicit_cfl.release`, `test_implicit_advection_cfl_python`, `test_shear_cfl_python` | passed |
 | `test_check_redo_floor_python`, `test_check_redo_saturation_python`, `test_check_redo_vapor_deficit.release`, `test_fix_vapor_stale_count_python`, `test_uranus_cycle1_abort.release`, `test_straka_redo` | passed |
 | `test_check_redo_parallel.release`, `test_mesh_multi_block.release` (two processes each) | passed |
@@ -46,16 +47,22 @@ their marks.
 
 : The ctest entries this chapter cites, run at the pin.[^ch09-ctest] {#tbl-ch09-ctest-run}
 
-[^ch09-ctest]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; run: `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1
-    PYTHONPATH=<site> PATH=<site>/bin:$PATH ctest -j1 -R <names>` on a Release source build of snapy@68f4e066974ede87e4379285c4fba895b970b7f1 (`cmake -B build
-    -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DSNAPY_TEST_PYTHONPATH=<site>`, `cmake --build build --parallel 8`; the Python
+[^ch09-ctest]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; run: `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1
+    PYTHONPATH=<site> PATH=<site>/bin:$PATH ctest -j1 -R <names>` on a Release source build of
+    snapy@73c45a7c8c991209924e1137992352c335575062 (`cmake -B build -DCMAKE_BUILD_TYPE=Release -DNETCDF=ON
+    -DBUILD_TESTS=ON -DCUDA=OFF -DSNAPY_TEST_PYTHONPATH=<site>`, `cmake --build build --parallel 6`; the Python
     entries import this commit's snapy, installed with `pip install --no-build-isolation --no-deps --target <site> .`),
-    CPU[^rg-4bb768fd053e] only (CMake `CUDA=OFF`), double, AMD Ryzen Threadripper PRO 5975WX, one process unless stated;
-    GCC 13.3.1, CMake/CTest 3.26.5, torch 2.10.0, kintera 2.6.6, Python 3.11.13; scope: each entry's own ctest run;
-    reps: 1]. 21 of 21 passed in 104.1 s of ctest time; `test_straka` needs the package's `pd-combine`, hence the
-    `PATH` and `PYTHONPATH`. The build has no CUDA[^rg-4b8aae7361ed], so the CUDA twins of `test_forcing`,
-    `test_check_redo_saturation`, `test_lu_failure` and `test_implicit_face_work_operator` are not registered there and
-    were not run in it.
+    CPU[^rg-4bb768fd053e] only, double, AMD Ryzen 5 7600X, one process unless stated; GCC 13.3.0, CMake/CTest 3.30.0,
+    torch 2.10.0, pyharp 2.8.2, kintera 2.6.13, pydisort 1.8.16, Python 3.12.3; scope: each entry's own ctest run;
+    reps: 1]. 24 of 24 passed in 99.3 s of ctest time; `test_straka` needs the package's `pd-combine`, hence the
+    `PATH` and `PYTHONPATH`. The build has no CUDA[^rg-4b8aae7361ed]. The CUDA cases of `test_forcing` and
+    `test_lu_failure` are gtest cases inside the registered CPU binaries: they ran there and skipped (`--gtest_filter='*cuda*'`
+    gives 2 and 6 skipped). The CUDA twins of `test_check_redo_saturation`, `test_fix_vapor_stale_count`,
+    `test_implicit_face_work_operator` and the chemistry tests are registered only with CUDA and were not run.
+    `test_straka` ran its 2-rank Straka case to t = 900 s, joined the frames with `pd-combine` (NCO[^rg-51474ebc2bff] 5.2.1's `ncrcat` on
+    the `PATH`) and compared the potential temperature `theta` at the last frame with the Zenodo reference `straka-ref.nc`: the L2 difference
+    over the compared column (x2 index 0, 64 cells) is 1.35 against the test's threshold of 50. pyharp 2.8.2 is the build's integrator, not the report's pyharp pin
+    (@sec-ch09-rk, Limits 2).
 
 ## 7A. Explicit stages, time step and step acceptance {.unnumbered .unlisted}
 
@@ -109,4 +116,6 @@ The limits this chapter states are collected with those of the other chapters in
 [^rg-4bb768fd053e]: CPU — central processing unit
 
 [^rg-4b8aae7361ed]: CUDA — NVIDIA's parallel computing platform
+
+[^rg-51474ebc2bff]: NCO — NetCDF Operators
 <!-- end reader glossary notes -->

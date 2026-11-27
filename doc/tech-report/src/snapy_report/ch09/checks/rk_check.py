@@ -1,7 +1,7 @@
-"""Executable check of the explicit Runge-Kutta stage update (chapter 7, _rk.qmd).
+"""Executable check of the explicit Runge-Kutta stage update (chapter 9, _rk.qmd).
 
-What is checked: the stage update u <- w0 u0 + w1 u + w2 dU of MeshBlockImpl::advance_local
-(src/mesh/meshblock.cpp:755 at snapy@6fbb39750f62b83df096058a4746e77d0a634bc5), with the stage weights of
+What is checked: the stage update u <- w0 u0 + w1 u + w2 dU of MeshBlockImpl::stage_combine
+(src/mesh/meshblock_advance.cpp:324 at snapy@73c45a7c8c991209924e1137992352c335575062), with the stage weights of
 IntegratorImpl (src/integrator/integrator.cpp:35-78 at pyharp@4721715855e937c1e8b218e964c0655f46e56e29),
 ported line for line, and dU = dt L(u) the full-step increment. Claims C1-C7; C5-C7 are exact (sympy).
 

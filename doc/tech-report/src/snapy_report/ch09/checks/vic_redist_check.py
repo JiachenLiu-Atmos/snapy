@@ -1,11 +1,11 @@
-"""Executable check of the VIC constituent redistribution (chapter 7, _vic-redistribute.qmd).
+"""Executable check of the VIC constituent redistribution (chapter 9, _vic-redistribute.qmd).
 
-What is checked: vic_constituent_column and vic_redistribute_cell (src/implicit/vic_redistribute_impl.h:77-185)
-and the clamp-residual diagnostic (src/implicit/implicit_hydro.cpp:394-414) at
-snapy@6fbb39750f62b83df096058a4746e77d0a634bc5, ported in vic_port.py. A column of 12 layers with dry gas and
+What is checked: vic_constituent_column and vic_redistribute_cell (src/implicit/vic_redistribute_impl.h:92-176,
+205-225) and the clamp-residual diagnostic (src/implicit/implicit_hydro.cpp:583-607) at
+snapy@73c45a7c8c991209924e1137992352c335575062, ported in vic_port.py. A column of 12 layers with dry gas and
 two species. Claims C1-C6; C6 is exact (sympy). C7 is the tangential-momentum carry of the partial matrix,
-vic_tangential_momentum_column (src/implicit/vic_redistribute_impl.h:171-186 at
-snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f), ported in vic_port.tangential_momentum_column.
+vic_tangential_momentum_column (src/implicit/vic_redistribute_impl.h:186-201), ported in
+vic_port.tangential_momentum_column.
 
 Run: python3 vic_redist_check.py   (numpy and sympy; exits with the number of failed claims)
 """

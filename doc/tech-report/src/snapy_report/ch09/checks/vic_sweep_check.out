@@ -1,6 +1,6 @@
 [C1] PASS forward sweep plus back substitution solves the block-tridiagonal system: 60 layers: relative difference from a dense solve 3.6e-16 (N = 3), 4.4e-16 (N = 5)
-[C2] PASS with the right-hand side du/dt the sweep returns delta = (I + dt M)^-1 du, and delta -> du as dt -> 0: relative errors 2.0e-16 (dt = 1e-3), 7.4e-14 (dt = 1e3); |delta - du| / |du| at dt = 1e-9: 1.8e-06
+[C2] PASS with the right-hand side du/dt the sweep returns delta = (I + dt M)^-1 du, and delta -> du as dt -> 0: relative errors 1.9e-16 (dt = 1e-3), 2.5e-13 (dt = 1e3); |delta - du| / |du| at dt = 1e-9: 1.8e-06
 [C3] PASS a singular eliminated block at layer 12 of 20 marks every layer of the column NaN, and back substitution leaves the column untouched: sweep ok = False; NaN entries 100 of 100
 [C4] PASS every layer depends on every right-hand side: a change at the bottom reaches the top, so the column is solved serially, one thread per column: layers changed: 30 of 30
-[C5] PASS with dt_c = wght2 dt in both the diagonal and the right-hand side, the sweep returns (I + dt_c M)^-1 du, not (I + dt M)^-1 du: rk3 stage 2, dt = 10: relative difference 7.2e-16 from (I + dt_c M)^-1 du, 3.7e+00 from (I + dt M)^-1 du
+[C5] PASS with dt_c = wght2 dt in both the diagonal and the right-hand side, the sweep returns (I + dt_c M)^-1 du, not (I + dt M)^-1 du: rk3 stage 2, dt = 10: relative difference 3.6e-16 from (I + dt_c M)^-1 du, 3.7e+00 from (I + dt M)^-1 du
 [C6] PASS the reduced blocks C~_i, the forward values delta~_i and the back pass reproduce the exact solution of a 3-row system of 2 x 2 blocks: rational arithmetic, difference 0

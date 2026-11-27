@@ -1,8 +1,8 @@
-"""Executable check of the VIC column closure (chapter 7, _vic-closure.qmd).
+"""Executable check of the VIC column closure (chapter 9, _vic-closure.qmd).
 
 What is checked: the closure a += b Bnd at the bottom and a += c Bnd at the top, Bnd = diag(1, -1, 1, 1, 1)
-(src/implicit/vic_assemble_full_impl.h:44-45, 122-126; vic_assemble_partial_impl.h:50, 142-144 at
-snapy@6fbb39750f62b83df096058a4746e77d0a634bc5), ported in vic_port.py with grav = 0. Claims C1-C5; C5 is exact
+(src/implicit/vic_assemble_impl.h:70-71, 161-165, for both sizes through BndN at
+snapy@73c45a7c8c991209924e1137992352c335575062), ported in vic_port.py with grav = 0. Claims C1-C5; C5 is exact
 (sympy).
 
 Run: python3 vic_closure_check.py   (numpy and sympy; exits with the number of failed claims)

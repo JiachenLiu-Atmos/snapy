@@ -1,5 +1,5 @@
-[C1] PASS each of the four guards refuses its own fault, restores du and w bit for bit, returns a zero correction and latches: inputs restored by inputs, sentinel restored by sentinel, results restored by results, correction restored by correction
-[C2] PASS after a failure at stage 0 the later stages of the step return zero without solving: solves run 1 of 3 stages; max |correction| per stage [0.0, 0.0, 0.0]
-[C3] PASS a failed step raises redo cause 32; the stage-0 reset lets the retry solve again: cause mask 32; retry mask 0, retry max |correction| 2.97
-[C4] PASS one failed column of 4 returns a zero correction for every column of the block; no column is partly updated: max |correction| without the failure 0.466, with it 0; du unchanged: True
-[C5] PASS a stage whose screen total overflows with every value finite is not refused: the per-column guards decide: screen total inf; refused: False; max |correction| 0.47
+[C1] PASS each fault sets its own status bit on its own column (input 1, singular 2, result 4), and that column's du and w are restored bit for bit with a zero correction: input: column 1 bits 7, restored True, other columns clear True; singular: column 1 bits 6, restored True, other columns clear True; result: column 1 bits 4, restored True, other columns clear True
+[C2] PASS after a failure at stage 0 the later stages of the step still solve; the step's status keeps the failure: solves run 3 of 3 stages; max |correction| per stage [0.787, 0.567, 0.529]; step failed: True
+[C3] PASS a failed step raises redo cause 32; the stage-0 reset lets the retry solve again: cause mask 32; retry mask 0, retry max |correction| 4.09
+[C4] PASS one failed column of 4: only that column's correction is zero; the other columns keep their solution bit for bit: failed column max |correction| 0 (0.599 without the failure); other columns equal to the failure-free solve: True
+[C5] PASS a column retried in FP64 that succeeded is not a failure of the step, but the failure log lists every column with a nonzero word, that one included: 23 of 32 status words fail the step; retried-and-solved word 10 fails: False; logged when another column fails: True

@@ -1,11 +1,13 @@
-"""Executable check of step acceptance and redo (chapter 7, _redo.qmd).
+"""Executable check of step acceptance and redo (chapter 9, _redo.qmd).
 
-What is checked: the cause encoding of MeshBlockImpl::reduce_redo_flags (src/mesh/meshblock.cpp:1288-1300),
-the retry and termination logic of MeshBlockImpl::apply_redo (:1229-1276) and the redo factor of
-MeshBlockImpl::max_time_step (:528) at snapy@e894700ff7aee30b52882e5202b16461413780b0, with the default
-max_redo = 5 of pyharp@4721715855e937c1e8b218e964c0655f46e56e29 (src/integrator/integrator.hpp:58),
-ported line for line. C5 ports MeshBlockImpl::read_redo_flags at snapy@68f4e066974ede87e4379285c4fba895b970b7f1:
-the seventh entry, the step's vapour-repair failures, joins the limiter flag. Claims C1-C5.
+What is checked: the cause encoding of MeshBlockImpl::decide_retry (src/mesh/meshblock_redo.cpp:168-198),
+the retry and termination logic of MeshBlockImpl::apply_redo (:32-88) and the redo factor of
+MeshBlockImpl::global_time_step (src/mesh/meshblock_advance.cpp:71) at
+snapy@73c45a7c8c991209924e1137992352c335575062, with the default max_redo = 5 of
+pyharp@4721715855e937c1e8b218e964c0655f46e56e29 (src/integrator/integrator.hpp:58), ported line for line.
+C5 and C6 port MeshBlockImpl::read_redo_flags (meshblock_redo.cpp:147-162): the seventh entry, the step's
+vapour-repair failures, and the eighth, the heat-capacity latch, join the limiter flag; a ninth entry would set
+the seventh flag (bit 64), but local_redo_flag_tensor (:90-145) stacks eight. Claims C1-C6.
 
 Run: python3 redo_check.py   (numpy only; exits with the number of failed claims)
 """
@@ -13,7 +15,7 @@ import sys
 
 import numpy as np
 
-NAMES = ["floor", "clamp", "limiter", "nan", "saturation", "vic-solve"]
+NAMES = ["floor", "clamp", "limiter", "nan", "saturation", "vic-solve", "seventh"]
 
 
 def report(tag, ok, label, numbers):
@@ -21,13 +23,13 @@ def report(tag, ok, label, numbers):
     return ok
 
 
-def reduce_redo_flags(per_rank):  # meshblock.cpp:1288-1300: MAX over ranks, then a bitmask
+def reduce_redo_flags(per_rank):  # decide_retry, meshblock_redo.cpp:187-197: MAX over ranks, then a bitmask
     flag = np.max(np.array(per_rank, dtype=float), axis=0)
-    return sum(int(flag[i] > 0.) << i for i in range(6))
+    return sum(int(flag[i] > 0.) << i for i in range(len(flag)))
 
 
 class Block:
-    """the state apply_redo touches: current_redo, a restored flag, the decision (meshblock.cpp:1229-1276)"""
+    """the state apply_redo touches: current_redo, a restored flag, the decision (meshblock_redo.cpp:32-88)"""
 
     def __init__(self, max_redo=5):
         self.max_redo, self.current_redo, self.restored = max_redo, 0, 0
@@ -37,7 +39,7 @@ class Block:
             self.current_redo += 1
             if self.current_redo > self.max_redo and not (causes & 32):
                 return -1                      # terminate, state not restored
-            self.restored += 1                 # hydro_u <- u0, primitives recomputed, cycle -= 1
+            self.restored += 1                 # flux register rolled back, hydro_u <- u0, splits undone, primitives recomputed
             if self.current_redo > self.max_redo:
                 return -1                      # VIC failure: terminate after the restore
             return 1
@@ -45,7 +47,7 @@ class Block:
         return 0
 
 
-def dt_factor(current_redo):  # meshblock.cpp:528, the factor in front of cfl * dt
+def dt_factor(current_redo):  # meshblock_advance.cpp:71, the factor in front of cfl * dt
     return 2. ** -current_redo
 
 
@@ -92,10 +94,14 @@ def check_C4_vic_failure_restores_before_stopping():
                   "restores: floor-only %d, vic-solve %d, of 6 attempts" % (a.restored, v.restored))
 
 
-def read_redo_flags(entries):  # MeshBlockImpl::read_redo_flags: six flags, a vapour failure joins the limiter
-    out = [a > 0. for a in entries[:6]]
-    if len(entries) > 6 and entries[6] > 0.:
+def read_redo_flags(entries):  # meshblock_redo.cpp:147-162: seven flags from the device entries
+    out = [a > 0. for a in entries[:6]] + [False]
+    if len(entries) > 6 and entries[6] > 0.:   # vapour-repair failures
         out[2] = True
+    if len(entries) > 7 and entries[7] > 0.:   # heat-capacity latch
+        out[2] = True
+    if len(entries) > 8 and entries[8] > 0.:   # a ninth entry, never stacked at the pin
+        out[6] = True
     return out
 
 
@@ -111,9 +117,18 @@ def check_C5_vapour_failure_is_a_limiter_redo():
                   % (alone, with_floor, healthy, decisions))
 
 
+def check_C6_heat_capacity_latch_is_a_limiter_redo():
+    heat = reduce_redo_flags([read_redo_flags([0, 0, 0, 0, 0, 0, 0, 1])])
+    eight = read_redo_flags([1] * 8)
+    ok = heat == 4 and eight[6] is False and reduce_redo_flags([eight]) == 63
+    return report("C6", ok, "the eighth entry, the heat-capacity latch, sets the limiter flag; eight entries never set bit 64",
+                  "causes: heat latch alone %d, all eight entries set %d" % (heat, reduce_redo_flags([eight])))
+
+
 def main():
     checks = [check_C1_cause_bitmask, check_C2_retry_schedule, check_C3_acceptance_resets,
-              check_C4_vic_failure_restores_before_stopping, check_C5_vapour_failure_is_a_limiter_redo]
+              check_C4_vic_failure_restores_before_stopping, check_C5_vapour_failure_is_a_limiter_redo,
+              check_C6_heat_capacity_latch_is_a_limiter_redo]
     sys.exit(sum(not c() for c in checks))
 
 

@@ -1,11 +1,12 @@
-"""Executable check of the VIC block-tridiagonal assembly (chapter 7, _vic-assembly.qmd).
+"""Executable check of the VIC block-tridiagonal assembly (chapter 9, _vic-assembly.qmd).
 
-What is checked: the Roe flux decomposition (src/implicit/flux_decomposition_impl.h:37-126) and the assembly of
-a, b, c (src/implicit/vic_assemble_full_impl.h:89-99, vic_assemble_partial_impl.h:110-120) at
-snapy@6fbb39750f62b83df096058a4746e77d0a634bc5, ported in vic_port.py with grav = 0. Claims C1-C6; C6 is exact (sympy).
+What is checked: the Roe flux decomposition (src/implicit/flux_decomposition_impl.h:37-127) and the assembly of
+a, b, c for both sizes (src/implicit/vic_assemble_impl.h:151-156, the N x N operands of take, 123-146) at
+snapy@73c45a7c8c991209924e1137992352c335575062, ported in vic_port.py with grav = 0. Claims C1-C6; C6 is exact (sympy).
 C4 is the frozen-m_t partial assembly (the kernel without du). C7 is the m_t fold of the partial assembly and the
-right-hand-side term ForwardSweep subtracts (vic_assemble_partial_impl.h:174-214, forward_sweep_impl.h:34-40 at
-snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f), ported in vic_port.fold_partial.
+right-hand-side term ForwardSweep subtracts (vic_assemble_impl.h:167-213, forward_sweep_impl.h:65-69), ported in
+vic_port.fold_partial. The block arithmetic is unchanged from the earlier port, which was written at
+snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f.
 
 Run: python3 vic_assembly_check.py   (numpy and sympy; exits with the number of failed claims)
 """

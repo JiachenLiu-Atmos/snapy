@@ -1,9 +1,10 @@
-"""Executable check of the VIC options and activation (chapter 7, _vic-options.qmd).
+"""Executable check of the VIC options and activation (chapter 9, _vic-options.qmd).
 
-What is checked: ImplicitOptionsImpl::from_yaml, type() and size() (src/implicit/implicit_hydro.cpp:24-98,
-src/implicit/implicit_hydro.hpp:33-44), the reset that calls type() (implicit_hydro.cpp:107-110) and the
-nb1 guard (src/hydro/hydro.cpp:411-416) at snapy@e894700ff7aee30b52882e5202b16461413780b0, ported on
-Python dicts in place of YAML nodes. Claims C1-C4.
+What is checked: ImplicitOptionsImpl::from_yaml, type() and size() (src/implicit/implicit_hydro.cpp:23-108,
+src/implicit/implicit_hydro.hpp:49-52), the reset that calls type() and refuses scheme 0 (implicit_hydro.cpp:117-127)
+and the nb1 guard (src/hydro/hydro.cpp:440-445) at snapy@73c45a7c8c991209924e1137992352c335575062, ported on
+Python dicts in place of YAML nodes. The precision keys are checked only for their refusal without a scheme (C3).
+Claims C1-C4.
 
 Run: python3 vic_options_check.py   (numpy only; exits with the number of failed claims)
 """
@@ -38,7 +39,8 @@ def from_yaml(config):
     intg = config["integration"]
     s = intg.get("implicit-scheme")
     if not s:                                     # absent, or 0: a true explicit spelling
-        if "implicit-advection-cfl" in intg or "shear-cfl" in intg:
+        if any(k in intg for k in ("implicit-advection-cfl", "shear-cfl", "implicit-precision",
+                                    "implicit-fallback-fp64")):
             raise ValueError("implicit-advection-cfl and shear-cfl bound an implicit direction")
         return None
     op = {"scheme": s}
@@ -53,7 +55,7 @@ def from_yaml(config):
 
 def build(config, nb1=1):
     """HydroImpl: picorr exists iff options hold one; reset() calls type(). The nb1 guard fires at the first
-    correction (hydro.cpp:411-416); it is modelled here at construction."""
+    correction (hydro.cpp:440-445); it is modelled here at construction."""
     op = from_yaml(config)
     if op is None:
         return None
@@ -100,14 +102,16 @@ def check_C2_cfl_keys():
 
 def check_C3_bounds_without_a_scheme_are_refused():
     refused = 0
-    for intg in ({"implicit-advection-cfl": 2.}, {"shear-cfl": 1.}, {"implicit-scheme": 0, "shear-cfl": 1.}):
+    for intg in ({"implicit-advection-cfl": 2.}, {"shear-cfl": 1.}, {"implicit-scheme": 0, "shear-cfl": 1.},
+                 {"implicit-precision": "float32"}, {"implicit-fallback-fp64": False}):
         try:
             from_yaml({"integration": intg})
         except ValueError:
             refused += 1
     plain = from_yaml({"integration": {"type": "rk3", "cfl": 0.9}}) is None and from_yaml({}) is None
-    return report("C3", refused == 3 and plain, "the implicit time-step keys without an implicit scheme are an error; "
-                  "a plain explicit block is accepted", "refused %d of 3; explicit block accepted: %s" % (refused, plain))
+    return report("C3", refused == 5 and plain, "the implicit time-step and precision keys without an implicit scheme "
+                  "are an error; a plain explicit block is accepted",
+                  "refused %d of 5; explicit block accepted: %s" % (refused, plain))
 
 
 def check_C4_activation_needs_one_x1_block():

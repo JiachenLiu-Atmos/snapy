@@ -1,4 +1,4 @@
 [C1] PASS the sequential split converges at first order in dt: errors 1.63e-03, 8.26e-04, 4.15e-04 at 20, 40, 80 steps; fitted order 0.991
-[C2] PASS a symmetric (Strang) split would be second order; snapy does not use it: fitted order 2.000
-[C3] PASS the splitting error is the commutator: commuting operators split exactly: error 5.6e-17
+[C2] PASS a symmetric (Strang) split, the order of the radial conduction half steps, is second order: fitted order 2.000
+[C3] PASS the splitting error is the commutator: commuting operators split exactly: error 0.0e+00
 [C4] PASS e^{h G_kin} e^{h G_dyn} - e^{h (G_kin + G_dyn)} = (h^2/2) [G_kin, G_dyn] + O(h^3) on generic 2 x 2 generators: orders h^0 and h^1 vanish; the h^2 term equals the commutator over 2 entry by entry

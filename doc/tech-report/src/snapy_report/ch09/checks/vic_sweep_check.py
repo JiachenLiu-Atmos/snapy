@@ -1,8 +1,9 @@
-"""Executable check of the VIC block Thomas sweep (chapter 7, _vic-sweep.qmd).
+"""Executable check of the VIC block Thomas sweep (chapter 9, _vic-sweep.qmd).
 
-What is checked: ForwardSweep (src/implicit/forward_sweep_impl.h:25-139), vic_backward_substitute
-(src/implicit/vic_redistribute_impl.h:27-36) and the failed-column sentinel (src/implicit/vic_solve_failure.h:13-19)
-at snapy@6fbb39750f62b83df096058a4746e77d0a634bc5, ported in vic_port.py. Claims C1-C6; C6 is exact (sympy).
+What is checked: ForwardSweep (src/implicit/forward_sweep_impl.h:29-132; the FP64 path, K = 0), vic_backward_substitute
+(src/implicit/vic_redistribute_impl.h:30-51) and the failed-column sentinel (src/implicit/vic_solve_failure.h:13-19)
+at snapy@73c45a7c8c991209924e1137992352c335575062, ported in vic_port.py; the Woodbury update (K = 2) and the float32 row scaling are not
+ported. Claims C1-C6; C6 is exact (sympy).
 
 Run: python3 vic_sweep_check.py   (numpy and sympy; exits with the number of failed claims)
 """
