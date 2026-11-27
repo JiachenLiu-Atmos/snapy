@@ -375,7 +375,8 @@ needed. The lookup is by position: the CPU build takes `{host_lookup}` ({host_lo
 {unknown}
 ```
 
-Because the three expand one list, the name vector and both pointer tables have the same length by construction,
+Because the three expand one list, the name vector and both pointer tables hold the same entries in the same order
+(the CUDA table one position on, after its `nullptr`),
 and a name in the list without its function pair expands to an undefined identifier in the pointer tables, so
 they do not compile. The footnote's check shows what the one list rules out: on tables written out by hand, two names added to the name vector
 without table entries raised no error, the first resolved to the function after `h2o_bryan_ddT`, every later name
