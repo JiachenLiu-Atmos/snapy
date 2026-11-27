@@ -54,7 +54,7 @@ mass fraction [-].
 
    with the linearisation state taken as the arithmetic means, $\rho_{\mathrm{av}} = \tfrac12(\rho^{\mathrm L} + \rho^{\mathrm R})$
    and $c_{\mathrm{av}}^2 = \gamma_{\mathrm{av}}\tfrac12(p^{\mathrm L} + p^{\mathrm R})/\rho_{\mathrm{av}}$. These are `ubar`, `pbar`,
-   `rhobar` and `cbar` of `lmars_impl`; `[C8]` solves step 3 with sympy and gets the code's expressions. In the code, @eq-ch04-lmars-face is `ubar` and `pbar` ({{< code src/riemann/lmars_impl.h lmars_impl >}}).
+   `rhobar` and `cbar` of `lmars_impl`; `[C8]` solves step 3 with sympy and gets the code's expressions. In the code, @eq-ch04-lmars-face is `ubar` and `pbar` ({{< code src/riemann/riemann_kernels.h lmars_impl >}}).
 
 #### The fluxes
 
@@ -91,7 +91,7 @@ from snapy_report.ch04.figures.fig_ch04_schemes import make_wavefan
 make_wavefan("lmars")
 ```
 
-**Frame and the equation of state.** `LmarsSolverImpl::forward` fills `elr` with $e$ and `glr` with $\gamma$ for
+**Frame and the equation of state.** `RiemannSolverImpl::solve` fills `elr` with $e$ and `glr` with $\gamma$ for
 both sides (for `aneos` it derives $\gamma$ from the sound speed), projects both states into the face frame with
 `prim2local{1,2,3}_`, calls the kernel, and turns the flux back with `flux2global{1,2,3}_`. The face pressure is
 the same $p_f$ that enters the normal momentum row, so the pressure force of @sec-ch04-sphsrc and the flux see the
@@ -112,7 +112,7 @@ dynamics:
 
 **What the parser accepts and refuses.** As in @sec-ch04-riemann: only `type` and `dir`, and `dir` is unused here.
 
-**The excerpt.** `lmars_impl` ({{< code src/riemann/lmars_impl.h lmars_impl >}}):
+**The excerpt.** `lmars_impl` ({{< code src/riemann/riemann_kernels.h lmars_impl >}}):
 
 ```cpp
   hl += 0.5 * (SQR(wli[IVX]) + SQR(wli[IVY]) + SQR(wli[IVZ])) +
@@ -143,12 +143,12 @@ $v_\perp$.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| the solver body | {{< code src/riemann/lmars_impl.h lmars_impl >}} | `lmars_impl` | `type: lmars` |
-| enthalpies | {{< code src/riemann/lmars_impl.h lmars_impl >}} | `hl` | |
-| face velocity and pressure | {{< code src/riemann/lmars_impl.h lmars_impl >}} | `ubar` | |
-| face pressure written out | {{< code src/riemann/lmars_impl.h lmars_impl >}} | `face_pressure` | caller asked |
-| $e$, $\gamma$ and the frame | {{< code src/riemann/lmars.cpp LmarsSolverImpl::forward >}} | `prim2local3_` | |
-| registration | {{< code src/riemann/riemann_solver.cpp RiemannSolverImpl::create >}} | `LmarsSolver` | |
+| the solver body | {{< code src/riemann/riemann_kernels.h lmars_impl >}} | `lmars_impl` | `type: lmars` |
+| enthalpies | {{< code src/riemann/riemann_kernels.h lmars_impl >}} | `hl` | |
+| face velocity and pressure | {{< code src/riemann/riemann_kernels.h lmars_impl >}} | `ubar` | |
+| face pressure written out | {{< code src/riemann/riemann_kernels.h lmars_impl >}} | `face_pressure` | caller asked |
+| $e$, $\gamma$ and the frame | {{< code src/riemann/riemann.cpp RiemannSolverImpl::solve >}} | `prim2local3_` | |
+| registration | {{< code src/riemann/riemann.cpp RiemannSolverImpl::create >}} | `LmarsSolver` | |
 
 : Code map of LMARS. {#tbl-ch04-lmars-code}
 
@@ -166,7 +166,7 @@ $v_\perp$.
 `[C8]` holds symbolically. `operator_check.py` `[C5]` gives a consistent flux to $8.9\times10^{-16}$; `[C6]`
 shows a pressure jump of $0.2$ alone driving $v_f = -0.080582$, and two states converging at $0.3$ raising $p_f$
 to $1.354965$ above the mean $1.0$; `[C7]` gives the mass split to $1.1\times10^{-16}$.[^lmars-run]
-`test_riemann.release` passes at the pin on CPU, one rank (@tbl-ch04-ctest-run); `test_straka` was not run for
+`test_riemann.release` passed in the recorded run on CPU, one rank (@tbl-ch04-ctest-run); `test_straka` was not run for
 this report.
 
 [^lmars-run]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the checks themselves; run:

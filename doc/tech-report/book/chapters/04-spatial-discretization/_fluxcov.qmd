@@ -249,7 +249,7 @@ SNAP_FLUX_COVARIANCE=0 ./straka.release straka_single.yaml   # off for this proc
 ```
 
 **What the parser accepts and refuses.** `HydroImpl::flux_covariance`
-({{< code src/hydro/hydro.cpp HydroImpl::flux_covariance >}}) reads the variable once per process into a
+({{< code src/hydro/hydro.hpp HydroImpl::flux_covariance >}}) reads the variable once per process into a
 function-local static, lower-cases it and returns false only for `0`, `false`, `off`, `no` or an empty value;
 any other value, including a misspelling such as `of`, leaves the term on. It is read once because every block
 must make the same choice, or a shared face stops being single-valued. Nothing is refused.
@@ -285,7 +285,7 @@ of the rows).
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| the switch, read once | {{< code src/hydro/hydro.cpp HydroImpl::flux_covariance >}} | `get_env` | default `"1"` |
+| the switch, read once | {{< code src/hydro/hydro.hpp HydroImpl::flux_covariance >}} | `get_env` | default `"1"` |
 | the rows | {{< code src/hydro/hydro_forward.cpp HydroImpl::_flux_covariance >}} | `s2rho` | switch on |
 | guards | {{< code src/hydro/hydro_forward.cpp HydroImpl::_flux_covariance >}} | `n1` | $n_1 < 3$, shallow water |
 | face moments from the coordinate | {{< code src/hydro/hydro_forward.cpp HydroImpl::_flux_covariance >}} | `face_moment2_x1` | |
@@ -313,7 +313,7 @@ of the rows).
 
 : Tests of the horizontal flux covariance. {#tbl-ch04-fluxcov-tests}
 
-All five ctest entries pass at the pin with their registered environments (@tbl-ch04-ctest-run).[^fc-run] Their
+All five ctest entries passed in the recorded run of @tbl-ch04-ctest-run with their registered environments.[^fc-run] Their
 printed values: the roll's $\varepsilon_{\mathrm{eff}}n_z^2$ is $-0.20999$ off and $+0.03475$ on at $n_z = 16$, and
 $-0.22521$, $+0.02118$ at $n_z = 32$; rest gives $\max\lvert v\rvert/c_s = 4.231\times10^{-11}$ (spherical-polar) and
 $4.239\times10^{-11}$ (six panels), on and off alike; the uniform vapour stays within $2.6\times10^{-17}$; the six-panel
@@ -332,7 +332,7 @@ The ratio's evaluation at three cloud bases is @tbl-ch04-fluxcov-b3 in the Deriv
 `[C1]`–`[C3]` check it as described there.
 
 [^fc-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; decks: each test's own; run: `ctest -R` on a Release
-    build of the pin with each test's
+    build of that sha with each test's
     registered environment (`SNAP_GRAVITY_WORK_RADIAL_EXACT=0` for the rows and roll tests, `SNAP_FLUX_COVARIANCE=1`
     for the split-column test), CPU, double, 1 process; torch 2.10.0, kintera 2.6.2.dev4+g914389b40
     (a development build four commits past v2.6.1; the kintera pin c55b13b2 is tag v2.6.2), Python
@@ -365,9 +365,10 @@ The ratio's evaluation at three cloud bases is @tbl-ch04-fluxcov-b3 in the Deriv
    a stratified atmosphere, not for a strong horizontal background gradient.
 5. **The switch turns on the species limiter.** A run with the correction on and the equation of state's limiter
    off still runs the limiter.
-6. **One rows fixture depends on another switch.** `test_flux_covariance_rows_python` records its dry Cartesian
-   values with `SNAP_GRAVITY_WORK_RADIAL_EXACT=0`, which its ctest entry sets; run with that switch at its default
-   (on), the same arm gives $+0.0033$ at $n_z = 16$ against the recorded $+0.0348$ and fails.
+6. **The rows fixture is recorded for one configuration.** `test_flux_covariance_rows_python` compares its dry
+   Cartesian arm with values recorded for the corrected-PE face work and the unsmoothed $x_1$ density reference
+   ($\varepsilon_{\mathrm{eff}}n_z^2 = 0.009686$, $0.007529$, $0.006987$ at $n_z = 16, 32, 64$, within $2\times10^{-3}$);
+   its ctest entry sets no environment. A change to either ingredient moves those values.
 7. **The buoyancy ratio is evaluated, not simulated.** No snapy run measures $\Upsilon$; it depends on the lapse rate
    by up to 40 % and, for the ice giant, on the deep methane abundance, which `uranus.yaml` does not set.
 8. **Solid cells and the scalar row.** With solid cells the hydro face states pass through the solid forward and

@@ -19,7 +19,7 @@ def column(n=8):
 w = column()
 ```
 
-1. Write the method with the generated interface ([`src/recon/reconstruct.hpp:101`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/reconstruct.hpp#L101)): it takes the cell state and the tensor
+1. Write the method with the generated interface, `forward` ([`src/recon/reconstruct.hpp:166`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.hpp#L166)): it takes the cell state and the tensor
    dimension, and returns the left and right face states stacked as (2, *w.shape).
 
 ```python
@@ -37,8 +37,8 @@ def donor_cell(w: torch.Tensor, dim: int) -> torch.Tensor:
     return out
 ```
 
-2. Select it by its type name with the generated option ([`python/csrc/pyrecon.cpp:26`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/python/csrc/pyrecon.cpp#L26)). The deck lives at
-   `examples/straka_single.yaml`, whose line ([`examples/straka_single.yaml:23`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/examples/straka_single.yaml#L23)) is `vertical: {type: weno5, scale: false, shock: false}`.
+2. Select it by its type name with the generated option `type` ([`python/csrc/pyrecon.cpp:26`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/python/csrc/pyrecon.cpp#L26)). The deck lives at
+   `examples/straka_single.yaml`, whose `vertical` line ([`examples/straka_single.yaml:23`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/examples/straka_single.yaml#L23)) is `vertical: {type: weno5, scale: false, shock: false}`.
 
 ```python
 interp = snapy.InterpOptions()
@@ -69,19 +69,22 @@ print("N6 scheme: donor cell matches the built-in dc reconstruction exactly")
 ```
 
 - **Contract.** Interface: `torch::Tensor forward(torch::Tensor w, int dim, bool floor = true);` returns the two face states stacked in slots `ILT` = 0 and
-  `IRT` = 1, filled by these lines ([`src/recon/reconstruct.cpp:54`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/reconstruct.cpp#L54)): `auto outl = wlr[IRT].slice(dim, il - 1, iu + 1);` and
+  `IRT` = 1, filled by these lines ([`src/recon/reconstruct.cpp:221`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.cpp#L221)): `auto outl = wlr[IRT].slice(dim, il - 1, iu + 1);` and
   `auto outr = wlr[ILT].slice(dim, il, iu + 2);`. Step 5 checks the result exactly: at face $i$, slot 0 holds the
   value from cell $i-1$ and slot 1 the value from cell $i$.
-- Faces ([`src/recon/reconstruct.cpp:63`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/reconstruct.cpp#L63)): outside the computed range, the end faces are copied inward.
-- Stencil and ghost width: a method declares its stencil, one cell by default ([`src/recon/interpolation.hpp:58`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/interpolation.hpp#L58)): `virtual int stencils() const { return 1; }`;
-  the reconstruction's ghost width is `int nghost = pinterp1->stencils() / 2 + 1;` ([`src/recon/reconstruct.cpp:91`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/reconstruct.cpp#L91)).
-- Dimension: the tensor dimension is 3 for $x_1$, 2 for $x_2$ and 1 for $x_3$ ([`src/hydro/hydro_forward.cpp:303`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/hydro/hydro_forward.cpp#L303)): `enum { DIM1 = 3, DIM2 = 2, DIM3 = 1 };`.
-- Standalone use: without a parent hydro the result is clamped to non-negative values ([`src/recon/reconstruct.cpp:98`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/reconstruct.cpp#L98)), so
+- Faces: outside the computed range, the end faces of `wlr` are copied inward ([`src/recon/reconstruct.cpp:226`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.cpp#L226)).
+- Stencil and ghost width: each scheme's stencil width is its entry in `SchemeTraits`, one cell for `dc`
+  ([`src/recon/recon_point.h:28`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/recon_point.h#L28)); the reconstruction's ghost width is `int nghost = pinterp1->stencils() / 2 + 1;`, in `nghost` ([`src/recon/reconstruct.cpp:256`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.cpp#L256)).
+- Dimension: the tensor dimension is 3 for $x_1$, 2 for $x_2$ and 1 for $x_3$, as `DIM3` ([`src/hydro/hydro_forward.cpp:301`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/hydro/hydro_forward.cpp#L301)):
+  `enum { DIM1 = 3, DIM2 = 2, DIM3 = 1 };`.
+- Standalone use: without a parent hydro, a null `phydro`, the result is clamped to non-negative values
+  ([`src/recon/reconstruct.cpp:262`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.cpp#L262)), so
   prototype on a positive state, as step 0 does.
-- Shock flag: `ADD_ARG(bool, shock) = true;` ([`src/recon/reconstruct.hpp:51`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/recon/reconstruct.hpp#L51)); of the 25 decks in `examples/`, 18 set `shock: false` (e.g. [`examples/bryan.yaml:43`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/examples/bryan.yaml#L43)) and 7 set `shock: true` (e.g. [`examples/jupiter_crm.yaml:88`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/examples/jupiter_crm.yaml#L88)). Step 3 sets it false, as the Straka deck does.
+- Shock flag: `ADD_ARG(bool, shock) = false;` ([`src/recon/reconstruct.hpp:128`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/recon/reconstruct.hpp#L128)), the default; of the 25 decks in `examples/`, 18 set `shock: false` (for example `shock` in [`examples/bryan.yaml:43`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/examples/bryan.yaml#L43)) and 7 set `shock: true` (for example `shock` in [`examples/jupiter_crm.yaml:88`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/examples/jupiter_crm.yaml#L88)). Step 3 sets it false, as the Straka deck
+  does.
 - C++ route: a reconstruction or Riemann solver built into the library follows the native C++ route
-  below, which is the one recipe for both kinds of scheme: selection, lookup, the classes, the face slots,
-  the shapes and the rebuild.
+  below, which is the one recipe for both kinds of scheme: selection, lookup, the scheme tables and kernels,
+  the face slots, the shapes and the rebuild.
 
 CI checks the contract, and the runtime test runs on a pin build.
 <!-- end reader-reference: scheme-contract -->

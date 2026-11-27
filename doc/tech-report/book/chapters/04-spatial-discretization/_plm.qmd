@@ -49,7 +49,7 @@ D_i = \begin{cases}
 \qquad q^{\mathrm R}_i = \bar q_i - \tfrac12 D_i,\quad q^{\mathrm L}_{i+1} = \bar q_i + \tfrac12 D_i .
 $$ {#eq-ch04-plm-slope}
 
-#### Why a face value never leaves the range of its neighbours In the code, @eq-ch04-plm-slope is `dwm`, `wlv` and `wrv` ({{< code src/recon/plm.cpp PLMInterpImpl::forward >}}).
+#### Why a face value never leaves the range of its neighbours In the code, @eq-ch04-plm-slope is `dwm`, `wlv` and `wrv` ({{< code src/recon/reconstruct.cpp InterpImpl::forward >}}).
 
 1. *At an extremum the slope is zero.* An extremum is exactly $D_-D_+\le0$, so both face values equal
    $\bar q_i$[^rg-6b1b6007ca8d].
@@ -101,8 +101,8 @@ make_plm()
 
 **Stencil and ghosts.** Three cells: `stencils()` is 3, so the framework needs two ghost cells.
 
-**Where it is used.** `PLMInterpImpl::forward` overrides the base class and returns both face states in one
-pass; `left` and `right` of the base class call it.
+**Where it is used.** There is one interpolation class. `InterpImpl::forward` has a `plm` branch that returns both
+face states in one pass, and `left` and `right` call `forward` for `plm` and `ppm`.
 
 ### Code
 
@@ -118,7 +118,7 @@ dynamics:
 **What the parser accepts and refuses.** The framework's rules apply (@sec-ch04-framework). PLM has no limiter
 option: the harmonic mean is hard-coded, and a key such as `limiter` is refused by the reconstruct parser.
 
-**The excerpt.** `PLMInterpImpl::forward` ({{< code src/recon/plm.cpp PLMInterpImpl::forward >}}):
+**The excerpt.** `InterpImpl::forward` ({{< code src/recon/reconstruct.cpp InterpImpl::forward >}}):
 
 ```cpp
   auto dw = w.narrow(dim, 1, size - 1) - w.narrow(dim, 0, size - 1);
@@ -138,9 +138,9 @@ option: the harmonic mean is hard-coded, and a key such as `limiter` is refused 
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| the slope and face values | {{< code src/recon/plm.cpp PLMInterpImpl::forward >}} | `dwm` | `type: plm` |
-| stencil width | {{< code src/recon/interpolation.hpp PLMInterpImpl >}} | `stencils` | 3 |
-| registration | {{< code src/recon/interpolation.cpp InterpImpl::create >}} | `PLMInterp` | |
+| the slope and face values | {{< code src/recon/reconstruct.cpp InterpImpl::forward >}} | `dwm` | `type: plm` |
+| stencil width | {{< code src/recon/reconstruct.cpp InterpImpl::forward >}} | `stencils` | 3 |
+| registration | {{< code src/recon/reconstruct.cpp InterpImpl::create >}} | `InterpImpl::create` | |
 
 : Code map of PLM. {#tbl-ch04-plm-code}
 
@@ -158,7 +158,7 @@ option: the harmonic mean is hard-coded, and a key such as `limiter` is refused 
 
 `[C3]` holds symbolically, with smooth-limit face error $-\tfrac{a_2}{6}h^2$; `[C5]` finds no TVD violation in
 20 000 random triples and a face value equal to the cell value at every extremum.[^plm-run] `test_plm.release`
-passes at the pin on CPU, one rank (@tbl-ch04-ctest-run). No test measures the order of PLM on a refinement
+passed in the recorded run of @tbl-ch04-ctest-run (CPU, one rank). No test measures the order of PLM on a refinement
 ladder.
 
 [^plm-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: the checks themselves; run:
@@ -172,7 +172,7 @@ ladder.
 2. **Uniform-grid slope.** @eq-ch04-plm-slope takes raw differences, so it is the limited slope of the underlying
    linear fit only on equal widths. A deck that *declares* a stretched $x_1$ cannot reach that state: `plm` has no
    per-face $x_1$ route and setup refuses it there, as it refuses every interpolant but `weno5` and `cp5`
-   ({{< code src/recon/interpolation.hpp InterpImpl::set_x1_coeffs >}}; @sec-ch04-x1volume). The slope is still the
+   ({{< code src/recon/reconstruct.cpp InterpImpl::set_x1_coeffs >}}; @sec-ch04-x1volume). The slope is still the
    raw-difference one on $x_2$ and $x_3$, and on an undeclared non-uniform grid.
 3. **No measured order.** Second order away from extrema is derived (steps 1 to 3) and not measured on a ladder.
 

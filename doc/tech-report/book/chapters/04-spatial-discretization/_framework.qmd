@@ -88,8 +88,9 @@ The code is the only record of the split; no source states a reason for it.
 
 1. *Two interpolants per reconstruction.* `reset` builds `pinterp1` and `pinterp2` from the same options, named
    `interp1` and `interp2`.
-2. *The names select the partner.* `InterpImpl::create` returns the named type for both, except that for
-   `weno3` and `weno5` it returns `Center3Interp` and `Center5Interp` when the module name ends in `2`.
+2. *The scheme selects the partner.* `ReconstructImpl::reset` builds `interp1` with the parsed scheme and
+   `interp2` with `velocity_pressure_scheme` of it: `cp3` for `weno3`, `cp5` for `weno5`, the scheme itself
+   otherwise. `InterpImpl::create` takes the `Scheme` and does not read the module name.
 3. *The rows.* With `shock: false`, `forward` reconstructs the density row with `pinterp1`, the velocity and
    pressure rows with `pinterp2`, and the species rows with `pinterp1`.
 4. *Hence under `weno5` velocity and pressure are fifth-order linear and unlimited*, while density and tracers
@@ -119,7 +120,7 @@ reconstruction, which has no hydro parent, clamps every row at zero whatever the
 **Order.** The framework adds no error of its own: the face value has the order of the interpolant
 (@sec-ch04-dc to @sec-ch04-weno), measured on a uniform grid. A deck that declares a stretched $x_1$ does **not**
 run those uniform weights on it: setup builds per-face coefficients for `weno5` and `cp5` and refuses every other
-interpolant on $x_1$ ({{< code src/recon/interpolation.hpp InterpImpl::set_x1_coeffs >}}; @sec-ch04-x1volume).
+interpolant on $x_1$ ({{< code src/recon/reconstruct.cpp InterpImpl::set_x1_coeffs >}}; @sec-ch04-x1volume).
 Within a block the other axes keep the uniform weights, which is correct there because $x_2$ and $x_3$ are
 uniform.
 
@@ -156,7 +157,7 @@ order:
    is used as constructed: `dc`, `scale` false and **`shock` true**, because `ReconstructOptionsImpl` declares
    `shock = true`.
 
-A probe against the pin build confirms items 2 to 5.[^fw4-probe]
+A probe against the build its footnote records confirms items 2 to 5.[^fw4-probe]
 
 **The excerpt.** The row split of `ReconstructImpl::forward`
 ({{< code src/recon/reconstruct.cpp ReconstructImpl::forward >}}):
@@ -197,7 +198,7 @@ The `shock` branch is step 4 of the row split; the three calls below it are step
 | a block with fewer ghosts is refused | {{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}} | `stencils() / 2 + 1` | the block's `nghost` |
 | shock branch | {{< code src/recon/reconstruct.cpp ReconstructImpl::forward >}} | `shock` | `shock: true` |
 | density, velocity and pressure, tracers | {{< code src/recon/reconstruct.cpp ReconstructImpl::forward >}} | `pinterp2` | |
-| which interpolant is `interp2` | {{< code src/recon/interpolation.cpp InterpImpl::create >}} | `Center5Interp` | `weno3`, `weno5` |
+| which interpolant is `interp2` | {{< code src/recon/reconstruct.cpp velocity_pressure_scheme >}} | `velocity_pressure_scheme` | `weno3`, `weno5` |
 | the two reconstructions of a block | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `precon1` | always |
 
 : Code map of the reconstruction framework. {#tbl-ch04-framework-code}
@@ -218,7 +219,8 @@ matches the built-in `dc` reconstruction exactly in float32 too.
 
 : Tests of the reconstruction framework. {#tbl-ch04-framework-tests}
 
-`test_plm.release` passes at the pin (@tbl-ch04-ctest-run). `test_cp5_nghost.release` passes at the pin, and the
+`test_plm.release` passed in the recorded run of @tbl-ch04-ctest-run. `test_cp5_nghost.release` passed on the build of
+step 4's footnote, and the
 setup refusal of step 4 was run for six schemes at three ghost widths (the run of step 4's footnote). The probe constructs a block for each case of the
 Code layer and runs one stage. No test asserts the row split itself: a swap of `interp1` and `interp2` would be
 caught only by an accuracy test.
@@ -232,7 +234,7 @@ caught only by an accuracy test.
 
 [^fw4-nghost]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: a 16-cell Cartesian column with reflecting
     $x_1$ walls, built in the script; run: `python3 src/snapy_report/ch04/evidence/nghost_refusal_run.py`, with snapy built
-    from source at the pin (Release, `-DNETCDF=ON`, CPU) and installed with `pip install --no-build-isolation --no-deps
+    from source at that sha (Release, `-DNETCDF=ON`, CPU) and installed with `pip install --no-build-isolation --no-deps
     --target`, CPU, double, 1 process; Python 3.11.13, torch 2.10.0, kintera 2.6.6; log
     `evidence/logs/nghost_refusal_run.log`, exit 0]. `dc` builds at `nghost` 1, 2 and 3; `plm`, `cp3` and `weno3` are
     refused at 1 ("needs nghost >= 2, got 1"); `cp5` and `weno5` at 1 and 2 ("needs nghost >= 3"). `test_cp5_nghost.release`
@@ -246,13 +248,14 @@ caught only by an accuracy test.
    rational weights for equal cell widths. On a declared stretched $x_1$ only `weno5` and `cp5` have a per-face
    route (@sec-ch04-x1volume); `InterpImpl::set_x1_coeffs` is a hard refusal in the base class, so any other
    interpolant stops at setup rather than applying uniform-grid arithmetic silently
-   ({{< code src/recon/interpolation.hpp InterpImpl::set_x1_coeffs >}}). What is **not** covered is a grid that is
+   ({{< code src/recon/reconstruct.cpp InterpImpl::set_x1_coeffs >}}). What is **not** covered is a grid that is
    geometrically non-uniform without being declared: the refusal is reached only when `HydroImpl::reset` or
    `ScalarImpl::reset` is given $x_1$ faces ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
-3. **Dead option members.** `ReconstructOptionsImpl` carries `density_floor`, `pressure_floor`, `limiter`,
-   `is_boundary_lower` and `is_boundary_upper`; `forward` reads none of them, and `report` prints them.
-4. **A disabled branch.** A block inside a comment in `forward` would narrow the range next to a physical
-   boundary before reconstructing velocity and pressure. It is not compiled.
+3. **Two options only.** `ReconstructOptionsImpl` carries `shock` and `interp`
+   ({{< code src/recon/reconstruct.hpp ReconstructOptionsImpl >}}); the face floors in `forward` read the parent
+   Hydro's EOS[^rg-3abbaa77d9e6] options (`limiter`, `density_floor`, `pressure_floor`), not reconstruct keys.
+4. **No narrowing at a physical boundary.** `forward` reconstructs velocity and pressure on the same range
+   `il..iu` as density (`_apply_inplace`), next to a physical boundary too.
 5. **`scale`.** What the key does is derived in @sec-ch04-weno; for `dc`, `plm`, `cp3` and `cp5` it is read and
    has no effect.
 
@@ -274,4 +277,6 @@ caught only by an accuracy test.
 [^rg-e7755bb7941e]: type — implementation selector for the enclosing options block
 
 [^rg-ae7031b3a70c]: horizontal — options for the horizontal reconstruction
+
+[^rg-3abbaa77d9e6]: EOS — equation of state
 <!-- end reader glossary notes -->

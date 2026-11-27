@@ -210,7 +210,7 @@ $-\Delta t$ on interior cells.
 `[C1]` of `derivation_check.py` holds symbolically.[^div-run] `operator_check.py` `[C1]` gives a tendency of
 exactly $0$ on a uniform Cartesian flux, `[C2]` gives $\lvert\nabla\cdot(r\hat r)-3\rvert = 3.6\times10^{-15}$,
 inside the derived bound of $2.73\times10^{-14}$, `[C3]` shows the midpoint volume $r^2h$ would be short by $h^3/12$ per unit solid angle,
-and `[C4]` gives a telescoping residual of $1.9\times10^{-16}$ relative. The two ctest entries pass at the pin on
+and `[C4]` gives a telescoping residual of $1.9\times10^{-16}$ relative. The two ctest entries passed in the recorded run on
 CPU, one rank (@tbl-ch04-ctest-run in @sec-ch04-fluxcov).
 
 [^div-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: the checks themselves; run:

@@ -23,9 +23,9 @@ which do not, and the two forms of the radial pressure force. Both are always on
 
 **Placement.** Every stage: projection inside the solver call; sources inside the coordinate's `forward`.
 
-**Activation.** `geometry: {type: gnomonic-equiangle}`; the projection runs in `lmars`, `hllc`, `shallow-roe`, not `roe`.
+**Activation.** `geometry: {type: gnomonic-equiangle}`; the projection runs in `lmars`, `hllc`, `roe` and `shallow-roe`.
 
-**Guarantee / limits.** A six-panel isentropic shell stays at rest to $10^{-14}$; `roe` solves in panel components.
+**Guarantee / limits.** A six-panel isentropic shell stays at rest to $10^{-14}$; `roe` stays at rest on six panels to $10^{-9}$ m s$^{-1}$ (Tests).
 
 **Evidence.** @tbl-ch04-gnomonic-tests; `test_hydrostatic.release`, `test_coordinate.release`, `gnomonic_check.py` `[C1]`–`[C3]`.
 :::
@@ -44,11 +44,13 @@ None new: the metric and the sources are derived in @sec-ch03-gnomonic, and the 
    (@sec-ch03-gnomonic).
 2. *A solver needs the normal velocity.* Every solver body takes `WL(ivx)` as $v_\perp$ (@eq-ch04-riemann-frame),
    which is the face-normal component only in an orthonormal frame.
-3. *Hence the projection.* `lmars`, `hllc` and `shallow-roe` call `prim2local{1,2,3}_` on both face states, which
+3. *Hence the projection.* `RiemannSolverImpl::solve` calls `prim2local{1,2,3}_` on both face states of every
+   face-function solver (`lmars`, `hllc`, `roe`, `shallow-roe`), which
    sets the face metric and turns the components into the face's orthonormal frame, and `flux2global{1,2,3}_` on
    the flux after; @sec-ch03-gnomonic derives the matrices.
-4. *`roe` skips step 3.* `RoeSolverImpl::forward` passes the states as stored. On this grid its `ivx` row is a
-   panel component, not $v_\perp$, wherever $\psi \ne \tfrac\pi2$. No test runs `roe` here.
+4. *`roe` takes step 3 too.* The projection is in the shared `RiemannSolverImpl::solve`, before the kind is
+   dispatched, so `roe` sees $v_\perp$ in its `ivx` row like the others; `test_roe_cubed_sphere_rest_python` checks
+   it on this grid.
 
 #### The sources the coordinate adds
 
@@ -74,8 +76,8 @@ None new: the metric and the sources are derived in @sec-ch03-gnomonic, and the 
 
 ```{python}
 #| label: fig-ch04-gnomonic-frame
-#| fig-cap: "The face frame on the gnomonic grid. The stored panel components are projected into the face's orthonormal frame before the solver and the flux is returned to the panel after it, for lmars, hllc and shallow-roe; roe skips both steps (vermillion)."
-#| fig-alt: "Four boxes joined by arrows: panel components, projection to the face frame, Riemann solver, projection back; and a vermillion line saying roe does not project."
+#| fig-cap: "The face frame on the gnomonic grid. The stored panel components are projected into the face's orthonormal frame before the solver and the flux is returned to the panel after it, for every face-function solver: lmars, hllc, roe and shallow-roe."
+#| fig-alt: "Four boxes joined by arrows: panel components, projection to the face frame, Riemann solver, projection back; and a line saying the shared solve projects for every face-function solver, roe included."
 #| echo: false
 from snapy_report.ch04.figures.fig_ch04_schemes import make_gnomonic
 make_gnomonic()
@@ -114,7 +116,7 @@ processes (@sec-ch14-launch). That test file is the complete deck; on a build at
 
 **The excerpt.** The radial source of `GnomonicEquiangleImpl::forward`
 ({{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::forward >}}) and the projection of
-`LmarsSolverImpl::forward` ({{< code src/riemann/lmars.cpp LmarsSolverImpl::forward >}}):
+`RiemannSolverImpl::solve` ({{< code src/riemann/riemann.cpp RiemannSolverImpl::solve >}}):
 
 ```cpp
     auto src1 = rho * (v2 * v_2 + v3 * v_3) / radius;
@@ -137,9 +139,7 @@ faces.
 | what | code link | symbol | switch |
 |---|---|---|---|
 | the sources | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::forward >}} | `src1` | gnomonic-equiangle |
-| projection in LMARS | {{< code src/riemann/lmars.cpp LmarsSolverImpl::forward >}} | `prim2local3_` | `type: lmars` |
-| projection in HLLC | {{< code src/riemann/hllc.cpp HLLCSolverImpl::forward >}} | `prim2local3_` | `type: hllc` |
-| no projection in Roe | {{< code src/riemann/roe.cpp RoeSolverImpl::forward >}} | `call_roe` | `type: roe` |
+| projection for every face-function solver | {{< code src/riemann/riemann.cpp RiemannSolverImpl::solve >}} | `to_face_frame_` | `type: lmars`, `hllc`, `roe`, `shallow-roe` |
 | metric coefficients | {{< code src/coord/gnomonic_equiangle.cpp GnomonicEquiangleImpl::reset >}} | `x_ov_rD_kji` | |
 
 : Code map of the gnomonic source and frame placement. {#tbl-ch04-gnomonic-code}
@@ -155,21 +155,21 @@ faces.
 
 : Tests of the gnomonic source and frame placement. {#tbl-ch04-gnomonic-tests}
 
-`test_hydrostatic.release` gives $6.8\times10^{-15}$ at the pin.[^gn-run] `gnomonic_check.py` `[C1]` sums the cells of
+`test_hydrostatic.release` gives $6.8\times10^{-15}$ at the sha the footnote records.[^gn-run] `gnomonic_check.py` `[C1]` sums the cells of
 a panel to $4\pi/6$ within $3.6\times10^{-15}$, `[C2]` matches a 64-point quadrature to $3.0\times10^{-15}$ relative,
-and `[C3]` the shell volume to $3.3\times10^{-16}$. The ctest entries pass at the pin on CPU, one rank
+and `[C3]` the shell volume to $3.3\times10^{-16}$. The ctest entries passed in the recorded run on CPU, one rank
 (@tbl-ch04-ctest-run).
 
 [^gn-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; deck: the test's own six-panel shell; run:
     `tests/test_hydrostatic.release` of a
-    Release build of the pin, CPU, double, 1 process, torch 2.10.0, kintera 2.6.2.dev4+g914389b40
+    Release build of that sha, CPU, double, 1 process, torch 2.10.0, kintera 2.6.2.dev4+g914389b40
     (a development build four commits past v2.6.1; the kintera pin c55b13b2 is tag v2.6.2); and
     `python3 src/snapy_report/ch04/checks/gnomonic_check.py`, Python 3.12.10, numpy 2.5.3, output identical to the
     committed file].
 
 ### Limits
 
-1. **`roe` is not projected** on this grid (step 4 of the frame derivation); its results there are not tested.
+1. **`roe` on this grid** is projected like the other solvers (step 4); its rest test is the only `roe` test here.
 2. **One pressure-force form.** There is no centroid-exact branch on this grid; the face difference balances
    gravity against the midpoint-radius cell values.
 

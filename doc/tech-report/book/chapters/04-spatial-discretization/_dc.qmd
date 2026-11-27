@@ -50,7 +50,7 @@ cell average (appendix A, notation group 4).
    fitted order 1.00.
 4. *Why the flux divergence is also first order.* The divergence takes a difference of two face values a cell
    apart and divides by $h$; the $O(h)$ face error of a smooth field changes by $O(h^2)$ between the two faces,
-   so the divergence error is $O(h)$. In the code, @eq-ch04-dc-error is the copy of `DonorCellInterpImpl` ({{< code src/recon/interpolation.hpp DonorCellInterpImpl >}}).
+   so the divergence error is $O(h)$. In the code, @eq-ch04-dc-error is the copy of `InterpImpl::left` ({{< code src/recon/reconstruct.cpp InterpImpl::left >}}).
 
 #### Why there is no round-off
 
@@ -89,7 +89,7 @@ dynamics:
 `scale` and `shock` in a block, and an unknown type is refused. `scale` is accepted and has no effect, because
 a copy has nothing to scale.
 
-**The excerpt.** `DonorCellInterpImpl` ({{< code src/recon/interpolation.hpp DonorCellInterpImpl >}}):
+**The excerpt.** `InterpImpl::left` ({{< code src/recon/reconstruct.cpp InterpImpl::left >}}):
 
 ```cpp
   void left(torch::Tensor w, int dim, torch::Tensor const& out) override {
@@ -105,8 +105,8 @@ $q^{\mathrm L}_{i+1} = \bar q_i$, placed by @eq-ch04-framework-map.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| the interpolant | {{< code src/recon/interpolation.hpp DonorCellInterpImpl >}} | `DonorCellInterpImpl` | `type: dc` |
-| registration | {{< code src/recon/interpolation.cpp InterpImpl::create >}} | `DonorCellInterp` | |
+| the interpolant | {{< code src/recon/reconstruct.cpp InterpImpl::left >}} | `InterpImpl::left` | `type: dc` |
+| registration | {{< code src/recon/reconstruct.cpp InterpImpl::create >}} | `InterpImpl::create` | |
 
 : Code map of donor cell. {#tbl-ch04-dc-code}
 
@@ -115,13 +115,13 @@ $q^{\mathrm L}_{i+1} = \bar q_i$, placed by @eq-ch04-framework-map.
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
 | `test_plm.release`, `reconstruct_preserves_a_constant_field` | a constant field is reconstructed exactly by `dc` in all three directions | `allclose` defaults | `torch::allclose` |
-| `test_x1_seam_split_wb_ref4_gravity_0.release` | a donor-cell column with one ghost cell, one and two blocks, sets up and steps five times with finite state | exact (no throw, finite) | a setup contract |
+| `test_x1_seam_split.release` (`X1SeamSplit.switches_off_nghost_1_sets_up`) | a donor-cell column with one ghost cell, one and two blocks, sets up | `EXPECT_NO_THROW` | a setup contract |
 | `derivation_check.py` `[C2]` (this report) | the face error is $-\tfrac h2\partial_1u + O(h^2)$ | exact | sympy |
 | `recon_check.py` `[C7]` (this report) | measured first order at the face | fitted order within 0.1 of 1 | stated in the check |
 
 : Tests of donor cell. {#tbl-ch04-dc-tests}
 
-`[C2]` holds symbolically and `[C7]` fits order 1.00.[^dc-run] Both ctest entries pass at the pin on CPU, one
+`[C2]` holds symbolically and `[C7]` fits order 1.00.[^dc-run] Both ctest entries passed in the recorded run on CPU, one
 rank (@tbl-ch04-ctest-run).
 
 [^dc-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: the checks themselves; run:

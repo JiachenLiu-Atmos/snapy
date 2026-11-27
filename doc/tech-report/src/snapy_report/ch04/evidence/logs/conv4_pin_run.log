@@ -1,0 +1,80 @@
+Thu Nov 26 09:23:47 PM EST 2026
+cmd: env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 python3 ../../tests/test_conversion_order.py  (cwd: build/tests of a Release CPU source build of snapy at the sha on the next line; the ctest command, no arguments)
+73c45a7c8c991209924e1137992352c335575062
+python, torch, numpy: 3.11.13 2.10.0+cu128 2.4.6 kintera 2.6.13 pyharp 2.7.17
+gcc (GCC) 11.5.0 20240719 (Red Hat 11.5.0-17)
+order uniform key 2: L1 [7.952923361003762e-05, 8.548632116022435e-06, 1.6248182925474204e-06] order 2.81 tracer 1.3e-14
+order uniform key 4: L1 [6.432601592018701e-05, 3.3876693616829295e-06, 1.2573058777399712e-07] order 4.50 tracer 1.6e-14
+order stretched key 2: L1 [6.90951542839306e-05, 7.517127879812929e-06, 1.5233806179532983e-06] order 2.75 tracer 4.6e-14
+order stretched key 4: L1 [5.723862130001256e-05, 2.192000720571425e-06, 7.422594448683404e-08] order 4.80 tracer 4.2e-14
+arm order: PASS in 64.4 s
+radial spherical-polar key 2: max err [6.009751315438211e-06, 1.5025072370375425e-06, 3.756794435781641e-07] order 2.00
+radial spherical-polar key 4: max err [7.30778099145013e-09, 4.569552791711118e-10, 2.8566829457510323e-11] order 4.00
+radial gnomonic-equiangle key 2: max err [6.009751315438211e-06, 1.5025072370375425e-06, 3.756794435781641e-07] order 2.00
+radial gnomonic-equiangle key 4: max err [7.30778099145013e-09, 4.569552791711118e-10, 2.8566829457510323e-11] order 4.00
+radial: a rewritten x1f gives the converted w of a fresh block: True (max|dw| 0.0e+00)
+arm radial: PASS in 0.1 s
+gravity key 4: L1 [2.3284037133477e-08, 7.678792523710398e-10, 2.4508227478708955e-11] order 4.95
+arm gravity: PASS in 7.7 s
+theta key 4: theta' initial [-16.56, 0.00] at t = 900 s [-9.63, 0.68]
+arm theta: PASS in 22.0 s
+mass wall key 4: |dM|/M 0.00e+00
+mass seam jump key 4: |dM|/M 1.48e-16
+mass outflow key 4: dM/M vs every w ghost layer from the outflow condition -2.3e-13
+arm mass: PASS in 0.8 s
+floor key 4: max|u(Tf 1e-4) - u(Tf 1e-6)| 0.00e+00
+arm floor: PASS in 0.1 s
+slab key 4: |dM|/M dry 0.00e+00 water 0.00e+00, max|r/r0-1| 2.11e-15, seam ghosts = owners True, sum vapour^2 vs the screened run 4.8e-11
+arm slab: PASS in 0.5 s
+wall key 4: mass tendency error in the wall cells [1.287150264879522e-07, 1.6309696454497313e-08] order 2.98
+arm wall: PASS in 0.0 s
+[HydroOptions] -- constant gravity options --
+* grav1 = -1
+* grav2 = 0
+* grav3 = 0
+* non-hydrostatic = 1
+* gravity-work = face
+[HydroOptions] -- constant gravity options --
+* grav1 = -1
+* grav2 = 0
+* grav3 = 0
+* non-hydrostatic = 1
+* gravity-work = face
+[HydroOptions] -- constant gravity options --
+* grav1 = -1
+* grav2 = 0
+* grav3 = 0
+* non-hydrostatic = 1
+* gravity-work = face
+[HydroOptions] -- constant gravity options --
+* grav1 = -1
+* grav2 = 0
+* grav3 = 0
+* non-hydrostatic = 1
+* gravity-work = face
+[HydroOptions] -- constant gravity options --
+* grav1 = -9.8
+* grav2 = 0
+* grav3 = 0
+* non-hydrostatic = 1
+* gravity-work = face
+[HydroOptions] -- constant gravity options --
+* grav1 = -10
+* grav2 = 0
+* grav3 = 0
+* non-hydrostatic = 1
+* gravity-work = face
+[HydroOptions] -- constant gravity options --
+* grav1 = -1
+* grav2 = 0
+* grav3 = 0
+* non-hydrostatic = 1
+* gravity-work = face
+[HydroOptions] -- constant gravity options --
+* grav1 = -1
+* grav2 = 0
+* grav3 = 0
+* non-hydrostatic = 1
+* gravity-work = face
+EXIT=0
+Thu Nov 26 09:25:26 PM EST 2026

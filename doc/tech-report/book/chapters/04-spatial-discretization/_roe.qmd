@@ -59,7 +59,7 @@ $a_{\mathrm{LF}}$ the fallback's dissipation speed [m s$^{-1}$].
    at the Roe fractions and subtracts $\sum_ny^{\mathrm{Roe}}_nu^\star_n$ from the enthalpy:
    $(c^{\mathrm{Roe}})^2 = (\gamma^{\mathrm{Roe}} - 1)\bigl(\hat H^{\mathrm{Roe}} - \tfrac12\lvert\mathbf v^{\mathrm{Roe}}\rvert^2 - \sum_ny^{\mathrm{Roe}}_nu^\star_n\bigr)$.
    For one state this is $\gamma R T$ of the mixture, with $R = R_{\mathrm d}f_\varepsilon$ and $c_v = c_{v,\mathrm d}f_\sigma$
-   (`[C10]`). In the code, @eq-ch04-roe-avg is `rhobar`, `v1` and `h` ({{< code src/riemann/roe_impl.h roe_impl >}}).
+   (`[C10]`). In the code, @eq-ch04-roe-avg is `rhobar`, `v1` and `h` ({{< code src/riemann/riemann_kernels.h roe_impl >}}).
 
 **Not provided:** a proof of the exact Roe property for the moist averages; the single-state sound-speed
 identity above does not establish the jump identity between two moist states.
@@ -116,9 +116,10 @@ from snapy_report.ch04.figures.fig_ch04_schemes import make_wavefan
 make_wavefan("roe")
 ```
 
-**No frame projection.** `RoeSolverImpl::forward` passes the states to the kernel as they are: unlike `lmars`,
-`hllc` and `shallow-roe` it does not call `prim2local{1,2,3}_`. On a Cartesian or spherical-polar grid the
-components are already orthonormal; on the gnomonic grid they are not (@sec-ch04-gnomonic).
+**Frame projection.** `RiemannSolverImpl::solve` rotates the states to the face-local orthonormal frame with
+`to_face_frame_` before it dispatches any face-function kind, `roe` included, and rotates the flux back after. On a
+Cartesian or spherical-polar grid the components are already orthonormal; on the gnomonic grid the projection
+matters (@sec-ch04-gnomonic).
 
 **Face pressure.** The kernel writes $p_f = \tfrac12(p^{\mathrm L} + p^{\mathrm R} + \rho^{\mathrm{Roe}}c^{\mathrm{Roe}}(v_\perp^{\mathrm L} - v_\perp^{\mathrm R}))$,
 the acoustic estimate of @eq-ch04-lmars-face at the Roe state, in every branch including the fallback.
@@ -136,7 +137,7 @@ dynamics:
 **What the parser accepts and refuses.** As in @sec-ch04-riemann; an empty `riemann-solver` block also gives
 `roe`.
 
-**The excerpt.** `roe_impl` ({{< code src/riemann/roe_impl.h roe_impl >}}):
+**The excerpt.** `roe_impl` ({{< code src/riemann/riemann_kernels.h roe_impl >}}):
 
 ```cpp
   T rhobar = sqrtdl * sqrtdr;
@@ -166,14 +167,14 @@ the last block is the fallback with $a_{\mathrm{LF}}$ = `a`.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| the solver body | {{< code src/riemann/roe_impl.h roe_impl >}} | `roe_impl` | `type: roe` |
-| Roe averages | {{< code src/riemann/roe_impl.h roe_impl >}} | `sqrtdl` | |
-| moist $\gamma$ and offset | {{< code src/riemann/roe_impl.h roe_impl >}} | `gamma_roe` | `ideal-moist` |
-| floored sound speed | {{< code src/riemann/roe_impl.h roe_impl >}} | `cs_sq` | |
-| strengths and species | {{< code src/riemann/roe_impl.h roe_impl >}} | `alpha_m` | |
-| positivity test and fallback | {{< code src/riemann/roe_impl.h roe_impl >}} | `llf_flag` | a negative intermediate density |
-| equation of state, no projection | {{< code src/riemann/roe.cpp RoeSolverImpl::forward >}} | `call_roe` | |
-| YAML parser (defaults in @sec-ch04-riemann) | {{< code src/riemann/riemann_solver.cpp RiemannSolverOptionsImpl::from_yaml overload=2 >}} | `from_yaml` | `riemann-solver` |
+| the solver body | {{< code src/riemann/riemann_kernels.h roe_impl >}} | `roe_impl` | `type: roe` |
+| Roe averages | {{< code src/riemann/riemann_kernels.h roe_impl >}} | `sqrtdl` | |
+| moist $\gamma$ and offset | {{< code src/riemann/riemann_kernels.h roe_impl >}} | `gamma_roe` | `ideal-moist` |
+| floored sound speed | {{< code src/riemann/riemann_kernels.h roe_impl >}} | `cs_sq` | |
+| strengths and species | {{< code src/riemann/riemann_kernels.h roe_impl >}} | `alpha_m` | |
+| positivity test and fallback | {{< code src/riemann/riemann_kernels.h roe_impl >}} | `llf_flag` | a negative intermediate density |
+| equation of state and the frame projection | {{< code src/riemann/riemann.cpp RiemannSolverImpl::solve >}} | `to_face_frame_` | |
+| YAML parser (defaults in @sec-ch04-riemann) | {{< code src/riemann/riemann.cpp RiemannSolverOptionsImpl::from_yaml overload=2 >}} | `from_yaml` | `riemann-solver` |
 
 : Code map of the Roe solver. {#tbl-ch04-roe-code}
 
@@ -189,8 +190,10 @@ the last block is the fallback with $a_{\mathrm{LF}}$ = `a`.
 
 `[C10]` holds symbolically for the dry gas. On a numpy port for a dry ideal gas without species,
 `solvers_check.py` `[C3]` gives the physical flux exactly, `[C4]` the left flux to $4.1\times10^{-16}$ when every
-wave moves right, and `[C5]` a stationary contact exactly.[^roe-run] `test_riemann.release` passes at the pin on
-CPU, one rank (@tbl-ch04-ctest-run). No test triggers the fallback or the moist path.
+wave moves right, and `[C5]` a stationary contact exactly.[^roe-run] `test_riemann.release` passed in the recorded run
+of @tbl-ch04-ctest-run (CPU, one rank; the sha is in its footnote, not the code pin). Its
+`riemann_events_count_clamped_and_llf_faces` drives the fallback (Limits 3), and
+`RiemannSolver.roe_writes_face_pressure_output_ideal_moist` runs `roe` on an ideal-moist deck.
 
 [^roe-run]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the checks themselves; run:
     `python3 src/snapy_report/ch04/checks/derivation_check.py`
@@ -200,8 +203,11 @@ CPU, one rank (@tbl-ch04-ctest-run). No test triggers the fallback or the moist 
 ### Limits
 
 1. **No entropy fix**, step 4 of the branches; no test runs a transonic rarefaction.
-2. **No frame projection**: on the gnomonic grid the solver works in panel components.
-3. **Untested fallback.** No test produces a negative intermediate density, so the LLF branch is exercised by
-   nothing in the repository.
+2. **Two curved-grid tests**: `roe` is projected like the other solvers. On the gnomonic grid it runs in
+   `test_roe_cubed_sphere_rest_python` (a rest state) and in arm (f) of `test_axial_momentum_flux_form_python`
+   (six panels with rotation).
+3. **One fallback test.** `riemann_events_count_clamped_and_llf_faces` drives the LLF branch with $\lvert v_1\rvert = 2000$
+   and asserts only that it fires on at least one and at most every interior face (`tests/test_riemann.cpp`); the
+   fallback flux itself is not compared with a reference.
 4. **Not provided:** a proof of the exact Roe property with `ideal-moist` and composition-dependent
    $\gamma$; the checks above do not establish the jump identity for those moist averages.

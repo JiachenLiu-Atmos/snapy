@@ -50,18 +50,18 @@ Local symbols: $l$[^rg-0de671f8a039] the stencil offset (appendix A, notation gr
    c^{(5)} = \left(-\tfrac1{20}, \tfrac9{20}, \tfrac{47}{60}, -\tfrac{13}{60}, \tfrac1{30}\right),
    $$ {#eq-ch04-cp-weights}
 
-   for offsets $l = -1..1$ and $l = -2..2$. These are exactly the `cm` buffers of `Center3InterpImpl::reset` and
-   `Center5InterpImpl::reset`; `derivation_check.py` `[C4]` solves the system with sympy and compares.
+   for offsets $l = -1..1$ and $l = -2..2$. These are exactly the `cm` buffers `InterpImpl::reset` builds for `cp3` and
+   `cp5`; `derivation_check.py` `[C4]` solves the system with sympy and compares.
 4. *The upper face is the mirror.* Solving at $x_{i+1/2}$ gives the same weights in reverse order, which is the
    `cp = cm.flip(...)` buffer.
 5. *The leading error.* Put $u$ of degree $n_{\mathrm s}$ into the formula: the cp3 face value misses by
    $-\tfrac{a_3}{2}h^3 = -\tfrac{1}{12}h^3\partial_1^3u$ and the cp5 one by $2a_5h^5 = \tfrac1{60}h^5\partial_1^5u$
    (`[C4]`). `recon_check.py` `[C4]` measures fitted orders 3.02 and 5.02 over $n_1 = 16\to64$, and `cp3` keeps
-   2.99 through two critical points: a linear scheme does not see extrema. In the code, @eq-ch04-cp-weights is the `cm` buffer ({{< code src/recon/cp5.cpp Center5InterpImpl::reset >}}).
+   2.99 through two critical points: a linear scheme does not see extrema. In the code, @eq-ch04-cp-weights is the `cm` buffer ({{< code src/recon/reconstruct.cpp InterpImpl::reset >}}).
 
 #### Round-off
 
-1. *A dot product.* The kernel `interp_poly_impl` adds $n_{\mathrm s}$ products. The weights themselves are
+1. *A dot product.* The kernel `poly_point` adds $n_{\mathrm s}$ products. The weights themselves are
    rounded once when the buffer is built.
 2. *The standard bound.* The computed value differs from the exact sum by at most
    $\eta_{n_{\mathrm s}+1}\sum_l\lvert c_l\rvert\lvert\bar q_{i+l}\rvert$.
@@ -83,9 +83,9 @@ make_fig()
 
 **Stencil and ghosts.** cp3 reads three cells and needs two ghosts; cp5 reads five and needs three.
 
-**Which path runs.** `Center3InterpImpl::left` and `right` hand the `cm` or `cp` buffer to the dispatch
-`call_poly3`, whose CPU kernel is `interp_poly_impl<T, 3>`; cp5 is the same with 5. The scalar templates
-`interp_cp3` and `interp_cp5` of `interp_simple.hpp` are used only by tests, and `test_weno.release` holds the
+**Which path runs.** `InterpImpl::left` and `right` hand the `cm` or `cp` buffer to the dispatch
+`call_recon`, whose per-face kernel for cp3 is `poly_point<T, 3>`; cp5 is the same with 5. The scalar templates
+`interp_cp3` and `interp_cp5` of `tests/interp_simple.hpp` are used only by tests, and `test_weno.release` holds the
 modules equal to them.
 
 ### Code
@@ -101,10 +101,10 @@ dynamics:
 
 **What the parser accepts and refuses.** The framework's rules apply (@sec-ch04-framework). Only `cp3` and `cp5`
 are registered: `cp2`, `cp4`, `cp6` and the upwind-biased `bp2`, `bp3`, `bp5` exist only as templates in
-`interp_simple.hpp`, and naming them is refused ("Interp: unknown type").
+`tests/interp_simple.hpp`, and naming them is refused ("Interp: unknown type").
 
-**The excerpt.** The buffer of `Center5InterpImpl::reset` ({{< code src/recon/cp5.cpp Center5InterpImpl::reset >}})
-and the kernel ({{< code src/recon/interp_impl.h interp_poly_impl >}}):
+**The excerpt.** The buffer of `InterpImpl::reset` ({{< code src/recon/reconstruct.cpp InterpImpl::reset >}})
+and the kernel ({{< code src/recon/recon_point.h poly_point >}}):
 
 ```cpp
   cm = register_buffer("cm", torch::tensor({-1. / 20., 9. / 20., 47. / 60.,
@@ -125,11 +125,11 @@ loop is the dot product of step 1 of the round-off argument.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| third-order weights | {{< code src/recon/cp3.cpp Center3InterpImpl::reset >}} | `cm` | `type: cp3`, or `interp2` of `weno3` |
-| fifth-order weights | {{< code src/recon/cp5.cpp Center5InterpImpl::reset >}} | `cm` | `type: cp5`, or `interp2` of `weno5` |
-| the kernel | {{< code src/recon/interp_impl.h interp_poly_impl >}} | `interp_poly_impl` | |
-| registration | {{< code src/recon/interpolation.cpp InterpImpl::create >}} | `Center3Interp` | |
-| test-only templates | {{< code src/recon/interp_simple.hpp interp_cp5 >}} | `interp_cp5` | not a production path |
+| third-order weights | {{< code src/recon/reconstruct.cpp InterpImpl::reset >}} | `cm` | `type: cp3`, or `interp2` of `weno3` |
+| fifth-order weights | {{< code src/recon/reconstruct.cpp InterpImpl::reset >}} | `cm` | `type: cp5`, or `interp2` of `weno5` |
+| the kernel | {{< code src/recon/recon_point.h poly_point >}} | `poly_point` | |
+| registration | {{< code src/recon/reconstruct.cpp InterpImpl::create >}} | `InterpImpl::create` | |
+| test-only templates | {{< code tests/interp_simple.hpp interp_cp5 >}} | `interp_cp5` | not a production path |
 
 : Code map of the centred polynomials. {#tbl-ch04-cp-code}
 
@@ -144,8 +144,13 @@ loop is the dot product of step 1 of the round-off argument.
 : Tests of the centred polynomials. {#tbl-ch04-cp-tests}
 
 `[C4]` of `derivation_check.py` and `[C1]` of `recon_check.py` hold symbolically; `[C4]` of `recon_check.py`
-fits 3.02 and 5.02 on a monotone profile.[^cp-run] `test_weno.release` passes at the pin on CPU, one rank
-(@tbl-ch04-ctest-run). No ctest selects `cp3` or `cp5` as a deck's type.
+fits 3.02 and 5.02 on a monotone profile.[^cp-run] `test_weno.release` passed in the recorded run of
+@tbl-ch04-ctest-run (CPU, one rank). `test_cp5_nghost.release` expects a `cp5` deck with the default
+one ghost cell to be refused at setup. `test_flux_positivity_python` steps a `cp5` deck,
+`test_radial_order_python` reconstructs with `cp5` on a spherical-polar deck, and
+`test_graph_positivity_meters_match_eager_python` steps a deck whose scalar is reconstructed with `cp5`. A deck sets
+`cp3` only in `test_x1_stretched_refusal.release`, which builds it on a uniform $x_1$ and expects it to be refused on
+a stretched one, and in `test_stretched_x1_ref.release`, which expects the stretched refusal.
 
 [^cp-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: the checks themselves; run:
     `python3 src/snapy_report/ch04/checks/derivation_check.py`
@@ -157,13 +162,13 @@ fits 3.02 and 5.02 on a monotone profile.[^cp-run] `test_weno.release` passes at
    stand between an overshoot and a negative density (@sec-ch08-reconfloors).
 2. **Uniform weights, except on a declared stretched $x_1$.** The rationals assume equal widths, and the orders
    above are uniform-grid orders. `cp5` is one of the two interpolants that also carry a per-face $x_1$ route:
-   `Center5InterpImpl::set_x1_coeffs` fills `cm_x1`/`cp_x1` from the $x_1$ faces, and `forward` takes that branch
-   when `has_x1_coeffs()` ({{< code src/recon/cp5.cpp Center5InterpImpl::set_x1_coeffs >}};
+   `InterpImpl::set_x1_coeffs` fills `cm_x1`/`cp_x1` from the $x_1$ faces, and `forward` takes that branch
+   when `has_x1_coeffs()` ({{< code src/recon/reconstruct.cpp InterpImpl::set_x1_coeffs >}};
    @sec-ch04-x1volume has the row construction and its measured order). `cp3` has no such route. On that branch
    the face value is the plain dot product of the per-face row with the five cell averages
-   ({{< code src/recon/interp_impl_nu.h interp_poly5_nu_impl >}}); its order is not measured in this section.
+   ({{< code src/recon/recon_point.h poly_point >}}); its order is not measured in this section.
 3. **No stretched $x_1$ on MPS[^rg-2460f4d54ccf].** The non-uniform kernels refuse on the MPS backend, naming CPU or CUDA as the
-   two that carry it ({{< code src/recon/recon_dispatch_nu.cpp call_poly5_nu_mps >}}).
+   two that carry it ({{< code src/recon/recon_dispatch.cpp call_recon_cpu >}}).
 4. **Test-only templates.** `interp_cp2`, `interp_cp4`, `interp_cp6` and the `bp` forms are compiled into the
    tests; `interp_cp4` is also called by `src/diagnostics/`, which the build does not add.
 

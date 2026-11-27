@@ -187,10 +187,10 @@ def make_gnomonic():
     ax.set_xlim(0, 12.4)
     ax.set_ylim(0, 2.4)
     _boxes(ax, [("panel components\n$\\mathbf{W}$", fs.SKY), ("prim2local:\nface-orthonormal frame", fs.CELL_FILL),
-                ("Riemann solver\n(lmars, hllc, shallow-roe)", fs.CELL_FILL), ("flux2global:\nback to the panel", fs.CELL_FILL)],
+                ("Riemann solver\n(lmars, hllc, roe,\nshallow-roe)", fs.CELL_FILL), ("flux2global:\nback to the panel", fs.CELL_FILL)],
            1.4)
-    ax.text(0.1, 0.5, "roe does not project: on a gnomonic grid it solves in the panel components",
-            fontsize=fs.SMALL_PT, color=fs.VERMILLION)
+    ax.text(0.1, 0.5, "RiemannSolverImpl::solve projects for every face-function solver, roe included",
+            fontsize=fs.SMALL_PT, color=fs.BLACK)
     return fig
 
 

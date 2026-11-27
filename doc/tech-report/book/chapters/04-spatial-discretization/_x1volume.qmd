@@ -114,16 +114,16 @@ classical one, carried out in $\hat{\mathcal X}$ instead of in a cell index.
 1. *The five-cell polynomial.* There is exactly one quartic $P$[^rg-8185c9cafa62] with
    $\tfrac{1}{\Delta\mathcal X_k}\int_{I_k}P\,\mathrm{d}\mathcal X=\bar q_k$ on each of the five cells. Its value at
    $\hat{\mathcal X}=0$ is a fixed linear combination of the five averages. The code builds that combination from the
-   derivative of the Lagrange basis of the primitive of $P$ at the six nodes, which is `primitive_row`
-   ({{< code src/recon/x1_coeffs.cpp primitive_row >}}); for equal widths it returns the shipped `cp5` numbers
+   derivative of the Lagrange basis of the primitive of $P$ at the six nodes, which is `face_value_row`
+   ({{< code src/recon/x1_rows.cpp face_value_row >}}); for equal widths it returns the shipped `cp5` numbers
    $(-\tfrac1{20},\tfrac9{20},\tfrac{47}{60},-\tfrac{13}{60},\tfrac1{30})$ (`[C1]`).
 2. *Three quadratic candidates.* For each $\ell$ the same step on three consecutive cells gives the quadratic
    $Q_{\ell,f}$ and its value at $\hat{\mathcal X}=0$: three rows of three numbers each, written into columns $\ell$,
-   $\ell+1$, $\ell+2$ of the table, in `ptype_row` ({{< code src/recon/x1_coeffs.cpp ptype_row >}}).
+   $\ell+1$, $\ell+2$ of the table, in `ptype_row` ({{< code src/recon/x1_rows.cpp ptype_row >}}).
 3. *The smoothness indicators.* Writing $Q_{\ell,f}(\hat{\mathcal X})=a_0+a_1\hat{\mathcal X}+a_2\hat{\mathcal X}^2$, the
    three cell averages determine $a_1$ and $a_2$ through the inverse of the $3\times3$ matrix whose rows are the
    cell averages of $1,\hat{\mathcal X},\hat{\mathcal X}^2$ — `quad_inv_rows`
-   ({{< code src/recon/x1_coeffs.cpp quad_inv_rows >}}), whose row $k$[^rg-06994dde5c75] is
+   ({{< code src/recon/x1_rows.cpp quad_inv_rows >}}), whose row $k$[^rg-06994dde5c75] is
    $(1,\tfrac12(\hat{\mathcal X}_k+\hat{\mathcal X}_{k+1}),\tfrac13(\hat{\mathcal X}_k^2+\hat{\mathcal X}_k\hat{\mathcal X}_{k+1}+\hat{\mathcal X}_{k+1}^2))$,
    the exact averages of those three monomials over cell $k$. The code then stores the two rows $2a_2$ and
    $\pm(2a_2-2a_1)$, which are $Q_{\ell,f}''$ and $Q_{\ell,f}''-2Q_{\ell,f}'(0)$, and forms
@@ -132,9 +132,9 @@ classical one, carried out in $\hat{\mathcal X}$ instead of in a cell index.
    \beta_{\ell,f} \;=\; \tfrac{13}{12}\,\bigl(Q_{\ell,f}''\bigr)^2 \;+\; \tfrac14\,\bigl(Q_{\ell,f}''-2Q_{\ell,f}'(0)\bigr)^2 .
    $$ {#eq-ch04-x1volume-beta}
 
-   The two rows are stored by `ptype_row` ({{< code src/recon/x1_coeffs.cpp ptype_row >}}) and squared and
-   combined into $\beta_{\ell,f}$ at run time by `interp_weno5_nu_impl`
-   ({{< code src/recon/interp_impl_nu.h interp_weno5_nu_impl >}}).
+   The two rows are stored by `ptype_row` ({{< code src/recon/x1_rows.cpp ptype_row >}}) and squared and
+   combined into $\beta_{\ell,f}$ at run time by `weno5_point`
+   ({{< code src/recon/recon_point.h weno5_point >}}).
    @eq-ch04-x1volume-beta is the Jiang–Shu form written in $\hat{\mathcal X}$; on equal increments the six rows return the shipped
    three-column numbers $(1,-2,1)$ and $(1,-4,3)$, or their reverses, exactly (`[C1]`). The sign in front of the second row is $-1$ for the
    stencil furthest from the face; because $\beta$ squares it, the sign only fixes which of the two shipped rows
@@ -143,18 +143,18 @@ classical one, carried out in $\hat{\mathcal X}$ instead of in a cell index.
 4. *The optimal weights.* The three $d_{\ell,f}$ that make $\sum_\ell d_{\ell,f}Q_{\ell,f}(0)=P(0)$ are written in
    closed form from the four distances
    $-\hat{\mathcal X}_{f-3},-\hat{\mathcal X}_{f-2},\hat{\mathcal X}_{f+1},\hat{\mathcal X}_{f+2}$
-   ({{< code src/recon/x1_coeffs.cpp ptype_row >}}). On equal increments they are $(0.3,0.6,0.1)$ (`[C1]`); on any
+   ({{< code src/recon/x1_rows.cpp ptype_row >}}). On equal increments they are $(0.3,0.6,0.1)$ (`[C1]`); on any
    grid they are positive and sum to one (`[C2]`), so no negative-weight splitting is needed, and combining the
    three candidate rows with them reproduces the five-cell row of step 1 to $5.7\times10^{-16}$ over width ratios
    $0.8$ to $1.6$ per cell (`[C3]`, `combine_optimal`,
-   {{< code src/recon/x1_coeffs.cpp combine_optimal >}}).
+   {{< code src/recon/x1_rows.cpp combine_optimal >}}).
 5. *Hence the two rows per face.* `cp5` keeps only the five-cell row; `weno5` keeps all 48 numbers (three candidate
    rows, six smoothness rows, three optimal weights) and combines them at run time with the usual
    $\alpha_\ell=d_\ell/(\beta_\ell+\epsilon_{\mathrm W})^2$ (@sec-ch04-weno). The left and right states of a face need different rows, so
    each face gets two. $\mathbf c^{\mathrm L}_f$, the state the cell below the face offers, comes from the window
    taken as it stands; $\mathbf c^{\mathrm R}_f$, the state the cell above it offers, comes from the same window
    reflected about the face, which is why `window_weno5` runs the same routine on $-\mathcal X$ reversed and then
-   reverses the columns ({{< code src/recon/x1_coeffs.cpp window_weno5 >}}). The code calls the two `cp` and `cm`,
+   reverses the columns ({{< code src/recon/x1_rows.cpp window_weno5 >}}). The code calls the two `cp` and `cm`,
    and `_apply_inplace` writes them into the right and the left state array respectively, one index apart
    (@sec-ch04-framework).
 
@@ -204,14 +204,14 @@ no buffer is allocated ({{< code tests/test_deck_x1_wiring.cpp DeckX1Wiring.unif
 
 **Where each quantity lives.** The rows are a property of the grid, not of the state: they are built from faces
 only, in double precision on the CPU, and cast to the state's dtype and device on first use and cached
-({{< code src/recon/x1_coeffs.cpp x1_coeffs_for >}}). They never read `x1v`, so the difference between the stored
+({{< code src/recon/x1_rows.cpp build_x1_coeffs >}}). They never read `x1v`, so the difference between the stored
 cell centre and the volume centroid on a cubed-sphere block (@sec-ch03-gnomonic) does not enter.
 
 **Ghosts and seams.** The table covers the faces the interpolant can reach, four fewer than the number of $x_1$
 cells of the block with its ghosts, which is exactly
 the slice `_apply_inplace` writes (@sec-ch04-framework); a mismatch between the number of rows and the number of
 output faces is refused rather than wrapped
-({{< code src/recon/x1_coeffs.hpp x1_forward_nu >}}). Each block builds its own rows from its own face array,
+({{< code src/recon/x1_rows.hpp x1_forward_nu >}}). Each block builds its own rows from its own face array,
 including the ghost faces it was given. The face arrays of two blocks that share an $x_1$ seam are slices of one
 global array, so the two sides build their windows from the same numbers and hold the same rows for the shared
 face; whether the two face values then agree bit for bit is not measured at the pin, and the seam average of
@@ -225,7 +225,7 @@ faces nearest each wall.
 
 **Which stage, which part.** None: the rows are built at construction and are constant for the run. The cost per
 stage is one extra multiply-accumulate pass over a per-face row instead of a broadcast constant row
-({{< code src/recon/interp_impl_nu.h interp_weno5_nu_impl >}}, {{< code src/recon/interp_impl_nu.h interp_poly5_nu_impl >}}).
+({{< code src/recon/recon_point.h weno5_point >}}, {{< code src/recon/recon_point.h poly_point >}}).
 
 ### Code
 
@@ -250,14 +250,14 @@ dynamics:
 
 1. *An $x_1$ interpolant that is not `weno5` or `cp5`, on a deck that declares a stretched $x_1$*, with "[cp3] has
    no stretched-x1 reconstruction: route A builds per-face coefficients for weno5 and cp5 only"
-   ({{< code src/recon/interpolation.hpp InterpImpl::set_x1_coeffs >}}): running the uniform weights on a
+   ({{< code src/recon/reconstruct.cpp InterpImpl::set_x1_coeffs >}}): running the uniform weights on a
    non-uniform $x_1$ would be silent. A *curved* grid with such an interpolant is not refused — it gets no rows and
    keeps the uniform weights, which is the Limits layer's first item.
 2. *A face vector handed to the horizontal reconstruction*, with "route A covers the x1 dimension only"
-   ({{< code src/recon/x1_coeffs.hpp x1_forward_nu >}}), and a table whose row count does not match the number of
+   ({{< code src/recon/x1_rows.hpp x1_forward_nu >}}), and a table whose row count does not match the number of
    output faces, by the same check.
 3. *A face array that is not strictly increasing, is not one-dimensional, has a non-finite entry, or has fewer
-   than six entries*, in `check_faces` ({{< code src/recon/x1_coeffs.cpp check_faces >}}). Six faces are a
+   than six entries*, in `check_faces` ({{< code src/recon/x1_rows.cpp check_faces >}}). Six faces are a
    five-cell window plus one.
 
 **The code, mapped to @eq-ch04-x1volume-plain** ({{< code src/coord/coordinate.cpp CoordinateImpl::x1_row_faces >}}):
@@ -283,12 +283,12 @@ reflection, with the mirror image at the outer wall in the lines that follow.
 | hydro asks for it | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `set_x1_faces` | `SNAP_X1_CENTROID_EXACT` |
 | the passive scalar asks for it | {{< code src/scalar/scalar.cpp ScalarImpl::reset >}} | `precon1` | `scalar`[^rg-fca732804e45] |
 | both interpolants of the direction | {{< code src/recon/reconstruct.cpp ReconstructImpl::set_x1_faces >}} | `set_x1_faces` | |
-| the weno5 table, 48 per face | {{< code src/recon/weno5.cpp Weno5InterpImpl::set_x1_coeffs >}} | `weno5_x1_coeffs` | `type: weno5` |
-| the cp5 table, 5 per face | {{< code src/recon/cp5.cpp Center5InterpImpl::set_x1_coeffs >}} | `cp5_x1_coeffs` | `type: cp5` |
-| one window | {{< code src/recon/x1_coeffs.cpp ptype_row >}} | `ptype_row` | |
-| the face loop | {{< code src/recon/x1_coeffs.cpp weno5_x1_coeffs >}} | `weno5_x1_coeffs` | |
-| installing and clearing the buffers | {{< code src/recon/x1_coeffs.hpp x1_set_coeffs >}} | `cm_x1` | |
-| the run-time path | {{< code src/recon/weno5.cpp Weno5InterpImpl::left >}} | `has_x1_coeffs` | |
+| the weno5 table, 48 per face | {{< code src/recon/reconstruct.cpp InterpImpl::set_x1_coeffs >}} | `weno5_x1_coeffs` | `type: weno5` |
+| the cp5 table, 5 per face | {{< code src/recon/reconstruct.cpp InterpImpl::set_x1_coeffs >}} | `cp5_x1_coeffs` | `type: cp5` |
+| one window | {{< code src/recon/x1_rows.cpp ptype_row >}} | `ptype_row` | |
+| the face loop | {{< code src/recon/x1_rows.cpp weno5_x1_coeffs >}} | `weno5_x1_coeffs` | |
+| installing and clearing the buffers | {{< code src/recon/x1_rows.hpp x1_set_coeffs >}} | `cm_x1` | |
+| the run-time path | {{< code src/recon/reconstruct.cpp InterpImpl::left >}} | `has_x1_coeffs` | |
 
 : Code map of the volume-coordinate rows. {#tbl-ch04-x1volume-code}
 
@@ -304,13 +304,13 @@ reflection, with the mirror image at the outer wall in the lines that follow.
    (`interp1`) and velocity and pressure (`interp2`) get the same abscissa
    ({{< code src/recon/reconstruct.cpp ReconstructImpl::set_x1_faces >}}).
 4. `weno5_x1_coeffs` and `cp5_x1_coeffs` check the faces and run one window per output face
-   ({{< code src/recon/x1_coeffs.cpp weno5_x1_coeffs >}}, {{< code src/recon/x1_coeffs.cpp cp5_x1_coeffs >}}).
+   ({{< code src/recon/x1_rows.cpp weno5_x1_coeffs >}}, {{< code src/recon/x1_rows.cpp cp5_x1_coeffs >}}).
 5. `x1_set_coeffs` registers the rows as the buffers `cm_x1` and `cp_x1` and drops any cast copy, so a module that
    is reset, cloned or moved to a device carries its rows
-   ({{< code src/recon/x1_coeffs.hpp x1_set_coeffs >}};
+   ({{< code src/recon/x1_rows.hpp x1_set_coeffs >}};
    {{< code tests/test_uniform_module_tree.cpp UniformModuleTree.clone_keeps_the_installed_tables >}}).
 6. `left` and `right` take the per-face path whenever `has_x1_coeffs` is true and the shipped-constant path
-   otherwise ({{< code src/recon/weno5.cpp Weno5InterpImpl::left >}}).
+   otherwise ({{< code src/recon/reconstruct.cpp InterpImpl::left >}}).
 
 ### Tests
 

@@ -120,7 +120,7 @@ the top face of block B.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| the exchange and average | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `kSeamFluxUpTag` | process seam on $x_1$ |
+| the exchange and average | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `kTagSeamFlux` | process seam on $x_1$ |
 | packing | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `pack` | |
 | unpacking | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `unpack` | |
 | same-process seams skipped | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `is_local_block` | |
@@ -138,7 +138,7 @@ the top face of block B.
 : Tests of the seam averaging. {#tbl-ch04-seam-tests}
 
 `[C1]` gives a leak of $0.020170$ equal to $A(\mathbf F^{\mathrm T} - \mathbf F^{\mathrm B})$, and `[C2]` bit-equal seam values
-with a residual of $4.4\times10^{-16}$.[^seam-run] Both ctest entries pass at the pin on CPU
+with a residual of $4.4\times10^{-16}$.[^seam-run] Both ctest entries passed in the recorded run on CPU
 (@tbl-ch04-ctest-run); `[C13]` of `geometry_check.py` (@sec-ch03-x1seams) repeats step 3 on 400 000 pairs.
 
 [^seam-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: the check itself; run:

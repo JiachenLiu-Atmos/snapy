@@ -33,7 +33,7 @@ Local symbols: $v_\perp$, $p_f$ as in @sec-ch04-riemann; $\lambda^{\mathrm L}, \
 outer signal speeds and $\lambda_{\mathrm c}$ the contact speed [m s$^{-1}$]; $p_{\mathrm c}$ the contact pressure [Pa];
 $\mathbf U^{\mathrm L}_{\mathrm c}$ the state between $\lambda^{\mathrm L}$ and the contact; $p_{\mathrm{pv}}$ the
 pressure estimate of step 1 [Pa]; $\psi^{\mathrm L}, \psi^{\mathrm R}$ the shock factors [-];
-$\lambda_{\mathrm{tiny}} = 10^{-10}$ the code's `TINY_NUMBER` [m s$^{-1}$]; $\alpha_{\mathrm c}$ the weight of the contact
+$\lambda_{\mathrm{tiny}} = 10^{-10}$ the code's `riemann_tiny<T>()` [m s$^{-1}$]; $\alpha_{\mathrm c}$ the weight of the contact
 term at the clip (`sm`, [-]); $\mathcal J^{\mathrm K}$ and $\Pi^{\mathrm K}$ the
 mass flux through the wave on side $\mathrm K\in\{\mathrm L, \mathrm R\}$ [kg m$^{-2}$ s$^{-1}$] and its momentum-flux partner [Pa] (`ml`, `tl`); $\mathbf D = (0, 1, 0, 0, \lambda_{\mathrm c})$ in
 the rows (mass, normal momentum, tangential, tangential, energy).
@@ -70,7 +70,7 @@ the rows (mass, normal momentum, tangential, tangential, energy).
    $$ {#eq-ch04-hllc-contact}
 
    which are `am` and `cp` of the code; `[C9]` solves steps 1 and 2 with sympy and gets these expressions. The
-   code then clamps $p_{\mathrm c}$ at zero. In the code, @eq-ch04-hllc-contact is `am` and `cp` ({{< code src/riemann/hllc_impl.h hllc_impl >}}).
+   code then clamps $p_{\mathrm c}$ at zero. In the code, @eq-ch04-hllc-contact is `am` and `cp` ({{< code src/riemann/riemann_kernels.h hllc_impl >}}).
 
 #### The flux
 
@@ -92,7 +92,7 @@ the rows (mass, normal momentum, tangential, tangential, energy).
    by step 1 of the contact, so a passive quantity is carried at the contact speed with the star density.
 4. *An isolated contact is exact.* With $p^{\mathrm L} = p^{\mathrm R}$ and $v_\perp^{\mathrm L} = v_\perp^{\mathrm R} = v$,
    @eq-ch04-hllc-contact gives $\lambda_{\mathrm c} = v$ and $p_{\mathrm c} = p$, and the flux is the physical flux of the
-   upwind side: no diffusion of the density jump (`solvers_check.py` `[C2]`). In the code, @eq-ch04-hllc-flux is `sl`, `sm` and `FLX` ({{< code src/riemann/hllc_impl.h hllc_impl >}}).
+   upwind side: no diffusion of the density jump (`solvers_check.py` `[C2]`). In the code, @eq-ch04-hllc-flux is `sl`, `sm` and `FLX` ({{< code src/riemann/riemann_kernels.h hllc_impl >}}).
 
 #### The clip and its bound
 
@@ -116,7 +116,7 @@ from snapy_report.ch04.figures.fig_ch04_schemes import make_wavefan
 make_wavefan("hllc")
 ```
 
-**Frame and the equation of state.** `HLLCSolverImpl::forward` fills `elr` with $\rho e$ (`W->I`), `glr` with
+**Frame and the equation of state.** `RiemannSolverImpl::solve` fills `elr` with $\rho e$ (`W->I`), `glr` with
 $\gamma$ and `clr` with $c_s$ for both sides, projects both states with `prim2local{1,2,3}_`, calls the kernel and
 turns the flux back with `flux2global{1,2,3}_`. The kernel adds $\tfrac12\rho\lvert\mathbf v\rvert^2$ to $\rho e$ to get
 $E$[^rg-0c5aa43793e0]. The face pressure is $p_{\mathrm c}$.
@@ -133,7 +133,7 @@ dynamics:
 
 **What the parser accepts and refuses.** As in @sec-ch04-riemann.
 
-**The excerpt.** `hllc_impl` ({{< code src/riemann/hllc_impl.h hllc_impl >}}), steps 2, 4, 5, 8 and 9 of its comments:
+**The excerpt.** `hllc_impl` ({{< code src/riemann/riemann_kernels.h hllc_impl >}}), steps 2, 4, 5, 8 and 9 of its comments:
 
 ```cpp
   auto pmid = .5 * (WL(IPR) + WR(IPR) + (WL(ivx) - WR(ivx)) * rhoa * ca);
@@ -159,18 +159,19 @@ dynamics:
 
 `pmid` is $p_{\mathrm{pv}}$; `al`, `ar` are $\lambda^{\mathrm L}, \lambda^{\mathrm R}$; `bp`, `bm` the clipped speeds; `am`, `cp` are
 @eq-ch04-hllc-contact; `sl`, `sm` and the two `FLX` lines are @eq-ch04-hllc-flux for the normal momentum and
-energy rows ($\mathbf D$ has $1$ and $\lambda_{\mathrm c}$ there). The middle-state velocity `umid` is computed and not
-used.
+energy rows ($\mathbf D$ has $1$ and $\lambda_{\mathrm c}$ there). The kernel also computes `pl`, `pr`, `shock_l`, `shock_r`,
+`ql`, `qr`, `vxl`, `vxr`, `tl`, `tr`, `ml`, `mr`, `rdl`, `rdr`, `fl`, `fr`, `sr`, `cp_total`, `fln` and `frn`, and adds
+the kinetic energy to `el` and `er`. Each of them enters `FLX`; `rhoa` and `ca` enter it only through `pmid`.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| the solver body | {{< code src/riemann/hllc_impl.h hllc_impl >}} | `hllc_impl` | `type: hllc` |
-| PVRS pressure and shock factors | {{< code src/riemann/hllc_impl.h hllc_impl >}} | `pmid` | |
-| clipped outer speeds | {{< code src/riemann/hllc_impl.h hllc_impl >}} | `TINY_NUMBER` | |
-| contact speed and pressure | {{< code src/riemann/hllc_impl.h hllc_impl >}} | `am` | |
-| face pressure written out | {{< code src/riemann/hllc_impl.h hllc_impl >}} | `face_pressure` | caller asked |
-| $\rho e$, $\gamma$, $c_s$ and the frame | {{< code src/riemann/hllc.cpp HLLCSolverImpl::forward >}} | `prim2local3_` | |
-| options construction (defaults in @sec-ch04-riemann) | {{< code src/riemann/riemann_solver.hpp RiemannSolverOptionsImpl >}} | `type` | `riemann-solver` |
+| the solver body | {{< code src/riemann/riemann_kernels.h hllc_impl >}} | `hllc_impl` | `type: hllc` |
+| PVRS pressure and shock factors | {{< code src/riemann/riemann_kernels.h hllc_impl >}} | `pmid` | |
+| clipped outer speeds | {{< code src/riemann/riemann_kernels.h riemann_tiny >}} | `riemann_tiny` | |
+| contact speed and pressure | {{< code src/riemann/riemann_kernels.h hllc_impl >}} | `am` | |
+| face pressure written out | {{< code src/riemann/riemann_kernels.h hllc_impl >}} | `face_pressure` | caller asked |
+| $\rho e$, $\gamma$, $c_s$ and the frame | {{< code src/riemann/riemann.cpp RiemannSolverImpl::solve >}} | `prim2local3_` | |
+| options construction (defaults in @sec-ch04-riemann) | {{< code src/riemann/riemann.hpp RiemannSolverOptionsImpl >}} | `type` | `riemann-solver` |
 
 : Code map of HLLC. {#tbl-ch04-hllc-code}
 
@@ -186,13 +187,16 @@ used.
 
 `[C9]` holds symbolically. On a line-for-line numpy port for a dry ideal gas, `solvers_check.py` `[C1]` finds the
 physical flux to $4.7\times10^{-14}$ relative over 200 random states and `[C2]` the contact to
-$5.3\times10^{-16}$.[^hllc-run] `test_riemann.release` passes at the pin on CPU, one rank (@tbl-ch04-ctest-run);
+$5.3\times10^{-16}$.[^hllc-run] `test_riemann.release` passed in the recorded run on CPU, one rank (@tbl-ch04-ctest-run);
 no ctest asserts the contact property.
 
 [^hllc-run]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the checks themselves; run:
     `python3 src/snapy_report/ch04/checks/derivation_check.py`
-    and `python3 src/snapy_report/ch04/checks/solvers_check.py`, CPU, double, 1 process; Python 3.11.13, numpy 2.4.6, sympy 1.14.0; output identical to the committed files]. `solvers_check.py` ports `hllc_impl`, which is unchanged
-    between the sha its header names and the code pin.
+    and `python3 src/snapy_report/ch04/checks/solvers_check.py`, CPU, double, 1 process; Python 3.11.13, numpy 2.4.6, sympy 1.14.0; output identical to the committed files]. `solvers_check.py` ports `hllc_impl` as it is at the sha
+    its header names (in `src/riemann/hllc_impl.h` there). At the code pin the kernel is in
+    `src/riemann/riemann_kernels.h` and has changed: it drops `umid`, takes `riemann_tiny` and `dry_fraction`, and
+    adds the reference-pressure branch (`shifted`) and FP32 branches for `vxl` and `vxr`. The port checks the
+    earlier kernel, not these changes.
 
 ### Limits
 
