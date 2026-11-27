@@ -24,7 +24,9 @@ def test_clean_contract():
     ('species', 'src/species.cpp#L175', 'src/species.cpp#L174'),
     ('condensate', '"formula": "h2o_bryan"', '"formula": "h2o_ideal"'),
     ('condensate', 'hydro_u.narrow(0, ICY, ny) = yfrac * rho;', 'hydro_u.narrow(0, IDN, ny) = yfrac * rho;'),
-    ('condensate', 'h_idx.push_back(id + 1);', 'h_idx.push_back(id);'),
+    ('condensate', 'h_idx.push_back(std::distance(func_names.begin(), it) + 1);',
+     'h_idx.push_back(std::distance(func_names.begin(), it));'),
+    ('condensate', '  X(h2o_bryan_ddT)', '  X(h2o_bryan_ddt)'),
 ])
 def test_contract_drift(tmp_path, key, old, new):
     if _LEGACY[key]:
@@ -43,7 +45,7 @@ def test_contract_drift(tmp_path, key, old, new):
     assert c.check(tmp_path) == 1
 
 
-KINTERA_BLOB = 'https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/'
+KINTERA_BLOB = 'https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/'
 
 
 def _code_lines(text):
@@ -73,12 +75,14 @@ def test_the_native_alternative_gives_the_formula_tables_and_rebuild():
     for piece in ('using user_func1 = double (*)(double);', 'inline double h2o_bryan(double T)',
                   'inline double h2o_bryan_ddT(double T)', 'user_func1 func1_table_cpu[] = {',
                   'std::vector<std::string> func1_names = {', '__device__ user_func1 func1_table_cuda[] = {',
-                  'nullptr,', 'funcs.push_back(func_table[id]);', 'h_idx.push_back(id + 1);', 'name += "_ddT";',
+                  'nullptr,', 'KINTERA_FUNC1_LIST(KINTERA_FUNC_PTR)', 'KINTERA_FUNC1_LIST(KINTERA_FUNC_NAME)',
+                  '#define KINTERA_FUNC1_LIST(X)', 'X(h2o_bryan_ddT)', 'funcs.push_back(func_table[id]);',
+                  'h_idx.push_back(std::distance(func_names.begin(), it) + 1);', 'name += "_ddT";',
                   'cmake --build build --parallel', 'pip install .',
                   'run: `python3 src/snapy_report/ch10/checks/func_table_check.py`'):
         assert piece in native, piece
-    for path in ('src/utils/user_funcs.hpp', 'src/vapors/vapor_functions.h', 'src/func_table.cpp',
-                 'src/func_table.cu', 'src/utils/user_funcs.cu', 'src/thermo/log_svp.hpp', 'README.md'):
+    for path in ('src/utils/user_funcs.hpp', 'src/vapors/vapor_functions.h', 'src/func_list.h', 'src/func_table.cpp',
+                 'src/func_table.cu', 'src/utils/user_funcs.cu', 'src/thermo/log_svp.cpp', 'README.md'):
         assert KINTERA_BLOB + path + '#L' in native, path
 
 
