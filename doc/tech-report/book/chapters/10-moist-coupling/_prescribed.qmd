@@ -1,0 +1,120 @@
+## Prescribed faces and their reapplication (`FluxRegister::apply_prescribed`) {#sec-ch10-prescribed}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 10.2; src/hydro/flux_register.cpp; src/hydro/hydro_forward.cpp; src/layout/seam_register.cpp; src/scalar/scalar.cpp; tests/test_prescribed_after_sources.cpp and tests/test_flux_register.cpp, all at the pin
+status: draft
+-->
+
+### Summary
+
+A wall face or a face of an immersed solid has a flux the boundary decides, zero for most rows. The register holds
+that prescription and applies it: it writes the prescribed value into the total, books what it removed under
+`boundary.prescribed`, and does the same on the kept parts without booking them. A stage applies it more than once,
+because writers that run after the sweep can put flux back on those faces.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Keep the boundary's faces at their prescribed value before any reader, and book the removal, @eq-ch10-prescribed.
+
+**Data.** In: the boundary's mask and value, or its wall planes and each plane's free rows. Out: the total and kept parts on those faces; a `boundary.prescribed` rate.
+
+**Placement.** In `HydroImpl::forward`: after the $x_1$ seam reconciliation, after the panel seams, after the sources' face posts, and once more after the implicit correction; in `ScalarImpl::forward` after the scalar fluxes.
+
+**Activation.** Whenever the boundary supplies a prescription; a direction without one is a no-op.
+
+**Guarantee / limits.** No source post on a prescribed face reaches the divergence; the post-implicit apply runs only when the implicit correction ran or the direction was written since.
+
+**Evidence.** `test_prescribed_after_sources.<b>`, `test_flux_register.<b>` (Tests).
+:::
+
+Local symbols: $M$[^rg-f8fbb113478f] is the prescription's mask over the rows and faces of $T_d$, $V$ its value; for a wall plane
+the value is zero and the mask is every row except the plane's free rows.
+
+### Derivation
+
+The prescription replaces the total on the masked faces, $T_d \leftarrow M\,V + (1-M)\,T_d$, so by
+@eq-ch10-overwrite the rate booked for row $r$ is
+
+$$
+a_r^{\mathrm{prescribed}} = \sum_{f} A_f\,M_{r,f}\,\bigl(V_{r,f} - T_{d,r,f}\bigr),
+$$ {#eq-ch10-prescribed}
+
+with $T_d$ the total just before the apply. For a wall, $V = 0$, so the booked rate is minus the transfer the
+writers had put on the wall. An apply right after another changes nothing and books zero, because the faces already
+hold $V$.
+
+The order matters for one reason. The divergence reads the totals, so any writer that runs after the last apply and
+before the divergence can move flux through a wall. The sources' face posts are such writers: they run after the
+sweeps and the limiter, and a post that writes every face, such as diffusion's, writes the wall faces too. Hence the
+apply after the sources' posts. The implicit correction writes the $x_1$ total directly after the divergence, and a
+posting writer can mark a direction after the last apply, hence the post-implicit apply.
+
+### Numerical method
+
+**Supply.** The boundary hands the register its prescription through `supply_prescribed`
+({{< code src/layout/seam_register.cpp supply_prescribed >}}). For every direction it collects the block faces of
+kind `wall`. Without a solid it calls `set_prescribed_walls` with those face planes and each plane's free rows
+({{< code src/hydro/flux_register.cpp FluxRegister::set_prescribed_walls >}}). With a solid it builds a full mask of
+the wall planes and of every face with a solid cell on either side, frees the free rows, and calls `set_prescribed`
+with value zero ({{< code src/hydro/flux_register.cpp FluxRegister::set_prescribed >}}). Each replaces the other.
+
+**Apply.** `apply_prescribed` has two paths ({{< code src/hydro/flux_register.cpp FluxRegister::apply_prescribed >}}).
+On the wall-plane path it gathers the wall planes of the total, zeroes each plane's prescribed rows on the kept parts
+plane by plane, and calls `overwrite_` on the gathered planes with the prescribed rows zeroed; only the total books.
+On the mask path it writes $V$ on the masked faces of every kept part, then calls `overwrite_` with
+`torch::where(mask, value, total)`. Both book under `boundary.prescribed` and both clear the written mark at the end.
+
+**Where a stage applies it.** In `HydroImpl::forward` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}):
+
+1. after the $x_1$ seam reconciliation, on $x_1$, unless the $x_1$ flux is disabled;
+2. after the panel seams' reconciliation, on $x_2$ and $x_3$;
+3. after the sources' face posts and before the divergence, on every active direction;
+4. after the implicit correction, on $x_1$, when the implicit correction ran or `written_since_prescribed(1)` is
+   true.
+
+The scalar module supplies and applies the same prescription to its own register after forming the scalar fluxes
+({{< code src/scalar/scalar.cpp ScalarImpl::forward >}}). The settling carry on a prescribed face, which marks
+$x_1$ through `add` after the pre-divergence apply, is @sec-ch08-carry.
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| the boundary's supply | {{< code src/layout/seam_register.cpp supply_prescribed >}} | `FaceKind::wall` | wall faces, solids |
+| wall planes and free rows | {{< code src/hydro/flux_register.cpp FluxRegister::set_prescribed_walls >}} | `_pwall`, `_prow` | no solid |
+| a full mask and value | {{< code src/hydro/flux_register.cpp FluxRegister::set_prescribed >}} | `_pmask`, `_pvalue` | solid |
+| the apply and its booking | {{< code src/hydro/flux_register.cpp FluxRegister::apply_prescribed >}} | `boundary.prescribed` | |
+| the four hydro call sites | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `apply_prescribed` | |
+| the post-implicit condition | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `written_since_prescribed` | implicit ran or mark set |
+| the scalar register's apply | {{< code src/scalar/scalar.cpp ScalarImpl::forward >}} | `apply_prescribed` | scalars |
+
+: Code map of the prescribed faces. {#tbl-ch10-prescribed-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `test_prescribed_after_sources.<b>` (`a_source_post_on_the_walls_is_prescribed_again`) | a source that posts energy flux on every $x_1$ face leaves the wall planes at zero, the interior faces keep it, and the removal is booked | exact zero on the walls; nonzero booking | the apply after the sources ({{< code tests/test_prescribed_after_sources.cpp FluxRegister.a_source_post_on_the_walls_is_prescribed_again >}}) |
+| `test_prescribed_after_sources.<b>` (`a_source_post_on_the_walls_does_not_reach_du`) | the same post on every face and on the interior faces alone give the same energy row of the stage increment | exact (maximum difference 0) | the wall post must not reach the increment at all ({{< code tests/test_prescribed_after_sources.cpp FluxRegister.a_source_post_on_the_walls_does_not_reach_du >}}) |
+| `test_prescribed_after_sources.<b>` (`a_prescribed_wall_temperature_conducts_in_a_full_step`) | a wall with a prescribed temperature conducts the expected energy in a stage, and the conduction is not booked as a removal; a reflecting wall conducts nothing | $10^{-9}$ relative on the conducted energy; $10^{-12}$ of the column's energy on the booking | set inline; the test's comment: the round-off of a mirrored wall's flux is measured against the column's energy ({{< code tests/test_prescribed_after_sources.cpp FluxRegister.a_prescribed_wall_temperature_conducts_in_a_full_step >}}) |
+| `test_flux_register.<b>` (`apply_prescribed_writes_the_value_and_books_the_change`) | the apply writes $V$ on the mask, books @eq-ch10-prescribed, books nothing for an unmasked row, and a second apply books zero | $10^{-15}$ relative | set inline ({{< code tests/test_flux_register.cpp FluxRegister.apply_prescribed_writes_the_value_and_books_the_change >}}) |
+| `test_flux_register.<b>` (`apply_prescribed_prescribes_the_kept_parts`) | the kept parts get the prescription, only the total books | exact | ({{< code tests/test_flux_register.cpp FluxRegister.apply_prescribed_prescribes_the_kept_parts >}}) |
+
+: Tests of the prescribed faces. {#tbl-ch10-prescribed-tests}
+
+All pass at the pin, on CPU (@tbl-ch10-ctest-run).
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- The post-implicit apply is conditional. A writer that changes the $x_1$ total after the pre-divergence apply
+  without going through `add`, `scale` or `overwrite_` sets no mark, and the faces are re-prescribed only if the
+  implicit correction ran.
+:::
+
+1. **Only $x_1$ is re-prescribed after the implicit correction.** $x_2$ and $x_3$ get the pre-divergence apply
+   alone; the implicit correction writes only $x_1$ ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}).
+
+<!-- reader glossary notes -->
+[^rg-f8fbb113478f]: $M$, $M_{\mathrm{wall}}$ — total mass of the domain, and total mass of the $x_1$ wall cells
+<!-- end reader glossary notes -->

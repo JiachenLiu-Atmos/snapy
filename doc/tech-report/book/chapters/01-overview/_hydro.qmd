@@ -40,7 +40,7 @@ in their owning chapters.
 
 1. The primitive conversion with the EOS and the solid marking (@sec-ch02, @sec-ch11-solids).
 2. The $x_1$ face states, the well-balanced reference and wall treatment (@sec-ch05, @sec-ch11-wb). Then the
-   $x_1$ Riemann flux (@sec-ch04), the sedimentation flux (@sec-ch10-sed) and the single-valued $x_1$ seam flux
+   $x_1$ Riemann flux (@sec-ch04), the sedimentation flux (@sec-ch08-sed) and the single-valued $x_1$ seam flux
    across process seams (@sec-ch03-x1seams). A same-process seam is not averaged.
 3. The lateral face states, with the cross-panel exchange of the cubed sphere (@sec-ch03).
 4. The lateral fluxes with the face-flux covariance (@sec-ch04-fluxcov) and the tracer positivity limiter with its raw

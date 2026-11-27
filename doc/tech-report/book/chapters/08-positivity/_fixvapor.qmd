@@ -83,7 +83,7 @@ one line.
 
 The branch that runs when the window passes the bottom with $Q - D < 0$ is a different one: it zeroes the window
 and takes the deficit from the cells above, cell by cell, and fails if they cannot cover it
-({{< code src/eos/fix_vapor_impl.h fix_vapor_impl >}}). @sec-ch10-fixvapor derives that branch.
+({{< code src/eos/fix_vapor_impl.h fix_vapor_impl >}}). @sec-ch08-fixvapor derives that branch.
 
 This chapter does not port the repair. The search is a device kernel reached through a dispatch call, so a numpy port
 would be a reimplementation. A check built on it would test the reimplementation and not the code. The conservation

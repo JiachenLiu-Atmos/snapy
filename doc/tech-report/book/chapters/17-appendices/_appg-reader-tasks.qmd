@@ -23,11 +23,11 @@
 - Check whether density and pressure positivity is guaranteed and what happens when it fails. See The equation-of-state limiter: two passes, floors and marks, @sec-ch08-eoslimiter.
 - Find how radiation is coupled to the dynamics. See Locate dependencies outside snapy, @sec-ch01-dependencies.
 - Understand how kintera and pyharp plug in and whether my first run needs them. See External component interfaces, @sec-appe-components.
-- Understand precipitation and sedimentation: fall speed, time-step limit, budget at the bottom. See Sedimentation of condensates, @sec-ch10-sed.
+- Understand precipitation and sedimentation: fall speed, time-step limit, budget at the bottom. See Sedimentation of condensates, @sec-ch08-sed.
 - Open a NetCDF output file in Python and plot temperature. See NetCDF output: per-block files and the combine, @sec-ch14-netcdf.
 - Understand how output is written across processes and its limits. See NetCDF output: per-block files and the combine, @sec-ch14-netcdf.
-- Understand condensation/evaporation: saturation adjustment or kinetics, and the latent heat in the energy. See Saturation adjustment in the step, @sec-ch10-satadj.
-- Add sedimentation or precipitation for a condensate and see how it limits the step. See Sedimentation of condensates, @sec-ch10-sed.
+- Understand condensation/evaporation: saturation adjustment or kinetics, and the latent heat in the energy. See Saturation adjustment in the step, @sec-ch08-satadj.
+- Add sedimentation or precipitation for a condensate and see how it limits the step. See Sedimentation of condensates, @sec-ch08-sed.
 - Look up the state-vector layout and the units of condensates. See [2. State, thermodynamics and species](#sec-appa-2).
 - Write a new boundary condition, fill its ghosts and select it from the input. See Reserve a face or fill a solid mask, @sec-ch11-custom.
 - Check bitwise reproducibility across CPU/GPU, threads and ranks. See Reproducibility: what is shown bit for bit and what is not, @sec-ch14-repro.
@@ -134,7 +134,7 @@
 - Pick the lower boundary condition for a planet with no surface. See Register and classify block faces, @sec-ch11-registry.
 - Replace a Rayleigh bottom drag. See Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch07-sponge.
 - Impose a bottom heat flux. See Body heating, top cooling and bottom heating, @sec-ch07-heating.
-- Set up condensable species and choose what happens to the condensate (rain out, retained, advected). See Saturation adjustment in the step, @sec-ch10-satadj.
+- Set up condensable species and choose what happens to the condensate (rain out, retained, advected). See Saturation adjustment in the step, @sec-ch08-satadj.
 - Decide between float32 and float64. See Expose the C++ API to Python, @sec-ch01-python.
 - Read the exact equation set snapy solves, with every source term. See Conservation laws and variables, @sec-ch02-laws.
 - Understand the overall discretization: finite volume and which variables are reconstructed. See The finite-volume update and the flux divergence, @sec-ch04-divergence.
@@ -181,8 +181,8 @@
 - Prototype a forcing in Python without recompiling, and know its cost against C++. See User stage forcings: TorchScript modules called every stage, @sec-ch07-user.
 - Find whether a stiff forcing can be treated implicitly. See The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 - Show that my forcing changes mass, momentum and energy only as intended, per step. See Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle.
-- Test that a new condensate conserves total water and moist energy through a phase change. See Saturation adjustment in the step, @sec-ch10-satadj.
-- Add a new condensate species: declare its data and saturation formula and find its state-vector row. See Saturation adjustment in the step, @sec-ch10-satadj.
+- Test that a new condensate conserves total water and moist energy through a phase change. See Saturation adjustment in the step, @sec-ch08-satadj.
+- Add a new condensate species: declare its data and saturation formula and find its state-vector row. See Saturation adjustment in the step, @sec-ch08-satadj.
 - Keep an atmosphere at rest exactly at rest at a wall: hydrostatic ghosts. See Keep wall ghosts consistent with the hydrostatic reference, @sec-ch11-wb.
 - Know how a boundary condition behaves at block seams and across ranks. See Supply ghosts through layout exchange, @sec-ch11-exchange.
 - Find which tests a new module needs and how to register them. See Build options and test registration, @sec-ch12-build.

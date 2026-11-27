@@ -1,0 +1,130 @@
+## Monitor counts, minima and retry flags (`RegisterMonitor::count`) {#sec-ch10-counts}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 10.5; src/hydro/flux_register.{hpp,cpp}; src/hydro/hydro.cpp; src/hydro/sweep.cpp; src/mesh/meshblock_advance.cpp; tests/test_flux_register.cpp and tests/test_fp32_face_floor_counts.py, all at the pin
+status: draft
+-->
+
+### Summary
+
+Beside the amounts, the monitor keeps three small vectors: integer counters of events, minima, and retry flags.
+A poster hands it a whole mask of faces or cells; the monitor does not reduce each mask at once. It copies the stage's
+masks into one buffer and reduces them all at the stage's end with one integer cumulative sum, so there are no
+atomics and the reduction is the same eager and captured.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Count events per step without a reduction per mask, @eq-ch10-counts; keep the step's minima and an OR of the retry causes.
+
+**Data.** In: masks or 0-d counts, values for a minimum, a flag or mask per cause. Out: `counters` (int64), `minima` (FP64, $+\infty$ when unset), `retry_flags` (int32 0/1).
+
+**Placement.** Masks during the stage; `flush_counts` at `end_stage`, in the combine.
+
+**Activation.** Always; a name must be declared in the register's request.
+
+**Guarantee / limits.** Integer sums, exact; a declared name with no poster stays zero.
+
+**Evidence.** `test_flux_register.<b>`, `test_fp32_face_floor_counts_python` (Tests).
+:::
+
+Local symbols: $c$ is a counter, $j$ a slot of the stage's count buffer, $[b_j, e_j)$ the slot's range in the buffer
+and $C$[^rg-3b633fdb66aa] the buffer's inclusive cumulative sum behind one leading zero.
+
+### Derivation
+
+None beyond a prefix sum. If the stage's masks lie one after the other in a buffer whose first element is zero, and
+$C$ is its cumulative sum, the number of set entries in slot $j$ is $C_{e_j} - C_{b_j}$. Counter $c$ receives
+
+$$
+n_c \mathrel{+}= \sum_{j\,:\,\mathrm{counter}(j)=c} \bigl(C_{e_j} - C_{b_j}\bigr),
+$$ {#eq-ch10-counts}
+
+exact because every addition is an integer one.
+
+### Numerical method
+
+**Declared names.** The hydro register declares its names in `HydroImpl::reset`
+({{< code src/hydro/hydro.cpp HydroImpl::reset >}}): fifteen counters (seven `ef.*` names, `face_floor.rho`,
+`face_floor.p`, `face_floor.species`, `riemann.pstar_clamp`, `riemann.llf`, `thermo.temp_solve`,
+`thermo.pres_solve` and `implicit.fp64_columns`, last so the others keep their indices), one minimum, `ef.pos_min`,
+and five retry causes (`ef.floor_patch`, `ef.nan`, `ef.vapor_fail`, `ef.heat_capacity`, `implicit.column`). A name
+that was not declared throws ({{< code src/hydro/flux_register.cpp RegisterMonitor::counter_index >}}).
+
+**Who posts at the pin.** The sweep posts one mask per face floor that ran and one per Riemann event
+({{< code src/hydro/sweep.cpp post_face_floors >}}, {{< code src/hydro/sweep.cpp post_riemann_events >}}). The
+saturation adjustment posts kintera's rows 1 and 2, the temperature and pressure solves that did not converge
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}}). The implicit correction counts the
+columns it retried in FP64 and flags `implicit.column` with the column status
+({{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}}). No code at the pin posts the seven `ef.*`
+counters or `ef.pos_min`; the request's comment says nothing writes them yet
+({{< code src/hydro/hydro.cpp HydroImpl::reset >}}). The meters of those names live in the block's `EfStatus`
+(@sec-ch08-efstatus).
+
+**`count`.** A 0-d count adds into its counter at once, one launch; a float count is cast to the counters' integer
+dtype first ({{< code src/hydro/flux_register.cpp RegisterMonitor::count >}}). A mask or vector is flattened and
+copied into the next slot of the stage's count buffer. The slot pattern, counter index and length per slot, is
+checked at each post; a new or changed slot lays the buffer and the segment ends out again, eagerly
+({{< code src/hydro/flux_register.cpp RegisterMonitor::pend_slot_ >}}).
+
+**`flush_counts`** forms @eq-ch10-counts: one integer cumulative sum over the buffer, one gather of the segment ends
+and starts, zero-padded to the largest number of slots per counter (a pad points at the leading zero), one sum over
+the slots, one add into the counters, then one zero of the buffer
+({{< code src/hydro/flux_register.cpp RegisterMonitor::flush_counts >}}). The comment there records why: an
+`index_add_` would scatter-add every mask element with FP64 atomics on CUDA. `end_stage` calls it, inside the captured
+combine ({{< code src/hydro/flux_register.cpp RegisterMonitor::end_stage >}}), and the buffer is registered with
+the state store as `freg.counts`, and the scalar register's as `sreg.counts`, so a warm-up's flush does not leave the
+capture an empty buffer ({{< code src/mesh/meshblock.cpp MeshBlockImpl::register_flux_storage >}}).
+
+**Minima and flags.** `record_min` keeps the minimum of the slot and the posted value's minimum
+({{< code src/hydro/flux_register.cpp RegisterMonitor::record_min >}}). `flag_retry` ORs a flag, or the `any` of a
+mask, into the cause's slot in place ({{< code src/hydro/flux_register.cpp RegisterMonitor::flag_retry >}}).
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| declared names | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `req.counters`, `req.minima`, `req.retry` | |
+| a count | {{< code src/hydro/flux_register.cpp RegisterMonitor::count >}} | `_pend_buf` | |
+| slot layout | {{< code src/hydro/flux_register.cpp RegisterMonitor::pend_slot_ >}} | `_pend_ends` | |
+| the stage's reduction | {{< code src/hydro/flux_register.cpp RegisterMonitor::flush_counts >}} | `cumsum` | |
+| face floor and Riemann posts | {{< code src/hydro/sweep.cpp post_face_floors >}} | `face_floor.*`, `riemann.*` | floors, events |
+| unconverged solves | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}} | `thermo.temp_solve` | reactions |
+| FP64 retried columns, the implicit flag | {{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}} | `implicit.fp64_columns` | implicit, FP64 fallback |
+| minima and flags | {{< code src/hydro/flux_register.cpp RegisterMonitor::flag_retry >}} | `logical_or_` | |
+
+: Code map of the monitor counts. {#tbl-ch10-counts-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `test_flux_register.<b>` (`census_counts_minima_and_retry_flags`) | a mask of $\{3, 4\}$ and a 0-d 2 count 9 after the flush; the minimum of 0.5, 0.25 and 0.75 is 0.25; a retry OR stays set; an undeclared name throws; a rollback clears all three | exact | ({{< code tests/test_flux_register.cpp RegisterMonitor.census_counts_minima_and_retry_flags >}}) |
+| `test_fp32_face_floor_counts_python` | on the FP32 split path, a stage with the pressure floor raised to $5\times10^4$ Pa counts `face_floor.p` > 0; at the deck's floor it counts 0 | pass/fail | the test's own checks ({{< code tests/test_fp32_face_floor_counts.py counts >}}) |
+| `test_flux_register.<b>` (`a_failed_column_flags_implicit_column`) | a column whose state holds a NaN sets the `implicit.column` flag, and a clean one does not | exact | ({{< code tests/test_flux_register.cpp FluxRegister.a_failed_column_flags_implicit_column >}}) |
+
+: Tests of the monitor counts. {#tbl-ch10-counts-tests}
+
+All pass at the pin, on CPU (@tbl-ch10-ctest-run). Run on its own at the pin, the FP32 test prints 0 pressure floors
+at the deck's floor and 4340 at $5\times10^4$ Pa, and 5692 for the FP64 block at $5\times10^4$ Pa.[^ch10-ffc]
+
+[^ch10-ffc]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: `tests/test_anomaly_storage.yaml` as the
+    test changes it; run: `python test_fp32_face_floor_counts.py` in the build's test directory, CPU, one thread;
+    the same build and versions as @tbl-ch10-ctest-run]. Line `FP32 face_floor.p` of
+    `src/snapy_report/ch10/evidence/logs/ctest_pin_run.log`.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- Seven counters and the one minimum the request declares, the `ef.*` names, have no poster at the pin and read
+  zero and $+\infty$. Their meters are kept in `EfStatus` (@sec-ch08-efstatus), which is what the cycle line and
+  `test_cycle_diagnostics` read.
+:::
+
+1. **The outline's second test reads other meters.** STRUCTURE.md 10.5 names `test_cycle_diagnostics`; its cases
+   check the cycle line's positivity and clamp meters, which come from `EfStatus`, not from the register's
+   counters ({{< code tests/test_cycle_diagnostics.cpp cycle_info.positivity_meters_read_their_hand_computed_values >}}).
+   This section does not use it as evidence.
+
+<!-- reader glossary notes -->
+[^rg-3b633fdb66aa]: $C$ — Courant number (named: acoustic, advective, vertical acoustic)
+<!-- end reader glossary notes -->

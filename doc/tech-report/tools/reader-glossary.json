@@ -734,7 +734,7 @@
       "kind": "key",
       "term": "ncycle_out",
       "meaning": "number of cycles between printed cycle lines; 0 turns the line off",
-      "section": "sec-ch10-redo",
+      "section": "sec-ch13-cycle",
       "not_defined_here": true
     },
     {
@@ -1249,8 +1249,7 @@
         "chapters/03-grids-geometry/_x1seams.qmd": "scalar row index in the seam tag list",
         "chapters/05-well-balanced/_wallclamp.qmd": "the $x_3$ cell index",
         "chapters/09-time-integration/_vic-pivot.qmd": "the $x_3$ cell index",
-        "chapters/07-diffusion-forcing/_framework.qmd": "summation index of the bound",
-        "chapters/10-moist-coupling/_redo.qmd": "the $x_3$ cell index"
+        "chapters/07-diffusion-forcing/_framework.qmd": "summation index of the bound"
       },
       "section": "sec-appa-2a"
     },
@@ -2027,7 +2026,7 @@
       "kind": "key",
       "term": "uv-solver",
       "meaning": "solver used for fixed-energy saturation adjustment",
-      "section": "sec-ch10-satadj",
+      "section": "sec-ch08-satadj",
       "not_defined_here": false
     },
     {
@@ -2320,7 +2319,7 @@
       "kind": "key",
       "term": "sedimentation",
       "meaning": "sedimentation-model options",
-      "section": "sec-ch10-sed",
+      "section": "sec-ch08-sed",
       "not_defined_here": true
     },
     {
@@ -2347,7 +2346,7 @@
       "kind": "key",
       "term": "const-vsed",
       "meaning": "prescribed sedimentation velocities indexed by species",
-      "section": "sec-ch10-sed",
+      "section": "sec-ch08-sed",
       "not_defined_here": true
     },
     {
@@ -2517,13 +2516,13 @@
     {
       "kind": "concept",
       "term": "latent heat",
-      "section": "sec-ch10-satadj",
+      "section": "sec-ch08-satadj",
       "not_defined_here": false
     },
     {
       "kind": "concept",
       "term": "mixing ratio",
-      "section": "sec-ch10-tracer",
+      "section": "sec-ch08-theta",
       "not_defined_here": false
     },
     {

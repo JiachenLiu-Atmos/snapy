@@ -35,13 +35,13 @@
 
 **Q-045.** How do thermodynamics (kintera) and radiation (pyharp) plug into the dynamics, and do I need them for my first run? See External component interfaces, @sec-appe.
 
-**Q-053.** How is precipitation and sedimentation treated: fall speed, time-step limits? Is the mass leaving at the bottom counted in the budgets? See Sedimentation of condensates, @sec-ch10-sed.
+**Q-053.** How is precipitation and sedimentation treated: fall speed, time-step limits? Is the mass leaving at the bottom counted in the budgets? See Sedimentation of condensates, @sec-ch08-sed.
 
 **Q-065.** How is output produced across processes: does each process write separately, does one gather the data, or is parallel I/O used, and what limits follow from that choice? See NetCDF output: per-block files and the combine, @sec-ch14-netcdf.
 
-**Q-073.** How does condensation and evaporation work: saturation adjustment or kinetic rates? Where is it called, and how does the energy equation see the latent heat? See Saturation adjustment in the step, @sec-ch10-satadj.
+**Q-073.** How does condensation and evaporation work: saturation adjustment or kinetic rates? Where is it called, and how does the energy equation see the latent heat? See Saturation adjustment in the step, @sec-ch08-satadj.
 
-**Q-074.** How do I add sedimentation or precipitation for a condensate? Is it carried by the hydro flux or by a separate flux? How does it enter the time-step limit? See Sedimentation of condensates, @sec-ch10-sed.
+**Q-074.** How do I add sedimentation or precipitation for a condensate? Is it carried by the hydro flux or by a separate flux? How does it enter the time-step limit? See Sedimentation of condensates, @sec-ch08-sed.
 
 **Q-075.** What is the layout of the state vector? What is the order of density, momenta, energy, vapors, condensates and passive scalars? Are condensates stored as mass fractions, mixing ratios or densities, and in which units? See [2. State, thermodynamics and species](#sec-appa-2).
 
@@ -73,7 +73,7 @@
 
 **Q-014.** What lower-boundary options exist for a planet with no surface (deep bottom, imposed heat flux, free-slip, sponge)? What replaces my old Rayleigh bottom drag? See Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch07-sponge. Not covered: one list of lower-boundary options for a planet without a surface.
 
-**Q-015.** How do I set up condensable species (NH3, H2O, NH4SH; CH4 and H2S for ice giants), and what happens to the condensate: immediate rainout, retained, or advected? See Saturation adjustment in the step, @sec-ch10-satadj. Not covered: CH4/ice-giant setup and the species declaration.
+**Q-015.** How do I set up condensable species (NH3, H2O, NH4SH; CH4 and H2S for ice giants), and what happens to the condensate: immediate rainout, retained, or advected? See Saturation adjustment in the step, @sec-ch08-satadj. Not covered: CH4/ice-giant setup and the species declaration.
 
 **Q-016.** Should I run in float32 or float64, and what does each cost or risk? See Expose the C++ API to Python, @sec-ch01-python. Not covered: a recommendation and a cost comparison.
 
@@ -155,7 +155,7 @@
 
 **Q-070.** Is there a harness I can reuse to show my forcing changes mass, momentum and energy only as intended, budgeted per step? See Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle. Not covered: a reusable per-forcing harness; momentum budget.
 
-**Q-071.** How do I test that a new condensate conserves total water (vapor + condensate) and moist energy through a phase change? What tolerance should I expect: round-off or truncation? See Saturation adjustment in the step, @sec-ch10-satadj. Not covered: a recipe for a new condensate.
+**Q-071.** How do I test that a new condensate conserves total water (vapor + condensate) and moist energy through a phase change? What tolerance should I expect: round-off or truncation? See Saturation adjustment in the step, @sec-ch08-satadj. Not covered: a recipe for a new condensate.
 
 **Q-072.** How do I add a new condensate species? Where do I declare its thermodynamic data (cp, latent heat, saturation curve), how does it enter the state vector, and what name and index does it get? See Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist. Not covered: an add-a-species procedure; the saturation curve.
 

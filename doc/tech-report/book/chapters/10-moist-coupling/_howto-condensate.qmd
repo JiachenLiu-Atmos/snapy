@@ -5,7 +5,7 @@
 **A minimal input.** Follow steps 0–5 in one Python file, run from the repository root. The example adds a
 condensate and the reaction that names it, and checks that one step's saturation adjustment moves water from
 the vapour to the condensate. Adding a gas on its own is @sec-ch02-ideal-moist; adding a passive tracer, which
-has no thermodynamics or phase change, is a name in the `scalar` block (@sec-ch01-scalar, @sec-ch10-tracer).
+has no thermodynamics or phase change, is a name in the `scalar` block (@sec-ch01-scalar, @sec-ch08-drycarry).
 
 0. Prepare a tiny column with the chemistry of `examples/bryan.yaml`, and two helpers: one builds a block from a
    species list and a reaction list, one runs one stage on a uniform state.

@@ -214,7 +214,7 @@ that scratch's dry row. After the tracer transport, `MeshBlockImpl::stage_advanc
 $r_n\,\Delta\rho_{\mathrm{d}}^{\mathrm{forc}}$ to the tracer increment with
 `carry_dry_source` ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}}). For removal,
 $\Delta\rho_{\mathrm{d}}^{\mathrm{forc}} < 0$, it uses the ratio of the stage result without the source in place of
-$r_n$, so that a removal cannot take more tracer than transport has left; @sec-ch10-tracer derives that choice.
+$r_n$, so that a removal cannot take more tracer than transport has left; @sec-ch08-drycarry derives that choice.
 
 ### Numerical method
 
@@ -432,7 +432,7 @@ The ctest cases run on CPU[^rg-9dfff25f07b9], one rank; there is no CUDA or mult
 
 [^rg-74fca7ae66a7]: $k = 1..N_r$ — summation index of the bound
 
-[^rg-b5f217c11777]: $r_n$ — mass mixing ratio of species $n$ **per unit dry mass**, $r_n = \rho_n/\rho_{\mathrm{d}}$, dimensionless [-]; used only where the code is per dry air (passive tracers, @sec-ch10-tracer). Never written $r$ without its species subscript, because $r$ alone is the radius (§1)
+[^rg-b5f217c11777]: $r_n$ — mass mixing ratio of species $n$ **per unit dry mass**, $r_n = \rho_n/\rho_{\mathrm{d}}$, dimensionless [-]; used only where the code is per dry air (passive tracers, @sec-ch08-drycarry). Never written $r$ without its species subscript, because $r$ alone is the radius (§1)
 
 [^rg-314705dc3042]: relax-bot-comp — bottom composition-relaxation options
 

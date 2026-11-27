@@ -151,7 +151,7 @@ accepted step advances the cycle (step 3). What is refused, and why:
 - `max_redo` is not a YAML key: `integration/max_redo` stops with "unknown key 'integration/max_redo'", and pyharp's
   reader never sets it, so YAML runs keep the default of `max_redo`, 5
   ([`pyharp integrator.hpp:58`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.hpp#L58)).
-  A Python driver sets it with `op.intg().max_redo(n)` before building the block (@sec-ch10-redo).
+  A Python driver sets it with `op.intg().max_redo(n)` before building the block (@sec-ch08-redo).
 
 The card and both refusals were run on a build of the pin with these messages.[^ch09-redo-card]
 

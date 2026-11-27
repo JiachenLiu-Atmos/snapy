@@ -2,7 +2,7 @@ This chapter follows the conserved state through the EOS[^rg-ba9e60e5ab2e] and t
 defines the stored rows and their maps to the primitive state, including anomaly storage, and describes the five
 EOS types, their energy conventions and the identities the floors and the transport rely on. Two of the types,
 `ideal-gas` and `ideal-moist`, may be captured in a CUDA[^rg-6f633b2ccc44] graph; the other three always run eager
-(@sec-ch02-other-eos). Floors belong to @sec-ch08; rejection and condensate repair belong to @sec-ch10.
+(@sec-ch02-other-eos). Floors belong to @sec-ch08; rejection and condensate repair belong to @sec-ch08.
 
 ```{python}
 #| label: fig-ch02-dependencies
