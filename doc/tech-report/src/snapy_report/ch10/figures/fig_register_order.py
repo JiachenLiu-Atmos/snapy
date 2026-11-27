@@ -9,11 +9,11 @@ from snapy_report.ch01.flow import make_flow
 
 def make_fig():
     return make_flow([
-        "stage 0 only: begin_step zeroes the step fields and the monitor; the wall batch is cleared (10.6)",
-        "every stage: begin_stage selects the amount slot; the wall batch's cursor restarts (10.3, 10.4)",
-        "sweeps: the Riemann total, seam replace, face-floor and event masks counted (10.1, 10.5)",
-        "prescribed faces after the seams and after the sources' posts, before the divergence (10.2)",
-        "after the implicit correction: x1 prescribed again if it ran or the mark is set (10.2)",
-        "combine: the wall batch flushed, then end_stage folds the step fields and reduces the counts (10.3-10.5)",
-        "after an accepted step: the budget output observes the step fields and the counts (10.7)",
+        "stage 0 only: begin_step zeroes step fields and monitor; wall batch cleared (10.6)",
+        "every stage: begin_stage picks the amount slot; wall batch cursor restarts (10.3, 10.4)",
+        "sweeps: Riemann total, seam replace, face-floor and event masks counted (10.1, 10.5)",
+        "prescribed faces after the seams and after the sources' posts (10.2)",
+        "after the implicit correction: x1 prescribed again if it ran or is marked (10.2)",
+        "combine: wall batch flushed; end_stage folds step fields, reduces counts (10.3-10.5)",
+        "after an accepted step: the budget output observes step fields and counts (10.7)",
     ])
