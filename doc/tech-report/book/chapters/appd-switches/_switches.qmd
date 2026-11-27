@@ -222,8 +222,10 @@ backend per entry ({{< code tests/CMakeLists.txt >}}), as the entry's own enviro
 the entry runs; the three Python `SNAP_X1_CENTROID_EXACT` entries and the gtest `test_process_group` set the
 variable in their own source, for a child process or in-process. Two further groups set a variable of
 @tbl-appd-layout only to launch the case they test, and the table lists them as groups: the entries whose wrapper
-script or test source starts its ranks with `BACKEND=gloo` (eight, three more in `FULL_TESTS` builds), and eleven
-Python entries that set `DEVICE` and `DEVICE_ID` to the device under test. Each row is one variable or one group;
+script or test source starts its ranks with `BACKEND=gloo` (eight, three more in `FULL_TESTS` builds), and eighteen
+entries that set `DEVICE` (with `DEVICE_ID`, except the gtest) to the device under test: eleven Python scripts in their
+own file, six Python entries through a helper imported from another test script, and one gtest for a child process.
+Each row is one variable or one group;
 the test names are the registered ctest names, without the build-type suffix. The pass rule of the seam arms
 differs by arm: `seam_arm` sets `PASS_REGULAR_EXPRESSION`, so a single-process arm passes only on gtest's own line
 `[  PASSED  ] 1 test.` and a skipped or empty arm fails its entry; the CUDA arms add a `SKIP_REGULAR_EXPRESSION`
@@ -241,7 +243,7 @@ sets only the environment and passes on the exit status of both ranks.
 | `test_radial_order_x1_centroid_python`, `test_radial_order_x1_centroid_cuda_python` (CUDA builds) | `SNAP_X1_CENTROID_EXACT=1` set by the script: WENO5 and cp5 face values from plain means on a stretched spherical-polar $x_1$ keep their order over $n = 32, 64, 128$ | observed order of the last refinement $\geq 4$ (4.5 for the unswitched entry) | the test source |
 | `test_stencil_cache_small_block_python` | `SNAP_X1_CENTROID_EXACT=1` on spherical-polar blocks of 2 to 6 $x_1$ cells: two RK3 steps of a resting column run and stay finite, or the block is refused cleanly at setup; switch-off controls on Cartesian and spherical-polar blocks | exact: each child's exit code and last line | the test source |
 | `test_anomaly_storage_python`, `test_anomaly_storage_cuda_python` (CUDA builds) | `SNAP_ANOMALY=1` in a child process turns `dynamics/anomaly` on without the deck key, and an unsupported EOS refuses it (refusal 4) | exact: the child's last line, a throw | the test source |
-| `test_options_table` | the reader keeps the words of `SNAP_ANOMALY` (`on`, the empty value) and its refusal of `maybe` (refusal 3) | exact | the test source |
+| `test_options_table` | the reader keeps the words of `SNAP_ANOMALY` (`on`, the empty value) and its refusal of `maybe` (refusal 3); its `distribute_backend_default` case also unsets and then sets `BACKEND=gloo` in-process and expects the layout to report the platform default and then `gloo` | exact | the test source |
 | `test_process_group` | in-process `setenv`/`unsetenv`: with `BACKEND=gloo` the constructed layout reports `gloo`, and the environment overrides a deck backend while the deck value alone is ignored; with `MASTER_PORT` unset a single process gets a random port and a world size above 1 is refused (refusal 5) | exact: gtest expectations | the test source |
 | `test_diffusion_cubed_sphere_mp`, `test_conservation_budget_mp` (three ranks), `test_parentless_cloud_nb1_mp_gloo` (UCX builds) | `BACKEND=gloo`: the two- and three-rank cases on Gloo, which a UCX build would not reach by default | per test | the test sources |
 | `test_gloo_invalid_interface` | `BACKEND=gloo` with `GLOO_SOCKET_IFNAME=snapy_no_such_interface`: the two-rank launch fails instead of resolving the host (refusal 6) | exact: expected failure | the wrapper script of the registration |
@@ -250,7 +252,8 @@ sets only the environment and passes on the exit status of both ranks.
 | `test_exchange_ucx_cuda` (CUDA and UCX builds) | the wrapper sets `BACKEND=ucx` and `DEVICE=cuda` with the same topology variables | per test | the test source |
 | `test_diffusion_cubed_sphere_two_gpu_ucx` (CUDA and commux-CUDA builds) | `BACKEND=ucx`, `DEVICE=cuda` and an explicit `UCX_TLS=self,tcp,cuda_copy,cuda_ipc`, which the set-if-unset default of @tbl-appd-layout leaves alone | per test | the test source |
 | `test_restart_multiblock`, `test_restart_dt_change`, `test_restart_output_schedule`, `test_restart_key_collision`, `test_restart_inplace_reorder`, `test_restart_resume_schedule`, `test_netcdf_axis_attrs`, `test_exchange_decomp`; in `FULL_TESTS` builds also `test_shallow_splash_decomp` and `test_shallow_xy_decomp` (the wrapper sets `BACKEND=gloo` and `DEVICE=cpu`) and `test_shallow_splash_ucx_cuda_decomp` (`BACKEND=ucx`, `DEVICE=cuda`) | the wrapper script or the test source launches its ranks with `BACKEND=gloo`; the variable only selects the process group, and the assertions are the restart, output and decomposition checks of @sec-ch15-restart, @sec-ch15-output and @sec-ch03-layouts | per test | the test sources |
-| `test_default_execution_python`, `test_cubed_sphere_capture_python`, `test_graph_mesh_many_blocks_python`, `test_fp32_science_python`, `test_graph_outflow_refused_python`, `test_graph_stretched_x1_python`, `test_seam_rotation_cache_python`, `test_mesh_capture_moist_python`, `test_graph_capture_lifts_python`, `test_graph_implicit_dt_python`, `test_sk3_capture_moist_python` | the script sets `DEVICE` to the device under test and `DEVICE_ID=0` before it builds the mesh; nine of them need CUDA and skip with code 125 on a CPU build | per test | the test sources |
+| `test_default_execution_python`, `test_cubed_sphere_capture_python`, `test_graph_mesh_many_blocks_python`, `test_fp32_science_python`, `test_graph_outflow_refused_python`, `test_graph_stretched_x1_python`, `test_seam_rotation_cache_python`, `test_mesh_capture_moist_python`, `test_graph_capture_lifts_python`, `test_graph_implicit_dt_python`, `test_sk3_capture_moist_python` | the script sets `DEVICE` to the device under test and `DEVICE_ID=0` before it builds the mesh; ten of the eleven need CUDA: nine skip with code 125 on a CPU build and `test_seam_rotation_cache_python` returns 0 after printing `SKIP`, so ctest reports a pass that ran nothing; only `test_fp32_science_python` runs on a CPU build | per test | the test sources |
+| `test_stage_executor_capture_python`, `test_execution_capability_python`, `test_graph_pool_recapture_python`, `test_graph_user_forcing_python` (through `make_case` of `run_fp32_straka.py`), `test_implicit_register_x1_off_python` (through `make` of `test_cubed_sphere_capture.py`), `test_mesh_block_job_failure_python` (through `cubed` of `test_default_execution.py`); `test_uranus_cycle1_abort` | the six Python entries set `DEVICE` and `DEVICE_ID=0` in their own process through a helper imported from another test script; the gtest forks `run_hydro` with `DEVICE=cpu` and an empty `CUDA_VISIBLE_DEVICES` for its termination check | per test | the test sources |
 
 : Ctest entries that set an environment variable of this appendix, at the pin. {#tbl-appd-tests}
 
@@ -264,8 +267,10 @@ matches=0`. In a build with NetCDF (`-DNETCDF=ON -DPNETCDF=ON`, same tree, same 
 `test_output_barrier` itself. In later batches of the build without NetCDF, the wrapper entry
 `test_sedimentation_cubed_seam_gloo`, the two `SNAP_ANOMALY` entries `test_anomaly_storage_python` and
 `test_options_table`, `test_process_group`, the three Python `SNAP_X1_CENTROID_EXACT` entries, `test_exchange_decomp`
-and the two CPU entries of the `DEVICE` group all passed, and the nine CUDA entries of the `DEVICE` group skipped. The
-seven other `BACKEND=gloo` entries read back NetCDF output and failed there because none was written; all seven
+and `test_fp32_science_python`, the one `DEVICE` script that runs on a CPU build, passed; `test_seam_rotation_cache_python`
+was reported passed after its CUDA skip (exit 0, nothing run) and the other nine skipped with code 125; of the helper
+entries and the gtest, the six Python entries skipped with code 125 (their capture parts need CUDA) and
+`test_uranus_cycle1_abort` passed. The seven other `BACKEND=gloo` entries read back NetCDF output and failed there because none was written; all seven
 passed in the build with NetCDF[^appd-run]. The CUDA, UCX-on-GPU and `FULL_TESTS` arms were not run.
 
 [^appd-run]: `ctest -j 1` on the entries by name, in a Release build at the pin configured with `cmake -DCUDA=OFF
@@ -278,7 +283,11 @@ passed in the build with NetCDF[^appd-run]. The CUDA, UCX-on-GPU and `FULL_TESTS
     Later batches of the same build, all passed: `test_x1_centroid_rest_python`, `test_process_group`;
     `test_sedimentation_cubed_seam_gloo`, `test_anomaly_storage_python`, `test_options_table`;
     `test_radial_order_x1_centroid_python`, `test_stencil_cache_small_block_python`; `test_exchange_decomp`;
-    `test_fp32_science_python`, `test_seam_rotation_cache_python` (the other nine `DEVICE` entries skipped, code 125).
+    `test_fp32_science_python` (`test_seam_rotation_cache_python` was reported passed on its CUDA skip, exit 0 with
+    nothing run; the other nine `DEVICE` scripts skipped, code 125); in a sixth run `test_uranus_cycle1_abort` passed and the six helper entries
+    (`test_stage_executor_capture_python`, `test_execution_capability_python`, `test_graph_pool_recapture_python`,
+    `test_graph_user_forcing_python`, `test_implicit_register_x1_off_python`, `test_mesh_block_job_failure_python`)
+    skipped, code 125.
     Failed in that build for want of NetCDF output, then passed in the build with NetCDF (`-DNETCDF=ON -DPNETCDF=ON`,
     same tree, same host), 5 s to 29 s each: `test_restart_multiblock`, `test_restart_dt_change`,
     `test_restart_output_schedule`, `test_restart_key_collision`, `test_restart_inplace_reorder`,
