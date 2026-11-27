@@ -1,80 +1,172 @@
 ## External component interfaces {#sec-appe-components}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (main); kintera@c55b13b2204997d2d09e04498558ab9495d8ee77
-sources: build metadata and component call sites below
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (code_pin.yml);
+     kintera@0429d795f79a0665afeca565e5a05c87ab4ba1e2 (tools/package-pins.json, the v2.6.13 tag);
+     pyharp@4721715855e937c1e8b218e964c0655f46e56e29 (tools/package-pins.json, the v2.7.1 tag)
+sources: CMakeLists.txt, pyproject.toml, setup.py, cmake/modules/Find{Kintera,Harp,Disort}.cmake, cmake/parameters.cmake,
+         src/CMakeLists.txt, python/__init__.py, src/eos/equation_of_state.cpp, src/eos/ideal_moist.cpp,
+         src/eos/moist_mixture.cpp, src/mesh/meshblock.cpp, src/mesh/meshblock_advance.cpp, src/mesh/meshblock_redo.cpp,
+         src/mesh/stage_executor.cpp, src/chemistry/chemistry_source.cpp, src/layout/process_group_ucx.cpp,
+         examples/run_hydro.cpp, all read at the snapy pin; kintera src/thermo/thermo.hpp, src/thermo/thermo_y.cpp,
+         src/kinetics/kinetics.hpp, src/kinetics/evolve_implicit.hpp at the kintera pin; pyharp
+         src/integrator/integrator.cpp at the pyharp pin
 status: draft
+author: cshsgy
+reviewer: JiachenLiu-Atmos
 -->
 
 ### Summary
 
 snapy is built on PyTorch and on three numerical packages from the same group: kintera (thermodynamics and
-chemistry), pyharp (the time integrator) and pydisort (radiative transfer, linked but not called). On Linux it also
-depends on commux, the communication layer of the UCX process group, and on pinc, which locates the parallel NetCDF
+chemistry), pyharp (the time integrator) and pydisort (linked and imported, never called). On Linux it also depends
+on commux, the communication layer of the UCX process group, and on pinc, which locates the parallel NetCDF
 library. A reader who installs or changes snapy needs to know which of these are required, which versions the build
-accepts, and where the build metadata leaves a requirement undeclared. This appendix lists them. The source pins of
-this report are not version constraints, and the table keeps the two apart.
+accepts, what each one is called for, and where the build metadata leaves a requirement undeclared. This appendix
+lists them. The package pins of this report are the commits its citations resolve at; they are not version
+constraints, and the tables keep the two apart.
 
 ::: {.callout-note title="At a glance"}
-Kintera supplies thermodynamics and kinetics; pyharp supplies the time integrator.
-Disort is a required C++ link dependency and Python import, even though the inspected compiled source has no
-radiative-transfer solver call. Dependency availability does not imply active radiation coupling.
+**Purpose.** The dependency and call-site inventory of snapy's external components at the pin.
+
+**Data.** Five packages besides PyTorch: kintera, pyharp, pydisort, commux, pinc; one version floor, kintera 2.6.13.
+
+**Placement.** Build time (CMake locators, `pip` metadata), import time (`import snapy`) and run time (the EOS, the
+saturation adjustment, the chemistry step, the stage combination, the UCX process group).
+
+**Activation.** kintera, pyharp and pydisort are always required. commux and pinc are Linux-only: the pip metadata
+requires both on every Linux install, and CMake uses them when `UCX` and `PNETCDF` are on, which is their default
+off Apple.
+
+**Guarantee / limits.** The floor is enforced for kintera alone; pyharp and pydisort are accepted at any version.
+
+**Evidence.** @tbl-appe-checks: the pinned build of this report configures and builds against kintera 2.6.13.
 :::
 
 | component | use in snapy | required version at the snapy pin |
 |---|---|---|
-| kintera | moist EOS, saturation adjustment, driver kinetics | at least 2.6.3 in CMake (`find_package(Kintera 2.6.3 REQUIRED)`) and in Python build and runtime metadata (`kintera>=2.6.3`) |
-| pyharp / CMake Harp | integrator options, stage weights and stage combination | required by CMake; no version minimum or exact version specified |
-| pydisort / CMake Disort | C++ shared-library link and Python package import | required by CMake; no version minimum or exact version specified |
-| commux | process group over UCX (@sec-ch14-backends) | `commux>=0.1.4` on Linux in Python build and runtime metadata; CMake links `commux::commux` when UCX is found |
-| pinc | locates the PnetCDF headers and library (@sec-ch14-pnetcdf) | `pinc>=0.2.0` on Linux in Python build and runtime metadata |
+| kintera | moist EOS, saturation adjustment, the chemistry step | at least 2.6.13 in CMake (`find_package(Kintera 2.6.13 REQUIRED)`) and in the Python build and runtime metadata (`kintera>=2.6.13`) |
+| pyharp / CMake Harp | integrator options, stage weights and stage combination | required by CMake; no version minimum |
+| pydisort / CMake Disort | C++ shared-library link and Python package import | required by CMake; no version minimum |
+| commux | the process group over UCX (@sec-ch14) | `commux>=0.1.4` on Linux in the Python build and runtime metadata; CMake links `commux::commux` when UCX is found |
+| pinc | locates the PnetCDF headers and library (@sec-ch14) | `pinc>=0.2.0` on Linux in the Python build and runtime metadata; a `PNETCDF=ON` configure stops without it |
+| PyTorch | tensors, autograd-free kernels, the process-group store | `torch==2.10.0` in the Python build metadata only; the runtime metadata declares no torch |
 
-: Requirements, distinct from source pins and tested compatibility. {#tbl-appe-requirements}
+: Requirements, distinct from the package pins and from any tested combination. {#tbl-appe-requirements}
 
-`find_package` declares these CMake requirements: `Disort` and `Harp` with no version, `Kintera 2.6.3`
+`find_package` declares the CMake requirements: `Torch`, `Disort` and `Harp` with no version, `Kintera 2.6.13`
 ({{< code CMakeLists.txt >}}). `FindKintera` enforces the floor at configure time: it reads `kintera.__version__`
-and fails with "snapy requires kintera >= 2.6.3 (…)" below it ({{< code cmake/modules/FindKintera.cmake >}}).
-Python `[build-system] requires` and `[project] dependencies` both contain `kintera>=2.6.3`
-({{< code pyproject.toml >}}).
-Neither Python list declares pyharp or pydisort. They are required all the same, and the version a build accepts is
-not bounded, in four steps:
+and stops with "snapy requires kintera >= 2.6.13 (...)" below it ({{< code cmake/modules/FindKintera.cmake >}}); the
+message names the five kintera features the floor stands for. The comment above the `find_package` line records
+the steps of that floor: 2.5.8 for `SpeciesThermo` `names()`, `mu()` and `populate_thermo`; 2.5.13 for the
+saturation-failure counter; 2.6.2 for the `h2o_bryan` liquid beta that `examples/bryan.yaml` needs; 2.6.3 for the
+same-call rate constants of the kinetics Jacobian; 2.6.9 for the constant-$c_v$ perturbation-pressure helper;
+2.6.11 for `compute_into`, which writes the moist-mixture EOS's fixed buffers. The floor itself, 2.6.13, carries
+no comment of its own. The Python `[build-system] requires` and `[project] dependencies` both contain
+`kintera>=2.6.13` ({{< code pyproject.toml >}}).
 
-1. *The Python package imports both.* `python/__init__.py` imports `pydisort`, `pyharp` and `kintera` before it loads
-   the compiled extension, so `import snapy` fails without either ({{< code python/__init__.py >}}).
-2. *The C++ library links both.* `src/CMakeLists.txt` lists `DISORT_LIBRARY`, `HARP_LIBRARY` and `KINTERA_LIBRARY`
-   among the `PUBLIC` link libraries of the `snap` target ({{< code src/CMakeLists.txt >}}), and the top-level
-   `find_package(Disort REQUIRED)`, `find_package(Harp REQUIRED)` stop the configure without them.
+Neither Python list declares pyharp or pydisort, and the runtime list declares no torch. They are required all
+the same, and the version a build accepts is not bounded, in four steps:
+
+1. *The Python package imports all three.* `python/__init__.py` imports `torch`, `pydisort`, `pyharp` and `kintera`
+   before it loads the compiled extension, so `import snapy` fails without any of them
+   ({{< code python/__init__.py >}}).
+2. *The C++ library links all three.* `src/CMakeLists.txt` lists `DISORT_LIBRARY`, `HARP_LIBRARY` and
+   `KINTERA_LIBRARY` among the `PUBLIC` link libraries of the `snap` target ({{< code src/CMakeLists.txt >}}), and the
+   top-level `find_package(Disort REQUIRED)` and `find_package(Harp REQUIRED)` stop the configure without them.
 3. *The locators read a version but are given none to compare.* `FindHarp` and `FindDisort` run
-   `import pyharp; print(pyharp.__version__)` (likewise for pydisort) and stop if that fails. They pass the result as
+   `import pyharp; print(pyharp.__version__)` (likewise for pydisort) once the library is found, and stop if that
+   import fails. They pass the result as
    `VERSION_VAR`, but `find_package` is called without a version argument, so any found version is accepted
    ({{< code cmake/modules/FindHarp.cmake >}}, {{< code cmake/modules/FindDisort.cmake >}}).
 4. *Hence* their absence from `pyproject.toml` is a packaging gap, not evidence that they are optional, and no
-   compatible version range can be read from the metadata. The source pins of this report fix the API evidence; they
-   are not version constraints.
+   compatible version range can be read from the metadata. The package pins of this report fix the API evidence;
+   they are not version constraints.
 
 ### Derivation
 
 This appendix inventories interfaces and dependencies; it introduces no numerical scheme or equation.
-Thermodynamic, integration and moist-coupling derivations belong to the corresponding chapters.
-A linked library, an imported Python package and a numerical call are separate facts and are recorded separately.
+Thermodynamic, integration and moist-coupling derivations belong to @sec-ch02, @sec-ch09 and @sec-ch10; the
+chemistry step is derived in @sec-ch10-kinetics and the saturation adjustment in @sec-ch08. A linked library, an imported Python package and a numerical call are separate facts and are
+recorded separately.
 
 ### Numerical method
 
-Kintera's `ThermoYImpl` is constructed by the moist-mixture EOS. `compute` converts conserved internal energy to
-temperature (`VU->T`) and temperature to pressure (`VT->P`); `specific_heat_cv` obtains mixture heat capacity.
-On the final integrator stage, the mesh block calls `pthermo->forward` with density, internal energy density and
-species mass fractions, then writes the adjusted fractions back. The pinned kintera `ThermoYImpl::forward`
-accepts this contract ([`kintera thermo_y.cpp:275-284`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/thermo_y.cpp#L275-L284)); it is separate from the example driver's kinetic update.
-The driver refreshes primitives after dynamics, evaluates rates and their Jacobian, and calls `evolve_implicit`.
+**kintera: thermodynamics.** Both moist equations of state own a kintera `ThermoY` module. The closed-form
+`ideal-moist` EOS creates one and reads its molecular weights and reference heat capacities into buffers
+({{< code src/eos/ideal_moist.cpp IdealMoistImpl::reset >}}), and calls the constant-$c_v$ perturbation-pressure helper
+when it forms the anomaly pressure ({{< code src/eos/ideal_moist.cpp IdealMoistImpl::perturbations >}}); the
+`moist-mixture` EOS creates one and computes
+through it ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::reset >}}). The conversion from conserved to
+primitive variables writes two fixed buffers in place, the inverse volumes (`DY->V`) and the temperature
+(`VU->T`), then forms the pressure (`VT->P`) ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_cons2prim >}});
+the mixture heat capacity is `VT->cv` over the same volumes
+({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::specific_heat_cv >}}), and the primitive cache is refilled
+from pressure and volume (`PV->T`) ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_ensure_cache >}}). The
+EOS reader hands the deck file to kintera, whose `ThermoOptionsImpl::from_yaml` reads the deck's `reference-state`
+and `reactions` itself and takes its solver keys from `dynamics/equation-of-state` (snapy's own key check lists
+`max-iter`, `ftol` and `uv-solver` as the keys kintera reads there) ({{< code src/eos/equation_of_state.cpp EquationOfStateOptionsImpl::from_yaml >}}), and refills kintera's species table
+before it caches the cloud parents, because a later deck can declare other species
+({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::cache_cloud_parents_ >}}).
 
-Pyharp is used through C++ `harp::Integrator`: snapy parses its options, creates the integrator and invokes
-`pintg->forward` to combine both hydro and scalar stage increments. This is active solver use of pyharp,
-independent of any external radiation functionality that package may provide.
+**kintera: the saturation adjustment and its counter.** The block finds its `ThermoY` by name under the EOS
+({{< code src/mesh/meshblock.cpp MeshBlockImpl::thermo >}}) and prepares it before the first adjustment or a
+capture: `prepare` gives the failure counter, the active-set buffers and the table their interior shape, device
+and dtype ({{< code src/mesh/meshblock.cpp MeshBlockImpl::prepare_thermo overload=2 >}}; kintera `ThermoYImpl::prepare`
+([`kintera thermo_y.cpp:126-135`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_y.cpp#L126-L135))).
+When an FP32 anomaly state adjusts in FP64 totals, the state's own table is built in kintera's store first
+(`tables_for`), so no call inside a capture swaps the module's table. On the final stage the block calls
+`ThermoYImpl::forward` on the interior with density, internal energy density and species mass fractions, writes the
+adjusted fractions back, and posts rows 1 and 2 of the failure counter (the temperature and pressure solves that
+did not converge) to the monitor ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}};
+[`kintera thermo_y.cpp:225-327`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_y.cpp#L225-L327)).
+Row 0, the adjustment failures, is the retry cause: the redo test consumes it on the device with
+`consume_failures`
+([`kintera thermo_y.cpp:121-124`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_y.cpp#L121-L124)),
+with no host read ({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}}); kintera's host
+read `take_saturation_adjustment_failures`
+([`kintera thermo_y.cpp:329-334`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_y.cpp#L329-L334))
+exists and snapy does not call it. A rejected step restores the active set the step started from
+({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::apply_redo >}}). The stage executor keys a capture on
+`alloc_epoch`, kintera's host hash of the module's buffers, so a reallocation of the counter, the active set or the
+table invalidates the capture ({{< code src/mesh/stage_executor.cpp StageExecutor::make_key >}};
+[`kintera thermo.hpp:346-359`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo.hpp#L346-L359)),
+and its warm-up save list carries the counter and the active-set buffers so that a warm-up leaves no count
+({{< code src/mesh/stage_executor.cpp StageExecutor::save_list >}}).
 
-Disort is explicitly in the `PUBLIC` libraries of the `snap` shared target, through `DISORT_LIBRARY`
-({{< code src/CMakeLists.txt >}}). `FindDisort` locates `disort_release` ({{< code cmake/modules/FindDisort.cmake >}}) and obtains version information
-by importing pydisort ({{< code cmake/modules/FindDisort.cmake >}}). Harp similarly reads `pyharp.__version__`
-({{< code cmake/modules/FindHarp.cmake >}}) and requires its headers/library ({{< code cmake/modules/FindHarp.cmake >}}).
+**kintera: the chemistry step.** The driver installs the reactions from the deck
+({{< code examples/run_hydro.cpp main >}}; {{< code src/mesh/meshblock.cpp MeshBlockImpl::set_chemistry >}}), and
+the block runs them as the last op of its last stage ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_chemistry >}}).
+The adapter owns a kintera `Kinetics` and a `ThermoX` ({{< code src/chemistry/chemistry_source.cpp ChemistrySource::ChemistrySource >}}).
+Its step refreshes the primitives after the dynamics and the adjustment, converts mass to mole fractions and to
+concentrations, evaluates the rates with their rate constants, `forward_with_rate_constants`
+([`kintera kinetics.hpp:192-196`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/kinetics/kinetics.hpp#L192-L196)),
+forms the Jacobian and advances the concentrations implicitly with `evolve_implicit`
+([`kintera evolve_implicit.hpp:26-27`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/kinetics/evolve_implicit.hpp#L26-L27)),
+then adds the FP64 increment to the species rows of the stored state
+({{< code src/chemistry/chemistry_source.cpp ChemistrySource::forward >}}). A dry or reaction-free deck makes the
+step a no-op.
+
+**pyharp: the integrator.** The block creates `harp::Integrator` from its `integration` options
+({{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}}). Each stage calls `pintg->forward` to combine the stage
+start, the current state and the increment into the next state, for the hydro and for the scalars
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}}); the dry-source carry takes the same
+combination of the density and of the scalar state, to form the mixing ratio it carries
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::carry_dry_source >}}), and
+the flux register reads the stage's weights to book amounts. The weights of the three-stage `rk3` are pyharp's
+([`pyharp integrator.cpp:49-60`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L49-L60)).
+This is active solver use of pyharp, independent of any radiation functionality that package may provide.
+
+**pydisort.** Disort is in the `PUBLIC` libraries of the `snap` shared target through `DISORT_LIBRARY`
+({{< code src/CMakeLists.txt >}}). `FindDisort` locates `disort_release` and reads the version by importing pydisort
+({{< code cmake/modules/FindDisort.cmake >}}); Harp likewise reads `pyharp.__version__` and requires its headers and
+library ({{< code cmake/modules/FindHarp.cmake >}}). No compiled source calls a Disort solver.
+
+**commux and pinc.** A build with UCX links `commux::commux` and, with CUDA, requires commux's CUDA sidecar
+library ({{< code src/CMakeLists.txt >}}); the UCX process group is commux's, constructed by snapy with the
+rendezvous store ({{< code src/layout/process_group_ucx.cpp ProcessGroupContext::_init_ucx >}}). A `PNETCDF=ON`
+configure imports `pinc` to find the PnetCDF headers and library and stops without it
+({{< code cmake/parameters.cmake >}}).
 
 ```{python}
 #| label: fig-appe-components
@@ -87,26 +179,45 @@ make_fig()
 
 ### Code
 
-**What to install.** For a CPU build on Linux: PyTorch 2.10.0, `kintera>=2.6.3`, pyharp, pydisort, and, for the UCX
+**What to install.** For a CPU build on Linux: PyTorch 2.10.0, `kintera>=2.6.13`, pyharp, pydisort, and, for the UCX
 process group and PnetCDF output, `commux>=0.1.4` and `pinc>=0.2.0`. The versions are those of the build metadata
 above; for pyharp and pydisort none is declared.
 
 ```bash
-python -m pip install "torch==2.10.0" "kintera>=2.6.3" pyharp pydisort "commux>=0.1.4" "pinc>=0.2.0"
+python -m pip install "torch==2.10.0" "kintera>=2.6.13" pyharp pydisort "commux>=0.1.4" "pinc>=0.2.0"
 ```
 
-These metadata requirements do not establish a tested compatible combination; use the preface recipe for a complete build.
+These metadata requirements do not establish a tested compatible combination; use the preface recipe for a complete
+build ([Install and run](#sec-preface-install)).
 
-**What the build refuses, and why.** In order, at configure time:
+**What the build refuses, and why.** In the order a configure meets them (the top-level `CMakeLists.txt`
+includes `cmake/parameters.cmake`, then runs the locators for Disort, Harp and Kintera, then includes
+`cmake/ucx.cmake`, and the sidecar check sits in `src/CMakeLists.txt`). Before all of them, an interpreter without
+torch stops at the Torch ABI probe: the top-level file imports torch to read its GLIBCXX ABI and stops with "Failed to
+detect Torch GLIBCXX ABI" ({{< code CMakeLists.txt >}}).
 
-1. *An importable package is missing.* `FindKintera`, `FindHarp` and `FindDisort` each import their Python package
-   to read its version, and stop with "cannot determine PEP 440 version of …" if the import fails. The C++ library
-   is located from the Python package.
-2. *kintera is older than 2.6.3.* `FindKintera` fails with "snapy requires kintera >= 2.6.3 (…), found …". The
-   message names the four kintera features behind the floor.
-3. *A library or its headers is not found.* Each locator's `REQUIRED_VARS` fails the `REQUIRED` `find_package`.
+1. *`PNETCDF=ON` without pinc.* `cmake/parameters.cmake` imports `pinc` for its header and library paths and stops
+   with a message that `PNETCDF=ON` requires the Python package `pinc` in the interpreter's environment, before any
+   locator runs ({{< code cmake/parameters.cmake >}}). `PNETCDF` is on by default off Apple.
+2. *A package, its library or its headers is not found.* The locators run in the order Disort, Harp, Kintera, and
+   each stops the configure at its own `find_package_handle_standard_args` with "Could NOT find ... (missing: ...)"
+   when one of its `REQUIRED_VARS` is empty, so a missing Disort or Harp stops the configure before Kintera is
+   looked at. `FindDisort`, `FindHarp` and `FindKintera` each import their Python package to locate its files
+   (`kintera.__file__` and the like, with errors silenced); when that import fails the path is empty, the
+   `cmake_path` calls error, and `find_path` and `find_library` find nothing. The version import, and its "cannot
+   determine PEP 440 version of ..." stop, run only after the library is found (`if(KINTERA_LIBRARY)`), so that
+   message means a found library whose Python package does not import. The C++ library is located from the Python
+   package.
+3. *kintera is older than 2.6.13.* Once the Kintera library is found, `FindKintera` reads the version and stops
+   with "snapy requires kintera >= 2.6.13 (...), found ...".
+4. *`UCX=ON` without commux.* `cmake/ucx.cmake`, included after the Kintera locator, probes for the package and
+   stops with a message that UCX support requires the Python package `commux` in the interpreter's environment.
+   `UCX` is on by default off Apple.
+5. *`CUDA=ON` with UCX but without commux's CUDA sidecar*: `src/CMakeLists.txt` stops with the message that names
+   the missing sidecar ({{< code src/CMakeLists.txt >}}).
 
-At import time, `import snapy` fails if `pydisort`, `pyharp` or `kintera` cannot be imported (`python/__init__.py`).
+At import time, `import snapy` fails if `torch`, `pydisort`, `pyharp` or `kintera` cannot be imported
+({{< code python/__init__.py >}}).
 
 **The excerpt.** The requirements as the top-level `CMakeLists.txt` states them:
 
@@ -114,65 +225,76 @@ At import time, `import snapy` fails if `pydisort`, `pyharp` or `kintera` cannot
 find_package(Torch REQUIRED)
 find_package(Disort REQUIRED)
 find_package(Harp REQUIRED)
-find_package(Kintera 2.6.3 REQUIRED)
+find_package(Kintera 2.6.13 REQUIRED)
 ```
 
-The first three lines are the unversioned requirements of item 3 of the refusal list above; the last is the floor
-of item 2.
+The Torch line is covered by the ABI probe that runs before the refusal list; the Disort and Harp lines are the
+unversioned requirements of item 2 of the list; the last line is the floor of item 3.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| construct moist EOS | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::reset >}} | `ThermoYImpl` | component API |
-| temperature and pressure | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_cons2prim >}} | `compute` | component API |
-| mixture heat capacity | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::specific_heat_cv >}} | `specific_heat_cv` | component API |
-| final-stage saturation | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `pthermo` | component API |
-| redo failure query | {{< code src/mesh/meshblock.cpp MeshBlockImpl::saturation_failures >}} | `take_saturation_adjustment_failures` | component API |
-| driver kinetics | {{< code examples/run_hydro.cpp main >}} | `evolve_implicit` | component API |
-| integrator options | {{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}} | `IntegratorOptionsImpl` | component API |
-| integrator construction | {{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}} | `IntegratorImpl` | component API |
-| hydro/scalar stage combination | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `pintg` | component API |
+| ideal-moist thermo | {{< code src/eos/ideal_moist.cpp IdealMoistImpl::reset >}} | `ThermoYImpl` | `eos/type: ideal-moist` |
+| moist-mixture thermo | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::reset >}} | `ThermoYImpl` | `eos/type: moist-mixture` |
+| temperature and pressure | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_cons2prim >}} | `compute_into` | component API |
+| mixture heat capacity | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::specific_heat_cv >}} | `compute` | component API |
+| thermo options from the deck | {{< code src/eos/equation_of_state.cpp EquationOfStateOptionsImpl::from_yaml >}} | `ThermoOptionsImpl` | solver keys of `dynamics/equation-of-state`, read by kintera |
+| species table refill | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::cache_cloud_parents_ >}} | `populate_thermo` | component API |
+| prepare before adjustment or capture | {{< code src/mesh/meshblock.cpp MeshBlockImpl::prepare_thermo overload=2 >}} | `prepare` | component API |
+| final-stage saturation adjustment | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}} | `forward` | an EOS with a thermo |
+| retry cause from the counter | {{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}} | `consume_failures` | component API |
+| active set restored on a redo | {{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::apply_redo >}} | `restore_active_set` | component API |
+| capture key | {{< code src/mesh/stage_executor.cpp StageExecutor::make_key >}} | `alloc_epoch` | `integration/execution` |
+| warm-up save list | {{< code src/mesh/stage_executor.cpp StageExecutor::save_list >}} | `failures` | `integration/execution` |
+| reactions installed by the driver | {{< code examples/run_hydro.cpp main >}} | `KineticsOptionsImpl` | the deck's reactions |
+| the chemistry step | {{< code src/chemistry/chemistry_source.cpp ChemistrySource::forward >}} | `evolve_implicit` | a deck with reactions |
+| integrator construction | {{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}} | `IntegratorImpl` | `integration/type` |
+| stage combination | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}} | `pintg` | component API |
+| UCX process group | {{< code src/layout/process_group_ucx.cpp ProcessGroupContext::_init_ucx >}} | `ProcessGroupUCX` | `BACKEND=ucx` (@sec-appd) |
 | three C++ link dependencies | {{< code src/CMakeLists.txt >}} | `DISORT_LIBRARY` | component API |
 | Python imports | {{< code python/__init__.py >}} | `pydisort` | component API |
 
-: Representative active call sites and dependency edges. {#tbl-appe-calls}
+: The active call sites and dependency edges at the pin. {#tbl-appe-calls}
 
-Read the call chain as options, construction, evaluation, then failure handling.
-The kintera `take_saturation_adjustment_failures` method returns the accumulated failure count and clears it
-([`kintera thermo_y.cpp:385-390`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/thermo_y.cpp#L385-L390)).
-snapy calls it in one place, `saturation_failures`, at stage 0 of every step, so that a failure counted before the
-step is not charged to it ({{< code src/mesh/meshblock.cpp MeshBlockImpl::saturation_failures >}};
-{{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}). The redo check does not call it. It reads
-kintera's count `nfail_` on the device and clears it in the same place, so the count is drained once per step without a
-host read (`local_redo_flag_tensor`, {{< code src/mesh/meshblock.cpp MeshBlockImpl::local_redo_flag_tensor >}}). The CMake comment above `find_package(Kintera …)` records four steps of the floor: 2.5.8 for `SpeciesThermo`
-`names()`/`mu()`, 2.5.13 for this method, 2.6.2 for the `h2o_bryan` liquid beta that `examples/bryan.yaml`
-needs, and 2.6.3 for the same-call rate constants that the kinetics Jacobian of `run_hydro` and
-`jupiter_evap_precip_1d` takes. The floor at the pin is the last, 2.6.3 ({{< code CMakeLists.txt >}}).
+Read the call chain as options, construction, preparation, evaluation, then failure handling. The counter has
+three rows: row 0 is consumed by the redo test, once per step, so a failure counted before the step is not charged
+to it; rows 1 and 2 are posted to the monitor by the adjustment and are not retry causes.
 
 ### Tests
 
 | check | assertion | tolerance | evidence |
 |---|---|---|---|
-| local anchor audit | pinned file/range exists and contains the recorded symbol | exact text | `python tools/code_anchors.py check` |
-| source math-span check | appendix has valid math delimiters | exact syntax | frozen house checker |
-| dependency runtime compatibility | not run | not measured | no build or installed-package execution |
+| local anchor audit | every snapy citation resolves at the pin; every kintera and pyharp link names its package pin and its anchor symbol | exact text | `python3 tools/code_anchors.py check`, `python3 tools/check_citations.py` |
+| source math-span check | the appendix has valid math delimiters | exact syntax | `python3 tools/check_math_spans.py` |
+| configure and build at the pin against kintera 2.6.13 | the floor passes, the library and the Python extension build, `import snapy` succeeds | exact: exit 0 | the CPU build of this report at the pin, exit 0 at every step[^appe-build] |
+| dependency runtime compatibility across versions | not run | not measured | no other kintera, pyharp or pydisort version was built with this snapy pin |
 
-: Documentation validation only. {#tbl-appe-checks}
+: Documentation validation and one pinned build. {#tbl-appe-checks}
 
-No runtime result is claimed for any component version, CPU, CUDA or multi-rank configuration.
-The appendix's C++ link statement follows the build definition, not a newly inspected linked binary;
-a platform linker may omit unused dependencies from the resulting dynamic dependency table.
+[^appe-build]: snapy at the pin configured with `cmake -DCUDA=OFF -DCMAKE_BUILD_TYPE=Release -DNETCDF=OFF -DPNETCDF=OFF
+    -DUCX=ON`, built with `cmake --build`, installed with `pip install --no-build-isolation --no-deps`, then
+    `import snapy`: every step exit 0, against kintera 2.6.13 (the package pin), pyharp 2.7.17, pydisort 1.8.13,
+    torch 2.10.0+cu128, commux 0.2.1, pinc 0.2.0, CMake 3.26.2, g++ 11.4.0, Linux x86-64; the same tree with `-DNETCDF=ON
+    -DPNETCDF=ON -DBUILD_EXAMPLES=ON` for the NetCDF arm of @sec-appd. One run, one host.
+
+No numerical result is claimed for any component version on CUDA, MPS or more than one rank. The appendix's C++
+link statement follows the build definition, not an inspected linked binary; a platform linker may omit unused
+dependencies from the resulting dynamic dependency table.
 
 ### Limits
 
 ::: {.callout-warning title="Limits"}
-The frozen outline describes the Disort locator as only supporting Python. The actual `PUBLIC` link list above
-corrects that description at the source pin. The compiled `src_files` glob ({{< code src/CMakeLists.txt >}}) excludes the legacy
-diagnostics directory and files with trailing underscores. Inspection of its source directories finds no active
-Disort radiative-transfer call. Radiation-labelled output metadata is not a solver call.
-The external radiative time-step limiter mentioned by the outline is not implemented in the pinned snapy tree;
-this appendix does not assign external runner keys or a radiation scheme to snapy.
+Disort is linked and imported but never called: the compiled `src_files` glob ({{< code src/CMakeLists.txt >}})
+takes no radiation directory, and no source under it calls a Disort solver. The radiating characteristic boundary
+of @sec-ch11 is a characteristic outflow condition and contains no radiative transfer. No radiative time-step
+limiter exists in the pinned tree; this appendix assigns no runner keys and no radiation scheme to snapy.
 
-The missing pyharp/pydisort Python dependency declarations and unspecified CMake version floors leave reproducible
-installation and supported compatibility ranges unresolved. The requested kintera pin has been read, not built
-with this snapy pin.
+The missing pyharp, pydisort and runtime-torch declarations and the unversioned CMake requirements leave the
+supported compatibility ranges unresolved: the metadata bounds kintera alone.
 :::
+
+- The kintera pin of this report is the floor's own release, so the citations above describe exactly the oldest
+  kintera the build accepts; a newer kintera may move the cited lines.
+- `take_saturation_adjustment_failures` is part of the kintera contract the floor names, and snapy at the pin does
+  not call it; the device-side `consume_failures` is the one read.
+- The chemistry step and the saturation adjustment are exercised only by decks with a thermo and, for the step,
+  with reactions; their tests are in @sec-ch08 and @sec-ch10, not here.
