@@ -224,10 +224,12 @@ An outflow $x_1$ face is skipped in step 3 unless the stage carries a saved back
 (`boundary_reference_w`), the same rule the `outflow` boundary of @sec-ch11-outflow uses; its ghosts then keep
 the value the conversion itself wrote there from the pre-stage ghosts.
 
-**Order of accuracy.** Interior: fourth order, derived above and measured. Wall cells and the cells beside a seam:
-not measured at the pin — the convergence arms of `test_conversion_order.py` put the pulse away from the walls,
-and the wall and seam arms test mass conservation, not order. **Missing evidence**; the Limits layer says what
-would close it. $x_2$ and $x_3$: second order in every configuration, because nothing is converted there
+**Order of accuracy.** Interior: fourth order, derived above and measured. Wall cells: the `wall` arm of
+`test_conversion_order.py` takes one stage-0 step at $n_1 = 64$ and $128$ and requires the mass-tendency error in
+the three cells at each wall to fall at order at least 2.5 between the two; it gave 2.98 at the pin (the run of
+the Tests layer). That is an order between two resolutions, not a fitted one. Cells beside a seam: not measured
+at the pin — the convergence arms put the pulse away from the seams, and the seam arms test mass conservation,
+not order. **Missing evidence** for the seam cells; the Limits layer says what would close it. $x_2$ and $x_3$: second order in every configuration, because nothing is converted there
 ({{< code src/hydro/hydro.hpp HydroOptionsImpl >}}).
 
 **What else the key turns on.** With the key at 4 and gravity on, the well-balanced $x_1$ reference takes the
@@ -319,8 +321,8 @@ primitives; the `copy_` restores them where `good` is false; the EfStatus slot `
 
 One ctest covers the scheme, `tests/test_conversion_order.py` (ctest `test_conversion_order_python`, and
 `test_conversion_order_cuda_python` with `--device cuda`), registered with the label `python;hydro`
-({{< code tests/CMakeLists.txt >}}). It has seven arms, each of which the author reports goes red when one piece
-of the key-4 path is taken out.
+({{< code tests/CMakeLists.txt >}}). It has eight arms at the pin, each of which the author reports goes red when
+one piece of the key-4 path is taken out.
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
@@ -331,6 +333,7 @@ of the key-4 path is taken out.
 | same, arm `mass` | two pulses against a reflecting wall (one block) and a 2:1 jump on the seam of two $x_1$ blocks in one process, 40 steps; and a pulse leaving through $x_1$ outflow faces, 100 steps | $\lvert\Delta M\rvert/M\le10^{-13}$; outflow drift within $10^{-10}$ of the reference run | the script's `TOL`; the reference is the run whose every $\mathbf W$ ghost layer comes from the outflow condition |
 | same, arm `floor` | limiter on, a four-cell pressure dip of 0.06: a temperature floor that only the point state crosses does not change the solution | bitwise (`torch.equal`) | a screened cell must change nothing |
 | same, arm `slab` | moist equation of state, limiter on, a vapour slab on two $x_1$ blocks in one process, 30 steps: dry and water mass and the tracer ratio hold, every seam ghost of $\mathbf W$ including the corners is bitwise the neighbour's converted cell, and the vapour reaches the screened run's state | $10^{-13}$; bitwise; $10^{-10}$ | the script's `TOL`; the ghost refill is an identity, not an approximation |
+| same, arm `wall` | one stage-0 step at key 4 of a column with $T = 1 - z/2$, a $10^{-3}$ density perturbation and $v = 0.01\sin\pi z$, $g = 1$, reflecting walls, WENO unscaled, $n_1 = 64, 128$: the mass-tendency error in the three cells at each wall falls at order at least 2.5 | order $\ge2.5$ between the two resolutions | the script's docstring: mirror ghosts give about 1 |
 | `derivation_check.py` `[C19]` (this report) | @eq-ch04-conv4-avg, @eq-ch04-conv4-op, @eq-ch04-conv4-weights, @eq-ch04-conv4-scheme and @eq-ch04-conv4-gap; the grid dependence of the order | exact (sympy); fitted orders | symbolic, and a numpy fit over $n_1 = 32$ to $512$ |
 
 : Tests of the fourth-order $x_1$ conversion. {#tbl-ch04-conv4-tests}
@@ -340,22 +343,24 @@ of the point value $\bar q - \mathsf Q\bar q$ against the exact one: 4.00 on a u
 stretched grid the test uses, and 2.89 on a grid with a one-cell $1\!:\!2$ width jump, where the error is carried
 by the two cells at the jump.[^conv4-chk]
 
-All seven arms passed on CPU at the sha the footnote records.[^conv4-ctest] The measured numbers are: the $L_1$ order of the acoustic
+All eight arms pass at the pin on CPU.[^conv4-ctest] The measured numbers are: the $L_1$ order of the acoustic
 pulse 4.50 (uniform) and 4.80 (stretched) with the key, against 2.81 and 2.75 without it, with the key's own
-tracer ratio at $1.5\times10^{-14}$ and $5.1\times10^{-14}$; the radial order 4.00 on both spherical-polar and
+tracer ratio at $1.6\times10^{-14}$ and $4.2\times10^{-14}$; the radial order 4.00 on both spherical-polar and
 gnomonic-equiangle against 2.00 without the key, and a rewritten `x1f` giving the fresh block's $\mathbf W$
 bitwise; the balanced-column order 4.95; the Straka $\theta'$ range $[-16.56, 0]$ K at the start and
-$[-9.54, +0.67]$ K at $t = 900$ s; $\lvert\Delta M\rvert/M$ of $1.7\times10^{-15}$ at the wall and
-$2.4\times10^{-15}$ across the seam, with the outflow drift within a few $10^{-13}$ of the reference; the
-temperature-floor arm bitwise equal; and in the moist slab $\lvert\Delta M\rvert/M$ of $1.8\times10^{-15}$ dry
-and $2.0\times10^{-15}$ water, a tracer ratio within $2.2\times10^{-15}$, every seam ghost bitwise the
-neighbour's converted cell, and the vapour sum within the printed digit of the screened run's. The margins are
-not uniform. Against the script's `TOL` of $10^{-13}$ the key-4 tracer ratios sit a factor of about 2 inside it
-on the stretched grid ($5.1\times10^{-14}$) and about 7 on the uniform one ($1.5\times10^{-14}$), while the mass
-ratios sit a factor of 40 to 60 inside it. The outflow drift and the vapour sum are not identities either: each
-is a relative deviation from a constant the script carries, and both land far below their $10^{-10}$ bound, at
-a few $10^{-13}$ or smaller. The fitted orders are not a tolerance but a pass band, 4.50 and 4.80 against the
-3.8 the arm requires, and the floor, `x1f` and seam-ghost arms are bitwise identities with no margin to quote.
+$[-9.63, +0.68]$ K at $t = 900$ s; $\lvert\Delta M\rvert/M$ of $0$ at the wall and $1.5\times10^{-16}$ across
+the seam, with the outflow drift $-2.3\times10^{-13}$ relative to the reference; the temperature-floor arm
+bitwise equal; in the moist slab $\lvert\Delta M\rvert/M$ of $0$ dry and water, a tracer ratio within
+$2.1\times10^{-15}$, every seam ghost bitwise the neighbour's converted cell, and the vapour sum
+$4.8\times10^{-11}$ relative to the screened run's; and in the `wall` arm a mass-tendency error of
+$1.29\times10^{-7}$ and $1.63\times10^{-8}$ in the wall cells, order 2.98. The margins are not uniform. Against
+the script's `TOL` of $10^{-13}$ the key-4 tracer ratios sit a factor of about 2 inside it on the stretched grid
+($4.2\times10^{-14}$) and about 6 on the uniform one ($1.6\times10^{-14}$), while the mass ratios are $0$ or
+$1.5\times10^{-16}$. The outflow drift and the vapour sum are not identities either: each is a relative
+deviation from a constant the script carries. The outflow drift lands far below its $10^{-10}$ bound, but the
+vapour sum sits only a factor of about 2 inside it. The fitted orders are not a tolerance but a pass band, 4.50
+and 4.80 against the 3.8 the arm requires, and 2.98 against the `wall` arm's 2.5; the floor, `x1f` and
+seam-ghost arms are bitwise identities with no margin to quote.
 The CUDA twin `test_conversion_order_cuda_python` was **not run**: the configure this round records
 (@sec-appc) is `CUDA=OFF`, and against that library every arm stops in torch's
 dispatch stub rather than measuring anything. **Missing evidence** for the CUDA arm; closing it needs a build of
@@ -365,13 +370,14 @@ snapy and of kintera with CUDA on.
     `python3 src/snapy_report/ch04/checks/derivation_check.py`, CPU, double, 1 process; Python 3.12.11,
     numpy 2.4.6, sympy 1.14.0; output identical to the committed file].
 
-[^conv4-ctest]: [sha: snapy@919936da07d80a310b98ab11da184972a3203274; deck:
-    the seven arms of `tests/test_conversion_order.py` at the pin, each building its own card; run:
-    `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 python3 test_conversion_order.py --device cpu` from the
-    `tests` directory of a Release source build of snapy@919936da07d80a310b98ab11da184972a3203274 configured
-    `-DCMAKE_BUILD_TYPE=Release -DNETCDF=ON` (so `CUDA=OFF`), CPU, double, 1 process; Python 3.12.11,
-    torch 2.10.0+cu128, numpy 2.4.6, kintera 2.6.3, pyharp 2.7.1, GCC 11.5.0]. Every arm printed `PASS` and the
-    script exited 0.
+[^conv4-ctest]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck:
+    the eight arms of `tests/test_conversion_order.py`, each building its own card; run:
+    `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 python3 ../../tests/test_conversion_order.py` from `build/tests`
+    (the ctest's command and working directory, no arguments) of a source build configured
+    `-DCMAKE_BUILD_TYPE=Release -DNETCDF=ON -DCUDA=OFF -DUCX=OFF` and installed with
+    `pip install --no-build-isolation --no-deps .`, CPU, double, 1 process; Python 3.11.13, torch 2.10.0+cu128,
+    numpy 2.4.6, kintera 2.6.13, pyharp 2.7.17, GCC 11.5.0; log
+    `src/snapy_report/ch04/evidence/logs/conv4_pin_run.log`]. Every arm printed `PASS` and the script exited 0.
 
 ### Limits
 
@@ -384,9 +390,12 @@ snapy and of kintera with CUDA on.
 3. **The order is cell-local.** A cell whose point state fails the screen keeps the second-order value, so a run
    with a shock, a floor or a repaired cell is fourth order only away from them. `conversion_trips` is the only
    diagnostic of how many such cells there were, and no test at the pin relates a trip count to a measured order.
-4. **Wall cells and seam cells: missing evidence.** The three convergence arms keep the pulse away from the
-   $x_1$ boundaries, so no fitted order at the pin covers the cells whose stencil reaches a ghost. Closing it
-   needs a convergence run with the feature at a wall and at a seam, with its deck, sha and command.
+4. **Wall cells: a two-resolution order only; seam cells: missing evidence.** The three convergence arms keep
+   the pulse away from the $x_1$ boundaries, so no fitted order at the pin covers the cells whose stencil
+   reaches a ghost. The `wall` arm measures one stage-0 step at two resolutions in the three cells at each wall
+   (order 2.98 against 2.5), which is not a fitted order of a solution, and no arm measures an order beside a
+   seam. Closing it needs a convergence run with the feature at a wall and at a seam, with its deck, sha and
+   command.
 5. **A width jump is not fourth order.** The derivation assumes a smooth grid map. On a one-cell $1\!:\!2$ width
    jump the conversion operator alone fits order 2.89 (`[C19]`), and the Python stub says the scheme falls to
    second order there ({{< code python/snapy/hydro.pyi >}}). No test at the pin runs such a grid, so the order of

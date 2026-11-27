@@ -105,7 +105,7 @@ throw. No ctest runs a stage with `ppm`. The committed `ch04-ppm` card reproduce
 [^ppm-probe]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; deck: `ch04-ppm`,
     `examples/straka_single.yaml` merged with this card's YAML; run:
     `python3 -m pytest -q -s tools/tests/test_do_cards_run.py -k 'ch04-ppm or test_the_build_is_at_the_code_pin'`,
-    from the report directory with `SNAP_PIN_BUILD` pointing to the pin build and
+    from the report directory with `SNAP_PIN_BUILD` pointing to a build of that sha (then the code pin) and
     `SNAP_PIN_PYTHONPATH` to its package; CPU, Release, 1 process; Python 3.11.13].
     Both checks pass: the runner invokes `straka.release deck.yaml` and requires a nonzero exit
     containing "PPM interpolation is not implemented yet." This committed reproduction replaces the

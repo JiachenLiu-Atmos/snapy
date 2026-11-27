@@ -192,8 +192,11 @@ no ctest asserts the contact property.
 
 [^hllc-run]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the checks themselves; run:
     `python3 src/snapy_report/ch04/checks/derivation_check.py`
-    and `python3 src/snapy_report/ch04/checks/solvers_check.py`, CPU, double, 1 process; Python 3.11.13, numpy 2.4.6, sympy 1.14.0; output identical to the committed files]. `solvers_check.py` ports `hllc_impl`, which is unchanged
-    between the sha its header names and the code pin.
+    and `python3 src/snapy_report/ch04/checks/solvers_check.py`, CPU, double, 1 process; Python 3.11.13, numpy 2.4.6, sympy 1.14.0; output identical to the committed files]. `solvers_check.py` ports `hllc_impl` as it is at the sha
+    its header names (in `src/riemann/hllc_impl.h` there). At the code pin the kernel is in
+    `src/riemann/riemann_kernels.h` and has changed: it drops `umid`, takes `riemann_tiny` and `dry_fraction`, and
+    adds the reference-pressure branch (`shifted`) and FP32 branches for `vxl` and `vxr`. The port checks the
+    earlier kernel, not these changes.
 
 ### Limits
 
