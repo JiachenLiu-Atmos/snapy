@@ -10,7 +10,7 @@ author: Linfeng Li
 -->
 
 Use this page to find where a part of snapy lives in the repository and which chapter explains it. It has three
-tables, all at the code pin: one row per top-level directory and build file; one row per module directory of
+tables, all at the code pin: one row per top-level directory (the placeholder `.cache/`, which holds only an empty `.dummy`, aside) and build file; one row per module directory of
 `src/`; and one row per file of the V3 structure that a reader looks for by name: the six parts of the
 `MeshBlock`, the stage executor, the flux register and the budget. "Built" means the directory is in the source
 lists of the `snap` library, or of its CUDA library, in {{< code src/CMakeLists.txt >}}; a directory that is not
@@ -98,7 +98,7 @@ library, except `layout/`, whose glob is listed but holds none. {#tbl-appj-src}
 | {{< code src/mesh/mesh.cpp >}} | `Mesh`: several blocks per process, their exchange and the global phase | @sec-ch01-mesh |
 | {{< code src/mesh/stage_executor.cpp >}}, {{< code src/mesh/segment.cpp >}}, {{< code src/mesh/exchange_cut.hpp >}} | the stage executor: the schedule of a stage, its segments, capture and replay as CUDA graphs, exchange cuts | @sec-ch16-capture |
 | {{< code src/mesh/state_store.hpp >}} | the block's state in fixed storage | @sec-appg |
-| {{< code src/mesh/precision_policy.hpp >}} | the precision policy: storage, compute and accumulation dtype per quantity | @sec-appg |
+| {{< code src/mesh/precision_policy.hpp >}} | the precision policy: the storage and compute dtype of each quantity (`DtypeRow`) | @sec-appg |
 | {{< code src/hydro/flux_register.cpp >}} | the flux register and its monitor | @sec-ch08-carry, @sec-appg |
 | {{< code src/hydro/sweep.cpp >}} | the hydro sweep | @sec-ch04 |
 | {{< code src/layout/exchange.cpp >}}, {{< code src/layout/seam_register.cpp >}} | the exchange and the cubed-sphere seam register | @sec-ch03-exchange, @sec-ch03-seamreg |
