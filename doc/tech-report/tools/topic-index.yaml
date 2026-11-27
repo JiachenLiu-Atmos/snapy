@@ -497,26 +497,22 @@ sections:
     - defaults, scheme settings
     - incompatible settings refused
 
-  # Chapter 13. Conservation budgets and diagnostics
-  sec-ch13-cycle:
-    - mass and energy budgets, log line: [cycle line, ncycle_out]
-    - conservation, monitoring a run
-    - conservation from output files: [NetCDF totals]
-  sec-ch13-fixgrav:
-    - energy fixer, budget
-  sec-ch13-limiter-meters:
-    - positivity limiter, how much it acted: [limcut, thetamin]
-  sec-ch13-output-diag:
-    - diagnostics in output: [divergence, vorticity, virtual potential temperature]
-    - output variables
-  sec-ch13-redo-view:
-    - log messages, rejected steps: [redo causes]
-    - run stopped, why
-  sec-ch13-regression:
-    - mass conservation, tests
-    - conservation tests
-  sec-ch13-vicclamp:
-    - implicit scheme, clamp meter
+  # Chapter 13. Mesh, layout, exchange and multi-block runs
+  sec-ch13-layouts:
+    - layouts, block placement: [slab layout, cubed layout, cubed-sphere layout, distribute]
+    - ranks and panels of blocks: [loc_of, neighbor_rank, panel_of]
+    - blocks per process: [blocks_per_process]
+  sec-ch13-ghost:
+    - ghost exchange, several blocks in one process: [same-process rendezvous, halo exchange]
+    - failed block, other blocks stop waiting: [local_wait, block job failure]
+    - run hangs, a block failed
+  sec-ch13-cuts:
+    - CUDA graphs, several blocks: [exchange cut, multi-block capture, align_captures]
+    - capture out of memory: [execution eager]
+  sec-ch13-agree:
+    - Mesh runs eager, why: [Mesh-agree, a Mesh whose blocks disagree]
+  sec-ch13-x1split:
+    - vertical split into blocks: [nb1, x1 seam split, stacked blocks]
 
   # Chapter 14. Parallelism, GPU, restart/IO and reproducibility
   sec-ch14-backends:

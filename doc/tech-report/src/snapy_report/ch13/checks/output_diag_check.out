@@ -1,5 +1,0 @@
-[C1] PASS a linear field is exact on every face but the first, which copies its cell: face 0 = 2.5 (cell value; the linear value is 1.0); max error elsewhere 0.0e+00
-[C2] PASS div of a uniform velocity is 0 and of v1 = 2.5 x1 is 2.5 in the interior: max |div| uniform 0.0e+00; max |div - 2.5| linear 0.0e+00
-[C3] PASS theta_v = theta p / (rho R_d T): equal to theta for dry air, theta times R/R_d otherwise: dry 300, R = 1.02 R_d: 306
-[C4] PASS path_<species> = sum rho_y V / A_bottom is the column mass per unit area on a Cartesian column: path 2.4 kg m^-2, sum rho_y dz 2.4
-[C5] PASS div round-off is within 7 eps_m max|v1|/dx1 (14 roundings of eps_m/2); the 2 eps_m bound that omits the face area and the volume is exceeded: max |error| / (eps_m max|v1|/dx1) over 4000 x 6 cells: 2.133

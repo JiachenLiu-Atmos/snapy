@@ -1,3 +1,0 @@
-[C1] PASS the pattern reads one mass0 per line, from the block (13 decimals) and the Mesh (14 decimals) line alike, and never masst: 4 samples, all 1.2345678901234e+03
-[C2] PASS only the first and the last sample are compared: a 5e-6 excursion in between passes the default rtol 1e-8: drift 1.0e-09
-[C3] PASS the scale is max(|mass0|, 1): below a total mass of 1 the test is absolute, so a 1e-6 relative drift of a 1e-3 mass passes while the same drift of a 1e3 mass fails: 1e-3: 1.0e-09; 1e3: 1.0e-06

@@ -180,8 +180,8 @@ driver of your own repeats the loop of `main` ({{< code examples/run_hydro.cpp m
   }
 ```
 
-The first two lines inside the loop are step 1 of the walk-through; `print_cycle_info` writes the cycle log of
-@sec-ch13 and changes no state. The `for` loop is step 2. The kinetics block is the example's own chemistry update,
+The first two lines inside the loop are step 1 of the walk-through; `print_cycle_info` writes the cycle log (the
+pre-V3 section “Cycle-line budget”, which returns with the V3 chapter 10) and changes no state. The `for` loop is step 2. The kinetics block is the example's own chemistry update,
 with kintera's implicit solver ({{< code examples/run_hydro.cpp main >}}). It is not part of the block API[^rg-12b6d47ad2b9]. It runs on
 the state the stages left, before `check_redo`. The `check_redo` lines are step 3 and the last three lines step 4.
 

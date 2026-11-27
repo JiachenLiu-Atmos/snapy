@@ -3,8 +3,8 @@
 | status | questions |
 |---|---|
 | answered | 18 |
-| partly documented | 61 |
-| undocumented | 8 |
+| partly documented | 59 |
+| undocumented | 10 |
 | unsupported by the code | 0 |
 | outside scope | 8 |
 | total | 95 |
@@ -119,9 +119,7 @@
 
 **Q-047.** How do I compare my run against a published result or an analytic solution, and what counts as agreement? See 15.1 Reading verification evidence (chapters/16-verification/_metrics.qmd) has no {#sec-} label, in Verification and reproducibility, @sec-ch16. Not covered: a procedure to compare with a published or analytic result.
 
-**Q-048.** My run stopped with negative density or NaN. What do I check first, and which settings usually fix it? See Redo causes and termination status: what the log says about a rejected step and the end of a run, @sec-ch13-redo-view. Not covered: first-check order and usual fixes.
-
-**Q-050.** Is total mass conserved to round-off in a closed domain? Where is a test that shows the drift per step, and for which version? See Conservation budgets and diagnostics, @sec-ch13. Not covered: water budget with boundary fluxes; comparison with a potential-temperature GCM.
+**Q-050.** Is total mass conserved to round-off in a closed domain? Where is a test that shows the drift per step, and for which version? See Mesh, layout, exchange and multi-block runs, @sec-ch13. Not covered: water budget with boundary fluxes; comparison with a potential-temperature GCM.
 
 **Q-051.** On curvilinear grids (spherical-polar, cubed sphere), is free-stream preservation (the geometric conservation law) satisfied, and do fluxes match exactly across panel seams? Where is this tested? See Grids and geometry evidence, @sec-ch16-ch03-tests. Not covered: free-stream preservation; grid imprinting; output-coverage check.
 
@@ -153,8 +151,6 @@
 
 **Q-069.** Does a forcing only enter the explicit part? Can a stiff forcing (fast relaxation, drag, Newtonian cooling with a short timescale) be treated implicitly, and how do I give the implicit solver its Jacobian? See The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework. Not covered: an explicit statement that forcings are explicit only, with no user Jacobian hook; stability for dt > tau.
 
-**Q-070.** Is there a harness I can reuse to show my forcing changes mass, momentum and energy only as intended, budgeted per step? See Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle. Not covered: a reusable per-forcing harness; momentum budget.
-
 **Q-071.** How do I test that a new condensate conserves total water (vapor + condensate) and moist energy through a phase change? What tolerance should I expect: round-off or truncation? See Saturation adjustment in the step, @sec-ch10-satadj. Not covered: a recipe for a new condensate.
 
 **Q-072.** How do I add a new condensate species? Where do I declare its thermodynamic data (cp, latent heat, saturation curve), how does it enter the state vector, and what name and index does it get? See Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist. Not covered: an add-a-species procedure; the saturation curve.
@@ -177,7 +173,11 @@
 
 **Q-010.** Starting from an example, how do I set up a simple problem of my own, such as a warm bubble in an atmosphere I choose? Not provided: a problem-design tutorial is not provided; the initial-state contract is delivered in @sec-ch01-initialization.
 
+**Q-048.** My run stopped with negative density or NaN. What do I check first, and which settings usually fix it? Not provided: its answering section (“Redo causes and termination status”, in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
+
 **Q-062.** What evidence shows that interrupted writes cannot be mistaken for complete checkpoints or output, and how do I identify the latest usable checkpoint after a node or storage failure? Not provided: an interrupted-write completeness guarantee and recovery procedure are not established; the output contracts are delivered in @sec-ch14-netcdf, @sec-ch14-pnetcdf and @sec-ch14-restart.
+
+**Q-070.** Is there a harness I can reuse to show my forcing changes mass, momentum and energy only as intended, budgeted per step? Not provided: its answering section (“Cycle-line budget”, in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
 
 **Q-080.** Does the output record the code version, commit and the fully resolved configuration? What does a paper need to record: dependency versions, precision, hardware, rank layout and communication backend? Not provided: a publication-record checklist is not provided; the delivered output/restart contracts describe recorded data in @sec-ch14-netcdf, @sec-ch14-pnetcdf and @sec-ch14-restart.
 
