@@ -1,0 +1,151 @@
+## Amounts, step fields and the stage fold (`RegisterMonitor::fold_`) {#sec-ch10-amounts}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 10.4; src/hydro/flux_register.{hpp,cpp}; src/mesh/meshblock.cpp; src/implicit/implicit_hydro.cpp; src/forcing/axial_momentum.cpp; tests/test_flux_register.cpp and tests/test_graph_monitor_amounts.cpp, all at the pin
+status: draft
+-->
+
+### Summary
+
+The register turns what was booked and posted in each stage into amounts per step. An amount is a named vector with
+one entry per conserved row: a face correction such as the wall removal of @sec-ch10-prescribed, or a cell source
+such as the implicit solve's. The stages' rates and posts are kept apart, one slot per stage, and folded with the
+integrator's weights only when an amount is read. The face fluxes are folded the same way into step fields, which the
+budget reads (@sec-ch10-budget).
+
+::: {.callout-note title="At a glance"}
+**Purpose.** The step amount of every named rate and post, @eq-ch10-fold, and the step field of every requested direction, @eq-ch10-stepfield.
+
+**Data.** In: per-stage rates $a_s$ and posts $p_s$ $(n_{\mathrm{amount}}, n_{\mathrm{row}})$, the stage weights $w_{1,s}$, $w_{2,s}$ and $\Delta t$. Out: the step amounts $(n_{\mathrm{amount}}, n_{\mathrm{row}})$; the step fields shaped like the totals.
+
+**Placement.** Rates and posts during the stage; `end_stage` records the weights; the fold runs at each read of `amounts`.
+
+**Activation.** Always; a step field exists only where a reader requested it.
+
+**Guarantee / limits.** FP64, FP32 on MPS[^rg-7722eb7d31ba]; one device fold per read, no work per stage.
+
+**Evidence.** `test_flux_register.<b>`; `test_graph_monitor_amounts.<b>` on CUDA (Tests).
+:::
+
+Local symbols: $s = 0,\dots,S-1$ are the stages ended this step, $w_{1,s}$ and $w_{2,s}$ the integrator weights of
+stage $s$ (the state after the stage is $w_{1,s}$ times the state before plus $w_{2,s}\,\Delta t$ times the stage
+increment, on top of the step's start), $a_s$ a stage's booked rate, $p_s$ its weighted posts, and $S_d$ the step
+field of direction $d$.
+
+### Derivation
+
+The integrator scales whatever a stage has already contributed by the later stages' $w_1$. A rate booked in stage
+$s$ enters the step with $w_{2,s}\,\Delta t$ and is then scaled by every later stage's $w_1$. A post already carries
+its weight. The step amount is therefore
+
+$$
+A = \sum_{s} c_s\,\bigl(w_{2,s}\,\Delta t\,a_s + p_s\bigr), \qquad c_s = \prod_{t>s} w_{1,t},
+$$ {#eq-ch10-fold}
+
+with the product over the stages ended this step. The step field is the same recursion applied to the totals at
+every `end_stage`,
+
+$$
+S_d \leftarrow w_{1,s}\,S_d + w_{2,s}\,\Delta t\,T_d ,
+$$ {#eq-ch10-stepfield}
+
+which unrolls to $S_d = \sum_s c_s\,w_{2,s}\,\Delta t\,T_{d,s}$, the same weights as @eq-ch10-fold. A split post
+outside the stages adds to a direct part of $S_d$ that no $w_1$ scales.
+
+### Numerical method
+
+**Names and kinds.** `reset_amounts` creates three amounts, `reconcile.x1`, `reconcile.panel` and
+`boundary.prescribed`, all of kind `flux_correction`, with one stage slot until the stage count is set
+({{< code src/hydro/flux_register.cpp RegisterMonitor::reset_amounts >}}). A cell amount is created at its first
+post with the kind it is posted with; another kind for the same name throws
+({{< code src/hydro/flux_register.cpp RegisterMonitor::post >}}). The kinds say how the budget is to treat an amount
+({{< code src/hydro/flux_register.hpp AmountKind >}}). At the pin the cell amounts are the implicit solve's
+`vic.cell` (cell source), `vic.mass_clamped` (flux correction) and `vic.momentum_t.top` (diagnostic)
+({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::post_ >}}) and the axial-momentum fixer's
+`aam.closure` (fixer) ({{< code src/forcing/axial_momentum.cpp AxialClosureFixer::apply >}}).
+
+**Rates and posts.** `book` adds a rate to the current stage's rate slot; `book_index` does the same by index, for
+the wall batch ({{< code src/hydro/flux_register.cpp RegisterMonitor::book >}}). `cell_amount` sums a cell
+change over the cells in the wide dtype and posts it with its stage weight, $w_{2,s}$ for a change to the stage
+increment, 1 for a change already in the state ({{< code src/hydro/flux_register.cpp FluxRegister::cell_amount >}}).
+Both a post inside a stage and one after the combine land in the stage's post slot.
+
+**Stage slots.** `MeshBlockImpl::reset` sizes the slots for the integrator's stages before the executor's save list
+is taken ({{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}}); a later stage index grows them, eagerly
+({{< code src/hydro/flux_register.cpp RegisterMonitor::set_stage_count >}}). `FluxRegister::begin_stage` selects the
+slot ({{< code src/hydro/flux_register.cpp FluxRegister::begin_stage >}}). `RegisterMonitor::end_stage` reduces the
+stage's counts (@sec-ch10-counts), records $w_{1,s}$ and $w_{2,s}\Delta t$, and launches nothing else
+({{< code src/hydro/flux_register.cpp RegisterMonitor::end_stage >}}). $w_{2,s}\Delta t$ is a `StepDt`, on the device
+in a captured stage ({{< code src/hydro/flux_register.cpp FluxRegister::end_stage >}}).
+
+**The fold.** `fold_` computes @eq-ch10-fold over the stages ended so far
+({{< code src/hydro/flux_register.cpp RegisterMonitor::fold_ >}}). It forms the $c_s$[^rg-8ab0796952e7] on the host from the recorded
+$w_1$, folds the post slots of the ended stages and of the stage still open, which count at once with $c = 1$, and
+adds the rate slots of the ended stages times $c_s\,w_{2,s}\Delta t$. The rates of a stage still open wait for its
+$w_{2,s}\Delta t$. The result is written into the step-amount tensor. `amounts(name)` runs the fold and returns one
+row of it ({{< code src/hydro/flux_register.cpp RegisterMonitor::amounts >}}).
+
+**Precision and place.** The slots are created in FP64 and moved to the register's device in the device's wide
+dtype, FP64 or FP32 on MPS, cast on the host before the move
+({{< code src/hydro/flux_register.cpp RegisterMonitor::place_amounts >}},
+{{< code src/mesh/precision_policy.hpp PrecisionPolicy::wide >}}). They are registered with the state store as
+`freg.amount.rate`, `freg.amount.post` and `freg.amount.step`, so a warm-up or capture pass restores them
+({{< code src/mesh/meshblock.cpp MeshBlockImpl::register_flux_storage >}}).
+
+**Step fields.** A reader asks for $S_d$ with `request_step_field` and it exists from the next `begin_step`, in the
+wide dtype ({{< code src/hydro/flux_register.cpp FluxRegister::begin_attempt_ >}}). `FluxRegister::end_stage` applies
+@eq-ch10-stepfield ({{< code src/hydro/flux_register.cpp FluxRegister::end_stage >}}). `post_split` adds a split
+source's half-step flux to a direct part, refused inside a stage
+({{< code src/hydro/flux_register.cpp FluxRegister::post_split >}}). The budget output requests every active
+direction (@sec-ch10-budget); radial conduction requests $x_1$ ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| amount kinds | {{< code src/hydro/flux_register.hpp AmountKind >}} | `AmountKind` | |
+| the three face amounts | {{< code src/hydro/flux_register.cpp RegisterMonitor::reset_amounts >}} | `_amount` | |
+| a rate | {{< code src/hydro/flux_register.cpp RegisterMonitor::book >}} | `_rate` | |
+| a cell post | {{< code src/hydro/flux_register.cpp FluxRegister::cell_amount >}} | `post` | |
+| post slot and kind check | {{< code src/hydro/flux_register.cpp RegisterMonitor::post >}} | `_post` | |
+| the weights recorded | {{< code src/hydro/flux_register.cpp RegisterMonitor::end_stage >}} | `_w1`, `_w2dt` | |
+| the fold | {{< code src/hydro/flux_register.cpp RegisterMonitor::fold_ >}} | `cpost`, `crate` | |
+| the wide dtype | {{< code src/mesh/precision_policy.hpp PrecisionPolicy::wide >}} | `wide` | MPS |
+| step-field recursion | {{< code src/hydro/flux_register.cpp FluxRegister::end_stage >}} | `axpy_` | requested direction |
+| split posts | {{< code src/hydro/flux_register.cpp FluxRegister::post_split >}} | `_direct` | requested direction |
+
+: Code map of the amounts and step fields. {#tbl-ch10-amounts-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `test_flux_register.<b>` (`amounts_fold_like_the_step_field`) | over three steps of seam overwrites, `reconcile.x1` equals @eq-ch10-fold computed by hand; after a rollback it is zero | $10^{-15}$ relative; exact zero | set inline ({{< code tests/test_flux_register.cpp FluxRegister.amounts_fold_like_the_step_field >}}) |
+| `test_flux_register.<b>` (`step_field_recursion_equals_the_weighted_stage_sum`) | the step field is FP64 and equals the weighted stage sum | $10^{-15}$ relative | set inline ({{< code tests/test_flux_register.cpp FluxRegister.step_field_recursion_equals_the_weighted_stage_sum >}}) |
+| `test_flux_register.<b>` (`cell_amounts_fold_with_their_stage_weight`) | cell posts with $w_{2,s}$ and after-combine posts with 1 fold as @eq-ch10-fold | $10^{-15}$ relative | set inline ({{< code tests/test_flux_register.cpp FluxRegister.cell_amounts_fold_with_their_stage_weight >}}) |
+| `test_flux_register.<b>` (`cell_amount_names_are_made_at_their_first_post`, `the_amounts_are_three_flux_corrections`) | the names, kinds, shapes and FP64 dtype; a second kind or a wrong shape throws | exact | ({{< code tests/test_flux_register.cpp FluxRegister.cell_amount_names_are_made_at_their_first_post >}}) |
+| `test_flux_register.<b>` (`post_split_is_never_scaled_by_a_later_w1`) | $S_d$ is the plain recursion plus the direct part; split posts are refused inside a stage | exact | ({{< code tests/test_flux_register.cpp FluxRegister.post_split_is_never_scaled_by_a_later_w1 >}}) |
+| `test_graph_monitor_amounts.<b>` (`monitor_amounts_match_eager_bitwise`) | ten steps at a new dt each: every amount of a captured block equals the eager block's; one capture per stage | exact | graph must equal eager ({{< code tests/test_graph_monitor_amounts.cpp GraphSaveList.monitor_amounts_match_eager_bitwise >}}); CUDA only |
+
+: Tests of the amounts and step fields. {#tbl-ch10-amounts-tests}
+
+The `test_flux_register` cases pass at the pin, on CPU. The two fold tests print their worst relative difference
+from @eq-ch10-fold: 0 for `reconcile.x1` and $2.2\times10^{-16}$ for the cell amounts, lines `G-R14` of the run
+record of @tbl-ch10-ctest-run. The graph case skips without CUDA and was not run here.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- On MPS the amounts and step fields are FP32, because the device holds no FP64. No test in this chapter runs them
+  on MPS.
+:::
+
+1. **The fold is per read.** Every call of `amounts` folds all slots again and overwrites the step-amount tensor; a
+   reader that wants several names pays one fold per name.
+
+<!-- reader glossary notes -->
+[^rg-7722eb7d31ba]: MPS — Metal Performance Shaders
+
+[^rg-8ab0796952e7]: $c_s$ — sound speed [m s$^{-1}$]
+<!-- end reader glossary notes -->

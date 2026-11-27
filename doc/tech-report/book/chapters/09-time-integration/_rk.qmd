@@ -244,7 +244,7 @@ assertion on the weights.
 1. **`max_redo` is not a YAML key.** pyharp's `from_yaml` never reads it
    ([`pyharp integrator.cpp:20-31`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L20-L31)), so YAML runs keep the default `max_redo` of 5
    ([`pyharp integrator.hpp:58`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.hpp#L58)); a driver sets it with
-   `op.intg().max_redo(n)` before building the block (@sec-ch10-redo).
+   `op.intg().max_redo(n)` before building the block (@sec-ch09-redo).
 2. **pyharp is not pinned by snapy's build.** The weights cited here are those of the pyharp commit the report
    cites;[^ch09-rk-pyharp] the property $w_2^{(s)}\le w_1^{(s)}$ that the positivity limiter relies on holds for all four
    tableaux there and must be re-checked against the pyharp a build links.

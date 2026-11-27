@@ -70,7 +70,7 @@ linearization of their state dependence. The combine itself is the call `pintg->
 not assert their values from a snapy call site. Check `[C1]` expands a generic three-stage affine recurrence
 symbolically [check `src/snapy_report/ch01/checks/stage_check.py`, output `stage_check.out`].
 
-The tracer transfer and its dry-source complement are derived in @sec-ch10-tracer; this section keeps the call
+The tracer transfer and its dry-source complement are derived in @sec-ch08-drycarry; this section keeps the call
 interface, the three identities the code evaluates and the donor cap. Before the cap, the transfer of tracer $n$
 through an $x_1$ face is the clamped dry transfer $J^{\mathrm{d}}$ of the implicit mass-correction buffer times the
 ratio of the donor cell,
@@ -132,7 +132,7 @@ hydro dry-mass flux and the implicit dry transfer. Native dry sources carry the 
 sources carry them after all callbacks, from the saved pre-callback scalar increment. A callback result may contain
 only `hydro_du` and `scalar_ds`, with matching shapes. The integrator combines the stage, the solid cells are refilled
 (@sec-ch11-solids). The last stage runs the saturation adjustment on the interior cells when a thermodynamics module
-and a nonempty reaction list exist (@sec-ch10-satadj). The gravity-work fixer runs on the last stage when it is on and
+and a nonempty reaction list exist (@sec-ch08-satadj). The gravity-work fixer runs on the last stage when it is on and
 not deferred to the mesh (@sec-ch06-fixer). The physical ghosts are filled last (@sec-ch11-timing). This map asserts
 algebraic identities, not an observed convergence order.
 

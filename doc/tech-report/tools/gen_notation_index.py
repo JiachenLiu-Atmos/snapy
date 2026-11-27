@@ -47,7 +47,7 @@ FRAGMENT = BOOK / "chapters" / "17-appendices" / "_appa-notation.qmd"
 #: the outline numbers NOTATION.md's prose uses, and the labels they stand for
 OUTLINE_REFS = {
     "chapter 1.13": "@sec-ch01-dependencies",
-    "chapter 10.7": "@sec-ch10-tracer",
+    "chapter 10.7": "@sec-ch08-drycarry",
     "chapter 11.5": "@sec-ch11-outflow",
     "Chapter 6": "@sec-ch06",
     "chapter 6": "@sec-ch06",

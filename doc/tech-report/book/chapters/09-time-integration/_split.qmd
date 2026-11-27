@@ -12,7 +12,7 @@ The dynamics advance the conserved state over the whole step; the phase equilibr
 species at fixed density and internal energy density, the physical boundaries are refilled so the ghosts carry
 the adjusted composition, and the driver's kinetics integrate the reaction rates over the step on the refreshed
 primitives. Each piece sees the output of the previous one, which makes the step a sequential split. The details
-of the phase solve and the kinetics are @sec-ch10.
+of the phase solve and the kinetics are @sec-ch08-satadj and @sec-ch10-kinetics.
 
 ::: {.callout-note title="At a glance"}
 **Purpose.** Applies the phase equilibrium and then the driver's kinetics to the advanced state; @eq-ch09-split-lie.
@@ -58,7 +58,7 @@ Why it is first order, on the linear model with the projection $\mathcal S$ left
    =\tfrac{\Delta t^2}2[\mathsf G_{\mathrm{kin}},\mathsf G_{\mathrm{dyn}}]$ per step, zero when the generators commute (`[C4]`).
 3. Over $t_{\mathrm{end}}/\Delta t$ steps the local errors add to $O(\Delta t)$, so the split is first order unless the
    operators commute.
-4. *Round-off.* The split adds no arithmetic of its own: each piece rounds as its own section states (@sec-ch10),
+4. *Round-off.* The split adds no arithmetic of its own: each piece rounds as its own section states (@sec-ch08-satadj, @sec-ch10-kinetics),
    and the kinetics update first divides `del_conc` by `inv_mu`, then adds the result to `hydro_u`.
    These are two roundings per entry. With exact inputs, the first-order absolute error is at most
    $(\epsilon_{\mathrm m}/2)(|\Delta\rho_n|+|\rho_n+\Delta\rho_n|)$; near cancellation this is not a relative bound on the new density.
@@ -107,7 +107,7 @@ make_fig()
 : Code map of the step-boundary split. {#tbl-ch09-split-code}
 
 **How to use it.** Neither piece has a key in this section. The saturation adjustment runs at the last stage when
-the thermodynamics card has reactions (@sec-ch10-satadj), through this test
+the thermodynamics card has reactions (@sec-ch08-satadj), through this test
 ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}):
 
 ```cpp
@@ -125,7 +125,7 @@ The kinetics run only if the driver builds a kinetics model from the card and ca
 The guard is $\mathcal S$ of @eq-ch09-split-lie, applied once at the last stage; `evolve_implicit` is
 $\mathcal M^{\mathrm{kin}}_{\Delta t}$, over the full step. A driver that skips this call has no
 $\mathcal M^{\mathrm{kin}}_{\Delta t}$. Refused: nothing at this level; the reaction and kinetics cards are read and
-checked by kintera (@sec-ch10).
+checked by kintera (@sec-appe).
 
 ### Tests
 

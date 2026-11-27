@@ -1,12 +1,9 @@
 {
- "eq-ch10-satadj-state": "Total density, internal energy density and mass fractions formed from the conserved state before saturation adjustment.",
- "eq-ch10-borrow-split": "A negative condensate is repaid from its parent vapours, in proportion to their stoichiometric mass shares.",
- "eq-ch10-fixvapor-borrow": "A negative window in a column is cleared by taking its deficit from the window's vapour-holding cells, each giving up the same fraction, so the column mass is kept and the dry density does not enter.",
- "eq-ch10-kinetics-step": "One linearised backward-Euler step of the kinetics rates for the concentration change.",
- "eq-ch10-kinetics-extent": "The equilibrium extent of an evaporating condensate, in a form without cancellation.",
- "eq-ch10-kinetics-K": "The equilibrium constant of an evaporation reaction: the gases' saturation concentrations over the pure condensate.",
- "eq-ch10-kinetics-rate": "The evaporation rate from steady diffusion: rate coefficient times condensate concentration times the extent to saturation.",
- "eq-ch10-tracer-bound": "A tracer flux with an upper bound $b$ is limited by applying the positivity limiter to $bF_d - F_n$.",
- "eq-ch10-sed-stokes": "The Stokes terminal velocity of a condensate with the Cunningham slip correction.",
- "eq-ch10-sed-viscosity": "The Chapman-Enskog viscosity of a Lennard-Jones gas used in the sedimentation velocity."
+ "eq-ch10-overwrite": "An overwrite of a set of faces books, per row, the face-area-weighted sum of the new minus the previous face flux; faces it did not write add nothing.",
+ "eq-ch10-prescribed": "Applying a prescription books, per row, the area-weighted sum over the masked faces of the prescribed value minus the flux there before; for a wall the value is zero.",
+ "eq-ch10-flush": "The wall batch books each slot's rows as a plain sum of the stored after-minus-before differences times their face areas.",
+ "eq-ch10-fold": "The step amount sums each stage's booked rate times its stage weight and dt, plus its weighted posts, each scaled by the product of the later stages' first weights.",
+ "eq-ch10-stepfield": "The step field is updated at each stage's end as the first weight times itself plus the second weight times dt times the stage's flux total.",
+ "eq-ch10-counts": "A counter grows by the sum over its slots of the difference of the count buffer's cumulative sum at the slot's end and start.",
+ "eq-ch10-budget": "Over an interval the change of a row's domain total plus its outward transfer through the counted boundary faces equals the row's sources, zero without them."
 }

@@ -59,8 +59,8 @@ not is said so.
 | `riemann/` | Riemann solvers: Roe, LMARS, HLLC, shallow-water Roe, plume Roe | yes, with CUDA | @sec-ch04-riemann |
 | `implicit/` | the vertically implicit correction: assembly, block sweep, redistribution | yes, with CUDA | @sec-ch09-vic-options |
 | `forcing/` | forcing modules: gravity, Coriolis, diffusion, heating, relaxation, sponges | yes | @sec-ch07, @sec-ch06 |
-| `scalar/` | the passive-scalar module | yes | @sec-ch01-scalar, @sec-ch10-tracer |
-| `sedimentation/` | sedimentation velocities and their hydro coupling | yes, with CUDA | @sec-ch10-sed |
+| `scalar/` | the passive-scalar module | yes | @sec-ch01-scalar, @sec-ch08-drycarry |
+| `sedimentation/` | sedimentation velocities and their hydro coupling | yes, with CUDA | @sec-ch08-sed |
 | `mesh/` | `MeshBlock` and `Mesh`, their options, the cycle diagnostics | yes | @sec-ch01-construction, @sec-ch01-mesh |
 | `layout/` | block layouts (slab, cubed, cubed sphere), rank maps, process groups over Gloo or UCX | yes | @sec-ch03-layouts, @sec-ch14-backends |
 | `output/` | output types (NetCDF, PnetCDF, restart; HDF5 only with `HDF5OUTPUT` defined), their combine and field loaders | yes | @sec-ch14-netcdf, @sec-ch14-restart, @sec-ch13-output-diag |

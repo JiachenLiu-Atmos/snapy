@@ -1,0 +1,98 @@
+## Rollback and redo, through replay (`FluxRegister::rollback`) {#sec-ch10-rollback}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 10.6; src/hydro/flux_register.{hpp,cpp}; src/mesh/meshblock_redo.cpp; src/mesh/meshblock_advance.cpp; tests/test_flux_register.cpp and tests/test_graph_monitor_amounts.cpp, all at the pin
+status: draft
+-->
+
+### Summary
+
+A rejected step is redone from the step's initial state at a smaller $\Delta t$ (@sec-ch09-redo). The register must
+then hold what the redo produces and nothing of the rejected attempt: the census counts accepted steps only. The
+rollback zeroes the device data of the attempt but keeps the host's record of which stages have run, because on the
+CUDA-graph path the redo replays captured stages whose host bookkeeping calls do not run again.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Leave the amounts, counts, minima, flags and step fields of a redone step equal to those of a clean step with the redo's $\Delta t$.
+
+**Data.** In: the register after a rejected attempt. Out: zeroed device slots, counters, flags, step fields and split posts; the host stage record kept.
+
+**Placement.** In `MeshBlockImpl::apply_redo`, before the state is restored.
+
+**Activation.** Whenever `check_redo` rejects a step.
+
+**Guarantee / limits.** The redo's amounts equal a clean step's bitwise (tested on CPU); graph equals eager after a rollback (tested on CUDA only).
+
+**Evidence.** `test_flux_register.<b>`; `test_graph_monitor_amounts.<b>` on CUDA (Tests).
+:::
+
+Local symbols: none beyond @sec-ch10-amounts.
+
+### Derivation
+
+None (control flow). The requirement is that @eq-ch10-fold, evaluated after the redo, sees only the redo's rates
+and posts, and sees the redo's stages as ended. The device slots must therefore be zero when the redo starts. The
+record of ended stages and their weights must be valid for the redo too. Eagerly, the redo's own `begin_stage` and
+`end_stage` rewrite it. Under graph replay they do not run, so the record must survive the rollback.
+
+### Numerical method
+
+**`FluxRegister::rollback`** is `begin_step` without the monitor's `begin_step`
+({{< code src/hydro/flux_register.cpp FluxRegister::rollback >}}). Its shared part zeroes the requested step fields,
+drops the step's split posts and marks the register as outside a stage
+({{< code src/hydro/flux_register.cpp FluxRegister::begin_attempt_ >}}). It then calls the monitor's `rollback`,
+which zeroes the counters, refills the minima with $+\infty$, zeroes the retry flags, the rate, post and step-amount
+slots and the pending count buffer, and resets the count cursor
+({{< code src/hydro/flux_register.cpp RegisterMonitor::zero_attempt_ >}}). `RegisterMonitor::begin_step` does the same
+and also resets the current stage and the number of stages ended
+({{< code src/hydro/flux_register.cpp RegisterMonitor::begin_step >}}); `rollback` does not
+({{< code src/hydro/flux_register.cpp RegisterMonitor::rollback >}}). The header gives the reason: on the CUDA-graph
+path the redo replays the captured stages, whose host `begin_stage` and `end_stage` do not run again, and the fold
+would otherwise read no ended stage, so it would drop every rate and every later stage's posts for the redo and each
+replayed step after it ({{< code src/hydro/flux_register.hpp RegisterMonitor >}}).
+
+**The order in a redo.** `MeshBlockImpl::apply_redo` rolls the register back first, then restores the state from the
+step's backup, restores the split sources and the thermodynamic active set, and recomputes the primitives
+({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::apply_redo >}}). An accepted step instead goes on to the
+output consumers (@sec-ch10-budget).
+
+**The wall batch.** The rollback does not touch the wall batch. Its buffer is cleared at stage 0 of every attempt,
+together with the register's `begin_step`, which drops a rejected attempt's bookings that were not flushed
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}}).
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| the register's rollback | {{< code src/hydro/flux_register.cpp FluxRegister::rollback >}} | `begin_attempt_` | |
+| the device slots zeroed | {{< code src/hydro/flux_register.cpp RegisterMonitor::zero_attempt_ >}} | `zero_` | |
+| the host record kept | {{< code src/hydro/flux_register.cpp RegisterMonitor::rollback >}} | `_stage`, `_ended` | |
+| the call in a redo | {{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::apply_redo >}} | `rollback` | step rejected |
+| the batch cleared at stage 0 | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}} | `clear` | |
+
+: Code map of the rollback. {#tbl-ch10-rollback-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `test_flux_register.<b>` (`a_rolled_back_attempt_leaves_the_amounts_of_the_redo`) | an attempt of two stages, rolled back and redone with a smaller $\Delta t$, gives the amounts of a clean step with that $\Delta t$ | exact (`torch::equal`) | the rollback must leave nothing ({{< code tests/test_flux_register.cpp FluxRegister.a_rolled_back_attempt_leaves_the_amounts_of_the_redo >}}) |
+| `test_flux_register.<b>` (`census_counts_minima_and_retry_flags`) | after a rollback the counters and flags are zero and the minimum is $+\infty$ | exact | ({{< code tests/test_flux_register.cpp RegisterMonitor.census_counts_minima_and_retry_flags >}}) |
+| `test_graph_monitor_amounts.<b>` (`monitor_amounts_match_eager_after_a_rollback`) | after a captured step, a replayed step and a rejected attempt, the redo's and the next step's amounts and states on the graph block equal the eager block's, with no new capture and no eager fallback | exact | graph must equal eager ({{< code tests/test_graph_monitor_amounts.cpp GraphSaveList.monitor_amounts_match_eager_after_a_rollback >}}); CUDA only |
+
+: Tests of the rollback. {#tbl-ch10-rollback-tests}
+
+The `test_flux_register` cases pass at the pin, on CPU. The graph case skips without CUDA and was not run here
+(@tbl-ch10-ctest-run).
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- The property the rollback exists for, a replayed redo, is tested only on CUDA. This chapter's CPU run checks the
+  eager half.
+:::
+
+1. **The redo test drives the register directly.** `a_rolled_back_attempt_leaves_the_amounts_of_the_redo` calls the
+   register's stage methods itself, not `MeshBlockImpl::apply_redo`; the graph test follows `check_redo`'s order by
+   hand. No test in this chapter rejects a step through `check_redo` and compares the amounts.
