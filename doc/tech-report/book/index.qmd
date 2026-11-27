@@ -13,12 +13,12 @@ section has the same layers: a summary, the derivation, the numerical method, th
 |---|---|
 | @sec-ch01 | The step at a glance: how a deck becomes a block and its modules, the driver loop, the stage, and a map of the source tree |
 | @sec-ch02 | The conservation laws and the state vectors, and the equations of state that convert between conserved and primitive variables: ideal gas, ideal moist mixture, the temperature-dependent moist mixture, the tabulated and shallow-water closures, and the phase equilibrium |
-| @sec-ch03 | The grids: Cartesian, spherical-polar and the gnomonic cubed sphere, their metric quantities, the split into blocks, and what a ghost cell holds at each kind of face |
-| @sec-ch04 | The semi-discrete operator of a stage: reconstruction to faces, the Riemann solvers, the flux divergence and the geometric sources |
+| @sec-ch03 | The grids: Cartesian, spherical-polar and the gnomonic cubed sphere, their metric quantities, the split into blocks, what a ghost cell holds at each kind of face, and the cubed-sphere panel seams |
+| @sec-ch04 | The semi-discrete operator of a stage: the $x_1$ conversion between cell averages and point values, reconstruction to faces, the Riemann solvers, the face-flux covariance terms, the flux divergence and the geometric sources |
 | @sec-ch05 | How the $x_1$ sweep keeps a stratified column at rest: the hydrostatic reference and the well-balanced face states |
 | @sec-ch06 | Where the work of gravity is booked, what each form conserves, and the gravity work inside the vertical implicit correction |
-| @sec-ch07 | Every source term besides the flux divergence and gravity: the forcing loop, Coriolis, viscosity and heat conduction, heating, relaxation, sponges and user stage forcings |
-| @sec-ch08 | The moist side of a stage and what keeps the state admissible: saturation adjustment, sedimentation, the flux positivity limiter, the equation-of-state floors and their records |
+| @sec-ch07 | Every source term besides the flux divergence and gravity: the forcing loop, axial angular momentum, Coriolis, viscosity and heat conduction, heating, relaxation, sponges and user stage forcings |
+| @sec-ch08 | The moist side of a stage and what keeps the state admissible: saturation adjustment, sedimentation, the flux positivity limiter, the equation-of-state floors, their records and the redo decision |
 | @sec-ch09 | Advancing in time: the Runge–Kutta stages, the time-step bound, step acceptance and redo, and the implicit column solve |
 | @sec-ch10 | How phase change, condensates and passive tracers enter the step |
 | @sec-ch11 | The boundary conditions, the ghost fill and exchange order, and immersed solids |
@@ -26,12 +26,12 @@ section has the same layers: a summary, the derivation, the numerical method, th
 | @sec-ch13 | The conservation budgets and diagnostics the model prints, and the tests that read them |
 | @sec-ch14 | Several processes and devices, output and restart files, and reproducibility |
 | @sec-ch15 | How deck keys become options, how output is written and combined, and how a run is restarted |
-| @sec-ch16 | The verification catalogue: which test supports which claim, and how to rerun it |
+| @sec-ch16 | How the code is verified: the bitwise gates, the capture sweep, launch counting, regression provenance and device reproducibility, then the verification catalogue: which test supports which claim, and how to rerun it |
 | @sec-ch17 | The limits of every chapter in one place: where snapy can be wrong, restricted or awkward |
 
 The appendices are reference tables: notation (@sec-appa), the derivation index (@sec-appb), the test index
-(@sec-appc), the environment switches (@sec-appd), the external components (@sec-appe), a topic index, the task
-map (@sec-appg), the glossary (@sec-apph), the deck keys (@sec-appi) and the source tree (@sec-appj).
+(@sec-appc), the environment switches (@sec-appd), the external components (@sec-appe), a topic index, the V3 lane
+map and task map (@sec-appg), the glossary (@sec-apph), the deck keys (@sec-appi) and the source tree (@sec-appj).
 
 ## Pins {.unnumbered}
 
@@ -68,8 +68,9 @@ pip install .
 The build also compiles the tests (`BUILD_TESTS` is on by default). A test named in a Tests layer runs with
 `ctest --test-dir build -R <name>`; to reproduce a documented test case and check it against the book, follow
 @sec-ch16-metrics. The last line installs the Python package from the same build, which the Python
-listings of the chapters import (`import snapy`), and puts the tools `pd-run`, `pd-combine` and `pd-inspect` on
-the path.
+listings of the chapters import (`import snapy`). It puts `pd-combine` and `pd-inspect` on the path as entry points
+(`pd-combine`, [`pyproject.toml:54`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/pyproject.toml#L54); `pd-inspect`, [`pyproject.toml:55`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/pyproject.toml#L55)) and installs
+the `api/pd-run` script beside them (`script-files`, [`pyproject.toml:61`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/pyproject.toml#L61)).
 
 **Run a deck.** The build puts one driver program per example in `build/bin`, next to links to the decks of
 `examples/`. A deck is a YAML input file, and a *driver* is the program that reads it, sets the initial state
