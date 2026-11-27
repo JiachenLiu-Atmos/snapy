@@ -257,7 +257,8 @@ when none of them holds; it returns 1 only in that last case and 0 otherwise
 ({{< code src/mesh/meshblock_output.cpp MeshBlockImpl::finish_run >}}). A run that exhausts its redo budget
 therefore ends with that line and a nonzero exit status. The three convection drivers (`planar_convection.cpp`,
 `spherical_convection.cpp` and `cubed_sphere_convection.cpp`) are outside this scheme: each runs its own loop to a diffusive
-end time, treats a negative redo result as an error, writes its own CSV and JSON records, and calls neither `stop`
+end time, treats a negative redo result as an error, writes its own CSV record (the planar and spherical drivers add a JSON summary; the cubed-sphere driver writes
+the CSV only), and calls neither `stop`
 nor `finalize` ({{< code examples/planar_convection.cpp main >}}); none of this paragraph applies to them.
 
 ### Code
