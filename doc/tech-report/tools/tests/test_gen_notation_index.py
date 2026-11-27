@@ -73,7 +73,7 @@ def test_cells_split_outside_maths_and_code():
 def test_rows_first_use_and_references(tmp_path):
     frag = g.fragment(NOTATION, make_book(tmp_path))
     assert "7 symbols in 2 sections" in frag
-    assert "@sec-ch10-tracer and @sec-appe" in frag                     # no hand-typed chapter number
+    assert "@sec-ch08-drycarry and @sec-appe" in frag                     # no hand-typed chapter number
     row = next(l for l in frag.splitlines() if l.startswith(r"| $\rho$"))
     assert row == r"| $\rho$ | total density | [kg m$^{-3}$] | @sec-ch02-gas | `w[IDN]` |"
     y = next(l for l in frag.splitlines() if l.startswith("| $y_n$"))

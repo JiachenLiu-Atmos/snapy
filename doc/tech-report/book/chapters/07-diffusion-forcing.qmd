@@ -16,8 +16,8 @@ composition; and the sponge layers. All of them are explicit and act through one
 module reads the same stage-entry state, so their order does not change the result; under the $x_1$ mass-flux gate the Coriolis force
 runs a second time after the implicit solve, with the stage's $x_1$ mass transfer. Constant gravity runs just before the
 registry; it and its work
-are @sec-ch06; sedimentation is @sec-ch10-sed; the tracers that ride the dry-air part of these sources are
-@sec-ch10-tracer. Two entries record what does not run: the plume forcing, present but never installed, and a
+are @sec-ch06; sedimentation is @sec-ch08-sed; the tracers that ride the dry-air part of these sources are
+@sec-ch08-drycarry. Two entries record what does not run: the plume forcing, present but never installed, and a
 turbulence closure, which the code at the pin does not have.
 
 ```{python}

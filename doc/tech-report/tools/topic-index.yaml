@@ -343,17 +343,22 @@ sections:
   sec-ch08-carry:
     - positivity limiter, energy carried
   sec-ch08-satadj:
-    - saturation adjustment, in the step
+    - saturation adjustment, in the step: [condensation]
     - phase equilibrium, once per step
+    - condensation and evaporation, equilibrium
+    - condensable species: [NH3, H2O, water vapour, clouds]
+    - saturation vapour pressure
   sec-ch08-sed:
-    - sedimentation, settling flux
+    - sedimentation, settling flux: [falling condensate, settling, fall speed]
     - terminal velocity, of condensates
+    - precipitation: [rain, rainout]
+    - energy conservation, sedimentation
   sec-ch08-efstatus:
     - EfStatus
     - positivity census
     - limiter meters
   sec-ch08-drycarry:
-    - passive scalars, with dry-mass sources
+    - passive scalars, with dry-mass sources: [tracers per dry air]
   sec-ch08-eoslimiter:
     - floors, density and pressure: [density floor, pressure floor, temperature floor]
     - negative density or pressure: [positivity]
@@ -366,6 +371,7 @@ sections:
   sec-ch08-redo:
     - negative density or pressure, redo
     - step rejection and redo, floor test
+    - step rejection and redo, moist causes
   sec-ch08-roundoff:
     - precision, round-off thresholds
     - round-off thresholds, positivity
@@ -419,28 +425,28 @@ sections:
   sec-ch07-x1profile:
     - viscosity, height-dependent profile
 
-  # Chapter 10. Moist physics coupling
-  sec-ch10-borrow:
-    - negative condensate, repair
-  sec-ch10-fixvapor:
-    - negative vapour, column repair
+  # Chapter 10. The flux register, monitor amounts and conservation budgets
+  sec-ch10-posts:
+    - flux register: [FluxRegister, register posts]
+    - face fluxes, stage totals
+  sec-ch10-prescribed:
+    - prescribed faces: [wall flux, boundary.prescribed]
+    - walls, flux booked at
+  sec-ch10-wallbatch:
+    - wall batch: [WallBatch]
+  sec-ch10-amounts:
+    - monitor amounts: [amounts, stage fold]
+    - step fields
+  sec-ch10-counts:
+    - monitor counts: [counters, face floor counts]
+    - retry flags
+  sec-ch10-rollback:
+    - step rejection and redo, register rollback
+  sec-ch10-budget:
+    - conservation budget: [budget series, budget output]
+    - energy conservation, budget
   sec-ch10-kinetics:
-    - precipitation: [rain, rainout]
-    - condensation and evaporation, rates: [kinetics, microphysics]
-  sec-ch10-redo:
-    - step rejection and redo, moist causes
-  sec-ch10-satadj:
-    - saturation adjustment: [condensation]
-    - condensation and evaporation, equilibrium
-    - condensable species: [NH3, H2O, water vapour, clouds]
-    - saturation vapour pressure
-  sec-ch10-sed:
-    - sedimentation: [falling condensate, settling, fall speed]
-    - precipitation
-    - energy conservation, sedimentation
-  sec-ch10-tracer:
-    - passive scalars: [tracers per dry air]
-    - mass fraction bounds
+    - condensation and evaporation, rates: [kinetics, microphysics, chemistry step]
 
   # Chapter 11. Boundary conditions and immersed solids
   sec-ch11-custom:

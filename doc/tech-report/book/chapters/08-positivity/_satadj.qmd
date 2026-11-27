@@ -81,6 +81,10 @@ Why the write-back changes only the species rows, and what it keeps:
 
 ### Numerical method
 
+`uv-solver` is the name of the algorithm kintera runs for the fixed-energy solve, `auto` by default, or `kkt` or
+`partition`, read from `dynamics/equation-of-state/uv-solver`; any other name is refused (`uv_solver`,
+[`kintera thermo_options.cpp:95-101`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_options.cpp#L95-L101)).
+
 @fig-ch08-satadj-order places the adjustment in the step. Each stage is a fixed list of ops that the stage executor
 installs ({{< code src/mesh/stage_executor.cpp StageExecutor::build_schedule >}}): `advance`, `forcing`[^rg-ad21c4b4bd61], `combine`,
 `saturation`, `chemistry`, `boundaries`. The `combine` op `stage_combine`
@@ -97,7 +101,7 @@ and a negative species density left by transport reaches the solve.
 The solve sees only the interior cells, the `exterior(false)` part of the block, and passes `warm_start = true`, so
 kintera may reuse the active set of its previous call. After the solve snapy posts rows 1 and 2 of kintera's failure
 counter, the temperature and pressure solves that did not converge, to the flux register's monitor as the counts
-`thermo.temp_solve` and `thermo.pres_solve` (@sec-ch10). Those counts are not redo causes. Row 0, the cells the
+`thermo.temp_solve` and `thermo.pres_solve` (@sec-ch10-counts). Those counts are not redo causes. Row 0, the cells the
 adjustment left unconverged, is consumed by the redo decision in place on the device
 ({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::local_redo_flag_tensor >}}); `stage_advance` zeroes the counter at
 stage 0, and a redo restores the active set kintera had at the start of the attempt
@@ -115,6 +119,8 @@ make_fig()
 ```
 
 ### Code
+
+{{< include 10-moist-coupling/_howto-condensate.qmd >}}
 
 | what | code link | symbol | switch |
 |---|---|---|---|

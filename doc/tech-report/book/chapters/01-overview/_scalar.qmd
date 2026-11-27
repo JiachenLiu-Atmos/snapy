@@ -197,7 +197,7 @@ report check exists for this section.
 
 ::: {.callout-warning title="Limits"}
 The forward routine divides by the conserved dry density; its behaviour for a zero dry-density field is not
-established by the cited tests. The upper-bound and positivity mechanisms are documented by @sec-ch10 and
+established by the cited tests. The upper-bound and positivity mechanisms are documented by
 @sec-ch08; combinations remain in @sec-ch12-matrix.
 :::
 

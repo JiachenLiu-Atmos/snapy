@@ -173,7 +173,7 @@ bool x1_centroid_exact_enabled() {
 
 | symbol | read at | default | effect | cited by |
 |------------------|--------------------|----------------|--------------------------|--------------|
-| `SNAP_X1_CENTROID_EXACT` | {{< code src/coord/x1_centroid.cpp x1_centroid_exact_enabled >}} | off (`"0"`) | spherical-polar $r^2$-average $x_1$ cell-to-plain-mean formulas in the hydro's reconstruction and pressure source; the scalar keeps its $r^3/3$ table; `nghost` of at least 3 with gravity | @sec-ch01, @sec-ch03, @sec-ch04, @sec-ch05, @sec-ch06, @sec-ch10, @sec-ch11, @sec-ch16; full: @sec-ch12-centroid |
+| `SNAP_X1_CENTROID_EXACT` | {{< code src/coord/x1_centroid.cpp x1_centroid_exact_enabled >}} | off (`"0"`) | spherical-polar $r^2$-average $x_1$ cell-to-plain-mean formulas in the hydro's reconstruction and pressure source; the scalar keeps its $r^3/3$ table; `nghost` of at least 3 with gravity | @sec-ch01, @sec-ch03, @sec-ch04, @sec-ch05, @sec-ch06, @sec-ch11, @sec-ch16; full: @sec-ch12-centroid |
 | `SNAP_ANOMALY` | {{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}}, generated from {{< code src/options/hydro.yaml >}} by {{< code tools/gen_options.py env >}} | the deck's `dynamics/anomaly`, `false` | anomaly storage of the density and energy rows about a static FP64 reference; `ideal-moist` EOS and Cartesian grid only; `1`/`on`/`true`/`yes` on, empty/`0`/`off`/`false`/`no` off, anything else refused | @sec-ch15 |
 
 : The numerics switches. `SNAP_X1_CENTROID_EXACT` is read once per process, and an empty value, 0, false, off or no (any case) turns it off; `SNAP_ANOMALY` is read at every deck read and accepts only the words listed. {#tbl-appd-numerics}
