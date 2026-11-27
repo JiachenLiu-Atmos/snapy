@@ -237,7 +237,9 @@ after every accepted step (the `main` of `straka.cpp`, {{< code examples/straka.
 makes the final call (`MeshBlockImpl::finalize`, {{< code src/mesh/meshblock_output.cpp MeshBlockImpl::finalize >}};
 `MeshImpl::finalize`, {{< code src/mesh/mesh.cpp MeshImpl::finalize >}}).
 
-**The final write and the termination reason.** The driver loop of the shipped examples runs while the
+**The final write and the termination reason.** Seven of the ten shipped example drivers (`bryan.cpp`,
+`jupiter_evap_precip_1d.cpp`, `run_hydro.cpp`, `shallow_splash.cpp`, `shallow_xy.cpp`, `shock.cpp` and `straka.cpp`) run
+their loop while the
 integrator's `stop` is false: it stops when `nlim`[^rg-92bdb6d45d3b] is nonnegative and the cycle count has reached it, or when
 `tlim` is nonnegative and the time has reached it (`stop`,
 [`pyharp integrator.cpp:89-99`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L89-L99)).
@@ -253,7 +255,10 @@ output's `final.restart` and no gridded frame, and `finish_run` prints one reaso
 signal, the interrupt signal, the wall-time limit, the cycle limit, the time limit, or "Terminating abnormally"
 when none of them holds; it returns 1 only in that last case and 0 otherwise
 ({{< code src/mesh/meshblock_output.cpp MeshBlockImpl::finish_run >}}). A run that exhausts its redo budget
-therefore ends with that line and a nonzero exit status.
+therefore ends with that line and a nonzero exit status. The three convection drivers (`planar_convection.cpp`,
+`spherical_convection.cpp` and `cubed_sphere_convection.cpp`) are outside this scheme: each runs its own loop to a diffusive
+end time, treats a negative redo result as an error, writes its own CSV and JSON records, and calls neither `stop`
+nor `finalize` ({{< code examples/planar_convection.cpp main >}}); none of this paragraph applies to them.
 
 ### Code
 
