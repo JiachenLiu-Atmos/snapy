@@ -122,8 +122,10 @@ is across columns, on the CPU through `CpuColumns` ({{< code src/implicit/implic
 CUDA the sweep is one thread per column, and the assembly and the final cell update are one thread per cell.
 
 With the exact radial work (@sec-ch06-vic) the host builds the solve with two more operands, and the sweep, called
-with `K = 2`, carries two unit right-hand sides $\mathbf e_E$ at layers 2 and $n_{\mathrm{lay}}-3$ through the same
-factorisation into `z0` and `z1`; after the back pass `vic_woodbury_column` subtracts
+with `K = 2`, carries two unit right-hand sides $\mathbf e_E$ at layers 0 and $n_{\mathrm{lay}}-1$, the energy rows of
+the two wall cells, through the same factorisation into `z0` and `z1` ({{< code src/implicit/vic_kernels.h vic_solve_column >}});
+the update reads them back at the mass column of layers 2 and $n_{\mathrm{lay}}-3$, the wall third points. After the
+back pass `vic_woodbury_column` subtracts
 $\mathsf Z(\mathsf I+\mathsf V^{\mathsf T}\mathsf Z)^{-1}\mathsf V^{\mathsf T}\boldsymbol\delta$, the rank-2 update for the two wall
 third points of the potential-energy slope ({{< code src/implicit/vic_kernels.h vic_woodbury_column >}};
 {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}}). On the CPU that function is

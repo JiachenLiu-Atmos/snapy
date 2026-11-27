@@ -141,7 +141,7 @@ step input restored (@sec-ch09-redo).
 | `tests/test_lu_failure.cpp` (`test_lu_failure.release`), `partial_retry_restores_step`, `full_retry_restores_step`, `*_stop_restores_step`, `*_assembly_*` | a refused correction (a NaN $\gamma$, or $\Delta t=0$ in the `*_assembly_*` cases) leaves `du` and the primitives unchanged, and `check_redo` returns 1 (retry) or $-1$ (stop) with `hydro_u` restored to the step input and the cycle unchanged | `torch::equal` (bitwise) | exact copies (step 5) |
 | same file, `column_status_flags_the_bad_column_only` | a NaN $\gamma$ in one column sets bit 1 on that column only; that column is undone and the others keep their solution; `reset_status` clears the status | exact | contract |
 | same file, `mesh_terminal_failure_restores_all_blocks` | a two-block Mesh restores both blocks at a terminal failure | `torch::equal` | exact copies |
-| same file, `finite_near_singular_forward_masked` (and CUDA twins of these cases) | a finite float32 column with a long step ($10^4$) is refused by the pivot guard and fails the step, leaving `du` and the primitives unchanged | logical; `torch::equal` | contract |
+| same file, `finite_near_singular_forward_masked` (and the `cuda_*` cases of the same binary, skipped without a device) | a finite float32 column with a long step ($10^4$) is refused by the pivot guard and fails the step, leaving `du` and the primitives unchanged | logical; `torch::equal` | contract |
 | same file, `fp64_retry_solves_the_failed_column_only`, `fp64_retry_that_fails_again_fails_the_step` | see @tbl-ch09-vic-pivot-tests | exact | contract |
 | this section's check, `vic_reject_check.py` | `[C1]`–`[C5]` | bitwise; logical | exact copies; control flow |
 
@@ -150,7 +150,7 @@ step input restored (@sec-ch09-redo).
 `test_lu_failure.release` passes at the pin (@tbl-ch09-ctest-run), with
 {{< code tests/test_lu_failure.cpp lu_failure.partial_retry_restores_step >}} as its first retry case and
 {{< code tests/test_lu_failure.cpp lu_failure.column_status_flags_the_bad_column_only >}} for the per-column status;
-the CUDA twins are not registered in that build. `vic_reject_check.py` ports the per-column path as a state machine
+the CUDA cases (`cuda_*`) are gtest cases of the same binary, which skip without a device (6 skipped there). `vic_reject_check.py` ports the per-column path as a state machine
 around the ported sweep.[^ch09-vic-reject-run] `[C1]` gives the bits 7, 6 and 4 for a NaN input, a singular block and a
 nonfinite result in column 1, restores that column bit for bit and leaves the others clear; `[C2]` runs the solve in
 3 of 3 stages after a stage-0 failure and keeps the step failed; `[C3]` raises the mask 32 and lets the retry solve,

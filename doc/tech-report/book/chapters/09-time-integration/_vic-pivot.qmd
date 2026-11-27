@@ -105,9 +105,11 @@ the reciprocal of the largest entry of that row of $[\mathsf B_i\ \mathsf A_i\ \
 two are exact, so the refusal test, whose ratio is per row, gives the same decision either way (step 4, `[C3]`); only
 the choice of pivot row can change.
 
-The working precision comes from the precision table: the solve computes in float32 when `dynamics.precision` is
-float32 or `integration/implicit-precision` is `float32`, and in float64 otherwise
-({{< code src/mesh/precision_policy.hpp PrecisionPolicy::PrecisionPolicy >}}). A float32 solve needs a Cartesian
+The working precision comes from the precision table: the solve computes in float32 when
+`integration/implicit-precision` is `float32`, or when it is `auto` (the default) and `dynamics.precision` is
+`float32`; a non-`auto` `implicit-precision` overrides the block, so `dynamics.precision: float32` with
+`implicit-precision: float64` solves in float64 ({{< code src/mesh/precision_policy.hpp PrecisionPolicy::PrecisionPolicy >}}).
+On MPS[^rg-d270ddd850e7], which has no float64, every row is float32. A float32 solve needs a Cartesian
 ideal-moist block. With `implicit-fallback-fp64` (default true), the columns whose float32 solve failed are solved
 again from the float64 inputs, and only those columns ({{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}}).
 
@@ -193,4 +195,6 @@ conditioned, and acceptance does not mean an accurate step.
 [^rg-cecbfc2fcc72]: SI — International System of Units; notation only; see @sec-appa
 
 [^rg-10dfdc92d517]: $\epsilon_{\mathrm{piv}}$ — LU pivot tolerance; {{< code src/math/ludcmp.h ludcmp >}}
+
+[^rg-d270ddd850e7]: MPS — Metal Performance Shaders
 <!-- end reader glossary notes -->

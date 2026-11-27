@@ -77,15 +77,15 @@ generators rather than the equilibrium projection.
 The physical boundary fill that follows the chemistry adds no update to the interior and is left out of
 @eq-ch09-split-lie.
 
-The radial conduction split is symmetric: with $\mathcal D_{\Delta t/2}$ the implicit radial step over half the step,
-the step is $\mathcal D_{\Delta t/2}\,\mathcal M^{\mathrm{dyn}}_{\Delta t}\,\mathcal D_{\Delta t/2}$, the Strang order of `[C2]`.
-It needs a dry ideal gas, so it never runs together with $\mathcal S$ or $\mathcal M^{\mathrm{kin}}_{\Delta t}$
-({{< code src/forcing/diffusion_radial.cpp DiffusionImpl::radial_conduction_step >}}).
-
 In the code, the $\mathcal S$ of @eq-ch09-split-lie is the last-stage `ThermoY` solve of the block, `pthermo`
 ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}}), and
 $\mathcal M^{\mathrm{kin}}_{\Delta t}$ is `ChemistrySource::forward`
 ({{< code src/chemistry/chemistry_source.cpp ChemistrySource::forward >}}).
+
+The radial conduction split is symmetric: with $\mathcal D_{\Delta t/2}$ the implicit radial step over half the step,
+the step is $\mathcal D_{\Delta t/2}\,\mathcal M^{\mathrm{dyn}}_{\Delta t}\,\mathcal D_{\Delta t/2}$, the Strang order of `[C2]`.
+It needs a dry ideal gas, so it never runs together with $\mathcal S$ or $\mathcal M^{\mathrm{kin}}_{\Delta t}$
+({{< code src/forcing/diffusion_radial.cpp DiffusionImpl::radial_conduction_step >}}).
 
 ### Numerical method
 
@@ -170,7 +170,7 @@ kinetics cards are read and checked by kintera (@sec-ch10).
 | `tests/test_check_redo_saturation.py` (`test_check_redo_saturation_python`) | a failed saturation solve rejects the step | logical | contract |
 | `tests/test_sk4_chemistry_source.py` (`test_sk4_chemistry_source_python`) | a block with the chemistry set equals a block stepped by hand with the same update after the stages, `hydro_u` and `hydro_w`, in FP64 and FP32 | bitwise | the same operations in the same order |
 | `tests/test_sk4_mesh_chemistry.py` (`test_sk4_mesh_chemistry_python`) | a two-block Mesh running the chemistry in its global phase equals one block with the same chemistry; without it they differ | bitwise | as above |
-| `tests/test_diffusion_cubed_sphere.cpp` (`test_diffusion_cubed_sphere.release`), radial case | the implicit radial step keeps energy, stays finite, is undone exactly by `restore_split`, and its error falls by more than 3.5 per halving of the step | $10^{-12}$ relative; ratio 3.5 | test thresholds (second order gives 4) |
+| `tests/test_diffusion_cubed_sphere.cpp` (`test_diffusion_cubed_sphere.release`), radial case | the implicit radial step keeps energy, stays finite, is undone exactly by `restore_split`, and its error falls by more than 3.5 per halving of the step | $10^{-12}$ relative on the energy, $10^{-12}$ absolute on the restored temperature (`allclose(got, restored, 0., 1e-12)`); ratio 3.5 | test thresholds (second order gives 4) |
 | this section's check, `split_check.py` | `[C1]`–`[C4]` | 0.1 in the order; $10^{-14}$; exact | stated in the check |
 
 : Tests of the step-boundary split (@tbl-ch09-ctest-run for the run at the pin). {#tbl-ch09-split-tests}

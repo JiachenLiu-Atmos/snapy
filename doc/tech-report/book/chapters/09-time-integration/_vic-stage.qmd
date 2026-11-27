@@ -154,15 +154,15 @@ error.
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| `tests/test_forcing.cpp` (`test_forcing.release`, CUDA twin), `implicit_gravity_work_holds_under_rk3_stage_weighting` | at every rk3 stage the column's mechanical energy change equals the boundary flux; stage 0 and stage 1 give different momentum, so the weight reaches the correction (face gravity work, see @sec-ch06) | $10^{-9}$ absolute; difference above $10^{-6}$ | round-off; a detection threshold |
+| `tests/test_forcing.cpp` (`test_forcing.release`; a `_cuda` gtest case), `implicit_gravity_work_holds_under_rk3_stage_weighting` | at every rk3 stage the column's mechanical energy change equals the boundary flux; stage 0 and stage 1 give different momentum, so the weight reaches the correction (face gravity work, see @sec-ch06) | $10^{-9}$ absolute; difference above $10^{-6}$ | round-off; a detection threshold |
 | `tests/test_implicit_face_work_operator.py` (`test_implicit_face_work_operator_python`, CUDA twin), rk3s4 arm | on the 45-cell column of the test with `implicit-scheme: 9`, an initial $w_0=10^{-3}$ m/s and the same end time, rk3 and rk3s4 at vertical acoustic Courant numbers $\tfrac14$ and $\tfrac18$ against rk3 at $\tfrac1{32}$: the observed order of rk3s4, $\log_2$ of its error ratio, is not below that of rk3 | order comparison | the test's own criterion |
 | this section's check, `vic_stage_check.py` | `[C1]`–`[C5]` | $10^{-13}$, $10^{-6}$, exact | stated in the check |
 
 : Tests of the stage-weighted implicit step (@tbl-ch09-ctest-run for the run at the pin). {#tbl-ch09-vic-stage-tests}
 
 `test_forcing.release` passes at the pin (@tbl-ch09-ctest-run), including
-{{< code tests/test_forcing.cpp forcing.implicit_gravity_work_holds_under_rk3_stage_weighting >}}; the CUDA twin is not
-registered in that build. `test_implicit_face_work_operator_python` passes at the pin too
+{{< code tests/test_forcing.cpp forcing.implicit_gravity_work_holds_under_rk3_stage_weighting >}}; its `_cuda` case is
+in the same binary and skipped without a device. `test_implicit_face_work_operator_python` passes at the pin too
 ({{< code tests/test_implicit_face_work_operator.py main >}}). Its rk3s4 arm printed relative $w$ errors, against rk3 at
 Courant $\tfrac1{32}$, of $1.0160\times10^{-1}$ and $4.4953\times10^{-2}$ for rk3 and $6.5707\times10^{-2}$ and
 $2.6123\times10^{-2}$ for rk3s4 at Courant $\tfrac14$ and $\tfrac18$: observed orders 1.18 and 1.33.[^ch09-vic-stage-arm] rk3s4 is the more
