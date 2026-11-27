@@ -1,13 +1,13 @@
 ## YAML scheme selection and setup guards (`YAML keys`) {#sec-ch12-yaml}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (chengcli/snapy, code_pin.yml)
 sources: OUTLINE.md 12.11; src/hydro/hydro_options.cpp; src/forcing/const_gravity.cpp; src/implicit/implicit_hydro.cpp;
-         src/eos/equation_of_state.cpp; src/recon/reconstruct.cpp; src/riemann/riemann_solver.cpp; src/coord/coordinate.cpp;
+         src/eos/equation_of_state.cpp; src/recon/reconstruct.cpp; src/riemann/riemann.cpp; src/coord/coordinate.cpp;
          src/layout/layout.cpp; src/mesh/meshblock_options.cpp; src/hydro/hydro.cpp; tests/test_yaml_keys.cpp;
          tests/test_hydro_options.cpp; tests/test_implicit_options_type.py
 status: draft
-author: Jiheng Hu
+author: Jiheng Hu; rewritten in part at the pin by Xinyue Wang
 reviewer:
 -->
 
@@ -28,15 +28,15 @@ explains it, is listed in @sec-appi.
 
 **Activation.** Defaults include face work, Cartesian geometry and one ghost cell.
 
-**Guarantee / limits.** Refuses non-cell work with a nonzero-gravity fixer, a fixer with lateral gravity, a fixer with periodic $x_1$, and implicit CFL[^rg-a6d2f00b5dc7] keys without an implicit scheme; recognized keys alone do not guarantee compatibility.
+**Guarantee / limits.** Refuses any gravity-work form but `face`, an active gravity-work fixer, and implicit CFL[^rg-a6d2f00b5dc7] keys without an implicit scheme; recognized keys alone do not guarantee compatibility.
 
 **Evidence.** Tests below, @tbl-ch12-yaml-tests; solver ctests were not run.
 :::
 
 | key | default | coupling |
 |---|---|---|
-| `forcing/const-gravity/gravity-work` | `face` | `cell`, `face-wallc` or `face`; selects the budget the solver conserves |
-| `gravity-work-fixer` in that block | true for `cell`, false otherwise | with nonzero `grav1` it needs `cell`; the reset clears it for non-cell work and needs `grav2` = `grav3` = 0 and non-periodic $x_1$ |
+| `forcing/const-gravity/gravity-work` | `face` | only `face` is accepted; any other value is refused at parse and at setup |
+| `gravity-work-fixer` in that block | false | only `false` is accepted; `true` is refused at parse and at setup |
 | `grav1`, `grav2`, `grav3` | 0 | the gravity components |
 | `non-hydrostatic`[^rg-5e19433b0f93] | 1 | must lie in $[0,1]$ |
 | `dynamics/wb-wall-clamp` | true | required by `balance_column` |
@@ -46,13 +46,13 @@ explains it, is listed in @sec-appi.
 | EOS `limiter`[^rg-98ec00569918] | false | positivity correction |
 | EOS density, pressure and temperature floors | $10^{-6}\ \mathrm{kg\,m^{-3}}$, $10^{-3}\ \mathrm{Pa}$, $20\ \mathrm{K}$ | state floors |
 | reconstruction `vertical`[^rg-5b49f4848d58]/`horizontal`[^rg-2f1899b4de4d] `type`, `scale`[^rg-d97ad30fbd10], `shock`[^rg-ff2904b92111] | `dc`, false, false | spatial reconstruction |
-| `dynamics/riemann-solver/type`, `dir`[^rg-c2a5d0bf48c0] | `roe`, `omni` | interface flux solver |
+| `dynamics/riemann-solver/type`, `dir`[^rg-c2a5d0bf48c0] | `hllc`, `omni` | interface flux solver |
 | `integration/implicit-scheme` | absent, no implicit module | 0 (none), 1 (`vic-partial`) or 9 (`vic-full`); anything else is refused |
 | `implicit-advection-cfl`[^rg-b91f3c2b82ba], `shear-cfl`[^rg-1d58aa505896] | 1, 0 | refused without an implicit scheme; must be finite, positive and nonnegative |
-| `geometry/cells/nghost` | 1 | WB or XC with gravity need at least 3 |
+| `geometry/cells/nghost` | 1 | `conversion-order: 4` or XC with gravity need at least 3 |
 | `geometry/type` | `cartesian` | gates XC and the corrected-work measure |
 | `distribute/layout`, `nb1`, `nb2`, `nb3` | `slab`, 1, 1, 1 | block decomposition; `backend` is accepted and ignored |
-| external boundaries `x1-inner`[^rg-6190053d30cd] ... `x3-outer`[^rg-4a2bbc8a9e41] | `reflecting` | a periodic $x_1$ is refused with an active fixer |
+| external boundaries `x1-inner`[^rg-6190053d30cd] ... `x3-outer`[^rg-4a2bbc8a9e41] | `reflecting` | a periodic $x_1$ with gravity warns that the corrected potential energy is not defined |
 | `forcing/fric-heat` | removed | an explicit parse error |
 
 : YAML keys and defaults at the pin. {#tbl-ch12-yaml-keys}
@@ -73,20 +73,20 @@ differs from the plain one symbolically, agreeing only for a constant density
 The parsers read their blocks with a key check: `HydroOptionsImpl::from_yaml`
 ({{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}}) for `dynamics` and `forcing`, refusing
 `fric-heat`; `ConstGravityOptionsImpl::from_yaml` ({{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}})
-for the gravity block, with the `face` default and the fixer check; `ImplicitOptionsImpl::from_yaml`
+for the gravity block, which accepts only `face` and refuses an active fixer; `ImplicitOptionsImpl::from_yaml`
 ({{< code src/implicit/implicit_hydro.cpp ImplicitOptionsImpl::from_yaml overload=1 >}}) for `integration`[^rg-1f42b5e0e193], which
 returns no implicit module when the scheme key is absent or 0, refuses the CFL keys without a scheme, and names
 the scheme through its second overload ({{< code src/implicit/implicit_hydro.cpp ImplicitOptionsImpl::from_yaml overload=2 >}});
 `EquationOfStateOptionsImpl::from_yaml` ({{< code src/eos/equation_of_state.cpp EquationOfStateOptionsImpl::from_yaml >}});
 `ReconstructOptionsImpl::from_yaml` ({{< code src/recon/reconstruct.cpp ReconstructOptionsImpl::from_yaml overload=2 >}});
-`RiemannSolverOptionsImpl::from_yaml` ({{< code src/riemann/riemann_solver.cpp RiemannSolverOptionsImpl::from_yaml overload=2 >}});
+`RiemannSolverOptionsImpl::from_yaml` ({{< code src/riemann/riemann.cpp RiemannSolverOptionsImpl::from_yaml overload=2 >}});
 `CoordinateOptionsImpl::from_yaml` ({{< code src/coord/coordinate.cpp CoordinateOptionsImpl::from_yaml >}});
 `LayoutOptionsImpl::from_yaml` ({{< code src/layout/layout.cpp LayoutOptionsImpl::from_yaml >}}); and
 `MeshBlockOptionsImpl::from_yaml` ({{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}})
 for the boundaries (@sec-ch11-registry). `HydroImpl::reset` ({{< code src/hydro/hydro.cpp HydroImpl::reset >}})
-then re-checks the gravity-work constraints for options built directly: it clears the fixer for non-cell work,
-refuses a fixer with lateral gravity or a periodic $x_1$, applies the ghost and cell guards of the numerics
-switches, and warns when implicit non-cell work has no in-operator path.
+then re-checks the gravity-work constraints for options built directly: it refuses any form but `face` and an
+active fixer, warns on a periodic $x_1$ with gravity and on a grid with no $x_1$ measure, and applies the ghost and
+cell guards of `conversion-order: 4`, XC and `x1-mass-covariance`.
 
 ```{python}
 #| label: fig-ch12-yaml-flow
@@ -99,36 +99,31 @@ make_fig()
 
 ### Code
 
-**How to use it.** Add this gravity block to a complete input card to select plain cell work with its fixer:
+**How to use it.** Add this gravity block to a complete input card:
 
 ```yaml
 forcing:
   const-gravity:
     grav1: -9.8     # m s^-2
-    gravity-work: cell
-    gravity-work-fixer: true
+    gravity-work: face
+    gravity-work-fixer: false
 ```
 
-Keep radial boundaries non-periodic and lateral gravity zero for this fixer. Changing only the work mode to
-`face` makes the parser refuse the nonzero-gravity combination with
-"forcing/const-gravity/gravity-work-fixer needs gravity-work: cell".
-For face work, set the fixer false and choose RE according to the intended budget (@sec-ch12-radial-exact).
-Unknown keys are refused by each component's key check; recognized keys still pass through reset's guards.
+Both work keys may be left out: their defaults are these values. Any other `gravity-work`, for example `cell`, is
+refused with "forcing/const-gravity/gravity-work: 'cell' is not supported", and `gravity-work-fixer: true` is
+refused too. The corrected work then follows from the grid (@sec-ch12-radial-exact). Unknown keys are refused by
+each component's key check; recognized keys still pass through reset's guards.
 
 `ConstGravityOptionsImpl::from_yaml` ({{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}}) contains this selection step:
 
 ```cpp
-  bool cell = op->gravity_work() == "cell";
-  op->gravity_work_fixer() = node["gravity-work-fixer"].as<bool>(cell);
-  if (op->gravity_work_fixer() && op->grav1() != 0.) {
-    TORCH_CHECK(cell,
-                "forcing/const-gravity/gravity-work-fixer needs gravity-work: "
-                "cell");
-  }
+  op->gravity_work() = node["gravity-work"].as<std::string>(op->gravity_work());
+  TORCH_CHECK(op->gravity_work() == "face",
 ```
 
-The boolean `cell` supplies the fixer default and the admissibility condition. `[C10]` checks the logical
-accept/reject distinction and the symbolic budget difference; actual parser errors belong to the CTest assertions.
+The check admits one work form. `[C10]` checks a logical accept/reject distinction over ten option pairs and the
+symbolic difference between the corrected and plain budgets; it models more forms than the parser accepts, and
+actual parser errors belong to the CTest assertions.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
@@ -138,21 +133,20 @@ accept/reject distinction and the symbolic budget difference; actual parser erro
 | scheme names | {{< code src/implicit/implicit_hydro.cpp ImplicitOptionsImpl::from_yaml overload=2 >}} | `vic-partial` | `implicit-scheme` |
 | eos | {{< code src/eos/equation_of_state.cpp EquationOfStateOptionsImpl::from_yaml >}} | `density_floor` | `equation-of-state/*` |
 | reconstruction | {{< code src/recon/reconstruct.cpp ReconstructOptionsImpl::from_yaml overload=2 >}} | `shock` | `reconstruct/*` |
-| riemann | {{< code src/riemann/riemann_solver.cpp RiemannSolverOptionsImpl::from_yaml overload=2 >}} | `roe` | `riemann-solver/*` |
+| riemann | {{< code src/riemann/riemann.cpp RiemannSolverOptionsImpl::from_yaml overload=2 >}} | `type` | `riemann-solver/*` |
 | geometry | {{< code src/coord/coordinate.cpp CoordinateOptionsImpl::from_yaml >}} | `nghost` | `geometry/*` |
 | layout | {{< code src/layout/layout.cpp LayoutOptionsImpl::from_yaml >}} | `slab` | `distribute/*` |
 | boundaries | {{< code src/mesh/meshblock_options.cpp MeshBlockOptionsImpl::from_yaml >}} | `reflecting` | `boundary-condition/*` |
 | guards | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `gravity_work_fixer` | `gravity-work-fixer` |
-| operator | {{< code src/hydro/hydro.cpp HydroImpl::face_work_in_operator >}} | `face_work_in_operator` | `implicit-scheme` |
 
 : Implementation sites for the YAML selection. {#tbl-ch12-yaml-code}
 
 1. Parse the recognized blocks, each with its key check, and instantiate the component options. The anchor
    `check_keys` is in {{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}}.
-2. Refuse a fixer with non-cell work at parse time. The anchor `gravity_work` is in
+2. Refuse any work form but `face`, and an active fixer, at parse time. The anchor `gravity_work` is in
    {{< code src/forcing/const_gravity.cpp ConstGravityOptionsImpl::from_yaml >}}.
-3. Reset the hydro module: normalize the fixer, apply the remaining guards, warn on implicit non-cell work
-   without an operator path. The anchor `gravity_work_fixer` is in
+3. Reset the hydro module: refuse the removed forms again for options built directly, apply the remaining guards,
+   and warn on a periodic $x_1$ or a grid without an $x_1$ measure. The anchor `gravity_work_fixer` is in
    {{< code src/hydro/hydro.cpp HydroImpl::reset >}}.
 
 **Porting a deck from Athena++.** snapy has no converter and reads no Athena++ input file; it reads only YAML, so a
@@ -193,10 +187,11 @@ The independent checks and their outputs are catalogued in @sec-ch16-ch12-tests.
 The independent report check verifies the option-pair validator and budget distinction in `[C10]`.[^ch12-yaml-run]
 It models the stated contract; it does not execute the compiled solver.
 
-[^ch12-yaml-run]: [sha: snapy@ccf40f9565642c32be69f4b9ef0cfa6daff3f201; deck: the check itself;
+[^ch12-yaml-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the check itself;
     run: `python src/snapy_report/ch12/checks/configuration_check.py`, CPU, one process;
-    Python 3.13.15, numpy 2.5.3, sympy 1.14.0]. Exact symbolic and Boolean assertions; no floating-point tolerance.
-    Output `configuration_check.out`, `[C10]`; reproduced for this edit. Solver CTests are source-inspected only.
+    Python 3.12.11, numpy 2.4.6, sympy 1.14.0]. Exact symbolic and Boolean assertions; no floating-point tolerance.
+    Output identical to the committed `configuration_check.out`, `[C10]`; reproduced for this edit. The check imports
+    no snapy code. Solver CTests are source-inspected only.
 
 ### Limits
 

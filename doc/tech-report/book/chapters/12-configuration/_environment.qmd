@@ -1,68 +1,78 @@
 ## Environment parsing and process lifetime (`SNAP_*`) {#sec-ch12-environment}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
-sources: OUTLINE.md 12.3; src/layout/layout.hpp; src/hydro/hydro.cpp; src/hydro/wb_ref4.cpp; src/coord/x1_centroid.cpp;
-         tests/test_horizontal_flux_covariance.py; tests/test_gravity_work_radial_exact.py
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (chengcli/snapy, code_pin.yml)
+sources: src/layout/layout.hpp; src/coord/x1_centroid.cpp; src/options/hydro.yaml; tools/gen_options.py;
+         src/hydro/hydro_options.cpp; tests/test_x1_centroid_rest.py; tests/test_anomaly_storage.py; tests/CMakeLists.txt
 status: draft
-author: Jiheng Hu
+author: Jiheng Hu; rewritten at the pin by Xinyue Wang
 reviewer:
 -->
 
 ### Summary
 
-The five numerics switches are study flags: they change the scheme for the whole run and every block must make
-the same choice, or the shared faces of the mesh stop being single-valued. The code reads each of them once per
-process and never again, which is why this section exists apart from the switches themselves: an A/B comparison
-of a switch needs one child process per arm, and a flag set between two stages of one process does nothing.
+At the pin two numerics switches remain environment variables: `SNAP_X1_CENTROID_EXACT` (XC, @sec-ch12-centroid) and
+`SNAP_ANOMALY`, which overrides the deck key `dynamics/anomaly` (anomaly storage, the precision chapter's subject).
+The other numerics selectors are deck keys: `dynamics/conversion-order`, `dynamics/flux-covariance` and
+`dynamics/x1-mass-covariance` (@sec-ch12-wb-reference, @sec-ch12-flux-covariance, @sec-ch12-mass-covariance). The
+corrected face work has no switch at all (@sec-ch12-radial-exact). The two variables are parsed differently:
+
+- XC is read once per process and cached, so a comparison needs one child process per arm.
+- `SNAP_ANOMALY` is read each time a deck is parsed, and a value it does not know is refused.
 
 ::: {.callout-note title="At a glance"}
-**Purpose.** Parses and caches the five process-wide numerics switches.
+**Purpose.** Parses the two process-environment numerics switches.
 
-**Data.** Environment strings in; one cached boolean per accessor out.
+**Data.** Environment strings in; a cached boolean (XC) or an overridden deck option (`SNAP_ANOMALY`) out.
 
-**Placement.** First accessor call, including calls during setup.
+**Placement.** XC at its first accessor call, which can be during setup; `SNAP_ANOMALY` when the hydro options are
+read from a deck.
 
-**Activation.** WB, XC, MC default off; FC, RE on; XC implies WB.
+**Activation.** XC off by default; `SNAP_ANOMALY` unset leaves the deck's `anomaly` key in force.
 
-**Guarantee / limits.** No trimming, spelling validation or cross-rank agreement check.
+**Guarantee / limits.** XC has no spelling validation and no cross-rank agreement check; `SNAP_ANOMALY` refuses a
+value outside its word lists.
 
 **Evidence.** Tests below, @tbl-ch12-environment-tests; solver ctests were not run.
 :::
 
-The variables are `SNAP_WB_REF4`,
-`SNAP_X1_CENTROID_EXACT`, `SNAP_FLUX_COVARIANCE`, `SNAP_X1_MASS_COVARIANCE` and
-`SNAP_GRAVITY_WORK_RADIAL_EXACT` (WB, XC, FC, MC, RE).
+| value | XC (`x1_centroid_exact_enabled`) | `SNAP_ANOMALY` |
+|---|---|---|
+| unset | off | the deck's `anomaly` key |
+| empty string | off | off |
+| `0`, `false`, `off`, `no` | off (compared after lower-casing) | off (compared as written) |
+| `1`, `true`, `on`, `yes` | on | on |
+| every other string | on | refused: "must be 0 or 1" |
 
-| value, compared after lower-casing | WB, XC, MC | FC | RE |
-|---|---|---|---|
-| unset | off | on | on |
-| empty string | off | off | on |
-| `0`, `false`, `off`, `no` | off | off | off |
-| every other string | on | on | on |
+: The parse of the two environment switches at the pin. {#tbl-ch12-environment-parse}
 
-: The parse of the five numerics switches at the pin. {#tbl-ch12-environment-parse}
-
-There is no trimming: `false ` with a trailing space is "every other string" and turns a switch on. Every block
-in one process sees the same cached value; the code does not by itself make different MPI[^rg-16de4a84d046] processes agree.
+XC does no trimming: `false ` with a trailing space is "every other string" and turns it on. Every block in one
+process sees the same cached XC value. The code does not by itself make different MPI[^rg-16de4a84d046] processes agree.
 
 ### Derivation
 
-No numerical equation is added. `get_env` ({{< code src/layout/layout.hpp get_env >}}) returns the environment
-string when the variable is set, otherwise the default the caller passes. Each accessor lower-cases the string,
-compares it with `0`, `false`, `off` and `no`, and stores the result in a function-local static. The three
-off-by-default accessors and `HydroImpl::flux_covariance` also count the empty string as off;
-`HydroImpl::gravity_work_radial_exact` does not, so an empty value leaves it on. Check line `[C1]` enumerates
-this truth table over nine values for both rules and the implication from XC to WB with and without gravity
-[check `src/snapy_report/ch12/checks/configuration_check.py`, output
+No numerical equation is added. `get_env` ({{< code src/layout/layout.hpp get_env >}}) returns the environment string
+when the variable is set, and otherwise the default the caller passes. `x1_centroid_exact_enabled`
+({{< code src/coord/x1_centroid.cpp x1_centroid_exact_enabled >}}) passes the default `"0"`, lower-cases the string,
+compares it with the empty string, `0`, `false`, `off` and `no`, and stores the result in a function-local static.
+`SNAP_ANOMALY` is the `env` field of the `anomaly` row of the options schema
+({{< code src/options/hydro.yaml >}}). The reader that `tools/gen_options.py` generates from it applies the
+override after it reads the deck. It sets true for `1`, `on`, `true` and `yes`, sets false for the empty string,
+`0`, `off`, `false` and `no`, and refuses anything else, with no lower-casing (`TRUE_WORDS`, `FALSE_WORDS` and
+`env` in {{< code tools/gen_options.py env >}}). The hydro options reader calls it
+({{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}}).
+
+The off-by-default rows of `[C1]` match XC's parser. `[C1]`'s other rows and its implication model switches that the
+code at the pin does not read, and no claim here rests on them [check `src/snapy_report/ch12/checks/configuration_check.py`, output
 `src/snapy_report/ch12/checks/configuration_check.out`].
 
 ### Numerical method
 
-Launch child A with its environment, let its first accessor call fix the flag, then run all its blocks with
-that cached value; launch child B separately for the other arm. The first call can occur during setup, before
-a time step, so changing a flag between RK stages is not a valid experiment, and a test that inherits the
-user's environment can run a nominal default arm with a switch set by the shell.
+For XC, launch child A with its environment, let its first accessor call fix the flag, and run all its blocks with
+that cached value. Then launch child B separately for the other arm. The first call can come during setup, before a
+time step, so changing XC between RK stages is not a valid experiment. A test that inherits the user's environment
+can run a nominal default arm with XC set by the shell. `test_x1_centroid_rest_python` therefore pops the variable
+from its children's environment before it sets the arm ({{< code tests/test_x1_centroid_rest.py run >}}).
 
 ```{python}
 #| label: fig-ch12-environment-flow
@@ -77,88 +87,85 @@ The complete environment-variable inventory is @sec-appd-switches.
 
 ### Code
 
-**How to use it.** Start a fresh process for each comparison. For example, from the configured build,
-run the registered covariance script under `SNAP_GRAVITY_WORK_RADIAL_EXACT=0`; its child arms select FC.
-Use the CTest registration to obtain its remaining environment (@sec-ch12-matrix):
+**How to use it.** Start a fresh process for each XC arm, and set it on every rank before importing or
+constructing the solver. Use the CTest registration to obtain an arm's environment (@sec-ch12-matrix):
 
 ```bash
-ctest --test-dir build -R '^test_horizontal_flux_covariance_python$' --output-on-failure
+ctest --test-dir build -R '^test_x1_seam_split_x1_centroid' --output-on-failure
 ```
 
 Run this command from the checkout root after configuring the import path (@sec-ch12-test-environment).
-These switches have no YAML equivalent. Set them before importing or constructing the solver, on every rank.
-Misspellings are not refused: `false ` enables the switch because whitespace is not stripped.
+Set `dynamics/conversion-order`, `flux-covariance` and `x1-mass-covariance` in the deck. They are not read from the
+environment.
 
-`HydroImpl::flux_covariance` ({{< code src/hydro/hydro.cpp HydroImpl::flux_covariance >}}) contains this selection step:
+`x1_centroid_exact_enabled` ({{< code src/coord/x1_centroid.cpp x1_centroid_exact_enabled >}}) contains this
+selection step:
 
 ```cpp
-    auto v = get_env("SNAP_FLUX_COVARIANCE", "1");
+    auto v = get_env("SNAP_X1_CENTROID_EXACT", "0");
     std::transform(v.begin(), v.end(), v.begin(),
                    [](unsigned char c) { return std::tolower(c); });
     return !(v.empty() || v == "0" || v == "false" || v == "off" || v == "no");
 ```
 
-The fallback string is the unset arm of `[C1]`; lower-casing and the final comparison implement its token table.
-The enclosing function stores this result in a local static, so changing the environment afterwards has no effect.
+The enclosing lambda initializes a function-local `static const bool`, so changing the environment afterwards has no
+effect.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
 | env | {{< code src/layout/layout.hpp get_env >}} | `get_env` | `SNAP_*` |
-| fc | {{< code src/hydro/hydro.cpp HydroImpl::flux_covariance >}} | `flux_covariance` | `SNAP_FLUX_COVARIANCE` |
-| mc | {{< code src/hydro/hydro.cpp HydroImpl::x1_mass_covariance >}} | `x1_mass_covariance` | `SNAP_X1_MASS_COVARIANCE` |
-| re | {{< code src/hydro/hydro.cpp HydroImpl::gravity_work_radial_exact >}} | `gravity_work_radial_exact` | `SNAP_GRAVITY_WORK_RADIAL_EXACT` |
-| wb | {{< code src/hydro/wb_ref4.cpp wb_ref4_enabled >}} | `wb_ref4_enabled` | `SNAP_WB_REF4` |
 | xc | {{< code src/coord/x1_centroid.cpp x1_centroid_exact_enabled >}} | `x1_centroid_exact_enabled` | `SNAP_X1_CENTROID_EXACT` |
-| fc arms | {{< code tests/test_horizontal_flux_covariance.py ARMS >}} | `ARMS` | `SNAP_FLUX_COVARIANCE` |
-| re arms | {{< code tests/test_gravity_work_radial_exact.py ARMS >}} | `ARMS` | `SNAP_GRAVITY_WORK_RADIAL_EXACT` |
+| anomaly row | {{< code src/options/hydro.yaml >}} | `env: SNAP_ANOMALY` | `SNAP_ANOMALY` |
+| override | {{< code tools/gen_options.py env >}} | `env` | `SNAP_ANOMALY` |
+| xc arms | {{< code tests/test_x1_centroid_rest.py run >}} | `run` | `SNAP_X1_CENTROID_EXACT` |
+| anomaly arm | {{< code tests/test_anomaly_storage.py arm_switch >}} | `arm_switch` | `SNAP_ANOMALY` |
 
 : Implementation sites for the environment switches. {#tbl-ch12-environment-code}
 
-1. Read the string, or the accessor's default when the variable is absent. The anchor `get_env` is in
-   {{< code src/layout/layout.hpp get_env >}}.
-2. Lower-case it, compare with the false tokens (the empty string included for all but RE), and cache the
-   boolean. The anchor `flux_covariance` is in {{< code src/hydro/hydro.cpp HydroImpl::flux_covariance >}}; the
-   anchor `gravity_work_radial_exact` is in
-   {{< code src/hydro/hydro.cpp HydroImpl::gravity_work_radial_exact >}}.
-3. Let XC imply WB: `wb_ref4_enabled` returns true when `x1_centroid_exact_enabled` does. The anchor
-   `wb_ref4_enabled` is in {{< code src/hydro/wb_ref4.cpp wb_ref4_enabled >}}.
+1. Read the string, or the default `"0"` when XC is absent, and cache the boolean. The anchor
+   `x1_centroid_exact_enabled` is in {{< code src/coord/x1_centroid.cpp x1_centroid_exact_enabled >}}.
+2. For `SNAP_ANOMALY`, read the deck first, then apply the override, refusing an unknown word. The anchor `env` is in
+   {{< code tools/gen_options.py env >}}.
 
 ### Tests
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| `test_horizontal_flux_covariance_python` | the unset arm equals the `1` arm bit for bit; the `0` arm differs | `torch.equal` | the script |
-| `test_gravity_work_radial_exact_python` | the unset arm equals the `1` arm bit for bit; the `0` arm differs | `torch.equal` | the script |
-| `configuration_check.py` `[C1]` (report check) | the parser truth table and XC implication | exact symbolic or Boolean equality | the independent check |
+| `test_x1_centroid_rest_python` | the unset arm and the `1` arm, each in a child process with the variable popped first | `TOL_ON`, `TOL_OFF` | the script |
+| `test_x1_seam_split.<b>` (`switches_off_nghost_1_sets_up`) | the default arm asserts that XC is unset | exact | the test |
+| `test_anomaly_storage_python` (`switch` arm) | `SNAP_ANOMALY=1` in a child turns anomaly storage on without the YAML key; an unsupported EOS[^rg-fe974e22df0a] refuses it | string match | the script |
+| `configuration_check.py` `[C1]` (report check) | the off-by-default parser rows | exact symbolic or Boolean equality | the independent check |
 
 : Source assertions, not new solver measurements. {#tbl-ch12-environment-tests}
 
-The arm dictionaries are `ARMS` in {{< code tests/test_horizontal_flux_covariance.py ARMS >}} and
-{{< code tests/test_gravity_work_radial_exact.py ARMS >}}; the comparisons are in each script's `main`
-({{< code tests/test_horizontal_flux_covariance.py main >}},
-{{< code tests/test_gravity_work_radial_exact.py main >}}).
+The XC arms are set in `run` ({{< code tests/test_x1_centroid_rest.py run >}}). The default arm's assertion is in
+{{< code tests/test_x1_seam_split.cpp X1SeamSplit.switches_off_nghost_1_sets_up >}}. The `SNAP_ANOMALY` arm is
+`arm_switch` ({{< code tests/test_anomaly_storage.py arm_switch >}}).
 
 No snapy runtime test is executed for this chapter. CUDA and multi-rank entries describe registration only.
 The independent checks and their outputs are catalogued in @sec-ch16-ch12-tests.
 
-The independent report check verifies the parser truth table and XC implication in `[C1]`.[^ch12-environment-run]
-It models the stated contract; it does not execute the compiled solver.
+The independent report check verifies the parser truth table in `[C1]`.[^ch12-environment-run] It models a
+contract and does not execute the compiled solver. Only its off-by-default rows describe a parser at the pin.
 
-[^ch12-environment-run]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1; deck: the check itself;
+[^ch12-environment-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the check itself;
     run: `python src/snapy_report/ch12/checks/configuration_check.py`, CPU, one process;
-    Python 3.11.13, numpy 2.4.6, sympy 1.14.0]. Exact symbolic and Boolean assertions; no floating-point tolerance.
-    Output `configuration_check.out`, `[C1]`; reproduced for this edit. Solver CTests are source-inspected only.
+    Python 3.12.11, numpy 2.4.6, sympy 1.14.0]. Exact symbolic and Boolean assertions; no floating-point tolerance.
+    Output identical to the committed `configuration_check.out`, `[C1]`; reproduced for this edit. The check imports
+    no snapy code. Solver CTests are source-inspected only.
 
 ### Limits
 
 ::: {.callout-warning title="Limits"}
-The independent parser check models the documented contract; it does not execute the C++ static storage.
-Cross-rank consistency is a launch responsibility. Any string outside the four false tokens (and the empty
-string where it counts) silently turns a switch on.
+The independent parser check does not execute the C++ static storage. Cross-rank consistency of XC is a launch
+responsibility. Any XC string outside the false tokens silently turns it on. `SNAP_ANOMALY` is case-sensitive:
+`TRUE` is refused, not read as on.
 
 The complete switch inventory is @sec-ch12-matrix.
 :::
 
 <!-- reader glossary notes -->
 [^rg-16de4a84d046]: MPI — Message Passing Interface
+
+[^rg-fe974e22df0a]: EOS — equation of state
 <!-- end reader glossary notes -->
