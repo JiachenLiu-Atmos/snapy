@@ -22,7 +22,8 @@ its checks are defined, and how an unknown key is refused. While it runs, the mo
 and time-weighted statistics the deck can ask for, and through the step that joins the files of all blocks. A run
 can also save its whole state and resume from it later: @sec-ch15-restart describes the restart file, what it
 holds, how it is bundled over blocks, and how a resumed run continues its output schedule without writing a frame
-twice.
+twice. The two command-line tools that read what a run leaves behind, `pd-combine` and `pd-inspect`, are
+@sec-ch15-tools.
 
 Three neighbouring topics are elsewhere. Which boundary a face gets, and what the names mean, is @sec-ch14; this
 chapter only shows where the `boundary-condition`[^rg-1e296ee737f4] keys are read. The `distribute`[^rg-6422110faeed] keys and the block layout are
@@ -47,6 +48,7 @@ make_fig()
 | Options schema (@sec-ch15-options) | the deck file | every table row at its default | exact (a schema) | `test_options_table` |
 | Output writers (@sec-ch15-output) | `outputs: - type: netcdf` or `pnetcdf` | no outputs | float32 storage, $2^{-24}$ relative | `test_user_output` |
 | Restart (@sec-ch15-restart) | `outputs: - type: restart`; `-r` | no restart output | bit for bit at the same dtype | `test_restart_bundle` |
+| Combine and inspect tools (@sec-ch15-tools) | `pd-combine`, `pd-inspect` on the command line | none | values copied unchanged (no arithmetic) | none on its own; the `FULL_TESTS` decomposition runners |
 
 : The sections of this chapter, their switches and defaults, the precision each guarantees, and the test that
 carries each one. Full ctest names and their tolerances are in each section's Tests layer. {#tbl-ch15-schemes}
@@ -56,6 +58,8 @@ carries each one. Full ctest names and their tolerances are in each section's Te
 {{< include 15-configuration-output-restart/_output.qmd >}}
 
 {{< include 15-configuration-output-restart/_restart.qmd >}}
+
+{{< include 15-configuration-output-restart/_tools.qmd >}}
 
 <!-- reader glossary notes -->
 [^rg-7a2c673d547c]: YAML — YAML Ain't Markup Language, the structured input format used for decks

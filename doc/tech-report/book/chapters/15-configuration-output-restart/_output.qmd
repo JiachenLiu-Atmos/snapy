@@ -6,8 +6,10 @@ sources: src/mesh/meshblock_output.cpp, src/mesh/meshblock.cpp, src/mesh/mesh.cp
          src/output/writer_core.{hpp,cpp}, src/output/netcdf.cpp, src/output/pnetcdf.cpp,
          src/output/combine_netcdf.cpp, src/output/combine_parts.cpp, src/output/output_utils.{hpp,cpp},
          src/options/output.yaml, examples/straka.cpp, tests/test_user_output.cpp, tests/test_combine_parts.cpp,
-         tests/test_netcdf_axis_attrs.py, tests/test_netcdf_cubed_lonlat.py, tests/test_yaml_keys.cpp, all read at
-         the pin
+         tests/test_netcdf_axis_attrs.py, tests/test_netcdf_cubed_lonlat.py, tests/test_yaml_keys.cpp,
+         src/mesh/signal_handler.cpp, src/output/load_user_output_data.cpp, src/output/load_diag_output_data.cpp,
+         src/output/load_hydro_output_data.cpp, examples/run_hydro.cpp, tests/test_uranus_cycle1_abort.cpp, all read at
+         the pin; pyharp src/integrator/integrator.cpp at the pyharp pin
 status: draft
 author: Sihe Chen
 reviewer: Linfeng Li
@@ -235,6 +237,24 @@ after every accepted step (the `main` of `straka.cpp`, {{< code examples/straka.
 makes the final call (`MeshBlockImpl::finalize`, {{< code src/mesh/meshblock_output.cpp MeshBlockImpl::finalize >}};
 `MeshImpl::finalize`, {{< code src/mesh/mesh.cpp MeshImpl::finalize >}}).
 
+**The final write and the termination reason.** The driver loop of the shipped examples runs while the
+integrator's `stop` is false: it stops when `nlim`[^rg-92bdb6d45d3b] is nonnegative and the cycle count has reached it, or when
+`tlim` is nonnegative and the time has reached it (`stop`,
+[`pyharp integrator.cpp:89-99`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L89-L99)).
+A redo result below zero breaks the loop as well, and the driver returns what `finalize` returns
+({{< code examples/straka.cpp main >}}). Three signals end a run early. The handler installs itself for `SIGTERM`,
+`SIGINT` and `SIGALRM`, the wall-time alarm, and records each in a flag
+({{< code src/mesh/signal_handler.cpp SignalHandler::SignalHandler >}}). The flags are read once per step, at the
+redo check, where the maximum over the ranks is taken with an allreduce so that every rank stops together
+({{< code src/mesh/signal_handler.cpp SignalHandler::CheckSignalFlags >}}; `MeshImpl::check_redo`,
+{{< code src/mesh/mesh.cpp MeshImpl::check_redo >}}, returns $-1$ when a flag is set). `finalize` then makes the final
+call of `make_outputs` ({{< code src/mesh/meshblock_output.cpp MeshBlockImpl::finalize >}}), which writes the restart
+output's `final.restart` and no gridded frame, and `finish_run` prints one reason in this order: the terminate
+signal, the interrupt signal, the wall-time limit, the cycle limit, the time limit, or "Terminating abnormally"
+when none of them holds; it returns 1 only in that last case and 0 otherwise
+({{< code src/mesh/meshblock_output.cpp MeshBlockImpl::finish_run >}}). A run that exhausts its redo budget
+therefore ends with that line and a nonzero exit status.
+
 ### Code
 
 **How to use it.** A NetCDF stream every 60 s with the primitives, their time-weighted mean and deviation, and the
@@ -252,6 +272,51 @@ outputs:
 `output_dir` is the directory every file of the run is written to, taken relative to the working directory and
 created when the first writer runs. `variables` is the list of the fields an entry writes: single field names,
 or the group names `prim`, `cons`, `prim_stat` and `scalar_stat`.
+
+**Adding a field.** A field is a named tensor loaded into an existing output stream. `OutputType::LoadOutputData` calls the hydro,
+diagnostic, scalar and user loaders in that order ({{< code src/output/output_type.cpp OutputType::LoadOutputData >}}).
+Keep `type: netcdf` for a snapshot of a new diagnostic: `type` selects the writer, `variables` selects fields. The
+procedure below adds a cell-centred scalar without adding a writer.
+
+1. **Choose the loader.** For a case-specific field, register `MeshBlockImpl::user_output_callback` on each block
+   before its first output, as the example driver does ({{< code examples/run_hydro.cpp main >}}). Return a map from a
+   nonempty field name to a tensor, and select `variables: [uov]` (or `[user_out_var]`) to write every entry.
+   `OutputType::loadUserOutputData` refuses a missing callback and appends each entry as one field
+   ({{< code src/output/load_user_output_data.cpp OutputType::loadUserOutputData >}}). A built-in diagnostic goes
+   into `OutputType::loadDiagOutputData` ({{< code src/output/load_diag_output_data.cpp OutputType::loadDiagOutputData >}});
+   a state field belongs in `OutputType::loadHydroOutputData`
+   ({{< code src/output/load_hydro_output_data.cpp OutputType::loadHydroOutputData >}}).
+2. **Register the selection and data.** There is no separate field registry: `OutputType::ContainVariable` matches
+   strings in the stream's `variables` ({{< code src/output/output_type.cpp OutputType::ContainVariable >}}). Add a
+   guarded append in the loader body, outside the other keyword guards. This proposed addition copies the total
+   density under a new name; replace its tensor expression with the intended diagnostic, and keep the full cell
+   array with its ghosts, as the existing loaders do:
+
+   ```cpp
+   if (ContainVariable("rho_copy")) {
+     auto const& w = vars.at("hydro_w");
+     appendTensorOutput("rho_copy", w[IDN]);
+   }
+   ```
+
+   `OutputType::appendTensorOutput` accepts a tensor of one to three dimensions and adds it to the frame as one
+   field ({{< code src/output/output_type.cpp OutputType::appendTensorOutput >}}).
+3. **Add metadata and rebuild.** Add `{"rho_copy", "copy of total density", "kg/m^3", "CCC"}` to the table in
+   `MetadataTable::MetadataTable` ({{< code src/output/output_utils.cpp MetadataTable::MetadataTable >}}): name, long
+   name, units and grid location. The NetCDF sink takes the attributes from that table by field name; an unknown
+   name gets no units or long name, and its grid location defaults to cells
+   ({{< code src/output/netcdf.cpp NetcdfSink::write >}}).
+4. **Select and locate it.** After rebuilding, add a stream to the deck with `variables: [rho_copy]`.
+   `OutputOptionsImpl::from_yaml` copies the list into the entry's options
+   ({{< code src/output/output_type.cpp OutputOptionsImpl::from_yaml >}}); as stream `<n>` the field is written as
+   `rho_copy(time, x1, x3, x2)` in `<basename>.out<n>.<NNNNN>.nc`, or in the per-block files with `combine: false`.
+   Choosing `[rho_copy]` before adding its loader branch silently selects no such field.
+
+Check the new field's values, shape, name and units in a written file against the defining calculation. The
+tests `UserOutput.registered_callback_allows_uov_output` and `UserOutput.missing_callback_reports_meaningful_error`
+cover the callback's acceptance and refusal, not a new field
+({{< code tests/test_user_output.cpp UserOutput.registered_callback_allows_uov_output >}};
+{{< code tests/test_user_output.cpp UserOutput.missing_callback_reports_meaningful_error >}}).
 
 **What is refused, and why.**
 
@@ -299,6 +364,10 @@ or the group names `prim`, `cons`, `prim_stat` and `scalar_stat`.
 | the PnetCDF file | {{< code src/output/pnetcdf.cpp PNetcdfSink::write >}} | `PNetcdfSink::write` | `pnetcdf` |
 | the statistics | {{< code src/output/output_type.cpp update_weighted_moments >}}, {{< code src/output/output_type.cpp OutputType::AccumulateStats >}} | `update_weighted_moments`, `AccumulateStats` | `prim_stat`, `scalar_stat` |
 | units and long names | {{< code src/output/output_utils.cpp MetadataTable::MetadataTable >}}, {{< code src/output/output_utils.hpp horizontal_axis_units >}} | `MetadataTable`, `horizontal_axis_units` | none |
+| the loaders a new field joins | {{< code src/output/output_type.cpp OutputType::LoadOutputData >}}, {{< code src/output/load_user_output_data.cpp OutputType::loadUserOutputData >}} | `LoadOutputData`, `user_output_callback` | `variables` |
+| the driver loop and its exit status | {{< code examples/straka.cpp main >}} | `stop`, `finalize` | `tlim`, `nlim` |
+| caught signals | {{< code src/mesh/signal_handler.cpp SignalHandler::SignalHandler >}}, {{< code src/mesh/signal_handler.cpp SignalHandler::CheckSignalFlags >}} | `SIGALRM`, `CheckSignalFlags` | none |
+| the final write and the reason | {{< code src/mesh/meshblock_output.cpp MeshBlockImpl::finalize >}}, {{< code src/mesh/meshblock_output.cpp MeshBlockImpl::finish_run >}} | `finalize`, `finish_run` | none |
 
 : Code map of the output writers. {#tbl-ch15-output-code}
 
@@ -319,6 +388,7 @@ or the group names `prim`, `cons`, `prim_stat` and `scalar_stat`.
 | `test_combine_parts.release` `CombineParts.*` (10 cases: Straka with 2 blocks, with ghost zones, in double precision, with an $x_2$ slice; shallow-water with 4 and 6 blocks; two-process decompositions; uneven slice lists) | the parts written with `combine: false` are joined into a file that holds every part's values byte for byte at the part's `domain_decomposition` offset, and the parts are removed | byte comparison; `EXPECT_TRUE(parts_in(...).empty())` | `expect_merged` ({{< code tests/test_combine_parts.cpp expect_merged >}}) and the `CombineParts` suite ({{< code tests/test_combine_parts.cpp >}}) |
 | `test_netcdf_axis_attrs` | on a slab deck and a cubed-sphere deck, for `netcdf` and (when built) `pnetcdf`, `x2f` and `x3f` carry the `long_name` of the X and Y axes, the horizontal `units` are `m` or `radian`, and `press` is in `Pa` | exact strings; `pnetcdf` is skipped without `PNETCDF=ON` | `check_files` ({{< code tests/test_netcdf_axis_attrs.py check_files >}}) and `main` ({{< code tests/test_netcdf_axis_attrs.py main >}}) |
 | `test_netcdf_cubed_lonlat_python` | on a gnomonic deck with two blocks stacked in $x_1$ (`layout: cubed`), each block's file and the combined file hold the coordinate's `lon` and `lat` in the file's precision | `np.array_equal` after the cast to the file dtype | `check` ({{< code tests/test_netcdf_cubed_lonlat.py check >}}) and `main` ({{< code tests/test_netcdf_cubed_lonlat.py main >}}) |
+| `test_uranus_cycle1_abort.release` `UranusCycle1.abnormal_termination_exits_nonzero`, `UranusCycle1.column_finishes_the_two_cycles` | a deck whose pressure floor trips every step exhausts the redo budget, prints "Terminating abnormally" and exits nonzero; a run that reaches `nlim` prints "Terminating on cycle limit" | exact: the log line and the exit status | {{< code tests/test_uranus_cycle1_abort.cpp UranusCycle1.abnormal_termination_exits_nonzero >}} |
 
 : Tests of the output writers and the tolerance each uses. {#tbl-ch15-output-tests}
 
@@ -326,7 +396,9 @@ Every ctest entry of this table passed at the pin on a serial CPU run with NetCD
 the 16 tests selected for this chapter, among them `test_user_output.release`, `test_combine_parts.release`,
 `test_netcdf_axis_attrs` (both writers) and `test_netcdf_cubed_lonlat_python`.[^ch15-output-run] The
 `netcdf_output_without_netcdf_writes_nothing` case is compiled only without NetCDF and so did not run in
-that build.
+that build. The termination test ran at the pin on the same kind of build: `test_uranus_cycle1_abort.release`
+passed, with `test_user_output.release` beside it, in a serial run of the two entries (`ctest -j 1`, one run,
+one host).
 
 [^ch15-output-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the tests' own decks; run: `ctest -j 1 --timeout 1800 -R 'test_options_table|test_options_defaults|test_yaml_keys|test_user_output|test_combine_parts|test_restart_bundle|test_netcdf_cubed_lonlat|test_fp32_restart|test_restart_resume_schedule|test_restart_|test_netcdf_axis_attrs'` from the build directory of a CPU build (`-DCUDA=OFF -DNETCDF=ON -DPNETCDF=ON -DBUILD_EXAMPLES=ON -DCMAKE_BUILD_TYPE=Release`), one process, the driver tests through `torchrun`; torch 2.10.0+cu128, kintera 2.6.13, pyharp 2.7.17, snapy 2.14.4] All 16 passed. The statistics recurrence @eq-ch15-output-stats has no committed independent check at the pin; adding one
 (the two-pass weighted mean and deviation against the recurrence over unequal steps) is a to-do of this section.
@@ -343,6 +415,9 @@ that build.
   step do not enter.
 - The combine requires one time record per part and the same variable structure in every part; `combine_parts`
   ({{< code src/output/combine_parts.cpp combine_parts >}}) reads the structure from the first part only.
+- Signals are read only at the redo check; a rank that never gets there (a hang inside a step) leaves the others
+  waiting in the allreduce, and no test exercises a signalled run (`SignalHandler::CheckSignalFlags`,
+  {{< code src/mesh/signal_handler.cpp SignalHandler::CheckSignalFlags >}}).
 - Only the netcdf, pnetcdf, restart and budget types exist; another `type` stops the run when the block is built.
 :::
 
@@ -354,4 +429,6 @@ that build.
 [^rg-817326ac21bd]: $i, j, k$ — cell indices in $x_1, x_2, x_3$
 
 [^rg-f7f8891d4759]: x1 — first-coordinate positions of the profile knots
+
+[^rg-92bdb6d45d3b]: nlim — maximum number of integration cycles
 <!-- end reader glossary notes -->
