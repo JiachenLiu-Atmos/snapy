@@ -39,7 +39,7 @@
 
 | key | default | read at | explained in |
 |---|---|---|---|
-| `dynamics/anomaly` | `false` | `anomaly` [`src/options/hydro.yaml:34`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/options/hydro.yaml#L34) | @sec-ch12-environment |
+| `dynamics/anomaly` | `false` | `anomaly` [`src/options/hydro.yaml:34`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/options/hydro.yaml#L34) | @sec-appd-switches |
 | `dynamics/conserve-axial-momentum` | `"off"` | `conserve-axial-momentum` [`src/options/hydro.yaml:63`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/options/hydro.yaml#L63) | @sec-ch15-options |
 | `dynamics/conversion-order` | `2` | `conversion-order` [`src/options/hydro.yaml:27`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/options/hydro.yaml#L27) | @sec-ch04-conv4 |
 | `dynamics/disable-flux-x1` | `false` | `disable-flux-x1` [`src/options/hydro.yaml:22`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/options/hydro.yaml#L22) | @sec-ch12-yaml |
