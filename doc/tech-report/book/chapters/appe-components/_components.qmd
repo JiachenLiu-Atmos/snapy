@@ -190,21 +190,28 @@ python -m pip install "torch==2.10.0" "kintera>=2.6.13" pyharp pydisort "commux>
 These metadata requirements do not establish a tested compatible combination; use the preface recipe for a complete
 build ([Install and run](#sec-preface-install)).
 
-**What the build refuses, and why.** In order, at configure time:
+**What the build refuses, and why.** In the order a configure meets them (the top-level `CMakeLists.txt`
+includes `cmake/parameters.cmake`, then runs the locators for Disort, Harp and Kintera, then includes
+`cmake/ucx.cmake`, and the sidecar check sits in `src/CMakeLists.txt`):
 
-1. *An importable package is missing.* `FindKintera`, `FindHarp` and `FindDisort` each import their Python package
+1. *`PNETCDF=ON` without pinc.* `cmake/parameters.cmake` imports `pinc` for its header and library paths and stops
+   with a message that `PNETCDF=ON` requires the Python package `pinc` in the interpreter's environment, before any
+   locator runs ({{< code cmake/parameters.cmake >}}). `PNETCDF` is on by default off Apple.
+2. *An importable package is missing.* `FindDisort`, `FindHarp` and `FindKintera` each import their Python package
    to locate its files (`kintera.__file__` and the like, with errors silenced); when that import fails the path is
    empty, the `cmake_path` calls error, `find_path` and `find_library` find nothing, and
-   `find_package_handle_standard_args` stops with "Could NOT find Kintera (missing: ...)" (likewise Harp and
-   Disort). The version import, and its "cannot determine PEP 440 version of ..." stop, run only after the library
-   is found (`if(KINTERA_LIBRARY)`), so that message means a found library whose Python package does not import.
-   The C++ library is located from the Python package.
-2. *kintera is older than 2.6.13.* `FindKintera` stops with "snapy requires kintera >= 2.6.13 (...), found ...".
-3. *A library or its headers is not found.* Each locator's `REQUIRED_VARS` fails the `REQUIRED` `find_package`.
-4. *`UCX=ON` without commux* (UCX is on by default off Apple; `cmake/ucx.cmake` probes for the package and stops
-   with a message that UCX support requires the Python package `commux` in the interpreter's environment), *`PNETCDF=ON` without pinc*, or *`CUDA=ON` with UCX
-   but without commux's CUDA sidecar*: the configure stops with
-   the message that names the missing package ({{< code cmake/parameters.cmake >}}, {{< code src/CMakeLists.txt >}}).
+   `find_package_handle_standard_args` stops with "Could NOT find Disort (missing: ...)" (likewise Harp and
+   Kintera, in that order). The version import, and its "cannot determine PEP 440 version of ..." stop, run only
+   after the library is found (`if(KINTERA_LIBRARY)`), so that message means a found library whose Python package
+   does not import. The C++ library is located from the Python package.
+3. *kintera is older than 2.6.13.* `FindKintera` stops with "snapy requires kintera >= 2.6.13 (...), found ...".
+4. *A library or its headers is not found.* Each locator's `REQUIRED_VARS` fails the `REQUIRED` `find_package`,
+   with the same "Could NOT find ... (missing: ...)" message as item 2.
+5. *`UCX=ON` without commux.* `cmake/ucx.cmake`, included after the Kintera locator, probes for the package and
+   stops with a message that UCX support requires the Python package `commux` in the interpreter's environment.
+   `UCX` is on by default off Apple.
+6. *`CUDA=ON` with UCX but without commux's CUDA sidecar*: `src/CMakeLists.txt` stops with the message that names
+   the missing sidecar ({{< code src/CMakeLists.txt >}}).
 
 At import time, `import snapy` fails if `torch`, `pydisort`, `pyharp` or `kintera` cannot be imported
 ({{< code python/__init__.py >}}).
