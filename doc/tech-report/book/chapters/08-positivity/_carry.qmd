@@ -87,11 +87,12 @@ $$ {#eq-ch08-carry-prescribed}
 taking $F_{\mathrm{sed}}<0$ (settling, donor $u$) for the sign: the first term has donor $\ell$ and the second donor
 $u$. It is not zero unless the two cells have the same enthalpy, so the carry leaves an energy flux on a face whose flux
 was prescribed. The carry therefore posts with the register's `add`, which marks the direction as written since it
-was last prescribed ({{< code src/hydro/flux_register.cpp FluxRegister::add >}}), and after the implicit correction the
-stage applies the prescribed faces of $x_1$ again whenever the implicit correction ran or that mark is set
-({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). The reapplication restores the prescribed value and books
-the removed amount in the register (@sec-ch10-prescribed), and clears the mark
-({{< code src/hydro/flux_register.cpp FluxRegister::apply_prescribed >}}).
+was last prescribed ({{< code src/hydro/flux_register.cpp FluxRegister::add >}}). The limiter runs before the
+sources' face posts, and the stage applies the prescribed faces of every direction after those posts and before the
+divergence ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}), so that apply already restores the prescribed
+value on the carried faces, books the removed amount in the register (@sec-ch10-prescribed) and clears the mark
+({{< code src/hydro/flux_register.cpp FluxRegister::apply_prescribed >}}). The apply after the implicit correction then
+runs on $x_1$ when the implicit correction ran or a later writer set the mark again.
 
 **A worked case.** The carry test's column moves up at 2 m s$^{-1}$ with $\Delta t = \Delta x/(1\ \mathrm{m\,s^{-1}})$,
 so every face drains its lower cell of twice what it holds, of species and of dry air alike. Then
