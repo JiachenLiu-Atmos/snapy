@@ -34,8 +34,9 @@ constraints, and the tables keep the two apart.
 **Placement.** Build time (CMake locators, `pip` metadata), import time (`import snapy`) and run time (the EOS, the
 saturation adjustment, the chemistry step, the stage combination, the UCX process group).
 
-**Activation.** kintera, pyharp and pydisort are always required; commux and pinc only on Linux, and only in a build
-with UCX or PnetCDF.
+**Activation.** kintera, pyharp and pydisort are always required. commux and pinc are Linux-only: the pip metadata
+requires both on every Linux install, and CMake uses them when `UCX` and `PNETCDF` are on, which is their default
+off Apple.
 
 **Guarantee / limits.** The floor is enforced for kintera alone; pyharp and pydisort are accepted at any version.
 
@@ -85,8 +86,8 @@ the same, and the version a build accepts is not bounded, in four steps:
 ### Derivation
 
 This appendix inventories interfaces and dependencies; it introduces no numerical scheme or equation.
-Thermodynamic, integration, moist-coupling and chemistry derivations belong to @sec-ch02, @sec-ch09, @sec-ch10
-and @sec-ch08. A linked library, an imported Python package and a numerical call are separate facts and are
+Thermodynamic, integration and moist-coupling derivations belong to @sec-ch02, @sec-ch09 and @sec-ch10; the
+chemistry step is derived in @sec-ch10-kinetics and the saturation adjustment in @sec-ch08. A linked library, an imported Python package and a numerical call are separate facts and are
 recorded separately.
 
 ### Numerical method
@@ -200,7 +201,9 @@ build ([Install and run](#sec-preface-install)).
    The C++ library is located from the Python package.
 2. *kintera is older than 2.6.13.* `FindKintera` stops with "snapy requires kintera >= 2.6.13 (...), found ...".
 3. *A library or its headers is not found.* Each locator's `REQUIRED_VARS` fails the `REQUIRED` `find_package`.
-4. *`PNETCDF=ON` without pinc*, or *`CUDA=ON` with UCX but without commux's CUDA sidecar*: the configure stops with
+4. *`UCX=ON` without commux* (UCX is on by default off Apple; `cmake/ucx.cmake` probes for the package and stops
+   with a message that UCX support requires the Python package `commux` in the interpreter's environment), *`PNETCDF=ON` without pinc*, or *`CUDA=ON` with UCX
+   but without commux's CUDA sidecar*: the configure stops with
    the message that names the missing package ({{< code cmake/parameters.cmake >}}, {{< code src/CMakeLists.txt >}}).
 
 At import time, `import snapy` fails if `torch`, `pydisort`, `pyharp` or `kintera` cannot be imported
@@ -260,7 +263,7 @@ to it; rows 1 and 2 are posted to the monitor by the adjustment and are not retr
 [^appe-build]: snapy at the pin configured with `cmake -DCUDA=OFF -DCMAKE_BUILD_TYPE=Release -DNETCDF=OFF -DPNETCDF=OFF
     -DUCX=ON`, built with `cmake --build`, installed with `pip install --no-build-isolation --no-deps`, then
     `import snapy`: every step exit 0, against kintera 2.6.13 (the package pin), pyharp 2.7.17, pydisort 1.8.13,
-    torch 2.10.0+cu128, pinc 0.2.0, CMake 3.26.2, g++ 11.4.0, Linux x86-64; the same tree with `-DNETCDF=ON
+    torch 2.10.0+cu128, commux 0.2.1, pinc 0.2.0, CMake 3.26.2, g++ 11.4.0, Linux x86-64; the same tree with `-DNETCDF=ON
     -DPNETCDF=ON -DBUILD_EXAMPLES=ON` for the NetCDF arm of @sec-appd. One run, one host.
 
 No numerical result is claimed for any component version on CUDA, MPS or more than one rank. The appendix's C++
