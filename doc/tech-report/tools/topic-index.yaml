@@ -14,6 +14,8 @@ sections:
   sec-ch02-new-eos:
     - equation of state, adding: [new EOS, custom EOS]
   # Preface
+  sec-preface-map:
+    - chapters, what each covers: [book organization, reading guide]
   sec-preface-install:
     - install: [pip install, installation, setup]
     - build from source: [source build, cmake, compile]

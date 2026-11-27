@@ -92,6 +92,8 @@
 
 **$\boldsymbol\delta_i$**: [7. Time integration and the implicit solver](#sec-appa-7).
 
+*book organization*, see **chapters, what each covers**.
+
 **`bot-heat`**: Body heating, top cooling and bottom heating, @sec-ch07-heating.
 
 **`bot-sponge-lyr`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
@@ -195,6 +197,8 @@
 **CFL number, meaning**: Time-step bound: acoustic, implicit-advective, shear and diffusive, @sec-ch09-cfl.
 
 *channel*, see **Cartesian grid**.
+
+**chapters, what each covers**: [How the book is organized](#sec-preface-map).
 
 *check_keys*, see **unknown key, refused**; **unknown keys rejected**.
 
@@ -1597,6 +1601,8 @@
 **Rayleigh drag**: Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch07-sponge. See also **sponge layer**.
 
 **`reactions`**: Fixed-volume fixed-energy phase equilibrium, @sec-ch02-saturation.
+
+*reading guide*, see **chapters, what each covers**.
 
 *reconcile_panel_seams*, see **cubed sphere, seam fluxes single-valued**.
 
