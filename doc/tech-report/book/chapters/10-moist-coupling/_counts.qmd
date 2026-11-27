@@ -51,7 +51,11 @@ and five retry causes (`ef.floor_patch`, `ef.nan`, `ef.vapor_fail`, `ef.heat_cap
 that was not declared throws ({{< code src/hydro/flux_register.cpp RegisterMonitor::counter_index >}}).
 
 **Who posts at the pin.** The sweep posts one mask per face floor that ran and one per Riemann event
-({{< code src/hydro/sweep.cpp post_face_floors >}}, {{< code src/hydro/sweep.cpp post_riemann_events >}}). The
+({{< code src/hydro/sweep.cpp post_face_floors >}}, {{< code src/hydro/sweep.cpp post_riemann_events >}}). Two
+places count face floors directly: the FP32 split path of the sweep counts the faces it floors itself, which is
+what `test_fp32_face_floor_counts_python` reads ({{< code src/hydro/sweep.cpp reconstruct_faces >}}), and the
+well-balanced $x_1$ reconstruction counts its fallbacks as floors
+({{< code src/recon/well_balanced_x1.cpp WellBalancedX1::forward >}}). The
 saturation adjustment posts kintera's rows 1 and 2, the temperature and pressure solves that did not converge
 ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}}). The implicit correction counts the
 columns it retried in FP64 and flags `implicit.column` with the column status
@@ -88,6 +92,8 @@ mask, into the cause's slot in place ({{< code src/hydro/flux_register.cpp Regis
 | slot layout | {{< code src/hydro/flux_register.cpp RegisterMonitor::pend_slot_ >}} | `_pend_ends` | |
 | the stage's reduction | {{< code src/hydro/flux_register.cpp RegisterMonitor::flush_counts >}} | `cumsum` | |
 | face floor and Riemann posts | {{< code src/hydro/sweep.cpp post_face_floors >}} | `face_floor.*`, `riemann.*` | floors, events |
+| direct face-floor counts, FP32 split path | {{< code src/hydro/sweep.cpp reconstruct_faces >}} | `count_below` | FP32 |
+| well-balanced fallbacks counted as floors | {{< code src/recon/well_balanced_x1.cpp WellBalancedX1::forward >}} | `fallback` | well-balanced $x_1$ |
 | unconverged solves | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}} | `thermo.temp_solve` | reactions |
 | FP64 retried columns, the implicit flag | {{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}} | `implicit.fp64_columns` | implicit, FP64 fallback |
 | minima and flags | {{< code src/hydro/flux_register.cpp RegisterMonitor::flag_retry >}} | `logical_or_` | |

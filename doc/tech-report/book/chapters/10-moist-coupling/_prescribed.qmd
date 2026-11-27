@@ -73,8 +73,11 @@ On the mask path it writes $V$ on the masked faces of every kept part, then call
    true.
 
 The scalar module supplies and applies the same prescription to its own register after forming the scalar fluxes
-({{< code src/scalar/scalar.cpp ScalarImpl::forward >}}). The settling carry on a prescribed face, which marks
-$x_1$ through `add` after the pre-divergence apply, is @sec-ch08-carry.
+({{< code src/scalar/scalar.cpp ScalarImpl::forward >}}). The settling carry on a prescribed face is @sec-ch08-carry. The limiter
+posts it on $x_1$ through `add` ({{< code src/hydro/flux_positivity.cpp flux_positivity_carry_ >}}), which marks the
+direction. The limiter runs before the sources' posts and before the pre-divergence apply
+({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}), so that apply re-prescribes the carried faces too; the
+mark then stays cleared unless a later writer sets it again.
 
 ### Code
 
