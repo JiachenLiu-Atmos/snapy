@@ -197,20 +197,21 @@ includes `cmake/parameters.cmake`, then runs the locators for Disort, Harp and K
 1. *`PNETCDF=ON` without pinc.* `cmake/parameters.cmake` imports `pinc` for its header and library paths and stops
    with a message that `PNETCDF=ON` requires the Python package `pinc` in the interpreter's environment, before any
    locator runs ({{< code cmake/parameters.cmake >}}). `PNETCDF` is on by default off Apple.
-2. *An importable package is missing.* `FindDisort`, `FindHarp` and `FindKintera` each import their Python package
-   to locate its files (`kintera.__file__` and the like, with errors silenced); when that import fails the path is
-   empty, the `cmake_path` calls error, `find_path` and `find_library` find nothing, and
-   `find_package_handle_standard_args` stops with "Could NOT find Disort (missing: ...)" (likewise Harp and
-   Kintera, in that order). The version import, and its "cannot determine PEP 440 version of ..." stop, run only
-   after the library is found (`if(KINTERA_LIBRARY)`), so that message means a found library whose Python package
-   does not import. The C++ library is located from the Python package.
-3. *kintera is older than 2.6.13.* `FindKintera` stops with "snapy requires kintera >= 2.6.13 (...), found ...".
-4. *A library or its headers is not found.* Each locator's `REQUIRED_VARS` fails the `REQUIRED` `find_package`,
-   with the same "Could NOT find ... (missing: ...)" message as item 2.
-5. *`UCX=ON` without commux.* `cmake/ucx.cmake`, included after the Kintera locator, probes for the package and
+2. *A package, its library or its headers is not found.* The locators run in the order Disort, Harp, Kintera, and
+   each stops the configure at its own `find_package_handle_standard_args` with "Could NOT find ... (missing: ...)"
+   when one of its `REQUIRED_VARS` is empty, so a missing Disort or Harp stops the configure before Kintera is
+   looked at. `FindDisort`, `FindHarp` and `FindKintera` each import their Python package to locate its files
+   (`kintera.__file__` and the like, with errors silenced); when that import fails the path is empty, the
+   `cmake_path` calls error, and `find_path` and `find_library` find nothing. The version import, and its "cannot
+   determine PEP 440 version of ..." stop, run only after the library is found (`if(KINTERA_LIBRARY)`), so that
+   message means a found library whose Python package does not import. The C++ library is located from the Python
+   package.
+3. *kintera is older than 2.6.13.* Once the Kintera library is found, `FindKintera` reads the version and stops
+   with "snapy requires kintera >= 2.6.13 (...), found ...".
+4. *`UCX=ON` without commux.* `cmake/ucx.cmake`, included after the Kintera locator, probes for the package and
    stops with a message that UCX support requires the Python package `commux` in the interpreter's environment.
    `UCX` is on by default off Apple.
-6. *`CUDA=ON` with UCX but without commux's CUDA sidecar*: `src/CMakeLists.txt` stops with the message that names
+5. *`CUDA=ON` with UCX but without commux's CUDA sidecar*: `src/CMakeLists.txt` stops with the message that names
    the missing sidecar ({{< code src/CMakeLists.txt >}}).
 
 At import time, `import snapy` fails if `torch`, `pydisort`, `pyharp` or `kintera` cannot be imported
@@ -225,8 +226,8 @@ find_package(Harp REQUIRED)
 find_package(Kintera 2.6.13 REQUIRED)
 ```
 
-The first three lines are the unversioned requirements of item 3 of the refusal list above; the last is the floor
-of item 2.
+The first three lines are the unversioned requirements of item 2 of the refusal list above; the last is the floor
+of item 3.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
