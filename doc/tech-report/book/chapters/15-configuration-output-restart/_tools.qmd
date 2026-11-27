@@ -127,7 +127,8 @@ for fname in files:
 : Tests of the tools. {#tbl-ch15-tools-tests}
 
 There is no check script: the section derives nothing.[^ch15-tools-run] No ctest tests either tool on its own. The `FULL_TESTS` decomposition runners call `pd-combine 0 -o main` on each
-case: `run_shallow_splash_decomp.py` skips (exit 125) without it, and `run_shallow_xy_decomp.py` fails without it
+case: `run_shallow_splash_decomp.py` exits 125 without it, which its ctest entry counts as a failure because the
+entry sets no `SKIP_RETURN_CODE` ({{< code tests/CMakeLists.txt >}}), and `run_shallow_xy_decomp.py` fails without it
 (`pd_combine`, {{< code tests/run_shallow_xy_decomp.py main >}}). `pd-inspect` is used by no test.
 
 ### Limits
@@ -136,6 +137,10 @@ case: `run_shallow_splash_decomp.py` skips (exit 125) without it, and `run_shall
 - `pd-combine` globs every matching `*.out*.nc` in the directory, leftovers included; run it in a clean directory.
 - It needs NCO on the `PATH` and deletes its inputs by default.
 - It does not join per-block files in space.
+- A stream with one time stamp is moved, not concatenated, to `<case>.out<n>.nc` relative to the working directory
+  rather than under `-d`; with `-d` other than the working directory, the field step then looks for that file under
+  `-d` and does not find it (`CombineTimeseries`, {{< code python/api/pd_combine.py CombineTimeseries >}};
+  `CombineFields`, {{< code python/api/pd_combine.py CombineFields >}}).
 :::
 
 [^ch15-tools-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the `ch15-tools` card, a copy of

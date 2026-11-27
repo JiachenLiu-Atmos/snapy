@@ -266,8 +266,8 @@ on the code by rerunning the Python and gtest entries alone.
 - A file without the bundle magic line is read whole by every block, whatever its rank, with no check of the
   rank: `load_restart` ({{< code src/output/restart.cpp load_restart >}}) hands such a file to the tensor loader
   as one part. That case is read from the code and has not been run.
-- The restart runners launch one process (`test_restart_resume_schedule`, the `dt_change`, `key_collision` and
-  `inplace_reorder` runners) or two (`cycle_limit`); `test_restart_multiblock` varies the blocks per process within
+- The restart runners launch one process (`test_restart_resume_schedule`, the `dt_change`, `output_schedule`,
+  `key_collision` and `inplace_reorder` runners) or two (`cycle_limit`); `test_restart_multiblock` varies the blocks per process within
   one process and never the global block count. Larger runs, and a resume under a different decomposition, are
   not tested.
 :::

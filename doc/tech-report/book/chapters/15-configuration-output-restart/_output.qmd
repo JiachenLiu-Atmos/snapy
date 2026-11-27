@@ -245,7 +245,7 @@ integrator's `stop` is false: it stops when `nlim`[^rg-92bdb6d45d3b] is nonnegat
 [`pyharp integrator.cpp:89-99`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L89-L99)).
 A redo result below zero breaks the loop as well, and the driver returns what `finalize` returns
 ({{< code examples/straka.cpp main >}}). Three signals end a run early. The handler installs itself for `SIGTERM`,
-`SIGINT` and `SIGALRM`, the wall-time alarm, and records each in a flag
+`SIGINT` and `SIGALRM`, and records each in a flag
 ({{< code src/mesh/signal_handler.cpp SignalHandler::SignalHandler >}}). The flags are read once per step, at the
 redo check, where the maximum over the ranks is taken with an allreduce so that every rank stops together
 ({{< code src/mesh/signal_handler.cpp SignalHandler::CheckSignalFlags >}}; `MeshImpl::check_redo`,
@@ -309,8 +309,8 @@ procedure below adds a cell-centred scalar without adding a writer.
 3. **Add metadata and rebuild.** Add `{"rho_copy", "copy of total density", "kg/m^3", "CCC"}` to the table in
    `MetadataTable::MetadataTable` ({{< code src/output/output_utils.cpp MetadataTable::MetadataTable >}}): name, long
    name, units and grid location. The NetCDF sink takes the attributes from that table by field name; an unknown
-   name gets no units or long name, and its grid location defaults to cells
-   ({{< code src/output/netcdf.cpp NetcdfSink::write >}}).
+   name gets no units or long name, and its grid location defaults to cells (`Field::grid`,
+   {{< code src/output/writer_core.cpp Field::grid >}}; `Frame::kind`, {{< code src/output/writer_core.cpp Frame::kind >}}).
 4. **Select and locate it.** After rebuilding, add a stream to the deck with `variables: [rho_copy]`.
    `OutputOptionsImpl::from_yaml` copies the list into the entry's options
    ({{< code src/output/output_type.cpp OutputOptionsImpl::from_yaml >}}); as stream `<n>` the field is written as
@@ -424,6 +424,9 @@ one host).
   waiting in the allreduce, and no test exercises a signalled run (`SignalHandler::CheckSignalFlags`,
   {{< code src/mesh/signal_handler.cpp SignalHandler::CheckSignalFlags >}}).
 - Only the netcdf, pnetcdf, restart and budget types exist; another `type` stops the run when the block is built.
+- Nothing at the pin arms a wall-time alarm: the `-t hh:mm:ss` option is parsed into `wtlim`
+  ({{< code examples/command_line.cpp >}}) and read nowhere else, and no code calls `alarm`, so the wall-time reason
+  fires only on a `SIGALRM` sent from outside.
 :::
 
 <!-- reader glossary notes -->
