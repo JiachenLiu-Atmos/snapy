@@ -20,7 +20,7 @@ section has the same layers: a summary, the derivation, the numerical method, th
 | @sec-ch07 | Every source term besides the flux divergence and gravity: the forcing loop, axial angular momentum, Coriolis, viscosity and heat conduction, heating, relaxation, sponges and user stage forcings |
 | @sec-ch08 | The moist side of a stage and what keeps the state admissible: saturation adjustment, sedimentation, the flux positivity limiter, the equation-of-state floors, their records and the redo decision |
 | @sec-ch09 | Advancing in time: the Runge–Kutta stages, the time-step bound, step acceptance and redo, and the implicit column solve |
-| @sec-ch10 | How phase change, condensates and passive tracers enter the step |
+| @sec-ch10 | The flux register every face flux goes through: its posts, the prescribed faces, the wall batch, the step amounts, the monitor counts, the rollback of a rejected step, and the conservation budget read from it |
 | @sec-ch11 | The boundary conditions, the ghost fill and exchange order, and immersed solids |
 | @sec-ch12 | Build options, environment switches, YAML scheme selection and which switch combinations are tested |
 | @sec-ch13 | The conservation budgets and diagnostics the model prints, and the tests that read them |
