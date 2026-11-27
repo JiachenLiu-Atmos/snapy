@@ -1,12 +1,12 @@
 ## Switch-combination coverage matrix (`combined configuration`) {#sec-ch12-matrix}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (chengcli/snapy, code_pin.yml)
 sources: OUTLINE.md 12.12; tests/CMakeLists.txt; tests/test_x1_seam_split.cpp; tests/test_wb_ref4_order.py; tests/test_x1_centroid_rest.py;
          tests/test_horizontal_flux_covariance.py; tests/test_flux_covariance_rows.py; tests/test_flux_covariance_seams.py;
-         tests/test_gravity_work_radial_exact.py
+         tests/test_gravity_work_radial_exact.py; tests/test_conversion_order.py; tests/test_anomaly_storage.py
 status: draft
-author: Jiheng Hu
+author: Jiheng Hu; rewritten at the pin by Xinyue Wang
 reviewer:
 -->
 
@@ -30,30 +30,31 @@ can tell a combination that is checked from one that merely runs.
 **Evidence.** Tests below, @tbl-ch12-matrix-tests; solver ctests were not run.
 :::
 
-Table key: WB, XC, FC, MC and RE are the switches defined at the chapter opening.
-`<b>` is the lower-case build suffix; "child" means a fresh process per arm,
-and "CTest" means the registration sets the variable.
+Table key: XC is `SNAP_X1_CENTROID_EXACT`; the other selectors are deck keys under `dynamics:` (CO is
+`conversion-order`, FC `flux-covariance`, MC `x1-mass-covariance`). The corrected face work has no selector
+(@sec-ch12-radial-exact). `<b>` is the lower-case build suffix; "child" means a fresh process per arm, "CTest"
+means the registration sets the value, and "test" means the test sets it on its own blocks.
 
 | combination | work and grid | registered evidence | meaning |
 |---|---|---|---|
-| defaults: WB, XC, MC off; FC on; RE on | `face` (the YAML default); any grid with an $x_1$ measure | every test that sets no switch; `test_gravity_work_radial_exact_python` and `test_horizontal_flux_covariance_python` compare the unset arm with the `1` arm bit for bit | the default run is corrected face work with the lateral covariance |
-| RE unset, 0, 1 (child) | `face`; spherical-polar, Cartesian, gnomonic-equiangle | `test_gravity_work_radial_exact_python`; CUDA variant | default equality; corrected and plain budgets; warnings on unsupported grids |
-| RE=0 (CTest) | `face` and `cell` arms | `test_forcing.<b>`, `test_gravity_work_fixer_python`, `test_horizontal_flux_covariance_python`, `test_flux_covariance_rows_python`, `test_implicit_face_work_operator_python`, `test_implicit_stratified_solid_python` | the plain face-work invariant |
-| RE=1 (CTest) | `face`; Cartesian and spherical-polar columns | `test_implicit_face_work_operator_radial_exact_python`, `test_implicit_stratified_solid_radial_exact_python` | corrected implicit budget |
-| RE=0 and 1 (CTest) | `face`; $x_1$ split | `test_x1_seam_split_radial_exact[_off].<b>`; CUDA variants; `test_x1_seam_split_mp_radial_exact[_off].<b>` | the split column equals one block; the off control bounds the gap |
-| implicit, $x_1$ split (CTest) | `face`; scheme 9 | `test_x1_seam_split_vic_refuses_split.<b>` | an implicit scheme refuses the split |
-| WB=1 (CTest) | `cell`; Cartesian | `test_balance_column_wb_ref4.<b>`, `test_face_floor_wb_ref4.<b>`, `test_x1_seam_split_wb_ref4.<b>`; CUDA seam variant; `test_x1_seam_split_mp_wb_ref4.<b>` | fixed point, face floor, seam; ghost guard |
-| WB=1, zero gravity (CTest) | `cell`; one ghost | `test_x1_seam_split_wb_ref4_gravity_0.<b>` | the guard is inactive without gravity |
-| WB unset and 1 (child), FC=1 in both arms, RE default on | `face`; Cartesian | `test_wb_ref4_order_python`; CUDA variant | the combined order oracle |
-| XC=1 (CTest), hence WB | `cell`; spherical-polar seam and Cartesian balance | `test_balance_column_x1_centroid.<b>`, `test_face_floor_x1_centroid.<b>`, `test_x1_seam_split_x1_centroid.<b>`; CUDA seam variant; `test_x1_seam_split_mp_x1_centroid.<b>` | the implied reference and the seam conversion |
-| XC unset and 1 (child), implicit 0 and 1, non-hydrostatic 1 and 0 | `cell`; spherical-polar | `test_x1_centroid_rest_python`; CUDA variant | pressure and gravity at rest |
-| FC unset, 0, 1 (child), RE=0 (CTest) | `face`; Cartesian | `test_horizontal_flux_covariance_python` | the onset signal, the default equality and the plain budget |
-| FC 0 and 1 (child), RE=0 (CTest) | Cartesian, spherical-polar, gnomonic-equiangle | `test_flux_covariance_rows_python` | rest, species, energy offsets |
-| FC 0 and 1 (child) | `cell` with the fixer; six panels and spherical-polar | `test_flux_covariance_seams_python` | panel conservation and direction gating; one process |
-| FC=1 (CTest) | $x_1$ split; cubed sphere | `test_scalar_cov_x1_split_python`, `test_pref_local_seam_flux_covariance.<b>`, `test_flux_positivity_cubedsphere_flux_covariance_python` | the correction across $x_1$ seams and panel seams |
-| FC=0 (CTest) | the unlimited positivity base arms | `test_flux_positivity_python`, `test_flux_positivity_cubedsphere_cov_off_python`, `test_flux_positivity_carry.<b>` | the base arm the default would limit |
-| study flags off, one ghost | `cell`; spherical-polar | `test_x1_seam_split.<b>`, `test_x1_seam_split_mp.<b>` | the baseline thin-ghost setup |
-| MC=1 (CTest) | `cell`; two and three owned cells | `test_x1_seam_split_x1_mass_covariance.<b>` | setup rejection and acceptance only |
+| defaults: XC off; CO 2; FC true; MC false | `face`; corrected work on any grid with an $x_1$ measure | every test that sets none of them; `test_horizontal_flux_covariance_python` compares FC unset with FC true bit for bit | the default run is corrected face work with the lateral covariance |
+| corrected work, explicit and VIC | `face`; spherical-polar, Cartesian, gnomonic-equiangle | `test_gravity_work_radial_exact_python`; CUDA variant | the corrected budget; the warning on an unsupported grid |
+| corrected work, $x_1$ split | `face`; split column | `test_x1_seam_split_radial_exact.<b>`; CUDA variant; `test_x1_seam_split_mp_radial_exact.<b>` | the split column equals one block |
+| implicit, $x_1$ split | `face`; scheme 9 | `test_x1_seam_split_vic_refuses_split.<b>` | an implicit scheme refuses the split |
+| CO 4 (test) | uniform and stretched $x_1$; gravity column; spherical-polar and gnomonic blocks | `test_conversion_order_python` | the conversion's and the face density's fitted orders |
+| CO 4 (test), XC unset | `face`; $x_1$ split | `test_x1_seam_split_co4_face_density.<b>`; CUDA variant; `test_x1_seam_split_mp_co4_face_density.<b>` | the flag next to the seam keeps the one-block state |
+| CO 4 (test), or XC=1 (CTest), with gravity | `face`; one and two ghosts | `test_x1_seam_split_nghost_check_conversion_order_4.<b>`, `test_x1_seam_split_nghost_check_x1_centroid.<b>` | the three-ghost refusal names its setting |
+| CO 2, FC true (test) | `face`; Cartesian | `test_wb_ref4_order_python`; CUDA variant | the order oracle of the base face density |
+| XC=1 (CTest) | Cartesian balance and face floor; spherical-polar seam | `test_balance_column_x1_centroid.<b>`, `test_face_floor_x1_centroid.<b>`, `test_x1_seam_split_x1_centroid.<b>`; CUDA seam variant; `test_x1_seam_split_mp_x1_centroid.<b>`; `test_deck_x1_wiring_x1_centroid.<b>`, `test_stretched_x1_ref_x1_centroid.<b>` | the base checks under XC, and the seam conversion |
+| XC unset and 1 (child), implicit 0 and 1, non-hydrostatic 1 and 0 | spherical-polar | `test_x1_centroid_rest_python`; CUDA variant | pressure and gravity at rest |
+| FC unset, false, true (test, one process) | `face`; Cartesian | `test_horizontal_flux_covariance_python` | the onset signal, the default equality and the E+P budget |
+| FC true and false (child) | Cartesian, spherical-polar, gnomonic-equiangle | `test_flux_covariance_rows_python`, `test_flux_covariance_seams_python` | rest, tracer, offsets; panel conservation and direction gating |
+| FC true (argument) | cubed sphere | `test_flux_positivity_cubedsphere_flux_covariance_python` | the correction across panel seams |
+| FC false (argument or card) | the unlimited positivity base arms | `test_flux_positivity_python`, `test_flux_positivity_cubedsphere_cov_off_python`, `test_flux_positivity_carry.<b>` | the base arm the default would limit |
+| study flags off, one ghost | `face`; spherical-polar | `test_x1_seam_split.<b>` | the baseline thin-ghost setup; asserts XC unset |
+| MC true (test) | two and three $x_1$ cells | `test_x1_seam_split_x1_mass_covariance.<b>` | setup rejection and acceptance only |
+| MC true (argument), perturbation flux | anomaly storage, HLLC[^rg-552e6fcca5f0] | `test_perturbation_flux_x1_mass_covariance_python` | the perturbation-flux script with MC on |
+| `SNAP_ANOMALY=1` (child) | the anomaly deck | `test_anomaly_storage_python` | the override turns anomaly storage on |
 
 : Registered combinations at the pin; none is a new runtime result. {#tbl-ch12-matrix-coverage}
 
@@ -71,14 +72,14 @@ kind, claim kind) pairs exactly one is unsupported, a guard assertion offered fo
 
 First select a build that contains the required entries, then establish the import provenance, sanitize the
 numerics switches, and launch the named arm. Compare the invariant that the gravity-work mode selects: energy
-plus corrected potential energy for `face` with RE on, energy plus plain potential energy otherwise. Record
-CPU or CUDA and the rank count with every measured result. The dependency figure shows the logical constraints
-of the switches, not measured performance.
+plus corrected potential energy on a grid with an $x_1$ measure, energy plus plain potential energy otherwise. Record
+CPU or CUDA and the rank count with every measured result. The dependency figure draws an implication from XC to the fourth-order reference and a switch for the corrected
+work; the code at the pin has neither. The table above is the authority.
 
 ```{python}
 #| label: fig-ch12-matrix-flow
 #| fig-cap: "Logical dependencies: labelled arrows mean implies, requires, or acts only with. The diagram is not a sequence of numerical operations."
-#| fig-alt: "XC implies WB; WB + gravity: 3 ghosts; MC + gravity: 3 owned cells; RE + face + supported grid; FC: per-direction source."
+#| fig-alt: "logical constraints among configuration switches, as drawn by the chapter figure script; see the table for the code's rules."
 #| echo: false
 from snapy_report.ch12.figures.fig_matrix_flow import make_fig
 make_fig()
@@ -87,49 +88,45 @@ make_fig()
 ### Code
 
 **How to use it.** Pick one row, inspect its registration, then execute its exact test name in a compatible
-build. For the WB seam row in a Release build:
+build. For the CO 4 seam row in a Release build:
 
 ```bash
-env -u SNAP_X1_CENTROID_EXACT SNAP_WB_REF4=0 SNAP_X1_MASS_COVARIANCE=0 \
-  SNAP_FLUX_COVARIANCE=0 SNAP_GRAVITY_WORK_RADIAL_EXACT=0 \
-  ctest --test-dir build -R '^test_x1_seam_split_wb_ref4.release$' --output-on-failure
+env -u SNAP_X1_CENTROID_EXACT \
+  ctest --test-dir build -R '^test_x1_seam_split_co4_face_density.release$' --output-on-failure
 ```
 
-CTest overrides WB for this registered arm; the other values prevent inherited study flags from changing it.
-`SNAP_X1_CENTROID_EXACT` is removed with `-u`, not set to `0`: the arm asserts that the variable is unset, and an
-unset variable is the off state it checks. `-u` comes before the assignments, which the `env` of macOS requires.
-This row supplies its own deck, so no extra YAML is needed. A missing entry, disabled arm or empty selection is
-not evidence. Setup refusals constrain configuration only, and cannot certify an error norm.
+`SNAP_X1_CENTROID_EXACT` is removed with `-u`, not set to `0`: the arm asserts that the variable is unset. The test
+sets `conversion-order` 4 on its own columns, so no extra YAML is needed. A missing entry, disabled arm or empty
+selection is not evidence. Setup refusals constrain configuration only, and cannot certify an error norm.
 
 The `seam_arm` registration in {{< code tests/CMakeLists.txt >}} selects the environment and assertion:
 
 ```cmake
-seam_arm(_wb_ref4 "SNAP_WB_REF4=1"
-         wb_ref4_flag_at_the_seam_split_matches_one_block)
+seam_arm(_co4_face_density "" co4_face_density_at_the_seam_split_matches_one_block)
 ```
 
-The first argument supplies the name suffix, the second sets WB, and the third selects the gtest case.
-The coverage relation of `[C11]` requires both this registration and the executed arm to match the claim.
-XC must remain off in a WB-off control because XC implies WB.
+The first argument supplies the name suffix, the second the environment (empty here), and the third the gtest
+case. The coverage relation of `[C11]` requires both this registration and the executed arm to match the claim.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| seam arms | {{< code tests/CMakeLists.txt >}} | `seam_arm` | the five switches |
-| python entries | {{< code tests/CMakeLists.txt >}} | `snapy_add_python_test` | the five switches |
+| seam arms | {{< code tests/CMakeLists.txt >}} | `seam_arm` | XC, CO, MC |
+| python entries | {{< code tests/CMakeLists.txt >}} | `snapy_add_python_test` | FC, MC, `SNAP_ANOMALY` |
 | cuda entries | {{< code tests/CMakeLists.txt >}} | `SKIP_RETURN_CODE` | `CUDA` |
-| mc guard | {{< code tests/test_x1_seam_split.cpp X1SeamSplit.x1_mass_covariance_needs_3_x1_cells >}} | `x1_mass_covariance_needs_3_x1_cells` | `SNAP_X1_MASS_COVARIANCE` |
-| wb arms | {{< code tests/test_wb_ref4_order.py main >}} | `SNAP_FLUX_COVARIANCE` | `SNAP_WB_REF4` |
-| xc arms | {{< code tests/test_x1_centroid_rest.py main >}} | `SNAP_X1_CENTROID_EXACT` | `SNAP_X1_CENTROID_EXACT` |
-| fc rows arms | {{< code tests/test_flux_covariance_rows.py main >}} | `SNAP_FLUX_COVARIANCE` | `SNAP_FLUX_COVARIANCE` |
-| fc seams arms | {{< code tests/test_flux_covariance_seams.py main >}} | `SNAP_FLUX_COVARIANCE` | `SNAP_FLUX_COVARIANCE` |
-| re arms | {{< code tests/test_gravity_work_radial_exact.py main >}} | `SNAP_GRAVITY_WORK_RADIAL_EXACT` | `SNAP_GRAVITY_WORK_RADIAL_EXACT` |
+| mc guard | {{< code tests/test_x1_seam_split.cpp X1SeamSplit.x1_mass_covariance_needs_3_x1_cells >}} | `x1_mass_covariance_needs_3_x1_cells` | MC |
+| co arms | {{< code tests/test_x1_seam_split.cpp X1SeamSplit.co4_face_density_at_the_seam_split_matches_one_block >}} | `g_conv_order` | CO |
+| xc arms | {{< code tests/test_x1_centroid_rest.py run >}} | `SNAP_X1_CENTROID_EXACT` | XC |
+| fc arms | {{< code tests/test_horizontal_flux_covariance.py ARMS >}} | `ARMS` | FC |
+| fc rows arms | {{< code tests/test_flux_covariance_rows.py main >}} | `COV` | FC |
+| fc seams arms | {{< code tests/test_flux_covariance_seams.py main >}} | `DIFF_TOL` | FC |
+| corrected work | {{< code tests/test_gravity_work_radial_exact.py main >}} | `CASES` | none |
 
 : Registration and arm sites the matrix reads. {#tbl-ch12-matrix-code}
 
 1. Read the CTest registrations and their environments. The anchor `seam_arm` is in
    {{< code tests/CMakeLists.txt >}}.
-2. Read the arms each script creates in its own child processes. The anchor `SNAP_FLUX_COVARIANCE` of the
-   combined oracle is set in {{< code tests/test_wb_ref4_order.py main >}}.
+2. Read the arms each script creates, in one process or in child processes. The anchor `ARMS` of the
+   covariance script is in {{< code tests/test_horizontal_flux_covariance.py ARMS >}}.
 3. Enter a row only where the registration and the arm agree.
 
 ### Tests
@@ -147,17 +144,22 @@ The independent checks and their outputs are catalogued in @sec-ch16-ch12-tests.
 The independent report check verifies the registration/arm support relation in `[C11]`.[^ch12-matrix-run]
 It models the stated contract; it does not execute the compiled solver.
 
-[^ch12-matrix-run]: [sha: snapy@ccf40f9565642c32be69f4b9ef0cfa6daff3f201; deck: the check itself;
+[^ch12-matrix-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the check itself;
     run: `python src/snapy_report/ch12/checks/configuration_check.py`, CPU, one process;
-    Python 3.13.15, numpy 2.5.3, sympy 1.14.0]. Exact symbolic and Boolean assertions; no floating-point tolerance.
-    Output `configuration_check.out`, `[C11]`; reproduced for this edit. Solver CTests are source-inspected only.
+    Python 3.12.11, numpy 2.4.6, sympy 1.14.0]. Exact symbolic and Boolean assertions; no floating-point tolerance.
+    Output identical to the committed `configuration_check.out`, `[C11]`; reproduced for this edit. The check imports
+    no snapy code. Solver CTests are source-inspected only.
 
 ### Limits
 
 ::: {.callout-warning title="Limits"}
-Numerical MC behaviour, XC with face work or RE, XC together with FC, WB or XC on gnomonic grids, WB with RE off
-under face work, FC across MPI ranks, and the wider simultaneous combinations have no registered evidence.
-WB together with FC and RE has a registered order oracle; an all-flags combination is not thereby covered.
+Numerical MC behaviour, XC together with FC, XC on gnomonic grids, FC across MPI ranks, and the wider simultaneous
+combinations have no registered evidence. CO 4 has fitted-order tests (`test_conversion_order_python`), whose
+thresholds were not re-read line by line for this edit. An all-keys combination is not covered.
 
 The complete switch inventory is this section.
 :::
+
+<!-- reader glossary notes -->
+[^rg-552e6fcca5f0]: HLLC — Harten–Lax–van Leer solver with the contact restored
+<!-- end reader glossary notes -->

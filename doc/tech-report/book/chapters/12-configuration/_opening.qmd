@@ -1,6 +1,6 @@
 This chapter is the configuration reference of the book: the build options that decide what is compiled, the
-generated macros that fix the compiled alternatives, the five process-global numerics switches read from the
-environment, the launch variables of the layout, the test-harness variables, the YAML[^rg-602bede77d0b] keys that select the
+generated macros that fix the compiled alternatives, the numerics switches (two read from the environment, three
+read from the deck), the launch variables of the layout, the test-harness variables, the YAML[^rg-602bede77d0b] keys that select the
 local schemes, and the matrix that says which switch combination a registered test exercises. The mechanisms
 the switches select are described where they belong, in @sec-ch04, @sec-ch05 and @sec-ch06; here each switch
 section keeps its selector, its default, its couplings and guards, and the registered evidence, and points at
@@ -8,15 +8,22 @@ its home for the derivation. No solver run is reported in this chapter; the inde
 chapter's contracts are the script `src/snapy_report/ch12/checks/configuration_check.py` with its committed output,
 and the solver tests are catalogued with their assertions in @sec-ch16-ch12-tests.
 
-The five numerics switches are environment variables, written in the figures and tables of this chapter by
-two-letter abbreviations: WB[^rg-8cb4b02fa280] is `SNAP_WB_REF4`, XC `SNAP_X1_CENTROID_EXACT`, MC[^rg-52dc4b39bbdc] `SNAP_X1_MASS_COVARIANCE`, FC
-`SNAP_FLUX_COVARIANCE` and RE `SNAP_GRAVITY_WORK_RADIAL_EXACT`. WB, XC and MC are off by default, FC and RE are on, and
-XC turns WB on.
+At the code pin the numerics switches are written in the tables of this chapter by two-letter abbreviations.
+
+- XC is the environment variable `SNAP_X1_CENTROID_EXACT`, off by default.
+- CO, FC and MC[^rg-52dc4b39bbdc] are the deck keys `dynamics/conversion-order` (default 2), `dynamics/flux-covariance`
+  (default true) and `dynamics/x1-mass-covariance` (default false).
+- The corrected face work has no switch; `SNAP_GRAVITY_WORK_RADIAL_EXACT` is not read.
+- The fourth-order face reference has no switch of its own: it is part of CO 4, and `SNAP_WB_REF4` is not read.
+- `SNAP_ANOMALY` overrides the deck key `dynamics/anomaly`.
+
+The dependency figure below draws an implication from XC to the fourth-order reference, which the code at the pin
+does not have: the two share only a three-ghost guard.
 
 ```{python}
 #| label: fig-ch12-dependencies
-#| fig-cap: "Configuration dependencies: XC implies WB; gravity activates ghost/cell guards; face mode and geometry gate corrected work. Boxes state predicates, not performance results."
-#| fig-alt: "Centroid implies reference; gravity activates minimum stencil guards; radial work needs face mode and supported geometry."
+#| fig-cap: "Configuration dependencies (the XC arrow is not the code's rule; see the text): gravity activates ghost/cell guards; face mode and geometry gate corrected work. Boxes state predicates, not performance results."
+#| fig-alt: "Configuration predicates (the XC arrow is not the code's rule); gravity activates minimum stencil guards; radial work needs face mode and supported geometry."
 #| echo: false
 from snapy_report.ch12.figures.fig_dependencies import make_fig
 make_fig()
@@ -26,12 +33,12 @@ make_fig()
 |---|---|---|---|---|
 | @sec-ch12-build | `cmake -DNAME=value` | see the option table | configuration only | `test_python_import_path_python` |
 | @sec-ch12-macros | `configure.h` | generated at configure time | configuration only | `test_process_group.<b>` |
-| @sec-ch12-environment | `SNAP_*` | WB, XC, MC off; FC, RE on | configuration only | `test_horizontal_flux_covariance_python`, `test_gravity_work_radial_exact_python` |
-| @sec-ch12-wb-reference | `SNAP_WB_REF4` | off; on when XC is on | fourth order in the home chapter's sense (@sec-ch05-wbref4) | `test_wb_ref4_order_python` |
+| @sec-ch12-environment | `SNAP_X1_CENTROID_EXACT`, `SNAP_ANOMALY` | XC off; `SNAP_ANOMALY` unset (the deck decides) | configuration only | `test_x1_centroid_rest_python`, `test_anomaly_storage_python` |
+| @sec-ch12-wb-reference | `dynamics/conversion-order: 4` | 2 | fourth order in the home chapter's sense (@sec-ch05-wbref4) | `test_conversion_order_python`, `test_x1_seam_split_co4_face_density.<b>` |
 | @sec-ch12-centroid | `SNAP_X1_CENTROID_EXACT` | off | exact for polynomials of degree four (@sec-ch05-x1cent) | `test_x1_centroid_rest_python` |
-| @sec-ch12-flux-covariance | `SNAP_FLUX_COVARIANCE` | on | leading $O(\Delta x_1^2)$ correction (@sec-ch04-fluxcov) | `test_horizontal_flux_covariance_python` |
-| @sec-ch12-mass-covariance | `SNAP_X1_MASS_COVARIANCE` | off | leading $O(\Delta x_1^2)$ correction (@sec-ch04-x1masscov) | `test_x1_seam_split_x1_mass_covariance.<b>` |
-| @sec-ch12-radial-exact | `SNAP_GRAVITY_WORK_RADIAL_EXACT` | on | exact discrete budget (@sec-ch06-dwork) | `test_gravity_work_radial_exact_python` |
+| @sec-ch12-flux-covariance | `dynamics/flux-covariance` | true | leading $O(\Delta x_1^2)$ correction (@sec-ch04-fluxcov) | `test_horizontal_flux_covariance_python` |
+| @sec-ch12-mass-covariance | `dynamics/x1-mass-covariance` | false | leading $O(\Delta x_1^2)$ correction (@sec-ch04-x1masscov) | `test_x1_seam_split_x1_mass_covariance.<b>` |
+| @sec-ch12-radial-exact | none (`gravity-work: face`) | on with radial gravity on a grid with an $x_1$[^rg-84d62dd7c63a] measure | exact discrete budget (@sec-ch06-dwork) | `test_gravity_work_radial_exact_python` |
 | @sec-ch12-layout | `BACKEND` and the rank variables | platform-dependent backend, one CPU[^rg-963e0f19d787] process | configuration only | `test_process_group.<b>` |
 | @sec-ch12-test-environment | test-harness variables | per registration | configuration only | `test_python_import_path_python` |
 | @sec-ch12-yaml | YAML keys | see the key table | configuration only | `test_hydro_options.<b>`, `test_yaml_keys.<b>` |
@@ -42,9 +49,9 @@ make_fig()
 <!-- reader glossary notes -->
 [^rg-602bede77d0b]: YAML — YAML Ain't Markup Language, the structured input format used for decks
 
-[^rg-8cb4b02fa280]: WB — well-balanced
-
 [^rg-52dc4b39bbdc]: MC — mass covariance
+
+[^rg-84d62dd7c63a]: $x_1, x_2, x_3$ — the three coordinate directions; $x_1$ is always the vertical (radial) direction
 
 [^rg-963e0f19d787]: CPU — central processing unit
 <!-- end reader glossary notes -->
