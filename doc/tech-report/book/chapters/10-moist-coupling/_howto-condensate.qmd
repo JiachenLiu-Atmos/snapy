@@ -55,7 +55,7 @@ def one_stage(block, nvar, vapour, pressure):
 ```
 
 1. Write the vapour and the condensate entries. Their values are those of the deck at the pin
-   ([`examples/bryan.yaml:15-18`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/examples/bryan.yaml#L15-L18), [`examples/bryan.yaml:20-23`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/examples/bryan.yaml#L20-L23)).
+   ([`examples/bryan.yaml:15-18`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/examples/bryan.yaml#L15-L18), [`examples/bryan.yaml:20-23`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/examples/bryan.yaml#L20-L23)).
 
 ```python
 vapour = {
@@ -72,7 +72,7 @@ cloud = {
 }
 ```
 
-2. Name it in a reaction, with a saturation formula of kintera ([`examples/bryan.yaml:75-78`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/examples/bryan.yaml#L75-L78)).
+2. Name it in a reaction, with a saturation formula of kintera ([`examples/bryan.yaml:75-78`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/examples/bryan.yaml#L75-L78)).
 
 ```python
 reactions = [{
@@ -109,33 +109,33 @@ print("N6 condensate: condensed", condensed, "kg m^-3 in one stage")
 ```
 
 - **Contract.** Classification: the reaction list is read as nucleation reactions, which sort their species
-  into vapours and condensates ([`kintera src/thermo/thermo_options.cpp:124-126`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/thermo_options.cpp#L124-L126)). A reactant must be a gas ([`kintera src/thermo/nucleation.cpp:22-23`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/nucleation.cpp#L22-L23)).
+  into vapours and condensates ([`kintera src/thermo/thermo_options.cpp:116-118`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/thermo_options.cpp#L116-L118)). A reactant must be a gas ([`kintera src/thermo/nucleation.cpp:40-41`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/nucleation.cpp#L40-L41)).
 - Entry: the condensate is a species entry of its own. A product is a condensate unless it declares
-  `phase: gas` ([`kintera src/thermo/nucleation.cpp:33-38`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/nucleation.cpp#L33-L38)), so leave the phase empty or give `liquid` or `solid`.
-- Formula: `rate-constant: {formula: ...}` names one of kintera's saturation functions
-  ([`kintera src/func_table.cpp:19-20`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/func_table.cpp#L19-L20)).
-- When: once per step, on the last stage, whenever the reaction list is non-empty ([`src/mesh/meshblock.cpp:865-866`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/mesh/meshblock.cpp#L865-L866)):
+  `phase: gas` ([`kintera src/thermo/nucleation.cpp:51-56`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/nucleation.cpp#L51-L56)), so leave the phase empty or give `liquid` or `solid`.
+- Formula: `rate-constant: {formula: ...}` names one of kintera's saturation functions, the entries of
+  `KINTERA_FUNC1_LIST` ([`kintera src/func_list.h:7-29`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/func_list.h#L7-L29)).
+- When: once per step, on the last stage, whenever the reaction list is non-empty ([`src/mesh/meshblock_advance.cpp:352-353`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/mesh/meshblock_advance.cpp#L352-L353)):
 
   ```cpp
   if (stage == pintg->stages.size() - 1 && phydro->options->eos()->thermo() &&
       phydro->options->eos()->thermo()->reactions().size() > 0)
   ```
 
-- What it writes: only the species rows, `hydro_u.narrow(0, ICY, ny) = yfrac * rho;` ([`src/mesh/meshblock.cpp:885`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/mesh/meshblock.cpp#L885)); the energy row is not written,
+- What it writes: only the species rows, `hydro_u.narrow(0, ICY, ny) = yfrac * rho;` ([`src/mesh/meshblock_advance.cpp:374`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/mesh/meshblock_advance.cpp#L374)); the energy row is not written,
   as step 5 checks.
 - Failure: a cell the solve leaves unadjusted makes the block redo the step with a smaller `dt`
-  ([`src/mesh/meshblock.cpp:1337`](https://github.com/chengcli/snapy/blob/919936da07d80a310b98ab11da184972a3203274/src/mesh/meshblock.cpp#L1337)).
+  ([`src/mesh/meshblock_redo.cpp:40`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/mesh/meshblock_redo.cpp#L40)).
 
 CI checks the contract, and the runtime test runs on a pin build.
 
 **Native C++ alternative.** A new saturation formula is a pair of C++ functions in kintera: the logarithm of the
-saturation vapour pressure and its temperature derivative, each with this generated signature ([`kintera src/utils/user_funcs.hpp:18`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/utils/user_funcs.hpp#L18)):
+saturation vapour pressure and its temperature derivative, each with this generated signature ([`kintera src/utils/user_funcs.hpp:15`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/utils/user_funcs.hpp#L15)):
 
 ```cpp
 using user_func1 = double (*)(double);
 ```
 
-Write the pair after this generated one ([`kintera src/vapors/vapor_functions.h:49-59`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/vapors/vapor_functions.h#L49-L59)):
+Write the pair after this generated one ([`kintera src/vapors/vapor_functions.h:49-59`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/vapors/vapor_functions.h#L49-L59)):
 
 ```cpp
 DISPATCH_MACRO
@@ -151,40 +151,62 @@ inline double h2o_bryan_ddT(double T) {
 }
 ```
 
-Register both names at the same position of the CPU table and of the name list ([`kintera src/func_table.cpp:10-11`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/func_table.cpp#L10-L11),
-[`kintera src/func_table.cpp:18-20`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/func_table.cpp#L18-L20)):
+Add both names to `KINTERA_FUNC1_LIST`, the one list that every table expands, in order, next to the pair they
+belong with ([`kintera src/func_list.h:7-29`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/func_list.h#L7-L29)):
 
-```cpp
-user_func1 func1_table_cpu[] = {
-    h2o_ideal,       h2o_ideal_ddT,      h2o_bryan,     h2o_bryan_ddT,
-std::vector<std::string> func1_names = {
-    "h2o_ideal",          "h2o_ideal_ddT",     "h2o_bryan",
-    "h2o_bryan_ddT",      "nh3_ideal",         "nh3_ideal_ddT",
+```c
+#define KINTERA_FUNC1_LIST(X) \
+  X(h2o_ideal)                \
+  X(h2o_ideal_ddT)            \
+  X(h2o_bryan)                \
+  X(h2o_bryan_ddT)            \
+  X(nh3_ideal)                \
+  X(nh3_ideal_ddT)            \
+  X(nh3_h2s_lewis)            \
+  X(nh3_h2s_lewis_ddT)        \
+  X(h2s_ideal)                \
+  X(h2s_ideal_ddT)            \
+  X(h2s_antoine)              \
+  X(h2s_antoine_ddT)          \
+  X(ch4_ideal)                \
+  X(ch4_ideal_ddT)            \
+  X(so2_antoine)              \
+  X(so2_antoine_ddT)          \
+  X(co2_antoine)              \
+  X(co2_antoine_ddT)          \
+  X(kcl_lodders)              \
+  X(kcl_lodders_ddT)          \
+  X(na_h2s_visscher)          \
+  X(na_h2s_visscher_ddT)
 ```
 
-and in the CUDA table, which starts with `nullptr`, one position further on ([`kintera src/func_table.cu:9-14`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/func_table.cu#L9-L14)):
+The CPU pointer table and the name vector expand that list, one with `KINTERA_FUNC_PTR` and one with
+`KINTERA_FUNC_NAME` ([`kintera src/func_list.h:41-42`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/func_list.h#L41-L42); [`kintera src/func_table.cpp:13`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/func_table.cpp#L13), [`kintera src/func_table.cpp:15`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/func_table.cpp#L15)), and the CUDA table expands it after a
+leading `nullptr`, one position further on ([`kintera src/func_table.cu:13-14`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/func_table.cu#L13-L14)); none of the three is edited:
 
 ```cpp
+#define KINTERA_FUNC_PTR(f) f,
+#define KINTERA_FUNC_NAME(f) #f,
+user_func1 func1_table_cpu[] = {KINTERA_FUNC1_LIST(KINTERA_FUNC_PTR)};
+std::vector<std::string> func1_names = {KINTERA_FUNC1_LIST(KINTERA_FUNC_NAME)};
 __device__ user_func1 func1_table_cuda[] = {
-    nullptr,
-    h2o_ideal,
-    h2o_ideal_ddT,
-    h2o_bryan,
-    h2o_bryan_ddT,
+    nullptr, KINTERA_FUNC1_LIST(KINTERA_FUNC_PTR)};
 ```
 
-The derivative is found by name, the formula name with `_ddT` appended (`for (auto& name : _logsvp_ddT) name += "_ddT";`, [`kintera src/thermo/log_svp.hpp:37`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/thermo/log_svp.hpp#L37)), so both names are
-needed. The lookup is by position: the CPU build takes `funcs.push_back(func_table[id]);` ([`kintera src/utils/user_funcs.hpp:31`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/utils/user_funcs.hpp#L31)) and the CUDA build
-`h_idx.push_back(id + 1);` ([`kintera src/utils/user_funcs.cu:29`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/utils/user_funcs.cu#L29)); a name not in the list throws ([`kintera src/utils/user_funcs.hpp:35`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/src/utils/user_funcs.hpp#L35)):
+The derivative is found by name, the formula name with `_ddT` appended (`for (auto& name : names_ddT) name += "_ddT";`, [`kintera src/thermo/log_svp.cpp:46`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/thermo/log_svp.cpp#L46)), so both names are
+needed. The lookup is by position: the CPU build takes `funcs.push_back(func_table[id]);` ([`kintera src/utils/user_funcs.hpp:28`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/utils/user_funcs.hpp#L28)) and the CUDA build
+`h_idx.push_back(std::distance(func_names.begin(), it) + 1);` ([`kintera src/utils/user_funcs.cu:27`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/utils/user_funcs.cu#L27)); a name not in the list throws ([`kintera src/utils/user_funcs.hpp:32`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/src/utils/user_funcs.hpp#L32)):
 
 ```cpp
 throw std::runtime_error("Function " + name + " not registered.");
 ```
 
-Nothing compares the lengths of the list and the tables: on a CPU build of these files, two names added to the list
+Because the three expand one list, the name vector and both pointer tables have the same length by construction,
+and a name in the list without its function pair expands to an undefined identifier in the pointer tables, so
+they do not compile. The footnote's check shows what the one list rules out: on tables written out by hand, two names added to the name vector
 without table entries raised no error, the first resolved to the function after `h2o_bryan_ddT`, every later name
 to the one two positions on, and the last read past the end of the table and crashed.[^ch10-func-table]
-Then rebuild and reinstall kintera, so that snapy links the new table ([`kintera README.md:110-115`](https://github.com/chengcli/kintera/blob/c55b13b2204997d2d09e04498558ab9495d8ee77/README.md#L110-L115)):
+Then rebuild and reinstall kintera, so that snapy links the new table ([`kintera README.md:110-115`](https://github.com/chengcli/kintera/blob/0429d795f79a0665afeca565e5a05c87ab4ba1e2/README.md#L110-L115)):
 
 ```bash
 # 3. Configure and build the C++ library
@@ -195,7 +217,8 @@ cmake --build build --parallel
 pip install .
 ```
 
-[^ch10-func-table]: [sha: snapy@919936da07d80a310b98ab11da184972a3203274 and kintera@c55b13b2204997d2d09e04498558ab9495d8ee77; deck: the check itself; run: `python3 src/snapy_report/ch10/checks/func_table_check.py`,
+[^ch10-func-table]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; the check builds kintera's files at [`kintera c55b13b2`](https://github.com/chengcli/kintera/commit/c55b13b2204997d2d09e04498558ab9495d8ee77), where the tables were
+    written out by hand; deck: the check itself; run: `python3 src/snapy_report/ch10/checks/func_table_check.py`,
     CPU, `c++` (GCC 11.5.0), 1 process; Python 3.11.13]. Output `func_table_check.out`, lines `[C1]`–`[C5]`; the
     crash of `[C5]` is undefined behaviour, observed as exit status -11 on this build.
 <!-- end reader-reference: condensate-contract -->
