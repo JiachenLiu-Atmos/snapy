@@ -1,7 +1,8 @@
-"""Executable check of the stage-weighted implicit step (chapter 7, _vic-stage.qmd).
+"""Executable check of the stage-weighted implicit step (chapter 9, _vic-stage.qmd).
 
 What is checked: dt_corr = wght2 * dt for an integrator of three or more stages (rk3, rk3s4), the full dt for rk1 and
-rk2 (HydroImpl::forward, src/hydro/hydro_forward.cpp at snapy@68f4e066974ede87e4379285c4fba895b970b7f1), with the stage update u = w0 u0 + w1 u + w2 du of
+rk2 (HydroImpl::forward, src/hydro/hydro_forward.cpp:1150-1166 at snapy@73c45a7c8c991209924e1137992352c335575062, `dt.scaled(wght2)`),
+with the stage update u = w0 u0 + w1 u + w2 du of
 pyharp src/integrator/integrator.cpp:101-122 and the VIC solve (I/dt_corr + M) delta = du/dt_corr. A scalar model: the explicit
 tendency is L(u) = -lam u and the operator Jacobian is M = lam, so z = lam dt. Claims C1-C5; C5 is exact (sympy).
 

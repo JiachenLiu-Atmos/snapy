@@ -1,7 +1,7 @@
 """One step with its operator-split pieces: the explicit stages (and VIC), then at the last stage the saturation
-adjustment and the physical boundaries, then the driver's kinetics, then the acceptance check. From
-src/mesh/meshblock.cpp:795-841 and examples/run_hydro.cpp:166-194 at
-snapy@e894700ff7aee30b52882e5202b16461413780b0. A cartoon; it reads no data.
+adjustment, the chemistry step and the physical boundaries, then the acceptance check. From
+StageExecutor::build_schedule (src/mesh/stage_executor.cpp) and examples/run_hydro.cpp:160-176 at
+snapy@73c45a7c8c991209924e1137992352c335575062. A cartoon; it reads no data.
 """
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
@@ -16,7 +16,7 @@ def make_fig():
     ax.set_xlim(0, 12.2)
     ax.set_ylim(0, 1.3)
     items = [("dynamics:\nRK stages", fs.SKY, 2.2), ("saturation\nadjustment", fs.GREEN, 2.0),
-             ("physical\nboundaries", "white", 1.8), ("kinetics\n(driver)", fs.GREEN, 1.8),
+             ("chemistry\n(last stage)", fs.GREEN, 1.8), ("physical\nboundaries", "white", 1.8),
              ("check_redo", fs.ORANGE, 1.8)]
     x = 0.1
     for k, (text, fc, w) in enumerate(items):

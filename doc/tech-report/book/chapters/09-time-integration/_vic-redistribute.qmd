@@ -1,9 +1,9 @@
 ## VIC constituent redistribution: the solved mass change as face transfers, moved donor-upwind (`vic_constituent_column`) {#sec-ch09-vic-redistribute}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
-sources: OUTLINE.md 7.12; src/implicit/vic_redistribute_impl.h; src/implicit/implicit_dispatch.cpp;
-         src/implicit/implicit_hydro.cpp; src/mesh/meshblock.cpp; tests/test_backward_substitution.cpp;
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (chengcli/snapy)
+sources: OUTLINE.md 7.12; src/implicit/vic_redistribute_impl.h; src/implicit/vic_kernels.h; src/implicit/implicit_dispatch.cpp;
+         src/implicit/implicit_hydro.cpp; src/mesh/meshblock_advance.cpp; tests/test_backward_substitution.cpp;
          chengcli/snapy#329
 status: draft
 -->
@@ -108,13 +108,17 @@ increments ({{< code src/implicit/vic_redistribute_impl.h vic_redistribute_cell 
 `MASS(IVX + (dir + 2) % 3, i + 1)`, and moves `q * W(m, donor)` of each tangential momentum from one cell to the
 other (step 6; {{< code src/implicit/vic_redistribute_impl.h vic_tangential_momentum_column >}}).
 
-The CPU dispatch splits each column at solid cells and redistributes each fluid segment on its own, through
-`vic_constituent_column` and, for $N=3$, `vic_tangential_momentum_column` ({{< code src/implicit/implicit_dispatch.cpp vic_redistribute_cpu >}}). On CUDA the column passes are one
-thread per column and the cell update one thread per cell. The host checks the clamp residual cell by cell into
-`_clamp_residual` ({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}}), committed with the dry
-clamp mark only when the stage does not fail (@sec-ch09-vic-reject). The passive scalars, which are per dry mass,
-move with the clamped dry-gas transfer from their donor cell, through `mass_corr`
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}).
+The `redistribute` stage of the VIC kernel splits each column at solid cells and redistributes each fluid segment
+on its own, through `vic_constituent_column` and, for $N=3$, `vic_tangential_momentum_column`
+({{< code src/implicit/vic_kernels.h vic_redistribute_column >}}), then calls `vic_redistribute_cell` for every fluid
+cell ({{< code src/implicit/vic_kernels.h vic_redistribute_one >}}). On the CPU, `CpuColumns` runs the column pass and
+then the cells of each column in one serial loop ({{< code src/implicit/implicit_dispatch.cpp CpuColumns >}}); on CUDA
+the column passes are one thread per column and the cell update one thread per cell. The host checks the clamp
+residual cell by cell into `_clamp_residual` and takes the dry clamp mark into `_dry_clamp_step`
+({{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}}); both are formed after the per-column
+undo of @sec-ch09-vic-reject, so a failed column, whose mass correction is zero, adds nothing to them. The passive
+scalars, which are per dry mass, move with the clamped dry-gas transfer from their donor cell, through `mass_corr`
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}}).
 
 ### Code
 
@@ -126,10 +130,11 @@ move with the clamped dry-gas transfer from their donor cell, through `mass_corr
 | species transfer | {{< code src/implicit/vic_redistribute_impl.h vic_constituent_column >}} | `keep` | |
 | tangential momentum ($N=3$) | {{< code src/implicit/vic_redistribute_impl.h vic_tangential_momentum_column >}} | `vic_tangential_momentum_column` | `implicit-scheme` 1 |
 | per-cell update | {{< code src/implicit/vic_redistribute_impl.h vic_redistribute_cell >}} | `vic_redistribute_cell` | |
-| CPU dispatch, solid segments | {{< code src/implicit/implicit_dispatch.cpp vic_redistribute_cpu >}} | `vic_redistribute_cpu` | |
+| column pass, solid segments | {{< code src/implicit/vic_kernels.h vic_redistribute_column >}} | `vic_redistribute_column` | |
+| per-cell pass | {{< code src/implicit/vic_kernels.h vic_redistribute_one >}} | `vic_redistribute_one` | |
 | clamp residual | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}} | `_clamp_residual` | |
 | dry clamp mark | {{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}} | `_dry_clamp_step` | |
-| passive scalars | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `mass_corr` | |
+| passive scalars | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}} | `mass_corr` | |
 
 : Code map of the constituent redistribution. {#tbl-ch09-vic-redistribute-code}
 
@@ -171,13 +176,14 @@ total to $1.6\times10^{-16}$; `[C3]` gives a clamp residual of $2.1\times10^{-16
 leaves the dry donor at $-2.22\times10^{-16}$ and the species at $3.27\times10^{-15}$, with a clamp residual of 0.8;
 `[C5]` gives the margins $9.09\times10^{-13}$ in double and $4.88\times10^{-4}$ in float32; `[C6]` is step 1 in closed form;
 `[C7]` is step 6, with $v=(400,-30)$ m/s, and fails when the carry is removed (velocity change $1.3\times10^{-3}$).
-CPU and CUDA share the header; only the CPU path ran.
+CPU and CUDA instantiate the same kernel; only the CPU path ran. The check does not port `vic_backward_substitute`
+(@sec-ch09-vic-sweep).
 
-[^ch09-vic-redistribute-run]: [sha: snapy@c0c38593d3d3f37bebe204a590610fd7daa05a5f; deck: a 12-layer column with dry gas
+[^ch09-vic-redistribute-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: a 12-layer column with dry gas
     and two species; run:
-    `PYTHONPATH=src python3 src/snapy_report/ch09/checks/vic_redist_check.py`, CPU, double, 1 process; Python 3.12.10,
-    numpy 2.5.4, sympy 1.14.0; output identical to the committed `vic_redist_check.out`; `[C1]`–`[C6]` print the same
-    numbers as at the previous code pin]. The carry is credited to chengcli/snapy#329.
+    `PYTHONPATH=src python3 src/snapy_report/ch09/checks/vic_redist_check.py`, CPU, double, 1 process; Python 3.12.3,
+    numpy 2.2.4, sympy 1.14.0; output identical to the committed `vic_redist_check.out`, which this rewrite regenerated:
+    only the equation label printed by `[C6]` changed]. The carry is credited to chengcli/snapy#329.
 
 ### Limits
 

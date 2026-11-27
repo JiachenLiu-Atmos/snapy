@@ -910,11 +910,11 @@
 
 **`implicit-scheme`**: YAML scheme selection and setup guards, @sec-ch12-yaml.
 
-**implicit scheme**: VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch09-vic-options; VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column, @sec-ch09-vic-assembly; Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4, @sec-ch09-vic-stage; Block Thomas sweep and back substitution: one serial pass up, one down, per column, @sec-ch09-vic-sweep; LU pivot tolerance: refuse a pivot within $8N\epsilon_{\mathrm m}$ of its row, @sec-ch09-vic-pivot; VIC rejection and rollback: three guards, a latch and redo cause 32, @sec-ch09-vic-reject; VIC constituent redistribution: the solved mass change as face transfers, moved donor-upwind, @sec-ch09-vic-redistribute; VIC column closure: a mirror ghost folded into the end blocks, @sec-ch09-vic-closure; What is shown about steady states with the VIC: the fixed point is the explicit one, @sec-ch09-vic-steady.
+**implicit scheme**: VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch09-vic-options; VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column, @sec-ch09-vic-assembly; Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4, @sec-ch09-vic-stage; Block Thomas sweep and back substitution: one serial pass up, one down, per column, @sec-ch09-vic-sweep; LU pivot tolerance: refuse a pivot within $8N\epsilon_{\mathrm m}$ of its row, @sec-ch09-vic-pivot; VIC rejection and rollback: per-column status, per-column undo and redo cause 32, @sec-ch09-vic-reject; VIC constituent redistribution: the solved mass change as face transfers, moved donor-upwind, @sec-ch09-vic-redistribute; VIC column closure: a mirror ghost folded into the end blocks, @sec-ch09-vic-closure; What is shown about steady states with the VIC: the fixed point is the explicit one, @sec-ch09-vic-steady.
 
 **implicit scheme, clamp meter**: VIC clamp meter: how far the availability clamp broke the face telescoping, @sec-ch13-vicclamp.
 
-**implicit scheme, failure and rollback**: VIC rejection and rollback: three guards, a latch and redo cause 32, @sec-ch09-vic-reject.
+**implicit scheme, failure and rollback**: VIC rejection and rollback: per-column status, per-column undo and redo cause 32, @sec-ch09-vic-reject.
 
 **implicit scheme, gravity work**: Gravity work inside the vertical implicit operator, @sec-ch06-vic.
 
@@ -1016,7 +1016,7 @@
 
 *kinetics*, see **condensation and evaporation, rates**.
 
-**kinetics, when in a step**: Operator-split pieces at the step boundary: saturation adjustment and kinetics, @sec-ch09-split.
+**kinetics, when in a step**: Operator-split pieces at the step boundary: saturation adjustment, chemistry and radial conduction, @sec-ch09-split.
 
 *kintera*, see **dependencies**.
 
@@ -1342,7 +1342,7 @@
 
 **`omega1`**: Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch07-coriolis.
 
-**operator splitting**: Operator-split pieces at the step boundary: saturation adjustment and kinetics, @sec-ch09-split.
+**operator splitting**: Operator-split pieces at the step boundary: saturation adjustment, chemistry and radial conduction, @sec-ch09-split.
 
 **$\operatorname{cov}_i(a,b)$**: [4. Operators and averages](#sec-appa-4).
 
@@ -1794,7 +1794,7 @@
 
 **saturation adjustment, in the step**: Saturation adjustment in the step, @sec-ch08-satadj.
 
-**saturation adjustment, when in a step**: Operator-split pieces at the step boundary: saturation adjustment and kinetics, @sec-ch09-split.
+**saturation adjustment, when in a step**: Operator-split pieces at the step boundary: saturation adjustment, chemistry and radial conduction, @sec-ch09-split.
 
 **saturation, phase equilibrium**: Fixed-volume fixed-energy phase equilibrium, @sec-ch02-saturation.
 

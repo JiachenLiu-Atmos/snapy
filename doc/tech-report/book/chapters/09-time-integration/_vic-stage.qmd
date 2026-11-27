@@ -1,8 +1,8 @@
 ## Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4 (`dt_corr`) {#sec-ch09-vic-stage}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy); pyharp@4721715855e937c1e8b218e964c0655f46e56e29
-sources: OUTLINE.md 7.8; src/hydro/hydro_forward.cpp; src/hydro/hydro.hpp; src/mesh/meshblock.cpp;
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (chengcli/snapy); pyharp@4721715855e937c1e8b218e964c0655f46e56e29
+sources: OUTLINE.md 7.8; src/hydro/hydro_forward.cpp; src/hydro/hydro.hpp; src/mesh/meshblock_advance.cpp; src/mesh/stage_executor.cpp;
          pyharp src/integrator/integrator.cpp; tests/test_forcing.cpp; tests/test_implicit_face_work_operator.py
 status: draft
 -->
@@ -16,8 +16,8 @@ the solve and leaves the explicit tendency at the full step. It does so for ever
 stages, `rk3` and `rk3s4`; `rk1` and `rk2` hand the solve the full step.
 
 The host function `HydroImpl::_apply_implicit_correction(torch::Tensor& du, torch::Tensor const& w,
-double dt, Variables const& other)` takes the mutable explicit increment, stage primitives, correction
-interval and named auxiliary tensors together ({{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}});
+StepDt dt, Variables const& other, StepDt post_dt)` takes the mutable explicit increment, stage primitives, correction
+interval, named auxiliary tensors and the step for the register posts together ({{< code src/hydro/hydro.cpp HydroImpl::_apply_implicit_correction >}});
 @sec-ch09-vic-assembly gives the full interface and return, and @sec-ch09-vic-reject gives the rejection path.
 
 ::: {.callout-note title="At a glance"}
@@ -109,7 +109,9 @@ from snapy_report.ch09.figures.fig_vic_stage import make_fig
 make_fig()
 ```
 
-`MeshBlockImpl::advance_local` publishes the stage index `rk_stage` before each stage ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}). The hydro forward pass then scales
+The block's `advance` operation publishes the stage index `rk_stage` before each stage
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}}), and a replayed CUDA graph segment publishes
+it on the host the same way ({{< code src/mesh/stage_executor.cpp StageExecutor::replay >}}). The hydro forward pass then scales
 only the step handed to the correction, by `wght2` ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). If no stage was
 published, a direct caller gets a one-time warning and the full step, through `TORCH_WARN_ONCE`
 ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). The weighted step goes into `_apply_implicit_correction`
@@ -130,20 +132,21 @@ combination itself is the integrator's, with `wght2` ([`pyharp integrator.cpp:10
 : Code map of the stage-weighted implicit step. {#tbl-ch09-vic-stage-code}
 
 **How to use it.** There is no key: the weighting follows from `integration/type: rk3` or `rk3s4` with a VIC
-(@sec-ch09-vic-options), and `rk1` and `rk2` run the correction with the full step. A driver must call
-`advance_local`, through `MeshBlock::forward` or `Mesh::forward`, so that the stage index is published; a direct
-call of `HydroImpl::forward` gets the warning and the full step. The weighting is these lines
+(@sec-ch09-vic-options), and `rk1` and `rk2` run the correction with the full step. A driver must run the stage
+through `MeshBlock::forward` or `Mesh::forward`, so that the stage index is published; a direct call of
+`HydroImpl::forward` gets the warning and the full step. The weighting is these lines
 ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}):
 
 ```cpp
-    double dt_corr = dt;
+    StepDt dt_corr = dt;
     if (pmb->pintg->stages.size() >= 3) {
       if (rk_stage >= 0 && rk_stage < pmb->pintg->stages.size()) {
-        dt_corr *= pmb->pintg->stages[rk_stage].wght2();
+        dt_corr = dt.scaled(pmb->pintg->stages[rk_stage].wght2());
 ```
 
 `dt_corr` is $\Delta t_c$ of @eq-ch09-vic-stage, and `stages.size() >= 3` is the restriction to `rk3` and `rk3s4`
-(`[C2]`). Refused:
+(`[C2]`). `StepDt` holds the step either on the host or, in a captured CUDA stage, on the device, where `scaled`
+forms the same product (@sec-ch14). Refused:
 nothing; a missing stage index is a warning, "rk_stage was not published before the implicit correction", not an
 error.
 
@@ -161,8 +164,8 @@ error.
 {{< code tests/test_forcing.cpp forcing.implicit_gravity_work_holds_under_rk3_stage_weighting >}}; the CUDA twin is not
 registered in that build. `test_implicit_face_work_operator_python` passes at the pin too
 ({{< code tests/test_implicit_face_work_operator.py main >}}). Its rk3s4 arm printed relative $w$ errors, against rk3 at
-Courant $\tfrac1{32}$, of $1.0141\times10^{-1}$ and $4.4859\times10^{-2}$ for rk3 and $6.5576\times10^{-2}$ and
-$2.6065\times10^{-2}$ for rk3s4 at Courant $\tfrac14$ and $\tfrac18$: observed orders 1.18 and 1.33. rk3s4 is the more
+Courant $\tfrac1{32}$, of $1.0160\times10^{-1}$ and $4.4953\times10^{-2}$ for rk3 and $6.5707\times10^{-2}$ and
+$2.6123\times10^{-2}$ for rk3s4 at Courant $\tfrac14$ and $\tfrac18$: observed orders 1.18 and 1.33.[^ch09-vic-stage-arm] rk3s4 is the more
 accurate of the two at both steps, and both are near first order, as the linearised backward Euler of the
 correction predicts (`[C4]`). `vic_stage_check.py` ports the stage weighting and the pyharp weights on a scalar
 model.[^ch09-vic-stage-run] `[C1]` matches the two sides of @eq-ch09-vic-stage within $10^{-13}$ relative on 100 random
@@ -170,10 +173,15 @@ systems; `[C2]` gives the factors 1, 0.25, 0.6667 for rk3, 0.5, 0.5, 0.1667, 0.5
 rk2; `[C3]` gives 0.083333 and 0.333333 for rk3, 0.000000 and 0.354167 for rk3s4, at $\mathcal Z=10^8$; `[C4]` gives $\max|\mathcal A|=0.9990$ and a fitted order of 1.00; `[C5]` checks steps 1 to 4
 exactly. Coverage: the check is a scalar model; the column run is the rk3s4 arm above, on CPU at the pin.
 
-[^ch09-vic-stage-run]: [sha: snapy@68f4e066974ede87e4379285c4fba895b970b7f1 and
+[^ch09-vic-stage-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062 and
     pyharp@4721715855e937c1e8b218e964c0655f46e56e29; deck: a scalar model, the
-    check itself; run: `python3 src/snapy_report/ch09/checks/vic_stage_check.py`, CPU, double, 1 process; Python 3.11.13, numpy
-    2.4.6, sympy 1.14.0; output identical to the committed `vic_stage_check.out`].
+    check itself; run: `python3 src/snapy_report/ch09/checks/vic_stage_check.py`, CPU, double, 1 process; Python 3.12.3,
+    numpy 2.2.4, sympy 1.14.0; output identical to the committed `vic_stage_check.out`].
+
+[^ch09-vic-stage-arm]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the test's own column; run:
+    `env CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=1 PYTHONPATH=<site> ctest -V -R test_implicit_face_work_operator_python`
+    on the build of @tbl-ch09-ctest-run; CPU, double; reps: 1]. The orders are $\log_2$ of the error ratios. The
+    errors differ from those printed at the previous pin in the third or fourth digit; the orders do not.
 
 ### Limits
 

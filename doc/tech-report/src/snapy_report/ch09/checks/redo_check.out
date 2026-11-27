@@ -3,3 +3,4 @@
 [C3] PASS an accepted step resets the redo count, so the next step starts at the full bound: after 3 redos and an acceptance: current_redo = 0, factor = 1
 [C4] PASS past max_redo a VIC solve failure (32) still restores the step; other causes stop without it: restores: floor-only 5, vic-solve 6, of 6 attempts
 [C5] PASS a nonzero vapour-repair count sets the limiter flag (4), so the step is redone, not raised: causes: vapour alone 4, vapour and a floor on one of two ranks 5, none 0; decisions [1, 0]
+[C6] PASS the eighth entry, the heat-capacity latch, sets the limiter flag; eight entries never set bit 64: causes: heat latch alone 4, all eight entries set 63

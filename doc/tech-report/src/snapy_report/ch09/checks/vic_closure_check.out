@@ -1,5 +1,5 @@
-[C1] PASS a += b Bnd at the bottom (c Bnd at the top) is the ghost d_0 = Bnd d_1 eliminated: relative difference from the explicit-ghost solve 2.1e-13
-[C2] PASS with the closure, the column sums of the mass, transverse momentum and energy rows vanish; normal momentum keeps the wall pressure: |sum V (op d)| / sum V |op d| over 50 random d: rho 1.5e-16, rho u 5.7e-01, rho v 1.6e-16, rho w 1.5e-16, E 1.9e-16
+[C1] PASS a += b Bnd at the bottom (c Bnd at the top) is the ghost d_0 = Bnd d_1 eliminated: relative difference from the explicit-ghost solve 7.4e-15
+[C2] PASS with the closure, the column sums of the mass, transverse momentum and energy rows vanish; normal momentum keeps the wall pressure: |sum V (op d)| / sum V |op d| over 50 random d: rho 1.7e-16, rho u 5.7e-01, rho v 1.6e-16, rho w 2.0e-16, E 1.5e-16
 [C3] PASS without the closure (ghost d = 0), the column loses mass through its ends: |sum V (op d)_rho| / sum V |(op d)_rho| = 1.24e-02
 [C4] PASS the Roe state at a mirror wall face has zero normal velocity: |u_Roe| / |u_edge| at the two walls: 0.0e+00
 [C5] PASS the mirror parity of the Euler flux and its Jacobian, and the minimal polynomial at zero normal velocity, cancel every wall-flux row with P_w = +1: N=3: odd flux True, Jacobian parity True, A^3 = c_s^2 A True, even rows of the wall flux zero True; N=5: odd flux True, Jacobian parity True, A^3 = c_s^2 A True, even rows of the wall flux zero True

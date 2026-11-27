@@ -1,9 +1,8 @@
 ## VIC column closure: a mirror ghost folded into the end blocks (`Bnd`) {#sec-ch09-vic-closure}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
-sources: OUTLINE.md 7.13; src/implicit/vic_assemble_full_impl.h; src/implicit/vic_assemble_partial_impl.h;
-         src/implicit/implicit_dispatch.cpp
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (chengcli/snapy)
+sources: OUTLINE.md 7.13; src/implicit/vic_assemble_impl.h; src/implicit/vic_kernels.h
 status: draft
 -->
 
@@ -67,7 +66,7 @@ Why the wall carries no mass, transverse momentum or energy:
 5. *Round-off.* $\mathsf B_0\mathsf P_{\mathrm w}$ only flips the sign of a column, which is exact; adding it to $\mathsf A_0$
    rounds each entry once, within $\epsilon_{\mathrm m}/2$ of $|\mathsf A_0|+|\mathsf B_0|$ entrywise.
 
-In the code, @eq-ch09-vic-closure is the closure with `Bnd` ({{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}}).
+In the code, @eq-ch09-vic-closure is the closure with `Bnd` ({{< code src/implicit/vic_assemble_impl.h vic_assemble_impl >}}).
 
 ### Numerical method
 
@@ -82,44 +81,42 @@ from snapy_report.ch09.figures.fig_vic_closure import make_fig
 make_fig()
 ```
 
-The full kernel sets `Bnd` with $-1$ on the normal momentum ({{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}}). It
-adds the closure at the first and last cell of the column and next to a solid cell, unless the block is not the
-first or last in $x_1$ or the direction is periodic. The dispatch always passes `periodic` as false
-({{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}}). The partial kernel does the same with its $3\times3$ `Bnd`
-({{< code src/implicit/vic_assemble_partial_impl.h vic_assemble_partial_impl >}}). Its $m_a$ fold (@eq-ch09-vic-fold) treats the
+The assembly template sets the $5\times5$ `Bnd` with $-1$ on the normal momentum and copies out `BndN`, the
+whole vector for $N=5$ and its $(\rho, \rho v_1, E)$ entries for $N=3$ ({{< code src/implicit/vic_assemble_impl.h vic_assemble_impl >}}). It adds the closure at the first and
+last cell of the column and next to a solid cell, unless the block is not the first or last in $x_1$ or the
+direction is periodic. The per-cell kernel always passes the first and last block as true and `periodic` as false
+({{< code src/implicit/vic_kernels.h vic_assemble_cell >}}), and the partial wrapper fixes `periodic` as false too. Its $m_a$ fold (@eq-ch09-vic-fold) treats the
 tangential momenta the way $\mathsf P_{\mathrm w}$ does, with parity $+1$: a face merged into the end block, `merged_lower` or
 `merged_upper`, adds its $m_a$ columns to the end block's and takes the end cell's $v_a$ and $\tilde m_a$
-({{< code src/implicit/vic_assemble_partial_impl.h vic_assemble_partial_impl >}}). The blocks next to a solid cell use a mirror of the fluid
-cell instead of the solid's state, so the solid acts as a wall from inside the column, through `solid_lower`
-({{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}}).
+({{< code src/implicit/vic_assemble_impl.h vic_assemble_impl >}}). The blocks next to a solid cell use a mirror of the fluid cell instead of the solid's state, so the solid
+acts as a wall from inside the column, through `solid_lower` and `solid_upper` ({{< code src/implicit/vic_assemble_impl.h vic_assemble_impl >}}).
 
 ### Code
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| reflection matrix | {{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}} | `Bnd` | |
-| closure, full | {{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}} | `Bnd` | |
-| closure, partial | {{< code src/implicit/vic_assemble_partial_impl.h vic_assemble_partial_impl >}} | `Bnd` | |
-| mirror at a solid face | {{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}} | `solid_lower` | |
-| flags passed | {{< code src/implicit/implicit_dispatch.cpp vic_assemble_full_cpu >}} | `periodic` | |
+| reflection matrix | {{< code src/implicit/vic_assemble_impl.h vic_assemble_impl >}} | `Bnd`, `BndN` | |
+| closure, both sizes | {{< code src/implicit/vic_assemble_impl.h vic_assemble_impl >}} | `merged_lower`, `merged_upper` | |
+| mirror at a solid face | {{< code src/implicit/vic_assemble_impl.h vic_assemble_impl >}} | `solid_lower` | |
+| flags passed | {{< code src/implicit/vic_kernels.h vic_assemble_cell >}} | `periodic` | |
 
 : Code map of the VIC column closure. {#tbl-ch09-vic-closure-code}
 
 **How to use it.** There is no key, and the closure ignores the YAML boundary condition of $x_1$: an open or outflow
 explicit boundary still gets a reflecting implicit wall (Limits 1). @eq-ch09-vic-closure is these lines
-({{< code src/implicit/vic_assemble_full_impl.h vic_assemble_full_impl >}}):
+({{< code src/implicit/vic_assemble_impl.h vic_assemble_impl >}}):
 
 ```cpp
   Bnd.setConstant(1.);
   Bnd(IVX + dir) = -1;
   ...
-  if ((i == is || solid_lower) && first_block && !periodic)
-    a[i] += b[i] * Bnd.asDiagonal();
-  if ((i == ie || solid_upper) && last_block && !periodic)
-    a[i] += c[i] * Bnd.asDiagonal();
+  bool merged_lower = (i == is || solid_lower) && first_block && !periodic;
+  bool merged_upper = (i == ie || solid_upper) && last_block && !periodic;
+  if (merged_lower) a[i] += b[i] * BndN.asDiagonal();
+  if (merged_upper) a[i] += c[i] * BndN.asDiagonal();
 ```
 
-`Bnd.asDiagonal()` is $\mathsf P_{\mathrm w}$, with $-1$ on the normal momentum `IVX + dir`; the two updates are the bottom
+`BndN.asDiagonal()` is $\mathsf P_{\mathrm w}$, with $-1$ on the normal momentum `IVX + dir`; the two updates are the bottom
 and top halves of @eq-ch09-vic-closure, also applied next to a solid cell. Refused: nothing.
 
 ### Tests
@@ -136,12 +133,13 @@ closure with zero gravity on an 8-layer moving column with mirror ghosts.[^ch09-
 explicit-ghost solve within $10^{-12}$ relative; `[C2]` gives column sums below $10^{-13}$ for mass,
 transverse momentum and energy and above $10^{-3}$ for the normal momentum; `[C3]` loses $1.24\times10^{-2}$ of the mass without
 the closure; `[C4]` gives a Roe normal velocity of 0 at both walls; `[C5]` checks steps 1 to 3 exactly. CPU and CUDA
-share the headers; only the CPU path ran.
+instantiate the same kernel; only the CPU path ran.
 
-[^ch09-vic-closure-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; deck: an 8-layer moving column with
+[^ch09-vic-closure-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: an 8-layer moving column with
     mirror ghosts; run:
-    `python3 src/snapy_report/ch09/checks/vic_closure_check.py`, CPU, double, 1 process; Python 3.12.10, numpy 2.5.3, sympy
-    1.14.0; output identical to the committed `vic_closure_check.out`].
+    `python3 src/snapy_report/ch09/checks/vic_closure_check.py`, CPU, double, 1 process; Python 3.12.3, numpy 2.2.4, sympy
+    1.14.0; output identical to the committed `vic_closure_check.out`, which this rewrite regenerated: the round-off
+    residuals of `[C1]` and `[C2]` changed against the numpy 2.5.3 run, under their thresholds].
 
 ### Limits
 
@@ -152,5 +150,5 @@ still has a closed wall in its implicit solve.
 
 1. **Mismatch with the explicit boundary.** The assembled end blocks use the ghost states the explicit boundary
    condition filled. Only for a reflecting boundary are those the mirror the closure assumes.
-2. **No periodic $x_1$.** The periodic branch is unreachable, since the dispatch passes false.
+2. **No periodic $x_1$.** The periodic branch is unreachable, since the per-cell kernel passes false.
 3. **No dedicated test.** No ctest checks the closure on its own.

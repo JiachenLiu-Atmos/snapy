@@ -1,4 +1,4 @@
 [C1] PASS only 0 (explicit), 1 (partial, 3 x 3) and 9 (full, 5 x 5) build; any other value stops at construction: 0 explicit; 1 vic-partial, N = 3; 2 error; 3 error; 4 error; 5 error; 6 error; 7 error; 8 error; 9 vic-full, N = 5; 10 error
 [C2] PASS implicit-advection-cfl defaults to 1 and must be finite and > 0; shear-cfl defaults to 0 and must be finite and >= 0: defaults -> (1.0, 0.0); {'implicit-advection-cfl': 4.0} -> (4.0, 0.0); {'shear-cfl': 0.5} -> (1.0, 0.5); refused 4 of 4 bad values
-[C3] PASS the implicit time-step keys without an implicit scheme are an error; a plain explicit block is accepted: refused 3 of 3; explicit block accepted: True
+[C3] PASS the implicit time-step and precision keys without an implicit scheme are an error; a plain explicit block is accepted: refused 5 of 5; explicit block accepted: True
 [C4] PASS a VIC run needs nb1 = 1; implicit-scheme 0 runs at any nb1: nb1 = 1 builds: True; nb1 = 2 refused: True; scheme 0 at nb1 = 2 explicit: True

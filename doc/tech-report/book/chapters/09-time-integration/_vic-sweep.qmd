@@ -1,9 +1,10 @@
 ## Block Thomas sweep and back substitution: one serial pass up, one down, per column (`ForwardSweep`) {#sec-ch09-vic-sweep}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (chengcli/snapy)
 sources: OUTLINE.md 7.9; src/implicit/forward_sweep_impl.h; src/implicit/vic_redistribute_impl.h;
-         src/implicit/vic_solve_failure.h; src/implicit/implicit_dispatch.cpp; src/implicit/implicit_dispatch.cu;
+         src/implicit/vic_solve_failure.h; src/implicit/vic_kernels.h; src/implicit/implicit_dispatch.cpp;
+         src/implicit/implicit_hydro.cpp;
          src/math/lubksb.h; src/hydro/hydro_forward.cpp; tests/test_lu_failure.cpp
 status: draft
 -->
@@ -15,6 +16,8 @@ the corrected increment $\boldsymbol\delta = (\mathsf I+\Delta t_c\mathsf M)^{-1
 explicit one, in the solved variables of @sec-ch09-vic-stage, when $\Delta t_c\to0$. For the partial system the
 assembly's tangential term is subtracted from the right-hand side first (@eq-ch09-vic-fold). Every block it inverts is first
 factored by `ludcmp` with the pivot guard of @sec-ch09-vic-pivot. A refused block marks the whole column as failed.
+With the exact radial gravity work of @sec-ch06-vic, the same factorisation also solves two unit right-hand sides,
+and a rank-2 (Woodbury) update adds the two wall entries that do not fit the tridiagonal pattern.
 
 ::: {.callout-note title="At a glance"}
 **Purpose.** Solves one column's block-tridiagonal system: forward elimination, then back substitution; @eq-ch09-vic-sweep.
@@ -98,20 +101,33 @@ make_fig()
 
 `ForwardSweep` builds the right-hand side `rhs` of each layer from the explicit increment, with the density row
 summed over the species ({{< code src/implicit/forward_sweep_impl.h ForwardSweep >}}). For $N=3$, called with `rhs_in_delta`, it
-then subtracts the $\mathbf f^{\mathrm{tan}}_i$ the assembly left in `delta[i]`, through `correct`, before `delta[i]` is
-overwritten; an exact zero entry is skipped, so a wind-free column's `rhs` is unchanged bit for bit. `vic_solve_cpu`
-passes `rhs_in_delta` as `N == 3` ({{< code src/implicit/implicit_dispatch.cpp vic_solve_cpu >}}). For $N=5$ it factors the eliminated block and
+then subtracts the $\mathbf f^{\mathrm{tan}}_i$ the assembly left in `delta[i]` before `delta[i]` is
+overwritten; an exact zero entry is skipped, so a wind-free column's `rhs` is unchanged bit for bit. The column
+kernel `vic_solve_column` passes `rhs_in_delta` as `N == 3` ({{< code src/implicit/vic_kernels.h vic_solve_column >}}).
+The first layer is the same loop with no row above it. For $N=5$ it factors the eliminated block and
 solves for $\tilde{\mathsf C}_i$ and $\tilde{\boldsymbol\delta}_i$ together with the multi-column `lubksb`
 ({{< code src/implicit/forward_sweep_impl.h ForwardSweep >}}). For $N=3$ it checks the factorisation with `ludcmp` and
 keeps the explicit inverse ({{< code src/implicit/forward_sweep_impl.h ForwardSweep >}}). After every layer it checks that $\tilde{\mathsf C}_i$ and $\tilde{\boldsymbol\delta}_i$ are
 finite. On any failure, `vic_fail_column` fills every $\boldsymbol\delta$ of the column with NaN and the sweep returns
-({{< code src/implicit/vic_solve_failure.h vic_fail_column >}}). `vic_backward_substitute` skips a column whose first $\boldsymbol\delta$ is not
-finite ({{< code src/implicit/vic_redistribute_impl.h vic_backward_substitute >}}). So a failed column is never partly back-substituted
-(`[C3]`).
+false ({{< code src/implicit/vic_solve_failure.h vic_fail_column >}}); `vic_solve_column` then sets the column's
+`kVicSingular` status bit and skips the back pass. It also sets `kVicInputNonfinite` when an input of the column is
+not finite and `kVicResultNonfinite` when a solved entry is not (@sec-ch09-vic-reject). `vic_backward_substitute`
+also skips a vector whose first entry is not finite ({{< code src/implicit/vic_redistribute_impl.h vic_backward_substitute >}}).
+So a failed column is never partly back-substituted (`[C3]`).
 
-The dispatch `vic_solve_cpu` runs both passes per column ({{< code src/implicit/implicit_dispatch.cpp vic_solve_cpu >}}). Each layer depends on
-every right-hand side below and above it (`[C4]`), so the column is serial; the parallelism is across columns.
-On CUDA the sweep is one thread per column, and the assembly and the final cell update are one thread per cell.
+The column kernel `vic_solve_column` runs both passes per column; it is the `solve` stage of `vic_stage`
+({{< code src/implicit/vic_kernels.h vic_solve_column >}}; {{< code src/implicit/vic_kernels.h vic_stage_run >}}).
+Each layer depends on every right-hand side below and above it (`[C4]`), so the column is serial; the parallelism
+is across columns, on the CPU through `CpuColumns` ({{< code src/implicit/implicit_dispatch.cpp CpuColumns >}}). On
+CUDA the sweep is one thread per column, and the assembly and the final cell update are one thread per cell.
+
+With the exact radial work (@sec-ch06-vic) the host builds the solve with two more operands, and the sweep, called
+with `K = 2`, carries two unit right-hand sides $\mathbf e_E$ at layers 2 and $n_{\mathrm{lay}}-3$ through the same
+factorisation into `z0` and `z1`; after the back pass `vic_woodbury_column` subtracts
+$\mathsf Z(\mathsf I+\mathsf V^{\mathsf T}\mathsf Z)^{-1}\mathsf V^{\mathsf T}\boldsymbol\delta$, the rank-2 update for the two wall
+third points of the potential-energy slope ({{< code src/implicit/vic_kernels.h vic_woodbury_column >}};
+{{< code src/implicit/implicit_hydro.cpp ImplicitHydroImpl::forward_masked >}}). On the CPU that function is
+compiled without floating-point contraction, so it rounds each product and sum as the host code it replaced did.
 
 ### Code
 
@@ -119,11 +135,13 @@ On CUDA the sweep is one thread per column, and the assembly and the final cell 
 |---|---|---|---|
 | forward elimination | {{< code src/implicit/forward_sweep_impl.h ForwardSweep >}} | `ForwardSweep` | |
 | right-hand side | {{< code src/implicit/forward_sweep_impl.h ForwardSweep >}} | `rhs` | |
-| $N=3$: subtract $\mathbf f^{\mathrm{tan}}_i$ | {{< code src/implicit/forward_sweep_impl.h ForwardSweep >}} | `correct` | `implicit-scheme` 1 |
+| $N=3$: subtract $\mathbf f^{\mathrm{tan}}_i$ | {{< code src/implicit/forward_sweep_impl.h ForwardSweep >}} | `rhs_in_delta` | `implicit-scheme` 1 |
 | multi-column LU solve | {{< code src/math/lubksb.h lubksb overload=2 >}} | `lubksb` | |
 | failed-column sentinel | {{< code src/implicit/vic_solve_failure.h vic_fail_column >}} | `vic_fail_column` | |
 | back substitution | {{< code src/implicit/vic_redistribute_impl.h vic_backward_substitute >}} | `vic_backward_substitute` | |
-| CPU dispatch | {{< code src/implicit/implicit_dispatch.cpp vic_solve_cpu >}} | `vic_solve_cpu` | |
+| column kernel: sweep, back pass, status bits | {{< code src/implicit/vic_kernels.h vic_solve_column >}} | `vic_solve_column` | |
+| wall third points (Woodbury) | {{< code src/implicit/vic_kernels.h vic_woodbury_column >}} | `vic_woodbury_column` | exact radial work |
+| CPU launcher | {{< code src/implicit/implicit_dispatch.cpp CpuColumns >}} | `columns` | |
 
 : Code map of the block Thomas sweep. {#tbl-ch09-vic-sweep-code}
 
@@ -132,11 +150,13 @@ refused column of @sec-ch09-vic-pivot and @sec-ch09-vic-reject. The elimination 
 ({{< code src/implicit/forward_sweep_impl.h ForwardSweep >}}):
 
 ```cpp
-    a[i] -= b[i] * a[i - 1];
+    if (i > il) a[i] -= b[i] * a[i - 1];
     ...
       if (ludcmp(A, indx) == 0) return vic_fail_column(delta, il, iu);
       a[i] = a[i].inverse().eval();
-      delta[i] = a[i] * (rhs - b[i] * delta[i - 1]);
+      if (i > il) {
+        delta[i] = a[i] * (rhs - b[i] * delta[i - 1]);
+      ...
       a[i] = a[i] * c[i];
 ```
 
@@ -148,7 +168,7 @@ $\tilde{\mathsf C}_i$ of @eq-ch09-vic-sweep, with `rhs` $=\mathbf f_i$. The back
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| `tests/test_lu_failure.cpp` (`test_lu_failure.release`), `current_*` and `legacy_*` cases | for float and double, $N=3$ and 5, on a 2-layer column: identity blocks sweep with finite results; a repeated row, a row repeated up to $4\epsilon_{\mathrm{m}}$, an infinite entry or an infinite right-hand side in either layer returns false | exact (logical) | contract |
+| `tests/test_lu_failure.cpp` (`test_lu_failure.release`), `current_*` cases | for float and double, $N=3$ and 5, on a 2-layer column: identity blocks sweep with finite results; a repeated row, a row repeated up to $4\epsilon_{\mathrm{m}}$, an infinite entry or an infinite right-hand side in either layer returns false | exact (logical) | contract |
 | this section's check, `vic_sweep_check.py` | `[C1]`–`[C6]` | $10^{-11}$, $10^{-10}$, logical, exact | stated in the check |
 
 : Tests of the block Thomas sweep (@tbl-ch09-ctest-run for the run at the pin). {#tbl-ch09-vic-sweep-tests}
@@ -159,13 +179,15 @@ on random diagonally dominant columns and on a 2-layer assembled column.[^ch09-v
 steps 5 and 4; `[C3]` fills all 100 entries of a column with a singular block at layer 12 of 20 with NaN; `[C4]`
 moves 30 of 30 layers with one change at the bottom; `[C5]` is the $\Delta t_c$ of step 4; `[C6]` steps 1 to 3. The
 check's port takes the right-hand side as given, so it covers the $N=3$ path with $\mathbf f^{\mathrm{tan}}_i=0$; the
-subtraction itself is exercised by `vic_assembly_check.py` `[C7]` (@sec-ch09-vic-assembly). The
-CPU and CUDA sweeps share the header; only the CPU path ran.
+subtraction itself is exercised by `vic_assembly_check.py` `[C7]` (@sec-ch09-vic-assembly). The check ports the
+FP64 path without the Woodbury update. The CPU and CUDA sweeps instantiate the same kernel; only the CPU path ran.
 
-[^ch09-vic-sweep-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; deck: random diagonally dominant columns
+[^ch09-vic-sweep-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: random diagonally dominant columns
     and a 2-layer assembled column; run:
-    `python3 src/snapy_report/ch09/checks/vic_sweep_check.py`, CPU, double, 1 process; Python 3.11.13, numpy 2.4.6, sympy 1.14.0;
-    output identical to the committed `vic_sweep_check.out`].
+    `python3 src/snapy_report/ch09/checks/vic_sweep_check.py`, CPU, double, 1 process; Python 3.12.3, numpy 2.2.4, sympy
+    1.14.0; output identical to the committed `vic_sweep_check.out`, which this rewrite regenerated: against the numpy
+    2.4.6 run the round-off residuals of `[C2]` and `[C5]` changed (largest: $7.4\times10^{-14}$ to $2.5\times10^{-13}$ at
+    $\Delta t=10^3$, under the $10^{-10}$ threshold)].
 
 ### Limits
 
@@ -176,8 +198,10 @@ to keep the eliminated blocks regular.
 
 1. **No accuracy test.** No ctest compares the sweep with a dense solve; the ctests check refusal and
    finiteness only.
-2. **One rank per column.** The commented-out send and receive in the sweep are the trace of a distributed column
-   that is not supported (@sec-ch09-vic-options).
+2. **One rank per column.** The sweep runs a whole column in one thread; a column split across ranks is not
+   supported (@sec-ch09-vic-options).
+3. **The Woodbury update is not ported.** `vic_sweep_check.py` does not port the rank-2 update for the wall third
+   points; it is covered by the gravity column tests of @sec-ch06-vic only.
 
 <!-- reader glossary notes -->
 [^rg-8027fc5c8d8d]: $\boldsymbol\delta_i$ — the implicit solve's unknown in cell $i$ (total mass, normal momentum, [tangential momenta], energy)

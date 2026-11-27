@@ -1,41 +1,44 @@
-## Operator-split pieces at the step boundary: saturation adjustment and kinetics (`thermo.reactions`) {#sec-ch09-split}
+## Operator-split pieces at the step boundary: saturation adjustment, chemistry and radial conduction (`thermo.reactions`) {#sec-ch09-split}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy)
-sources: OUTLINE.md 7.5; src/mesh/meshblock.cpp; examples/run_hydro.cpp
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (chengcli/snapy)
+sources: OUTLINE.md 7.5; src/mesh/meshblock_advance.cpp; src/mesh/stage_executor.cpp; src/mesh/mesh.cpp;
+         src/chemistry/chemistry_source.cpp; src/forcing/diffusion_radial.cpp; examples/run_hydro.cpp
 status: draft
 -->
 
 ### Summary
 
 The dynamics advance the conserved state over the whole step; the phase equilibrium of @sec-ch02 then adjusts the
-species at fixed density and internal energy density, the physical boundaries are refilled so the ghosts carry
-the adjusted composition, and the driver's kinetics integrate the reaction rates over the step on the refreshed
-primitives. Each piece sees the output of the previous one, which makes the step a sequential split. The details
-of the phase solve and the kinetics are @sec-ch10.
+species at fixed density and internal energy density, the chemistry step integrates the reaction rates over the
+step on the refreshed primitives, and the physical boundaries are refilled so the ghosts carry the new
+composition. All of this is inside the last stage. Each piece sees the output of the previous one, which makes the
+step a sequential split. The details of the phase solve and the kinetics are @sec-ch10. One source is split
+symmetrically instead: the implicit radial conduction of @sec-ch07-csdiffusion takes half a step before the stages
+and half a step after them.
 
 ::: {.callout-note title="At a glance"}
-**Purpose.** Applies the phase equilibrium and then the driver's kinetics to the advanced state; @eq-ch09-split-lie.
+**Purpose.** Applies the phase equilibrium and then the chemistry to the advanced state; @eq-ch09-split-lie.
 
 **Data.** Reads the state after the last average; writes the species densities $\rho_n$, with $E$ kept by the phase step.
 
-**Placement.** Phase equilibrium in the last stage, before the boundary fill; kinetics after the stages, before `check_redo`.
+**Placement.** Last stage, after the average: saturation, chemistry, boundary fill; a Mesh runs the chemistry in its global phase.
 
-**Activation.** Saturation adjustment when the thermo card has reactions; kinetics when the driver builds a model.
+**Activation.** Saturation adjustment when the thermo card has reactions; chemistry when the driver sets a kinetics model.
 
 **Guarantee / limits.** First order in $\Delta t$ (a sequential, or Lie, split) unless the pieces commute.
 
-**Evidence.** @tbl-ch09-split-tests; `test_wall_saturation.release`, `test_check_redo_saturation_python`, `split_check.py` `[C1]`–`[C4]`.
+**Evidence.** @tbl-ch09-split-tests; `test_wall_saturation.release`, `test_sk4_chemistry_source_python`, `split_check.py` `[C1]`–`[C4]`.
 :::
 
 Local symbols: $\mathcal M^{\mathrm{dyn}}_{\Delta t}$ is the dynamics over one step (all Runge-Kutta stages),
-$\mathcal S$ the saturation adjustment and $\mathcal M^{\mathrm{kin}}_{\Delta t}$ the driver's kinetics; on a linear model
+$\mathcal S$ the saturation adjustment and $\mathcal M^{\mathrm{kin}}_{\Delta t}$ the chemistry step; on a linear model
 $\mathcal M^{\mathrm{dyn}}_{\Delta t}=e^{\Delta t\,\mathsf G_{\mathrm{dyn}}}$ and $\mathcal M^{\mathrm{kin}}_{\Delta t}=e^{\Delta t\,\mathsf G_{\mathrm{kin}}}$
 with generators $\mathsf G_{\mathrm{dyn}}$, $\mathsf G_{\mathrm{kin}}$ [s$^{-1}$], and
 $[\mathsf G_{\mathrm{kin}},\mathsf G_{\mathrm{dyn}}]=\mathsf G_{\mathrm{kin}}\mathsf G_{\mathrm{dyn}}-\mathsf G_{\mathrm{dyn}}\mathsf G_{\mathrm{kin}}$
 is their commutator; $t_{\mathrm{end}}$ [s] is the length of a run. The phase equilibrium reads the total density $\rho$[^rg-3787dff4f9c4], the
-internal energy density $\rho e$ and the mass fractions $y_n$[^rg-b518aee12bfe] of each interior cell; the kinetics read the driver's
-post-step temperature [K], pressure [Pa] and molar concentrations [mol m$^{-3}$].
+internal energy density $\rho e$ and the mass fractions $y_n$[^rg-b518aee12bfe] of each interior cell; the chemistry reads the
+post-adjustment temperature [K], pressure [Pa] and molar concentrations [mol m$^{-3}$].
 
 ### Derivation
 
@@ -71,7 +74,18 @@ the error of applying equilibrium at the end of the step instead of throughout i
 **Not provided:** a measurement of that saturation-adjustment split error; the checks above use linear
 generators rather than the equilibrium projection.
 
-In the code, the $\mathcal S$ of @eq-ch09-split-lie is the last-stage `ThermoY` solve of the block, `pthermo` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}).
+The physical boundary fill that follows the chemistry adds no update to the interior and is left out of
+@eq-ch09-split-lie.
+
+The radial conduction split is symmetric: with $\mathcal D_{\Delta t/2}$ the implicit radial step over half the step,
+the step is $\mathcal D_{\Delta t/2}\,\mathcal M^{\mathrm{dyn}}_{\Delta t}\,\mathcal D_{\Delta t/2}$, the Strang order of `[C2]`.
+It needs a dry ideal gas, so it never runs together with $\mathcal S$ or $\mathcal M^{\mathrm{kin}}_{\Delta t}$
+({{< code src/forcing/diffusion_radial.cpp DiffusionImpl::radial_conduction_step >}}).
+
+In the code, the $\mathcal S$ of @eq-ch09-split-lie is the last-stage `ThermoY` solve of the block, `pthermo`
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}}), and
+$\mathcal M^{\mathrm{kin}}_{\Delta t}$ is `ChemistrySource::forward`
+({{< code src/chemistry/chemistry_source.cpp ChemistrySource::forward >}}).
 
 ### Numerical method
 
@@ -79,53 +93,74 @@ See @fig-ch09-split-step for the order within a step.
 
 ```{python}
 #| label: fig-ch09-split-step
-#| fig-cap: "The pieces of one step in the order they run: the Runge-Kutta stages (sky blue), the saturation adjustment and the physical boundary fill inside the last stage, the driver's kinetics after the stages (green), and the acceptance check (orange). Each piece acts on the result of the one before."
-#| fig-alt: "Five boxes in a row joined by arrows: dynamics, saturation adjustment, physical boundaries, kinetics, check_redo."
+#| fig-cap: "The pieces of one step in the order they run: the Runge-Kutta stages (sky blue), then inside the last stage the saturation adjustment, the chemistry step (green) and the physical boundary fill, and the acceptance check (orange). Each piece acts on the result of the one before."
+#| fig-alt: "Five boxes in a row joined by arrows: dynamics, saturation adjustment, chemistry, physical boundaries, check_redo."
 #| echo: false
 from snapy_report.ch09.figures.fig_split_step import make_fig
 make_fig()
 ```
 
-1. At the last stage, after the average and the conserved limiter, the block applies the limiter again, forms the
-   internal energy density and mass fractions on interior cells and calls the kintera `ThermoY` solve, `pthermo`, with a warm start
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}).
-2. The physical boundaries are filled after it, by `apply_boundaries`, so the wall ghosts carry the adjusted
-   composition ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}).
-3. The example driver refreshes the primitives from the final state with `peos->forward`, evaluates the kinetics
-   rates and their rate constants in one call, `forward_with_rate_constants`, forms the Jacobian from that call's
-   rate constants and advances them with `evolve_implicit` over the full step ({{< code examples/run_hydro.cpp main >}}).
-4. `check_redo` then decides on the whole step, kinetics included (@sec-ch09-redo).
+1. At stage 0, before the step-start state is saved, each split source takes its first half step; at the last
+   stage it takes the second half step right after the average, and a redo undoes the first
+   ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}};
+   {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}};
+   {{< code src/forcing/diffusion_radial.cpp DiffusionImpl::begin_split overload=2 >}}). The only split source
+   at the pin is the implicit radial conduction.
+2. At the last stage, after the average and the conserved limiter, the `saturation` operation applies the limiter
+   again, forms the internal energy density and mass fractions on interior cells and calls the kintera `ThermoY`
+   solve, `pthermo`, with a warm start ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}}).
+3. The `chemistry` operation of a single block then refreshes the primitives from the adjusted state with
+   `peos->forward`, evaluates the kinetics rates and their rate constants in one call,
+   `forward_with_rate_constants`, forms the Jacobian from that call's rate constants and advances them with
+   `evolve_implicit` over the full step ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_chemistry >}};
+   {{< code src/chemistry/chemistry_source.cpp ChemistrySource::forward >}}). A block of a `Mesh` skips it there;
+   the Mesh runs it for each block in its global phase, one block after another, and refills that block's
+   boundaries ({{< code src/mesh/mesh.cpp MeshImpl::forward >}}).
+4. The `boundaries` operation fills the physical boundaries, so the wall ghosts carry the adjusted composition
+   ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_boundaries >}}).
+5. `check_redo` then decides on the whole step, chemistry included (@sec-ch09-redo).
 
 ### Code
 
 | what | code link | symbol | switch |
 |---|---|---|---|
-| saturation adjustment, last stage | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `pthermo` | `thermo.reactions` |
-| boundary fill after it | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `apply_boundaries` | |
-| kinetics in the driver | {{< code examples/run_hydro.cpp main >}} | `evolve_implicit` | kinetics block |
+| order of the operations | {{< code src/mesh/stage_executor.cpp StageExecutor::build_schedule >}} | `saturation`, `chemistry`, `boundaries` | |
+| saturation adjustment, last stage | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}} | `pthermo` | `thermo.reactions` |
+| chemistry step, last stage | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_chemistry >}} | `_chemistry` | `set_chemistry` |
+| the kinetics update | {{< code src/chemistry/chemistry_source.cpp ChemistrySource::forward >}} | `evolve_implicit` | kinetics card |
+| boundary fill after them | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_boundaries >}} | `apply_boundaries` | |
+| radial conduction half steps | {{< code src/forcing/diffusion_radial.cpp DiffusionImpl::begin_split overload=2 >}} | `begin_split`, `finish_split` | `implicit_radial` |
 
 : Code map of the step-boundary split. {#tbl-ch09-split-code}
 
-**How to use it.** Neither piece has a key in this section. The saturation adjustment runs at the last stage when
-the thermodynamics card has reactions (@sec-ch10-satadj), through this test
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}):
+**How to use it.** Neither moist piece has a key in this section. The saturation adjustment runs at the last stage
+when the thermodynamics card has reactions (@sec-ch10-satadj), through this test
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}}):
 
 ```cpp
   if (stage == pintg->stages.size() - 1 && phydro->options->eos()->thermo() &&
       phydro->options->eos()->thermo()->reactions().size() > 0) {
 ```
 
-The kinetics run only if the driver builds a kinetics model from the card and calls it after the stages
+The chemistry runs only if the driver sets a kinetics model, as the example driver does before its loop
 ({{< code examples/run_hydro.cpp main >}}):
 
 ```cpp
-    auto del_conc = kintera::evolve_implicit(rate, kinet->stoich, jac, dt);
+  block->set_chemistry(*kintera::KineticsOptionsImpl::from_yaml(infile));
+```
+
+and the update it applies is ({{< code src/chemistry/chemistry_source.cpp ChemistrySource::forward >}}):
+
+```cpp
+  auto del_conc = kintera::evolve_implicit(rate, kinet->stoich, jac, dt);
 ```
 
 The guard is $\mathcal S$ of @eq-ch09-split-lie, applied once at the last stage; `evolve_implicit` is
-$\mathcal M^{\mathrm{kin}}_{\Delta t}$, over the full step. A driver that skips this call has no
-$\mathcal M^{\mathrm{kin}}_{\Delta t}$. Refused: nothing at this level; the reaction and kinetics cards are read and
-checked by kintera (@sec-ch10).
+$\mathcal M^{\mathrm{kin}}_{\Delta t}$, over the full step. A driver that does not call `set_chemistry` has no
+$\mathcal M^{\mathrm{kin}}_{\Delta t}$, and a card without reactions makes the chemistry a no-op. Refused:
+`set_chemistry` stops with "MeshBlock::set_chemistry needs an EOS[^rg-a70646e99981] with a thermo" on a block whose equation of
+state has no thermodynamics ({{< code src/mesh/meshblock.cpp MeshBlockImpl::set_chemistry >}}); the reaction and
+kinetics cards are read and checked by kintera (@sec-ch10).
 
 ### Tests
 
@@ -133,35 +168,47 @@ checked by kintera (@sec-ch10).
 |---|---|---|---|
 | `tests/test_wall_saturation.cpp` (`test_wall_saturation.release`) | phase change next to a wall keeps total energy and water | $10^{-12}$ relative | test threshold |
 | `tests/test_check_redo_saturation.py` (`test_check_redo_saturation_python`) | a failed saturation solve rejects the step | logical | contract |
+| `tests/test_sk4_chemistry_source.py` (`test_sk4_chemistry_source_python`) | a block with the chemistry set equals a block stepped by hand with the same update after the stages, `hydro_u` and `hydro_w`, in FP64 and FP32 | bitwise | the same operations in the same order |
+| `tests/test_sk4_mesh_chemistry.py` (`test_sk4_mesh_chemistry_python`) | a two-block Mesh running the chemistry in its global phase equals one block with the same chemistry; without it they differ | bitwise | as above |
+| `tests/test_diffusion_cubed_sphere.cpp` (`test_diffusion_cubed_sphere.release`), radial case | the implicit radial step keeps energy, stays finite, is undone exactly by `restore_split`, and its error falls by more than 3.5 per halving of the step | $10^{-12}$ relative; ratio 3.5 | test thresholds (second order gives 4) |
 | this section's check, `split_check.py` | `[C1]`–`[C4]` | 0.1 in the order; $10^{-14}$; exact | stated in the check |
 
 : Tests of the step-boundary split (@tbl-ch09-ctest-run for the run at the pin). {#tbl-ch09-split-tests}
 
-Both ctest cases pass at the pin (@tbl-ch09-ctest-run):
-{{< code tests/test_wall_saturation.cpp WallSaturation.phase_change_preserves_energy_and_water >}} and
-{{< code tests/test_check_redo_saturation.py main >}}. `split_check.py` models the order of the pieces by two linear
-operators.[^ch09-split-run] `[C1]` measures errors $1.63\times10^{-3}$, $8.26\times10^{-4}$, $4.15\times10^{-4}$ at 20,
-40 and 80 steps (order 0.991); `[C2]` gives 2.000 for the Strang order; `[C3]` splits commuting operators
-within $10^{-14}$; `[C4]` checks steps 1 and 2 symbolically on generic $2\times2$ generators. No test measures the
-split error of a moist case.
+The ctest cases pass at the pin (@tbl-ch09-ctest-run):
+{{< code tests/test_wall_saturation.cpp WallSaturation.phase_change_preserves_energy_and_water >}},
+{{< code tests/test_check_redo_saturation.py main >}}, {{< code tests/test_sk4_chemistry_source.py main >}},
+{{< code tests/test_sk4_mesh_chemistry.py main >}} and
+{{< code tests/test_diffusion_cubed_sphere.cpp CubedSphereDiffusion.radial_implicit_conservation_stability_and_order >}}.
+`split_check.py` models the order of the pieces by two linear operators.[^ch09-split-run] `[C1]` measures errors
+$1.63\times10^{-3}$, $8.26\times10^{-4}$, $4.15\times10^{-4}$ at 20, 40 and 80 steps (order 0.991); `[C2]` gives 2.000
+for the symmetric order of the radial half steps; `[C3]` splits commuting operators within $10^{-14}$; `[C4]` checks
+steps 1 and 2 symbolically on generic $2\times2$ generators. No test measures the split error of a moist case, and
+the radial case tests the order of the radial step, not of the split around the stages.
 
-[^ch09-split-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; deck: the check itself; run:
+[^ch09-split-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the check itself; run:
     `python3 src/snapy_report/ch09/checks/split_check.py`,
-    CPU, double, 1 process; Python 3.12.10, numpy 2.5.3, sympy 1.14.0; output identical to the committed
-    `split_check.out`].
+    CPU, double, 1 process; Python 3.12.3, numpy 2.2.4, sympy 1.14.0; output identical to the committed
+    `split_check.out`, which this rewrite regenerated: `[C3]` now prints an error of 0 where numpy 2.5.3 printed
+    $5.6\times10^{-17}$, both under the $10^{-14}$ threshold, and the `[C2]` label now names the radial half steps].
 
 ### Limits
 
-1. **First order.** The split is first order in $\Delta t$ whatever the order of the Runge-Kutta stages; no
-   symmetric split is offered. Not measured on a moist case.
-2. **Driver kinetics are not in snapy's stage driver.** The kinetics live in the example driver; a driver that
-   omits them, or calls them elsewhere, changes the split.
+1. **First order.** The moist pieces are split sequentially, first order in $\Delta t$ whatever the order of the
+   Runge-Kutta stages; no symmetric split is offered for them. Not measured on a moist case.
+2. **The chemistry is set by the driver.** The chemistry runs only after `set_chemistry`; a driver that applies its
+   own kinetics elsewhere changes the split. On a `Mesh` the blocks' chemistry runs one block after another in the
+   global phase, not on the worker pool ({{< code src/mesh/mesh.cpp MeshImpl::forward >}}).
 3. **Non-convergence.** A phase solve that does not converge within its iteration limit is counted and rejects
    the step (@sec-ch09-redo). The count is drained once per check, so a failure counted between steps is not the
    step's.
+4. **The radial half steps are not covered by the split check of a run.** No test measures the second order of the
+   radial split around the stages on a full step; `[C2]` shows it on a linear model only.
 
 <!-- reader glossary notes -->
 [^rg-3787dff4f9c4]: $\rho$ — total density, dry plus every species that carries mass [kg m$^{-3}$]
 
 [^rg-b518aee12bfe]: $y_n$ — mass fraction of species $n$ **per unit total mass**, $\rho_n = \rho y_n$, dimensionless [-]; this is snapy's composition variable and the only one the state vector carries
+
+[^rg-a70646e99981]: EOS — equation of state
 <!-- end reader glossary notes -->

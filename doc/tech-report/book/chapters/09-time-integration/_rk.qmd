@@ -1,8 +1,9 @@
 ## Explicit SSP Runge-Kutta stages in Shu-Osher form (`integration/type`) {#sec-ch09-rk}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy); pyharp@4721715855e937c1e8b218e964c0655f46e56e29
-sources: OUTLINE.md 7.1; src/mesh/meshblock.cpp; pyharp src/integrator/integrator.cpp; sources/canoe__POSITIVITY_TECH_REPORT.md §3
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (chengcli/snapy); pyharp@4721715855e937c1e8b218e964c0655f46e56e29
+sources: OUTLINE.md 7.1; src/mesh/meshblock_advance.cpp; src/mesh/stage_executor.cpp; pyharp src/integrator/integrator.cpp;
+         sources/canoe__POSITIVITY_TECH_REPORT.md §3
 status: draft
 -->
 
@@ -20,7 +21,7 @@ under a time-step limit, such as the nonnegativity of a species density under th
 
 **Data.** Reads $\mathbf U^n$, the stage state and $\Delta t\,\mathcal L$, ghosts included; writes the next stage state.
 
-**Placement.** The whole step: stage 0 saves $\mathbf U^n$, and each stage ends with the average.
+**Placement.** The whole step: stage 0 saves $\mathbf U^n$, and each stage's `combine` op takes the average.
 
 **Activation.** `integration/type`: `rk1` (or `euler`), `rk2`, `rk3` (default), `rk3s4`; read by pyharp.
 
@@ -38,14 +39,14 @@ the relative error of $n$ roundings. $C$[^rg-3f6709e93486] stays the Courant num
 
 The state averaged is $\mathbf U$[^rg-9e4fb7fc3006] with its ghosts ($\rho_{\mathrm d}$[^rg-f449a62578a1], $\rho_n$[^rg-055f669ed8ed], $m_a$, $E$[^rg-9da2c0961e5e], total-mass basis) and the
 passive-scalar densities $\rho_{\mathrm d}r_n$ (dry-mass basis). The type is read from YAML[^rg-14d76ead90d3] with default `rk3`; an
-unknown type throws. The step-start registers and the stage index that the VIC needs are set by snapy's stage
+unknown type throws. The step-start state and the stage index that the VIC needs are set by snapy's stage
 driver.
 
 The steps of one time step, from reconstruction to the final update: the step size is set once (@sec-ch09-cfl);
 then each stage reconstructs the face states, solves the Riemann problems, limits the fluxes, forms the flux
 divergence and adds the forcings and the vertical implicit correction (`HydroImpl::forward`), adds the user stage
 forcings, takes the average of @eq-ch09-rk-stage with the conserved limiter and refills any solid cells; on the
-last stage only, the phase adjustment and the gravity-work fixer follow when they are on; and every stage ends by
+last stage only, the saturation adjustment and the chemistry step follow when they are on; and every stage ends by
 filling the physical ghosts. @sec-ch02-laws lists the same order with the code that runs it, and @sec-ch01-hydro
 follows one increment through it.
 
@@ -59,8 +60,8 @@ $$
 \mathbf U^{(s+1)} = w_0^{(s)}\,\mathbf U^n + w_1^{(s)}\,\mathbf U^{(s)} + w_2^{(s)}\,\Delta t\,\mathcal L(\mathbf U^{(s)}) ,
 $$ {#eq-ch09-rk-stage}
 
-implemented as `pintg->forward(stage, _hydro_u0, hydro_u, fut_hydro_du)`
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}), whose body is the linear combination of `IntegratorImpl::forward`
+implemented as `pintg->forward(stage, _state.u0(), hydro_u, fut_hydro_du, hydro_u)`
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}}), whose body is the linear combination of `IntegratorImpl::forward`
 ([`pyharp integrator.cpp:101-122`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L101-L122)). The weights $(w_0^{(s)},w_1^{(s)},w_2^{(s)})$ of each stage are set in the
 `IntegratorImpl` constructor ([`pyharp integrator.cpp:33-85`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L33-L85)):
 
@@ -116,7 +117,9 @@ shipped integrator, in its comment on `wght2` ({{< code src/hydro/flux_positivit
 
 10. The average is `wght0() * u0 + wght1() * u1 + wght2() * u2` in the working precision: three products and two
     additions per entry, each rounded once with relative error at most $\epsilon_{\mathrm m}/2$. The weights
-    $\tfrac13$, $\tfrac23$, $\tfrac16$ are not binary fractions, so each weight carries one more rounding.
+    $\tfrac13$, $\tfrac23$, $\tfrac16$ are not binary fractions, so each weight carries one more rounding. The
+    form the stage driver calls writes into `hydro_u` (`add_out` of the first two products, then the third added
+    in place), which keeps the same order of the two additions; Limits 2 says which pyharp has that form.
 11. With four roundings on the longest path, the computed entry differs from @eq-ch09-rk-stage by at most
     $\zeta_4\big(\lvert w_0^{(s)}\mathbf U^n\rvert+\lvert w_1^{(s)}\mathbf U^{(s)}\rvert+\lvert w_2^{(s)}\Delta t\,\mathcal L\rvert\big)$, with
     $\zeta_4\approx2\epsilon_{\mathrm m}=4.4\times10^{-16}$ in double, per stage.
@@ -136,33 +139,50 @@ from snapy_report.ch09.figures.fig_rk_stages import make_fig
 make_fig()
 ```
 
-One stage of `MeshBlockImpl::advance_local` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}) runs, in this order:
+A stage is a fixed list of operations, the block's stage schedule, which the stage executor runs in order
+({{< code src/mesh/stage_executor.cpp StageExecutor::build_schedule >}}): `exchange` (a single block only,
+@sec-ch09-exchange), `advance`, `forcing`[^rg-83856cb12a4a], `combine`, `saturation`, `chemistry` and `boundaries`. Each operation is a
+member of the block; `MeshBlockImpl::advance_local` runs all but the exchange
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::advance_local >}}). In this order:
 
-1. publish the stage index for the VIC, `rk_stage` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}});
-2. at stage 0, save the step-start state `_hydro_u0` and reset the per-step marks and counters
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}); with the implicit radial diffusion of @sec-ch07
-   (`implicit_radial`[^rg-6e268ff2bb5e]), its `begin_step`, the physical boundaries and the ghost exchange come first, so the saved
-   state is the one after that diffusion step;
-3. the hydro tendency, `phydro->forward`, which includes the forcing loop and the VIC
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}});
-4. the passive-scalar tendency and the user stage forcings (@sec-ch07); with species and the equation-of-state
-   limiter on, the species part of the user forcings' increment is clipped so that it takes no species density below
-   zero, nor below what the increment before the user forcings already gave (@sec-ch08; {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}});
-5. the average @eq-ch09-rk-stage, at the last stage the implicit radial diffusion's `finish_step` when it is on,
-   and the conserved-variable limiter, `apply_conserved_limiter_`
-   ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}); on a block with no species and no passive
-   scalars the limiter is skipped before the last stage, because the next stage's conversion to primitives applies
-   the same pointwise limiter; the scalars get the same average, `_scalar_s0` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}});
-6. refill immersed solids; at the last stage, the conserved-variable limiter again, the phase adjustment and the
-   gravity-work fixer (@sec-ch06); then the physical boundaries, `apply_boundaries` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}).
+1. `advance` publishes the stage index for the VIC, `rk_stage`
+   ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}});
+2. at stage 0 it opens the step of the flux register (`begin_step`), runs the step-start half of every split source
+   (`begin_split`) and, when there is one, the physical boundaries and the ghost exchange, then saves the step-start
+   state `_state.backup()` and resets the per-step marks and counters
+   ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}}). The one split source at the pin is the
+   implicit radial conduction of @sec-ch07 (`implicit_radial`[^rg-6e268ff2bb5e]), whose half step therefore comes before
+   the saved state ({{< code src/forcing/diffusion_radial.cpp DiffusionImpl::begin_split overload=2 >}});
+3. `advance` then forms the hydro tendency, `phydro->forward`, which includes the forcing loop and the VIC, and the
+   passive-scalar tendency with the VIC's tracer transfer
+   ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}});
+4. `forcing` adds the user stage forcings (@sec-ch07); with species and the equation-of-state limiter on, the
+   species part of their increment is clipped so that it takes no species density below zero, nor below what the
+   increment before the user forcings already gave (@sec-ch08;
+   {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_forcing >}});
+5. `combine` closes the register's stage (`end_stage`), takes the average @eq-ch09-rk-stage into `hydro_u`, at the
+   last stage runs the split sources' `finish_split`, and applies the conserved-variable limiter,
+   `apply_conserved_limiter_`; on a block with no species and no passive scalars the limiter is skipped before the
+   last stage, because the next stage's conversion to primitives applies the same pointwise limiter; the scalars
+   get the same average from `_state.s0()`, and immersed solids are refilled
+   ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}});
+6. at the last stage only, `saturation` applies the conserved-variable limiter again and the saturation adjustment
+   when the thermodynamics has reactions ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}}),
+   and `chemistry` runs the chemistry step of a single block when one is set
+   ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_chemistry >}}); a `Mesh` runs it over its blocks
+   after their stages (@sec-ch09-exchange);
+7. `boundaries` fills the physical ghosts, `apply_boundaries`
+   ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_boundaries >}}).
 
 The scalar tendency of step 4 also carries the VIC's dry-gas face transfer and the scalars' share of any dry-mass
 source in the stage (@sec-ch09-vic-redistribute).
 
 Each stage evaluates $\mathcal L$[^rg-1575971eac0a] once, so a step costs one, two, three or four operator evaluations. The
 averages are tensor arithmetic on whole arrays, ghosts included; the ghosts are rewritten by the boundary fill
-and the exchange. Nothing is fused: the dispatch path `call_average3` is commented out
-([`pyharp integrator.cpp:109-120`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L109-L120)).
+and the exchange. Nothing is fused: at pyharp's pin the dispatch path `call_average3` is commented out
+([`pyharp integrator.cpp:109-120`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L109-L120)),
+and later pyharp removes it. On CUDA the operations of a stage can run as captured graphs; the arithmetic is the
+same tensor arithmetic (@sec-ch14).
 
 ### Code
 
@@ -172,8 +192,10 @@ and the exchange. Nothing is fused: the dispatch path `call_average3` is comment
 | stage weights | [`pyharp integrator.cpp:33-85`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L33-L85) | `wght2` | `integration/type` |
 | linear combination | [`pyharp integrator.cpp:101-122`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L101-L122) | `IntegratorImpl::forward` | |
 | `max_redo` default | [`pyharp integrator.hpp:58`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.hpp#L58) | `max_redo` | not in YAML |
-| stage driver | {{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}} | `advance_local` | |
-| stage registers | {{< code src/mesh/meshblock.hpp MeshBlockImpl >}} | `_hydro_u0` | |
+| stage schedule | {{< code src/mesh/stage_executor.cpp StageExecutor::build_schedule >}} | `build_schedule` | |
+| stage driver | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::advance_local >}} | `advance_local` | |
+| the average | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}} | `stage_combine` | |
+| step-start state | {{< code src/mesh/meshblock.hpp MeshBlockImpl >}} | `_state` | |
 | full-step increment | {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}} | `du` | |
 
 : Code map of the explicit Runge-Kutta stages. {#tbl-ch09-rk-code}
@@ -207,37 +229,40 @@ $\Delta t\,\mathcal L(\mathbf U^{(s)})$
       stages[s].wght0() * u0 + stages[s].wght1() * u1 + stages[s].wght2() * u2;
 ```
 
-The stage driver calls it as `hydro_u.set_(pintg->forward(stage, _hydro_u0, hydro_u, fut_hydro_du))`
-({{< code src/mesh/meshblock.cpp MeshBlockImpl::advance_local >}}), so `_hydro_u0` is $\mathbf U^n$ and `fut_hydro_du` is the
-full-step increment.
+The stage driver calls it with a fifth argument, the output, as
+`pintg->forward(stage, _state.u0(), hydro_u, fut_hydro_du, hydro_u)`
+({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}}), so `_state.u0()` is $\mathbf U^n$,
+`fut_hydro_du` is the full-step increment and the result is written into `hydro_u`; that overload is not in pyharp's
+pin (Limits 2).
 
-[^ch09-rk-card]: `MeshBlockOptions.from_yaml` and `MeshBlock` on the card with geometry, an ideal-moist equation of
-    state, reflecting $x_1$ walls and constant gravity added; snapy@6fbb39750f62b83df096058a4746e77d0a634bc5 Release
-    build, CPU, Python 3.12.10.
+[^ch09-rk-card]: `MeshBlockOptions.from_yaml` and `MeshBlock` on the card with a dry species, a 6-cell cartesian
+    geometry, an ideal-gas equation of state, reflecting $x_1$ walls and `forcing: {const-gravity: {grav1: -10}}`
+    added; snapy@73c45a7c8c991209924e1137992352c335575062 Release build, CPU, Python 3.12.3, pyharp 2.8.2, kintera
+    2.6.13.
 
 ### Tests
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
 | `tests/test_forcing.cpp` (`test_forcing.release`), `native_dry_source_uses_each_rk_stage_weight` | a dry-density source in stage $s$ changes the density by $w_2^{(s)}$ times its increment, for `rk1`, `rk2`, `rk3`, `rk3s4` | $10^{-12}$ absolute | round-off on values of order 1, far above the $\zeta_4$ bound of step 11 |
-| same, `rk3_stage_is_published_by_block_step` | `rk_stage` equals the stage in each `advance_local`; the state stays finite | exact | contract |
+| same, `rk3_stage_is_published_by_block_step` | `rk_stage` equals the stage in each stage of a block step; the state stays finite | exact | contract |
 | `tests/run_straka.cmake` (`test_straka`) | the Straka density current, 2 ranks, against the reference solution | L2 norm of the final potential-temperature difference $<50$ K (`diff`, {{< code tests/test_straka.py diff >}}) | regression of the full rk3 path |
 | this section's check, `rk_check.py` | `[C1]`–`[C7]` | $10^{-14}$, 0.1 in the order, exact | stated in the check |
 
 : Tests of the explicit Runge-Kutta stages (@tbl-ch09-ctest-run for the run at the pin). {#tbl-ch09-rk-tests}
 
-The ctest cases pass at the pin, except that the reference comparison of `test_straka` was not made
-(@tbl-ch09-ctest-run). `rk_check.py` ports the stage formula of `advance_local` and the pyharp weights.[^ch09-rk-run]
+The ctest cases pass at the pin (@tbl-ch09-ctest-run). `rk_check.py` ports the stage formula of `stage_combine`
+and the pyharp weights.[^ch09-rk-run]
 `[C1]` evaluates the stage loop on four complex $\mathcal Z$ and matches the four polynomials to $2.2\times10^{-16}$;
 `[C2]` fits the orders 1.01, 2.01, 3.02, 3.01 at 40, 80 and 160 steps; `[C3]` finds every stage convex with
 $c_{\mathrm{SSP}}$ = 1, 1, 1, 2; `[C4]` keeps $\mathcal Y\ge0$ up to $\Delta t=c_{\mathrm{SSP}}$. `[C5]` checks steps 1 to 5 in
 exact arithmetic, `[C6]` every stage fraction $c^{(s)}_{\mathrm{FE}}$, and `[C7]` the two ratios of Limits 3. Coverage: CPU; no CUDA
 assertion on the weights.
 
-[^ch09-rk-run]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5 and
+[^ch09-rk-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062 and
     pyharp@4721715855e937c1e8b218e964c0655f46e56e29; deck: the check itself; run:
-    `python3 src/snapy_report/ch09/checks/rk_check.py`, CPU, double, 1 process; Python 3.12.10, numpy 2.5.3, sympy 1.14.0;
-    output identical to the committed `rk_check.out`].
+    `python3 src/snapy_report/ch09/checks/rk_check.py`, CPU, double, 1 process; Python 3.12.3, numpy and sympy of the
+    shared environment; output identical to the committed `rk_check.out`].
 
 ### Limits
 
@@ -245,9 +270,14 @@ assertion on the weights.
    ([`pyharp integrator.cpp:20-31`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L20-L31)), so YAML runs keep the default `max_redo` of 5
    ([`pyharp integrator.hpp:58`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.hpp#L58)); a driver sets it with
    `op.intg().max_redo(n)` before building the block (@sec-ch10-redo).
-2. **pyharp is not pinned by snapy's build.** The weights cited here are those of the pyharp commit the report
-   cites;[^ch09-rk-pyharp] the property $w_2^{(s)}\le w_1^{(s)}$ that the positivity limiter relies on holds for all four
-   tableaux there and must be re-checked against the pyharp a build links.
+2. **pyharp is not pinned by snapy's build, and its report pin is older than the code needs.** snapy's CI[^rg-9693023282ee] installs
+   pyharp 2.7.17 or later, and the stage driver calls the five-argument `IntegratorImpl::forward` that writes into
+   its output ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}}); the pyharp commit the report
+   cites has only the four-argument form,[^ch09-rk-pyharp] so the snapy pin does not build against it. In pyharp
+   2.7.17 and later the stage weights are the same rationals with two of them written as $1-\tfrac23$ (`rk3` stage 3
+   $w_0$, `rk3s4` stage 3 $w_1$), so that each stage's state weights sum to exactly 1 in double; the derivation above
+   is unchanged by that, and the property $w_2^{(s)}\le w_1^{(s)}$ that the positivity limiter relies on holds for all
+   four tableaux in both. The report's pyharp pin is the editor's to move.
 3. **SSP coefficient of `rk3s4`.** At the same SSP guarantee `rk3s4` takes a step $c_{\mathrm{SSP}}=2$ times that of
    `rk3`, for 4 instead of 3 operator evaluations, so per operator evaluation it advances $2/4$ against $1/3$, 1.5
    times as far (`[C7]`). The time-step bound does not use this: it applies the same `cfl` to every type
@@ -273,6 +303,8 @@ assertion on the weights.
 
 [^rg-5f595edd062e]: $\mathbf U^{(s)}$ — state after RK stage $s$; {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}}
 
+[^rg-83856cb12a4a]: forcing — forcing options block: a map with one sub-block per forcing component
+
 [^rg-6e268ff2bb5e]: implicit_radial — whether radial heat conduction on the cubed sphere is solved implicitly, split around the explicit step (default false)
 
 [^rg-1575971eac0a]: $\mathcal L$ — the semi-discrete right-hand side (all explicit operators); notation only; see @sec-appa
@@ -280,4 +312,6 @@ assertion on the weights.
 [^rg-461f2b31d34d]: integration — time-integration options
 
 [^rg-6d5e124d3526]: type — implementation selector for the enclosing options block
+
+[^rg-9693023282ee]: CI — continuous integration
 <!-- end reader glossary notes -->

@@ -1,9 +1,10 @@
-"""Executable check of where the ghost exchange sits in a stage (chapter 7, _exchange.qmd).
+"""Executable check of where the ghost exchange sits in a stage (chapter 9, _exchange.qmd).
 
 What is checked: the invariant of the section, that the ghost cells a stage reads equal the neighbour's interior
 after every update that precedes the stage, for the two orders at
-snapy@e894700ff7aee30b52882e5202b16461413780b0: exchange before the stage (MeshBlockImpl::forward,
-src/mesh/meshblock.cpp:545-552) and exchange after it (MeshImpl::forward, src/mesh/mesh.cpp:331-365). A periodic
+snapy@73c45a7c8c991209924e1137992352c335575062: exchange before the stage (the first op of a bare block's schedule,
+StageExecutor::build_schedule, src/mesh/stage_executor.cpp:209-217) and exchange after it (MeshImpl::forward,
+src/mesh/mesh.cpp:371-426). A periodic
 one-dimensional domain split into two blocks with one ghost cell each, a first-order upwind stage, and a host-side
 source applied between steps stand in for the solver. Claims C1-C3.
 

@@ -1,7 +1,7 @@
-"""Executable check of the LU pivot tolerance (chapter 7, _vic-pivot.qmd).
+"""Executable check of the LU pivot tolerance (chapter 9, _vic-pivot.qmd).
 
-What is checked: ludcmp's rejection rule |p_j| / s_j <= 8 N eps (src/math/ludcmp.h:29-94 at
-snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; docs/derivations/290-lu-pivot-tolerance.md), ported in
+What is checked: ludcmp's rejection rule |p_j| / s_j <= 8 N eps (src/math/ludcmp.h:30-95 at
+snapy@73c45a7c8c991209924e1137992352c335575062, the default Implicit = true path; docs/derivations/290-lu-pivot-tolerance.md), ported in
 vic_port.py for float32 and float64. Claims C1-C5.
 
 Run: python3 vic_pivot_check.py   (numpy only; exits with the number of failed claims)

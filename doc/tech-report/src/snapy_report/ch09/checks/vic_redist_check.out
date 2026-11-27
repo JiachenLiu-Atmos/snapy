@@ -3,5 +3,5 @@
 [C3] PASS without a clamp each cell's total change is M_i - M_(i+1) = phi_i - R m_i / sum m: the clamp residual is round-off: clamp residual 2.1e-16; relative error of the face divergence 4.8e-16
 [C4] PASS a face asking for more than the donor holds is clamped: the dry donor empties to round-off (no margin), the species keep their margin, the dry clamp mark is set and the clamp residual shows it: mark at the bottom 1; min dry -2.22e-16, min species 3.27e-15; clamp residual 0.8
 [C5] PASS a species donor keeps 4096 ulp of its density: the margin is 1 - keep: double 9.09495e-13, float32 0.000488281
-[C6] PASS the face transfers of eq-ch07-vic-faces telescope: T at the top face is -DM + DM = 0 in closed form: 6 cells, symbolic: T_top = 0
+[C6] PASS the face transfers of eq-ch09-vic-faces telescope: T at the top face is -DM + DM = 0 in closed form: 6 cells, symbolic: T_top = 0
 [C7] PASS the partial matrix's tangential momentum rides on the clamped face transfers at the donor's velocity: column sums kept, a uniform wind kept, a wind-free column untouched: v = (400, -30) m/s, Delta M_col = 0, no clamp: velocity change 1.4e-16 relative with the carry, 1.3e-03 without; column sum 6.9e-17 of the moved momentum; wind-free -0. kept: True

@@ -79,7 +79,7 @@
 - `disable-flux-x3`: whether the third-coordinate flux is disabled. Defined in [YAML scheme selection and setup guards (`YAML keys`)](#sec-ch12-yaml).
 - `distribute`: domain-distribution options. Not defined here; used in [Advance several blocks in one process (`distribute.blocks_per_process`)](#sec-ch01-mesh).
 - `double_precision`: whether an output stream writes NetCDF variables as `NC_DOUBLE` instead of `NC_FLOAT` (default false). Not defined here; used in [NetCDF output: per-block files and the combine (`outputs: type: netcdf`)](#sec-ch14-netcdf).
-- `dt`: time-step duration. Not defined here; used in [VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column (`vic_assemble_full_impl`)](#sec-ch09-vic-assembly).
+- `dt`: time-step duration. Not defined here; used in [VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column (`vic_assemble_impl`)](#sec-ch09-vic-assembly).
 - `dTdt`: prescribed temperature tendency. Not defined here; used in [The forcing loop: parsing, registration and the stage increment (`forcing:`)](#sec-ch07-framework).
 - `dynamic`: whether viscosity and heat transport use dynamic coefficients. Not defined here; used in [Isotropic viscosity and heat conduction (`forcing/diffusion`)](#sec-ch07-viscosity).
 - `dynamics`: hydrodynamic options block. Not defined here; used in [Construct a MeshBlock and its modules (`MeshBlockOptions`)](#sec-ch01-construction).
@@ -197,7 +197,7 @@
 - **Coriolis force**: not defined here; used in [The forcing loop: parsing, registration and the stage increment (`forcing:`)](#sec-ch07-framework).
 - **Courant number**: not defined here; used in [Driver loop and accepted steps (`integration:`)](#sec-ch01-driver).
 - **deck**: defined in [Install and run](#sec-preface-install).
-- **Euler flux**: not defined here; used in [VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column (`vic_assemble_full_impl`)](#sec-ch09-vic-assembly).
+- **Euler flux**: not defined here; used in [VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column (`vic_assemble_impl`)](#sec-ch09-vic-assembly).
 - **functional**: defined in [Build options from YAML and reject unknown keys (`from_yaml`)](#sec-ch01-options).
 - **ghost exchange**: defined in [Generic ghost exchange (`SyncOptions`)](#sec-ch03-exchange).
 - **ghost zone**: defined in [The reconstruction framework (`dynamics/reconstruct`)](#sec-ch04-framework).
