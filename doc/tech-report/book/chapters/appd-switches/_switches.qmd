@@ -23,24 +23,32 @@ not repeated here.
 ::: {.callout-note title="At a glance"}
 **Purpose.** Index of every environment variable snapy reads or sets at the pin, for the chapters to cite.
 
-**Data.** 17 variables in four groups: 1 numerics switch, 11 launch and process-group variables, 3 UCX defaults,
+**Data.** 18 variables in four groups: 2 numerics switches, 11 launch and process-group variables, 3 UCX defaults,
 2 build variables.
 
-**Placement.** The numerics switch: the first call of its accessor. Launch: each construction of layout options.
-The Gloo interface: process-group construction.
+**Placement.** `SNAP_X1_CENTROID_EXACT`: the first call of its accessor; `SNAP_ANOMALY`: every read of a deck's
+`dynamics` rows. Launch: each construction and each deck read of layout options. The Gloo interface: process-group
+construction.
 
-**Activation.** `SNAP_X1_CENTROID_EXACT` is off unless set; the launch variables default to one process on the CPU.
+**Activation.** Both switches are off unless set; `SNAP_ANOMALY` overrides the deck key `dynamics/anomaly`. The
+launch variables default to one process on the CPU.
 
-**Guarantee / limits.** The switch is read once per process; nothing checks that ranks agree.
+**Guarantee / limits.** `SNAP_X1_CENTROID_EXACT` is read once per process, `SNAP_ANOMALY` at every deck read;
+nothing checks that ranks agree.
 
 **Evidence.** The ctest arms of @tbl-appd-tests; full treatment in @sec-ch12-environment.
 :::
 
-One numerics switch is read from the environment at the pin, `SNAP_X1_CENTROID_EXACT`: on a spherical-polar grid it
-makes the reconstruction, the $x_1$ pressure source and the scalar's radial table read plain means instead of
-$r^2$-weighted cell averages (@sec-ch12-centroid). It is an environment variable and not a deck key because every
-block of a process must make the same choice, or the two sides of an $x_1$ seam stop agreeing; the accessor's own
-comment says so ({{< code src/coord/x1_centroid.cpp x1_centroid_exact_enabled >}}).
+Two numerics switches are read from the environment at the pin. `SNAP_X1_CENTROID_EXACT` makes the hydro of a
+spherical-polar grid read plain means instead of $r^2$-weighted cell averages in the reconstruction and the $x_1$
+pressure source, while the scalar keeps its $r^3/3$ table (@sec-ch12-centroid). It is an environment variable and
+not a deck key because every block of a process must make the same choice, or the two sides of an $x_1$ seam stop
+agreeing; the accessor's own comment says so ({{< code src/coord/x1_centroid.cpp x1_centroid_exact_enabled >}}).
+`SNAP_ANOMALY` is the environment override of the deck key `dynamics/anomaly`, which stores the density and energy
+rows of the state as anomalies about a static FP64 reference; the options schema marks the row with the variable
+({{< code src/options/hydro.yaml >}}), the generator writes the read into the deck reader
+({{< code tools/gen_options.py env >}}), and the reader runs it after the deck value every time hydro options are
+read from a deck ({{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}}).
 
 The other numerics choices a reader may look for here are deck keys, listed in @tbl-appd-keys and in @sec-appi:
 the lateral face-flux covariance (`dynamics/flux-covariance`, on by default), the radial velocity mean correction
@@ -55,12 +63,12 @@ or UCX themselves are not listed, except the one Gloo variable snapy reads on th
 
 ### Derivation
 
-None: the switch selects a scheme whose derivation is in @sec-ch12-centroid and @sec-ch03; the launch variables
-select no numerics.
+None: the switches select schemes whose derivations are in @sec-ch12-centroid, @sec-ch03 and @sec-ch12; the launch
+variables select no numerics.
 
 ### Numerical method
 
-The numerics switch is decided once per process, in five steps fixed by its accessor
+`SNAP_X1_CENTROID_EXACT` is decided once per process, in five steps fixed by its accessor
 ({{< code src/coord/x1_centroid.cpp x1_centroid_exact_enabled >}}):
 
 1. *Read.* `get_env` returns the variable's value when it is set, the empty string included, and the accessor's
@@ -69,24 +77,40 @@ The numerics switch is decided once per process, in five steps fixed by its acce
 3. *Decide.* The switch is off when the value is empty, `0`, `false`, `off` or `no`. Every other value is on.
 4. *Cache.* The result is kept in a function-local `static`, so the first call fixes it for every block of the
    process, and a later change of the environment has no effect.
-5. *Act.* Four sites read the cached value. The coordinate's $x_1$ row faces take the plain-mean branch on a
+5. *Act.* Five sites read the cached value. The coordinate's $x_1$ row faces take the plain-mean branch on a
    spherical-polar grid ({{< code src/coord/coordinate.cpp CoordinateImpl::x1_row_faces >}}); the spherical-polar
    forward builds the $x_1$ pressure-source stencils when face pressures are defined
    ({{< code src/coord/spherical_polar.cpp SphericalPolarImpl::forward >}}); the hydro forward converts the
    primitives of a spherical-polar block to plain means before the reconstruction
-   ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}); and the balance of a rest column refuses any
-   geometry but Cartesian ({{< code src/hydro/balance_column.cpp balance_column >}}). On a Cartesian or
-   gnomonic-equiangle grid the first three sites do nothing.
+   ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}); the hydro setup reads it for the `nghost`
+   requirement below ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}); and the balance of a rest column refuses
+   any geometry but Cartesian ({{< code src/hydro/balance_column.cpp balance_column >}}). On a Cartesian or
+   gnomonic-equiangle grid the first three sites do nothing, and the scalar's $r^3/3$ table is not touched on any
+   grid.
 
 The switch shares one requirement with `dynamics/conversion-order: 4`: both read scan pressures three cells away,
 so with nonzero `grav1` the block needs `nghost` of at least 3, checked at setup
 ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
 
+`SNAP_ANOMALY` takes a different path. The options schema marks the `dynamics/anomaly` row with
+`env: SNAP_ANOMALY` ({{< code src/options/hydro.yaml >}}), and the generator writes the read into the deck reader
+({{< code tools/gen_options.py env >}}): after the deck value, if the variable is set, `1`, `on`, `true` or `yes`
+turns the key on, an empty value, `0`, `off`, `false` or `no` turns it off, and any other value is refused. The
+read runs every time hydro options are read from a deck
+({{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}}), so nothing caches it, and the Python
+options have no such key (the row is marked `python: false`). With the key on, setup requires the `ideal-moist`
+equation of state and a Cartesian grid and installs the FP64 reference store
+({{< code src/hydro/hydro.cpp HydroImpl::reset >}}); a restart of a multi-block run needs the file's `hydro_ref`
+({{< code src/mesh/meshblock_restart.cpp >}}).
+
 The launch variables are read each time layout options are constructed
 ({{< code src/layout/layout.cpp LayoutOptionsImpl::LayoutOptionsImpl >}}). The `BACKEND` default comes from
 `default_backend` ({{< code src/layout/layout.cpp default_backend >}}): `ucx` in a build with UCX, except on macOS,
-else `gloo`. The deck's `distribute/backend` key is accepted and ignored, and there is no deck key for the device;
-both rows of the options schema say so ({{< code src/options/layout.yaml >}}). A Gloo process group reads
+else `gloo`. The deck reader reads `BACKEND` and `DEVICE` a second time, through the same generated mechanism as
+`SNAP_ANOMALY`: the schema's `backend` and `device` rows carry `env:` entries, so a set `BACKEND` overrides
+whatever the deck says, and the device is `DEVICE` or `cpu` when it is unset ({{< code src/options/layout.yaml >}},
+{{< code src/layout/layout.cpp LayoutOptionsImpl::from_yaml >}}). The deck's `distribute/backend` key is accepted
+and ignored, and there is no deck key for the device. A Gloo process group reads
 `GLOO_SOCKET_IFNAME` once, when it is constructed, and binds its device to that interface instead of resolving the
 host ({{< code src/layout/process_group.cpp ProcessGroupContext::_init_gloo >}}). The three communication defaults
 are written, not read, by `set_default_env` ({{< code src/layout/process_group_ucx.cpp set_default_env >}}), only
@@ -96,8 +120,8 @@ the process environment that commux sees.
 
 ### Code
 
-**How to set the switch.** It is an environment variable of the process that runs snapy, set before it starts;
-there is no YAML key for it. For example, the Straka deck in `build/bin` of a build at the pin
+**How to set a switch.** It is an environment variable of the process that runs snapy, set before it starts;
+`SNAP_X1_CENTROID_EXACT` has no YAML key, and `SNAP_ANOMALY=1` turns `dynamics/anomaly` on without one. For example, the Straka deck in `build/bin` of a build at the pin
 ([Install and run](#sec-preface-install)):
 
 ```sh
@@ -109,8 +133,9 @@ refusal 1 below, which the deck's `nghost: 3` meets. A run with several processe
 which `torchrun` sets from `--master-port`:
 `torchrun --no-python --nproc-per-node=2 --master-port=29573 ./straka.release straka_proc2.yaml`.
 
-**What is refused, and why.** Nothing in the parse refuses a value: an unrecognised value turns the switch on
-(step 3 of the Numerical method above). Setup refuses four combinations:
+**What is refused, and why.** For `SNAP_X1_CENTROID_EXACT` nothing in the parse refuses a value: an unrecognised
+value turns the switch on (step 3 of the Numerical method above). The parse refuses one value of `SNAP_ANOMALY`,
+and setup refuses five combinations:
 
 1. *`SNAP_X1_CENTROID_EXACT` (or `dynamics/conversion-order: 4`) with nonzero `grav1` and `nghost` below 3*: the
    resolution flag reads scan pressures three cells away, so both sides of an $x_1$ seam agree only with three
@@ -118,9 +143,14 @@ which `torchrun` sets from `--master-port`:
 2. *`SNAP_X1_CENTROID_EXACT` with a rest column whose geometry is not `cartesian`*: `balance_column` does no
    $r^2$-to-plain-mean conversion, so a spherical-polar column's rest state is left to the solver's own reference
    ({{< code src/hydro/balance_column.cpp balance_column >}}).
-3. *An unset `MASTER_PORT` with either world size above 1*: the processes could not meet on one store
+3. *`SNAP_ANOMALY` set to anything but `1`, `on`, `true`, `yes`, the empty value, `0`, `off`, `false` or `no`*:
+   the generated reader stops with `SNAP_ANOMALY must be 0 or 1` ({{< code tools/gen_options.py env >}}).
+4. *`dynamics/anomaly` on (by deck or by `SNAP_ANOMALY`) with an equation of state other than `ideal-moist`, or on
+   a grid other than Cartesian*: the anomaly storage is implemented for that one EOS and one grid
+   ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}).
+5. *An unset `MASTER_PORT` with either world size above 1*: the processes could not meet on one store
    ({{< code src/layout/layout.cpp LayoutOptionsImpl::LayoutOptionsImpl >}}).
-4. *`GLOO_SOCKET_IFNAME` naming an interface the host does not have*: the Gloo device is created for that interface
+6. *`GLOO_SOCKET_IFNAME` naming an interface the host does not have*: the Gloo device is created for that interface
    and the process group fails to start on every rank with `Unable to find address for: <name>`
    ({{< code src/layout/process_group.cpp ProcessGroupContext::_init_gloo >}}); `test_gloo_invalid_interface` in
    @tbl-appd-tests expects exactly that failure on both ranks.
@@ -136,15 +166,16 @@ bool x1_centroid_exact_enabled() {
                    [](unsigned char c) { return std::tolower(c); });   // step 2: lower-case, no trim
     return !(v.empty() || v == "0" || v == "false" || v == "off" || v == "no");  // step 3
   }();
-  return on;                                                     // step 5: read at four sites
+  return on;                                                     // step 5: read at five sites
 }
 ```
 
 | symbol | read at | default | effect | cited by |
 |------------------|--------------------|----------------|--------------------------|--------------|
-| `SNAP_X1_CENTROID_EXACT` | {{< code src/coord/x1_centroid.cpp x1_centroid_exact_enabled >}} | off (`"0"`) | spherical-polar $r^2$-average $x_1$ cell-to-plain-mean formulas in the reconstruction, the pressure source and the scalar's radial table; `nghost` of at least 3 with gravity | @sec-ch01, @sec-ch03, @sec-ch04, @sec-ch05, @sec-ch06, @sec-ch10, @sec-ch11, @sec-ch16; full: @sec-ch12-centroid |
+| `SNAP_X1_CENTROID_EXACT` | {{< code src/coord/x1_centroid.cpp x1_centroid_exact_enabled >}} | off (`"0"`) | spherical-polar $r^2$-average $x_1$ cell-to-plain-mean formulas in the hydro's reconstruction and pressure source; the scalar keeps its $r^3/3$ table; `nghost` of at least 3 with gravity | @sec-ch01, @sec-ch03, @sec-ch04, @sec-ch05, @sec-ch06, @sec-ch10, @sec-ch11, @sec-ch16; full: @sec-ch12-centroid |
+| `SNAP_ANOMALY` | {{< code src/hydro/hydro_options.cpp HydroOptionsImpl::from_yaml >}}, generated from {{< code src/options/hydro.yaml >}} by {{< code tools/gen_options.py env >}} | the deck's `dynamics/anomaly`, `false` | anomaly storage of the density and energy rows about a static FP64 reference; `ideal-moist` EOS and Cartesian grid only; `1`/`on`/`true`/`yes` on, empty/`0`/`off`/`false`/`no` off, anything else refused | @sec-ch15 |
 
-: The numerics switch: read once per process; an empty value, 0, false, off or no (any case) turns it off. {#tbl-appd-numerics}
+: The numerics switches. `SNAP_X1_CENTROID_EXACT` is read once per process, and an empty value, 0, false, off or no (any case) turns it off; `SNAP_ANOMALY` is read at every deck read and accepts only the words listed. {#tbl-appd-numerics}
 
 | deck key | read at | default | effect | section |
 |------------------|--------------------|----------------|--------------------------|--------------|
@@ -157,7 +188,7 @@ bool x1_centroid_exact_enabled() {
 
 | symbol | read at | default | effect | cited by |
 |------------------|--------------------|----------------|--------------------------|--------------|
-| `BACKEND` | {{< code src/layout/layout.cpp LayoutOptionsImpl::LayoutOptionsImpl >}} | `ucx` in a UCX build off macOS, else `gloo` ({{< code src/layout/layout.cpp default_backend >}}) | process-group backend; the YAML `distribute/backend` key is accepted and ignored | @sec-ch01, @sec-ch03, @sec-ch14, @sec-ch15; full: @sec-ch12-layout |
+| `BACKEND` | {{< code src/layout/layout.cpp LayoutOptionsImpl::LayoutOptionsImpl >}}, {{< code src/layout/layout.cpp LayoutOptionsImpl::from_yaml >}} (generated from {{< code src/options/layout.yaml >}}) | `ucx` in a UCX build off macOS, else `gloo` ({{< code src/layout/layout.cpp default_backend >}}) | process-group backend; the YAML `distribute/backend` key is accepted and ignored | @sec-ch01, @sec-ch03, @sec-ch14, @sec-ch15; full: @sec-ch12-layout |
 | `PROCESS_RANK` | {{< code src/layout/layout.cpp LayoutOptionsImpl::LayoutOptionsImpl >}} | `RANK`, then 0 | rank of this process | full: @sec-ch12-layout |
 | `PROCESS_WORLD_SIZE` | {{< code src/layout/layout.cpp LayoutOptionsImpl::LayoutOptionsImpl >}} | `WORLD_SIZE`, then 1 | number of processes | full: @sec-ch12-layout |
 | `WORLD_SIZE` | {{< code src/layout/layout.cpp LayoutOptionsImpl::LayoutOptionsImpl >}}, {{< code src/layout/layout.hpp get_world_size >}}, {{< code python/exchange.py init_dist >}} | process world size; 1 in `get_world_size` and `init_dist` | global world size | @sec-ch14; full: @sec-ch12-layout |
@@ -166,13 +197,13 @@ bool x1_centroid_exact_enabled() {
 | `MASTER_ADDR` | {{< code src/layout/layout.cpp LayoutOptionsImpl::LayoutOptionsImpl >}} | `127.0.0.1` | rendezvous address | full: @sec-ch12-layout |
 | `MASTER_PORT` | {{< code src/layout/layout.cpp LayoutOptionsImpl::LayoutOptionsImpl >}} | a random port, single process only | rendezvous port; construction fails if it is unset and either world size exceeds 1 | @sec-ch14; full: @sec-ch12-layout |
 | `DEVICE_ID` | {{< code src/layout/layout.cpp LayoutOptionsImpl::LayoutOptionsImpl >}} | -1 | device index | @sec-ch14; full: @sec-ch12-layout |
-| `DEVICE` | {{< code src/layout/layout.cpp LayoutOptionsImpl::LayoutOptionsImpl >}} | `cpu` | device type; there is no deck key for it | @sec-ch01, @sec-ch14, @sec-ch16; full: @sec-ch12-layout |
-| `GLOO_SOCKET_IFNAME` | {{< code src/layout/process_group.cpp ProcessGroupContext::_init_gloo >}} | unset: Gloo's default device, from the host name | the network interface the Gloo device binds; an interface that does not exist fails the process group (refusal 4) | @sec-ch14 |
+| `DEVICE` | {{< code src/layout/layout.cpp LayoutOptionsImpl::LayoutOptionsImpl >}}, {{< code src/layout/layout.cpp LayoutOptionsImpl::from_yaml >}} (generated from {{< code src/options/layout.yaml >}}) | `cpu`, also when the deck reader finds it unset | device type; there is no deck key for it | @sec-ch01, @sec-ch14, @sec-ch16; full: @sec-ch12-layout |
+| `GLOO_SOCKET_IFNAME` | {{< code src/layout/process_group.cpp ProcessGroupContext::_init_gloo >}} | unset: Gloo's default device, from the host name | the network interface the Gloo device binds; an interface that does not exist fails the process group (refusal 6) | @sec-ch14 |
 | `COMMUX_COALESCE` | written by {{< code src/layout/process_group_ucx.cpp ProcessGroupContext::_init_ucx >}} | set to 1 if unset | commux option; the call-site comment: grouped point-to-point operations are flushed after one stream synchronization | full: @sec-ch12-layout |
 | `COMMUX_GROUP` | written by {{< code src/layout/process_group_ucx.cpp ProcessGroupContext::_init_ucx >}} | set to 1 if unset | commux option, set with `COMMUX_COALESCE` under the same comment | full: @sec-ch12-layout |
 | `UCX_TLS` | written by {{< code src/layout/process_group_ucx.cpp ProcessGroupContext::_init_ucx >}} | set to `^cuda_copy,cuda_ipc,gdr_copy` if unset and `DEVICE` is `cpu` | excludes the CUDA copy, IPC and GPUDirect transports | @sec-ch14; full: @sec-ch12-layout |
 
-: Launch and process-group variables, read when layout options are constructed and when the Gloo process group starts, and the three communication defaults snapy writes before the UCX process group starts (UCX builds only). {#tbl-appd-layout}
+: Launch and process-group variables, read when layout options are constructed or read from a deck and when the Gloo process group starts, and the three communication defaults snapy writes before the UCX process group starts (UCX builds only). {#tbl-appd-layout}
 
 | symbol | read at | default | effect | cited by |
 |------------------|--------------------|----------------|--------------------------|--------------|
@@ -183,9 +214,10 @@ bool x1_centroid_exact_enabled() {
 
 ### Tests
 
-The ctest registrations set the switch and the backend per entry ({{< code tests/CMakeLists.txt >}}). Each row is
-one variable; the test names are the registered ctest names, without the build-type suffix. The seam arms pass
-only on gtest's own line `[  PASSED  ] 1 test.`, so a skipped or empty arm fails its entry.
+The ctest registrations set the switches and the backend per entry ({{< code tests/CMakeLists.txt >}}), either as
+the entry's own environment or inside a wrapper script the entry runs. Each row is one variable; the test names
+are the registered ctest names, without the build-type suffix. The seam arms pass only on gtest's own line
+`[  PASSED  ] 1 test.`, so a skipped or empty arm fails its entry.
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
@@ -194,20 +226,25 @@ only on gtest's own line `[  PASSED  ] 1 test.`, so a skipped or empty arm fails
 | `test_deck_x1_wiring_x1_centroid` | with `SNAP_X1_CENTROID_EXACT=1` the scalar keeps the $r^3/3$ table of a spherical-polar deck while the hydro reads plain means | per test | the test source |
 | `test_stretched_x1_ref_x1_centroid` | with `SNAP_X1_CENTROID_EXACT=1` the stretched $x_1$ reference and the balance of a Cartesian column still run | per test | the test source |
 | `test_balance_column_x1_centroid`, `test_face_floor_x1_centroid` | with `SNAP_X1_CENTROID_EXACT=1` the same balance and floor checks hold on their Cartesian columns | per test | the test sources |
+| `test_anomaly_storage_python` | `SNAP_ANOMALY=1` in a child process turns `dynamics/anomaly` on without the deck key, and an unsupported EOS refuses it (refusal 4) | exact: the child's last line, a throw | the test source |
+| `test_options_table` | the reader keeps the words of `SNAP_ANOMALY` (`on`, the empty value) and its refusal of `maybe` (refusal 3) | exact | the test source |
 | `test_diffusion_cubed_sphere_mp`, `test_conservation_budget_mp` (three ranks), `test_parentless_cloud_nb1_mp_gloo` (UCX builds) | `BACKEND=gloo`: the two- and three-rank cases on Gloo, which a UCX build would not reach by default | per test | the test sources |
-| `test_gloo_invalid_interface` | `BACKEND=gloo` with `GLOO_SOCKET_IFNAME=snapy_no_such_interface`: the two-rank launch fails instead of resolving the host (refusal 4) | exact: expected failure | the wrapper script of the registration |
+| `test_gloo_invalid_interface` | `BACKEND=gloo` with `GLOO_SOCKET_IFNAME=snapy_no_such_interface`: the two-rank launch fails instead of resolving the host (refusal 6) | exact: expected failure | the wrapper script of the registration |
+| `test_sedimentation_cubed_seam_gloo` (UCX builds) | the wrapper runs two ranks with `BACKEND=gloo` and then with `BACKEND=ucx`: both exit 0 and their result lines agree to 17 digits | exact: identical result line | the wrapper script of the registration |
 | `test_exchange_ucx` (UCX builds) | `BACKEND=ucx` with the exchange topology variables of @sec-ch12-test-environment | per test | the test source |
+| `test_exchange_ucx_cuda` (CUDA and UCX builds) | the wrapper sets `BACKEND=ucx` and `DEVICE=cuda` with the same topology variables | per test | the test source |
 | `test_diffusion_cubed_sphere_two_gpu_ucx` (CUDA and commux-CUDA builds) | `BACKEND=ucx`, `DEVICE=cuda` and an explicit `UCX_TLS=self,tcp,cuda_copy,cuda_ipc`, which the set-if-unset default of @tbl-appd-layout leaves alone | per test | the test source |
 
 : Ctest entries that set an environment variable of this appendix, at the pin. {#tbl-appd-tests}
 
 The registered names and their assertions are in @sec-appc. No check script of this report covers this appendix.
-The entries of @tbl-appd-tests that a CPU build registers were run at the pin for it[^appd-run]: ten of the eleven
-passed, and `test_gloo_invalid_interface` failed for a reason that is not the interface check. Its binary compiles
+Twelve entries of @tbl-appd-tests were run at the pin for it[^appd-run]: eleven passed, and
+`test_gloo_invalid_interface` failed for a reason that is not the interface check. Its binary compiles
 its one test only with `NETCDFOUTPUT` ({{< code tests/test_output_barrier.cpp >}}), so in a build without NetCDF
 both ranks run zero tests and exit 0, and the wrapper stops with `expected two interface errors; exit=0,
 matches=0`. In a build with NetCDF (`-DNETCDF=ON -DPNETCDF=ON`, same tree, same host) the entry passes, with
-`test_output_barrier` itself. The CUDA and UCX-on-GPU arms were not run.
+`test_output_barrier` itself. The wrapper entry `test_sedimentation_cubed_seam_gloo` and the two `SNAP_ANOMALY`
+entries, `test_anomaly_storage_python` and `test_options_table`, passed in the same build[^appd-run]. The CUDA and UCX-on-GPU arms were not run.
 
 [^appd-run]: `ctest -j 1` on the entries by name, in a Release build at the pin configured with `cmake -DCUDA=OFF
     -DNETCDF=OFF -DPNETCDF=OFF -DUCX=ON`, kintera 2.6.13, pyharp 2.7.17, torch 2.10.0+cu128, Linux x86-64, the
@@ -215,17 +252,20 @@ matches=0`. In a build with NetCDF (`-DNETCDF=ON -DPNETCDF=ON`, same tree, same 
     `test_x1_seam_split_nghost_check_x1_centroid`, `test_x1_seam_split_mp_x1_centroid`,
     `test_deck_x1_wiring_x1_centroid`, `test_stretched_x1_ref_x1_centroid`, `test_balance_column_x1_centroid`,
     `test_face_floor_x1_centroid`, `test_diffusion_cubed_sphere_mp`, `test_conservation_budget_mp`,
-    `test_parentless_cloud_nb1_mp_gloo`, `test_exchange_ucx`. Failed: `test_gloo_invalid_interface`, as described.
-    One run, one host.
+    `test_parentless_cloud_nb1_mp_gloo`, `test_exchange_ucx`, and in a second run `test_sedimentation_cubed_seam_gloo`,
+    `test_anomaly_storage_python`, `test_options_table`. Failed: `test_gloo_invalid_interface`, as described. One run
+    each, one host.
 
 ### Limits
 
 ::: {.callout-warning title="Limits"}
 A switch that differs between ranks makes shared faces two-valued, and no code compares the ranks' values.
-The switch changed after the first call has no effect in that process.
+`SNAP_X1_CENTROID_EXACT` changed after the first call has no effect in that process; `SNAP_ANOMALY` is read again
+at every deck read, so two decks read in one process can disagree.
 :::
 
 - `distribute/backend` in YAML is accepted and ignored; only `BACKEND` selects the backend.
+- `SNAP_ANOMALY` reaches a deck read only; options built in code or from Python carry no override.
 - `LOCAL_RANK` has two defaults: 0 in the C++ layout options, the rank modulo the GPU count in `init_dist`.
 - An unset `NC_HOME` adds the literal path `None/lib` to the package build's library path.
 - The scope is `src/`, `python/` and `setup.py` at the pin; environment variables read by kintera, pyharp, commux,
