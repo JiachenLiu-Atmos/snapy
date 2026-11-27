@@ -61,7 +61,7 @@ library's source lists, and 9 of them hold one `.cu` file each, all in its CUDA 
 | `bc/` | external boundary functions, internal (solid) boundaries | yes, with CUDA | @sec-ch11 |
 | `chemistry/` | the chemistry step a block or a Mesh registers (`ChemistrySource`, kintera kinetics) | yes | @sec-appe-components |
 | `coord/` | coordinate systems and metrics: Cartesian, spherical-polar, gnomonic cubed sphere | yes, with CUDA | @sec-ch03 |
-| `diagnostics/` | the budget read off the flux register, and the consumer interface for diagnostics that read the register | yes | @sec-ch06-conserves, @sec-ch13 |
+| `diagnostics/` | the budget read off the flux register, and the consumer interface for diagnostics that read the register | yes | @sec-ch06-conserves; the pre-V3 diagnostics chapter, which returns with the V3 chapter 10 |
 | `eos/` | equations of state: ideal gas, ideal moist, moist mixture, shallow water, tabulated (`aneos/`); the EOS status (`EfStatus`) | yes, with CUDA | @sec-ch02, @sec-ch08-efstatus |
 | `forcing/` | forcing modules: constant gravity, Coriolis and axial momentum, diffusion, heating, relaxation, sponges | yes | @sec-ch07, @sec-ch06-cell |
 | `hydro/` | the hydro module: its options, the sweep, the flux register, flux positivity, well-balanced references, gravity work, `balance_column` | yes, with CUDA | @sec-ch01-hydro, @sec-ch04, @sec-ch05, @sec-ch08-theta |
@@ -71,7 +71,7 @@ library's source lists, and 9 of them hold one `.cu` file each, all in its CUDA 
 | `math/` | headers only: LU routines used by `implicit/` | headers | @sec-ch09-vic-pivot |
 | `mesh/` | `MeshBlock` in six parts, `Mesh`, the stage executor, its segments, the state store and the precision policy (@tbl-appj-v3) | yes | @sec-ch01-construction, @sec-ch01-mesh, @sec-ch16-capture |
 | `options/` | the options schema in YAML, one file per options block; `tools/gen_options.py` generates the option code from it at build time | generated | @sec-ch15-options, @sec-appi |
-| `output/` | output types (NetCDF, PnetCDF, restart), the gridded writer core, the budget time series, the combine and field loaders | yes | @sec-ch15-output, @sec-ch15-restart |
+| `output/` | output types (NetCDF, PnetCDF, restart), the gridded writer core, the budget time series, the combine and field loaders | yes | @sec-ch15-output, @sec-ch15-restart, @sec-ch14-add-output-field |
 | `recon/` | reconstruction: donor cell, PLM, CP3/CP5, WENO3/WENO5, PPM, the $x_1$ reference | yes, with CUDA | @sec-ch04-framework, @sec-ch05-wbx1 |
 | `riemann/` | Riemann solvers: Roe, LMARS, HLLC, shallow-water Roe, plume Roe | yes, with CUDA | @sec-ch04-riemann |
 | `scalar/` | the passive-scalar module | yes | @sec-ch01-scalar, @sec-ch08-scalar |
@@ -92,7 +92,7 @@ library, except `layout/`, whose glob is listed but holds none. {#tbl-appj-src}
 | {{< code src/mesh/meshblock_advance.cpp >}} | part BlockAdvance: the time step and one stage | @sec-ch09-cfl, @sec-ch09-rk |
 | {{< code src/mesh/meshblock_exchange.cpp >}} | part BlockExchange: exchange phases and boundary functions | @sec-ch03-exchange, @sec-ch11-timing |
 | {{< code src/mesh/meshblock_redo.cpp >}} | part BlockRedo: the retry flags, the decision, the restore | @sec-ch09-redo, @sec-ch08-redo |
-| {{< code src/mesh/meshblock_output.cpp >}} | part BlockOutput: outputs, the cycle diagnostics, the end of a run | @sec-ch13-cycle, @sec-ch15-output |
+| {{< code src/mesh/meshblock_output.cpp >}} | part BlockOutput: outputs, the cycle diagnostics, the end of a run | @sec-ch15-output; the cycle diagnostics: the pre-V3 section “Cycle-line budget”, which returns with the V3 chapter 10 |
 | {{< code src/mesh/meshblock_restart.cpp >}} | part BlockRestart: initialization from a restart file | @sec-ch15-restart |
 | {{< code src/mesh/meshblock_options.cpp >}} | `MeshBlockOptions` from the deck, among them the execution keys | @sec-ch15-options |
 | {{< code src/mesh/mesh.cpp >}} | `Mesh`: several blocks per process, their exchange and the global phase | @sec-ch01-mesh |

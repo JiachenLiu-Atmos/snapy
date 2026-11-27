@@ -100,7 +100,7 @@ only; nothing in the state depends on them.
 **Gravity-work fixer.**
 
 The fixer runs only with `gravity-work: cell`, which is not the default (`face` is), so a default run makes no
-fixer reduction (@sec-ch13-fixgrav). When it runs, after the last stage of each step every block forms five
+fixer reduction (the pre-V3 section “Gravity-work fixer budget”, which returns with the V3 chapter 10). When it runs, after the last stage of each step every block forms five
 float64 numbers on the host in `gravity_work_fixer_sums` ({{< code src/mesh/meshblock.cpp MeshBlockImpl::gravity_work_fixer_sums >}}):
 the stage-weighted $E_{\mathrm{tot}}+\mathrm{PE}_d$ defect, the fluid mass, the mass through the $x_1$ boundary faces, the mass of
 the wall cells and a redo flag. Each is itself a sum over the block's cells, formed by torch on the block's device.

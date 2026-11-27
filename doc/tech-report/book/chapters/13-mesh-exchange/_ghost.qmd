@@ -1,7 +1,7 @@
 ## The ghost exchange and the same-process waits (`blocks_per_process`) {#sec-ch13-ghost}
 
 <!-- PROVENANCE
-pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final; code_pin.yml bump pending)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: src/mesh/meshblock_exchange.cpp, src/mesh/mesh.cpp, src/layout/layout.cpp, src/layout/layout.hpp, src/layout/exchange.cpp, tests/test_exchange.cpp, tests/test_mesh_exchange.py, tests/test_cubed_sphere_exchange.cpp, tests/test_periodic_corners.py, tests/test_mesh_block_job_failure.py
 status: draft
 author: jihenghu
@@ -31,11 +31,13 @@ inside the stage.
 **Guarantee / limits.** The copies are exact. A failed block job ends every same-process wait of its Mesh; the
 caller gets the first error once every job has ended.
 
-**Evidence.** @sec-ch13-ghost-tests.
+**Evidence.** @tbl-ch13-ghost-tests.
 :::
 
-What a ghost holds, the corner convention and the panel-seam interpolation are @sec-ch03. Here the subject is how
-the buffers get there when several blocks share a process, and what happens when one of them fails.
+What a ghost holds, the corner convention and the panel-seam interpolation are @sec-ch03; the rotation operands
+that the panel-seam reconcile applies are built once per seam side and reused every stage (@sec-ch03-seamcache).
+Here the subject is how the buffers get there when several blocks share a process, and what happens when one of
+them fails.
 
 ### Derivation
 
@@ -111,7 +113,7 @@ the pool (in `run_block_jobs`, through its `submit`) calls `clear_local_exchange
 The five-minute caps of mail and anchor are the only timeouts; a cap that passes raises its own message naming
 the blocks involved.
 
-### Tests {#sec-ch13-ghost-tests}
+### Tests
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|

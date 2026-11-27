@@ -23,7 +23,7 @@ section has the same layers: a summary, the derivation, the numerical method, th
 | @sec-ch10 | How phase change, condensates and passive tracers enter the step |
 | @sec-ch11 | The boundary conditions, the ghost fill and exchange order, and immersed solids |
 | @sec-ch12 | Build options, environment switches, YAML scheme selection and which switch combinations are tested |
-| @sec-ch13 | The conservation budgets and diagnostics the model prints, and the tests that read them |
+| @sec-ch13 | The Mesh: how blocks are laid out and ranked, the ghost exchange between the blocks of one process and the same-process waits, exchange cuts and multi-block capture, Mesh-agree and the $x_1$ seam split |
 | @sec-ch14 | Several processes and devices, output and restart files, and reproducibility |
 | @sec-ch15 | How deck keys become options, how output is written and combined, and how a run is restarted |
 | @sec-ch16 | How the code is verified: the bitwise gates, the capture sweep, launch counting, regression provenance and device reproducibility, then the verification catalogue: which test supports which claim, and how to rerun it |

@@ -1,7 +1,7 @@
 ## Layouts and ranks: block, rank and panel (`distribute`) {#sec-ch13-layouts}
 
 <!-- PROVENANCE
-pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final; code_pin.yml bump pending)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: src/options/layout.yaml, src/layout/layout.hpp, src/layout/layout.cpp, src/layout/cubed_sphere_layout.cpp, tests/test_process_group.cpp, tests/test_local_horizontal_cells.py
 status: draft
 author: jihenghu
@@ -29,7 +29,7 @@ map a location back to a rank, and give the neighbour rank at an offset $(\iota_
 **Guarantee / limits.** The map is a bijection on the ranks of the run; edge neighbours are symmetric. No
 physics depends on it beyond which block sits where.
 
-**Evidence.** @sec-ch13-layouts-tests.
+**Evidence.** @tbl-ch13-layouts-tests.
 :::
 
 On the cubed sphere a run has $6\,n_b^2$ blocks, $n_b$ along each panel edge (`nb2` = `nb3` = $n_b$). A process
@@ -43,12 +43,12 @@ There is no equation: the layout is a map. Its properties are stated here and ch
 $n_b \in \{1,2,3,4\}$ the cubed-sphere layout has $6\,n_b^2$ ranks (6, 24, 54, 96) on panels 0 to 5;
 `rank_of(loc_of(r))` is `r` for every rank and `loc_of` returns $(-1,-1,-1)$ one past the last; each of the four
 edge neighbours of a rank is another valid rank, and the edge relation is symmetric (a block is an edge
-neighbour of each of its edge neighbours); every corner neighbour is a valid rank.[^lay-run] The process map is integer
+neighbour of each of its edge neighbours); every corner neighbour is a valid rank.[^ch13-lay-run] The process map is integer
 division: a block of rank `rank` belongs to process `rank / blocks_per_process` and is block
 `rank % blocks_per_process` of it (`owner_process_rank`, `local_block_index`), and the inverse is
 `process * blocks_per_process + index` (`global_block_rank`).
 
-[^lay-run]: [sha: 73c45a7c8c991209924e1137992352c335575062; deck: none (layout objects only); run: `python cs_neighbors.py`, clean CUDA Release build, CPU[^rg-09c7f58a7a6a] (the layout is host code), one process; torch 2.10.0+cu126, kintera 2.6.13, pyharp 2.8.1, gcc 13.3.1, nvcc 12.9, Python 3.11.13];
+[^ch13-lay-run]: [sha: 73c45a7c8c991209924e1137992352c335575062; deck: none (layout objects only); run: `python cs_neighbors.py`, clean CUDA Release build, CPU[^rg-09c7f58a7a6a] (the layout is host code), one process; torch 2.10.0+cu126, kintera 2.6.13, pyharp 2.8.1, gcc 13.3.1, nvcc 12.9, Python 3.11.13];
     `cs_neighbors.py` is a script in the writer's workspace that calls the snapy Python bindings
     (`CubedSphereLayout`); log `cs_neighbors-73c45a7c.log`. Not an executable check of section 7: it imports snapy.
 
@@ -89,7 +89,7 @@ make_fig()
 `LayoutImpl::create` builds the layout named by `layout`; an unknown name is refused there. The process of a
 block and its index in the process are read wherever a same-process path is chosen (`is_local_block`).
 
-### Tests {#sec-ch13-layouts-tests}
+### Tests
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|

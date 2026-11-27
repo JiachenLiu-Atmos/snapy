@@ -192,11 +192,11 @@
 - Set up a problem of my own (e.g. a warm bubble in a chosen atmosphere) starting from an example. Not provided: no problem-design tutorial; only the initial-state contract exists (@sec-ch01-initialization).
 - Find how Coriolis and geometric sources interact with the well-balanced reconstruction. Not provided: no section states the interaction.
 - List the numerical dissipation of the scheme (Riemann solver, limiters) apart from physical diffusion. Not provided: no list of numerical dissipation and no physical-vs-numerical split.
-- Diagnose a run that stopped with negative density or NaN. Not provided: its answering section (@sec-ch13-redo-view, in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
-- Check that total mass is conserved to round-off and find the test that shows the drift. Not provided: its answering section (@sec-ch13-regression, in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
-- See how large the limiter corrections were in a run (logged meters). Not provided: its answering section (@sec-ch13-limiter-meters, in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
+- Diagnose a run that stopped with negative density or NaN. Not provided: its answering section ("Redo causes and termination status", in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
+- Check that total mass is conserved to round-off and find the test that shows the drift. Not provided: its answering section ("Mass-conservation regression checks", in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
+- See how large the limiter corrections were in a run (logged meters). Not provided: its answering section ("Positivity-limiter meters", in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
 - Identify the latest usable checkpoint after a node or storage failure. Not provided: the book states no completeness guarantee for an interrupted write and no procedure for finding the latest usable checkpoint after a failure.
-- Show that my forcing changes mass, momentum and energy only as intended, per step. Not provided: its answering section (@sec-ch13-cycle, in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
+- Show that my forcing changes mass, momentum and energy only as intended, per step. Not provided: its answering section ("Cycle-line budget", in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
 - Record what a paper needs: code version, resolved configuration, dependencies, hardware. Not provided: no publication-record checklist; output does not record a resolved configuration.
 - Compare thermodynamic constants with sources against my old model. Not provided: saturation vapour pressures not covered; deck values cited only to deck lines; cv_R=2.5 unsourced.
 - Find which results-changing fixes went into which versions. Not provided: no per-version list of results-changing fixes.
@@ -207,7 +207,7 @@
 - Relate cubed-sphere panel orientation to FV3 or MITgcm. Not provided: the panel frame is defined in @sec-ch03-gnomonic, but there is no mapping to FV3 or MITgcm panel numbering or orientation.
 - Understand the pole treatment on the spherical-polar grid. Not provided: no section treats the poles; @sec-ch03-sphpolar only requires x2 within [0, pi]; "pole" occurs once, in @sec-ch03-synctype ("away from a pole").
 - Restart a run from a NetCDF dump. Not provided: restart reads only .restart bundles (load_pt_from_bundle, @sec-ch14-restart); no reader starts a run from a NetCDF output file.
-- Check mass and energy conservation from the output files. Not provided: its answering section (@sec-ch13-cycle, in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
+- Check mass and energy conservation from the output files. Not provided: its answering section ("Cycle-line budget", in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
 
 ## Outside scope {.unnumbered .unlisted}
 

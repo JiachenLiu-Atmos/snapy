@@ -1,7 +1,7 @@
 ## Exchange cuts and multi-block capture (`integration: execution`) {#sec-ch13-cuts}
 
 <!-- PROVENANCE
-pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final; code_pin.yml bump pending)
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: src/mesh/stage_executor.cpp, src/mesh/stage_executor.hpp, src/mesh/exchange_cut.hpp, src/mesh/meshblock_exchange.cpp, src/layout/seam_register.cpp, src/mesh/mesh.cpp, tests/test_mesh_capture.cpp, tests/test_mesh_capture_moist.py, tests/test_cubed_sphere_capture.py, tests/test_graph_mesh_many_blocks.py, tests/test_mesh_worker_streams.cpp, tests/test_default_execution.py
 status: draft
 author: jihenghu
@@ -32,7 +32,7 @@ the graphs.
 **Guarantee / limits.** A captured Mesh equals the same Mesh run eager bitwise (the tests below). A capture that
 runs out of device memory stops the run with one error that names `execution: eager`.
 
-**Evidence.** @sec-ch13-cuts-tests.
+**Evidence.** @tbl-ch13-cuts-tests.
 :::
 
 The segment schedule and the graph rules of one block are @sec-ch11. This section adds what a Mesh needs on top of
@@ -92,7 +92,7 @@ this deck", followed by the original message; every other error passes unchanged
 waits (@sec-ch13-ghost). `config_reasons` refuses capture with more than one process ("multi-rank capture is not
 done yet") and with an x1 split ("its relays inside the stage are not cut into segments yet").
 
-### Tests {#sec-ch13-cuts-tests}
+### Tests
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|

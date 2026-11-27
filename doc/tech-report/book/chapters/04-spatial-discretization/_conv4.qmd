@@ -201,7 +201,7 @@ cell-local: a run can be fourth order over most of the grid and second order in 
 screened state is handed to the equation of state as the plain average, and, with the limiter on, the redo marks
 and vapour failures this extra call raised are restored from the copies taken before it, so the step-acceptance
 test of @sec-ch09-redo never sees them. The count of screened cells per stage, ghosts included, goes into
-`conversion_trips` (@sec-ch13-limiter-meters).
+`conversion_trips` (the pre-V3 section “Positivity-limiter meters”, which returns with the V3 chapter 10).
 
 **Ghosts, walls and seams.** $\mathsf Q$ is centred in every cell the stencil fits, which includes every ghost but
 the outermost one on each side; the outermost ghost keeps the second-order value, because `lap` writes only
