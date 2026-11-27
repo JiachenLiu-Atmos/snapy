@@ -103,9 +103,9 @@ primitive variables writes two fixed buffers in place, the inverse volumes (`DY-
 the mixture heat capacity is `VT->cv` over the same volumes
 ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::specific_heat_cv >}}), and the primitive cache is refilled
 from pressure and volume (`PV->T`) ({{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_ensure_cache >}}). The
-EOS reader hands the deck file to kintera, whose `ThermoOptionsImpl::from_yaml` takes its keys straight from
-`dynamics/equation-of-state` (snapy's own key check lists `max-iter`, `ftol` and `uv-solver` as the keys kintera reads
-there) ({{< code src/eos/equation_of_state.cpp EquationOfStateOptionsImpl::from_yaml >}}), and refills kintera's species table
+EOS reader hands the deck file to kintera, whose `ThermoOptionsImpl::from_yaml` reads the deck's `reference-state`
+and `reactions` itself and takes its solver keys from `dynamics/equation-of-state` (snapy's own key check lists
+`max-iter`, `ftol` and `uv-solver` as the keys kintera reads there) ({{< code src/eos/equation_of_state.cpp EquationOfStateOptionsImpl::from_yaml >}}), and refills kintera's species table
 before it caches the cloud parents, because a later deck can declare other species
 ({{< code src/eos/equation_of_state.cpp EquationOfStateImpl::cache_cloud_parents_ >}}).
 
@@ -234,7 +234,7 @@ of item 2.
 | moist-mixture thermo | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::reset >}} | `ThermoYImpl` | `eos/type: moist-mixture` |
 | temperature and pressure | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::_cons2prim >}} | `compute_into` | component API |
 | mixture heat capacity | {{< code src/eos/moist_mixture.cpp MoistMixtureImpl::specific_heat_cv >}} | `compute` | component API |
-| thermo options from the deck | {{< code src/eos/equation_of_state.cpp EquationOfStateOptionsImpl::from_yaml >}} | `ThermoOptionsImpl` | `dynamics/equation-of-state`, read by kintera |
+| thermo options from the deck | {{< code src/eos/equation_of_state.cpp EquationOfStateOptionsImpl::from_yaml >}} | `ThermoOptionsImpl` | solver keys of `dynamics/equation-of-state`, read by kintera |
 | species table refill | {{< code src/eos/equation_of_state.cpp EquationOfStateImpl::cache_cloud_parents_ >}} | `populate_thermo` | component API |
 | prepare before adjustment or capture | {{< code src/mesh/meshblock.cpp MeshBlockImpl::prepare_thermo overload=2 >}} | `prepare` | component API |
 | final-stage saturation adjustment | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_saturation >}} | `forward` | an EOS with a thermo |
