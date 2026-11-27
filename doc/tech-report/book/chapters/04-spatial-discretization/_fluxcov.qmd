@@ -385,7 +385,7 @@ The ratio's evaluation at three cloud bases is @tbl-ch04-fluxcov-b3 in the Deriv
 
 [^rg-d0c78353440c]: $H$ — a density or pressure scale height [m]; {{< code tests/test_cubed_sphere_cell_volume.py rest >}}
 
-[^rg-8b60e74a7d3b]: $r_n$ — mass mixing ratio of species $n$ **per unit dry mass**, $r_n = \rho_n/\rho_{\mathrm{d}}$, dimensionless [-]; used only where the code is per dry air (passive tracers, @sec-ch10-tracer). Never written $r$ without its species subscript, because $r$ alone is the radius (§1)
+[^rg-8b60e74a7d3b]: $r_n$ — mass mixing ratio of species $n$ **per unit dry mass**, $r_n = \rho_n/\rho_{\mathrm{d}}$, dimensionless [-]; used only where the code is per dry air (passive tracers, @sec-ch08-drycarry). Never written $r$ without its species subscript, because $r$ alone is the radius (§1)
 
 [^rg-c298defa5bd1]: $T$ — temperature [K]
 

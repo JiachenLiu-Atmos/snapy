@@ -35,7 +35,7 @@ Local symbols: $M_{\mathrm{d},\mathrm{first}}$, $M_{\mathrm{d},\mathrm{last}}$ [
 dry mass of the first and last `mass0=` samples; $\mathrm{drift}$ [-] their relative difference.
 
 Each identity a test asserts is derived in the chapter that owns the operator. The positivity limiter
-is @sec-ch08, the moist repairs and the saturation adjustment @sec-ch10, the seams @sec-ch03. This section is the
+is @sec-ch08, the moist repairs and the saturation adjustment also @sec-ch08, the seams @sec-ch03. This section is the
 index: what is held, by which test, and how tightly.
 
 ### Derivation

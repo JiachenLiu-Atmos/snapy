@@ -1,0 +1,117 @@
+## The wall batch: one stage's wall bookings in fixed storage (`WallBatch`) {#sec-ch10-wallbatch}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 10.3; src/hydro/flux_register.{hpp,cpp}; src/mesh/meshblock.cpp; src/mesh/meshblock_advance.cpp; tests/test_flux_register.cpp and tests/test_graph_monitor_amounts.cpp, all at the pin
+status: draft
+-->
+
+### Summary
+
+The apply of @sec-ch10-prescribed books a rate every time it runs, several times a stage, in two registers. A block
+does not book those rates at each call. It copies each overwrite's differences into one device buffer and books
+them all at the stage's combine. The buffer is fixed storage, not a queue, so a captured stage replays the
+bookings exactly as an eager one runs them.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Book every overwrite of a stage, from both registers, at the combine, with the same launches eager and captured, @eq-ch10-flush.
+
+**Data.** In: each overwrite's after-minus-before over the faces it wrote, flattened in the wide dtype, and its face-area weights. Out: one rate per slot booked to its register's monitor.
+
+**Placement.** Begun in `MeshBlockImpl::stage_advance`, flushed in `MeshBlockImpl::stage_combine` before the register's `end_stage`.
+
+**Activation.** Always on a MeshBlock; a register without a batch books at the call.
+
+**Guarantee / limits.** Each slot's rows are a plain weighted sum: deterministic, no scatter-add.
+
+**Evidence.** `test_flux_register.<b>`; `test_graph_monitor_amounts.<b>` on CUDA (Tests).
+:::
+
+Local symbols: $k$[^rg-362f2334766b] is a slot of the batch, $\delta_k$ its flattened after-minus-before, $w_k$ its face-area
+weights laid out the same way, $\mathcal R_k$ the set of entries of row $r$ in slot $k$.
+
+### Derivation
+
+None beyond @eq-ch10-overwrite: the batch defers the sum, it does not change it. At the flush, slot $k$ books for
+each of its rows
+
+$$
+a_{k,r} = \sum_{i\in\mathcal R_k} \delta_{k,i}\,w_{k,i},
+$$ {#eq-ch10-flush}
+
+which is @eq-ch10-overwrite for the faces that overwrite wrote, computed later.
+
+### Numerical method
+
+**One batch per block.** `MeshBlockImpl::reset` makes one `WallBatch` and gives it to the hydro register and the
+scalar register ({{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}}). `overwrite_` pushes to it when it is
+set ({{< code src/hydro/flux_register.cpp FluxRegister::overwrite_ >}}).
+
+**Slots in push order.** A push takes the next slot of the stage
+({{< code src/hydro/flux_register.cpp WallBatch::slot_ >}}). A slot is identified by the monitor it books to, the
+amount index, the number of rows, the number of entries and the weights tensor itself. If the slot at the cursor
+matches, it is reused; otherwise the slots from the cursor on are rebuilt and the buffer is laid out again, keeping
+the slots before it ({{< code src/hydro/flux_register.cpp WallBatch::layout_ >}}). So a register and direction
+applied twice in a stage, before and after the implicit correction, takes two slots, and a register whose weights
+were rebuilt gets a new slot rather than its first weights. `push` copies the differences into the slot's place in the
+buffer ({{< code src/hydro/flux_register.cpp WallBatch::push >}}).
+
+**The flush.** `flush` books every slot with @eq-ch10-flush, one product with the weights and one sum over each
+slot's entries per row, through `book_index`, then zeroes the buffer
+({{< code src/hydro/flux_register.cpp WallBatch::flush >}}). The comment on the weights says why it is a plain sum:
+a scatter-add on CUDA is not deterministic, and the captured path must equal the eager path bitwise
+({{< code src/hydro/flux_register.hpp WallBatch >}}).
+
+**In the stage.** `stage_advance` resets the cursor at the start of every stage and clears the buffer at stage 0,
+which drops a rejected attempt's bookings ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}}).
+`stage_combine` flushes before the register's `end_stage`, so the stage's wall rates land in that stage's slot of the
+amounts ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}}).
+
+**Why fixed storage.** The header records the failure a host queue had: a user forcing splits the stage into a
+captured advance and a captured combine, the combine's first warm-up drained the queue, its capture recorded no
+flush, and its replays never ran the host push again. The state stayed equal and the wall rates were lost under
+graph ({{< code src/hydro/flux_register.hpp WallBatch >}}). The buffer is therefore registered with the state store
+as `wall_batch`, with the monitor's count buffers, so the executor's save list restores it around a warm-up
+({{< code src/mesh/meshblock.cpp MeshBlockImpl::register_flux_storage >}}).
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| the batch | {{< code src/hydro/flux_register.hpp WallBatch >}} | `WallBatch` | |
+| one per block, two registers | {{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}} | `set_wall_batch` | |
+| slot matching | {{< code src/hydro/flux_register.cpp WallBatch::slot_ >}} | `_cursor` | |
+| layout and weights | {{< code src/hydro/flux_register.cpp WallBatch::layout_ >}} | `_w` | |
+| the push | {{< code src/hydro/flux_register.cpp WallBatch::push >}} | `copy_` | |
+| the flush | {{< code src/hydro/flux_register.cpp WallBatch::flush >}} | `book_index` | |
+| begin and clear | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_advance >}} | `begin_stage`, `clear` | |
+| flush before `end_stage` | {{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}} | `flush` | |
+| state-store registration | {{< code src/mesh/meshblock.cpp MeshBlockImpl::register_flux_storage >}} | `wall_batch` | |
+
+: Code map of the wall batch. {#tbl-ch10-wallbatch-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `test_flux_register.<b>` (`the_wall_batch_books_with_the_rebuilt_weights`) | two prescriptions with different free rows, each flushed through one batch, book @eq-ch10-prescribed with their own rows | $10^{-12}$ relative | set inline ({{< code tests/test_flux_register.cpp FluxRegister.the_wall_batch_books_with_the_rebuilt_weights >}}) |
+| `test_graph_monitor_amounts.<b>` (`user_forcing_graph_books_wall_rates_like_eager`) | with a user forcing between a captured advance and a captured combine, every amount on the graph block equals the eager block's, across a replay and a redo | exact (`torch::equal`) | graph must equal eager ({{< code tests/test_graph_monitor_amounts.cpp GraphSaveList.user_forcing_graph_books_wall_rates_like_eager >}}); CUDA only |
+
+: Tests of the wall batch. {#tbl-ch10-wallbatch-tests}
+
+The first passes at the pin, on CPU. The second skips without CUDA and was not run here (@tbl-ch10-ctest-run).
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- A slot is registered at its first push, eagerly; the header states that this happens before any capture
+  ({{< code src/hydro/flux_register.hpp WallBatch >}}). A push pattern that first appears inside a capture is
+  outside that statement, and this chapter found no test of it.
+:::
+
+1. **Graph evidence is CUDA only.** The one test that compares the batch under capture with eager needs CUDA; on
+   this report's CPU run it is skipped.
+
+<!-- reader glossary notes -->
+[^rg-362f2334766b]: $k = 1..N_r$ — reaction index and the number of reactions; never the $x_3$ cell index $k$ (§1) — a chapter that needs both renames the reaction index to $\varkappa$ and says so
+<!-- end reader glossary notes -->

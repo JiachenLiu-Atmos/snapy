@@ -22,6 +22,8 @@
 
 **$\alpha_{\mathrm{nh}}$**: [5. Gravity, potential energy and gravity work](#sec-appa-5).
 
+*amounts*, see **monitor amounts**.
+
 *aneos*, see **equation of state, tabulated**.
 
 **angular momentum, axial, flux form and closure**: Axial angular momentum: flux form and closure, @sec-ch07-axial.
@@ -134,6 +136,8 @@
 
 **boundary faces versus internal faces**: Physical and internal faces, @sec-ch03-physfaces.
 
+*boundary.prescribed*, see **prescribed faces**.
+
 **`bounds`**: One global grid, sliced per block, @sec-ch03-globalgrid.
 
 *box domain*, see **Cartesian grid**.
@@ -145,6 +149,10 @@
 *bryan.yaml*, see **warm bubble, first run**.
 
 **`btemp`**: Bottom relaxation of temperature, velocity and composition, @sec-ch07-relax.
+
+*budget output*, see **conservation budget**.
+
+*budget series*, see **conservation budget**.
 
 **build from source**: [Install and run](#sec-preface-install).
 
@@ -204,6 +212,8 @@
 
 *checkpoint*, see **restart**.
 
+*chemistry step*, see **condensation and evaporation, rates**.
+
 **$\chi$**: [2. State, thermodynamics and species](#sec-appa-2).
 
 **$\chi^s_i$**: [6. Hydrostatic reference state](#sec-appa-6).
@@ -246,13 +256,13 @@
 
 **compressible versus hydrostatic equations**: How snapy differs from a hydrostatic primitive-equation core, @sec-ch02-pecore.
 
-**condensable species**: Saturation adjustment in the step, @sec-ch10-satadj.
+**condensable species**: Saturation adjustment in the step, @sec-ch08-satadj.
 
-*condensation*, see **saturation adjustment**.
+*condensation*, see **saturation adjustment, in the step**.
 
-**condensation and evaporation, equilibrium**: Fixed-volume fixed-energy phase equilibrium, @sec-ch02-saturation; Saturation adjustment in the step, @sec-ch10-satadj.
+**condensation and evaporation, equilibrium**: Fixed-volume fixed-energy phase equilibrium, @sec-ch02-saturation; Saturation adjustment in the step, @sec-ch08-satadj.
 
-**condensation and evaporation, rates**: Precipitation and evaporation kinetics in the example drivers (driver-level coupling), @sec-ch10-kinetics.
+**condensation and evaporation, rates**: Pointer: the chemistry step at the pin, @sec-ch10-kinetics.
 
 *condensation equilibrium*, see **saturation, phase equilibrium**.
 
@@ -263,6 +273,8 @@
 *configuration keys*, see **input file keys**.
 
 *configure.h*, see **compile-time definitions**.
+
+**conservation budget**: Budgets and the budget series, @sec-ch10-budget.
 
 **conservation budget, measured drift**: Invariant checks: zero in, zero out, and the global budgets, @sec-ch16-invariants.
 
@@ -282,7 +294,7 @@
 
 *const-gravity*, see **gravity**.
 
-**`const-vsed`**: Sedimentation of condensates, @sec-ch10-sed.
+**`const-vsed`**: Sedimentation of condensates, @sec-ch08-sed.
 
 *constant gravity*, see **gravity**.
 
@@ -311,6 +323,8 @@
 **corner ghost cells, walls**: Wall corner refresh inside tangential ghost slabs, @sec-ch03-cornerrefresh.
 
 **cost, by grid type**: Choosing a grid: Cartesian, spherical-polar or cubed sphere, @sec-ch03-choosing.
+
+*counters*, see **monitor counts**.
 
 *Courant-Friedrichs-Lewy*, see **CFL number, meaning**.
 
@@ -448,13 +462,13 @@
 
 **diagnostics in output**: Output-field diagnostics: `div`, `curl`, `theta_v`, `ic_*`, paths and means on request, @sec-ch13-output-diag.
 
-**`diameter`**: Precipitation and evaporation kinetics in the example drivers (driver-level coupling), @sec-ch10-kinetics.
+**`diameter`**: Pointer: the chemistry step at the pin, @sec-ch10-kinetics.
 
-**`diff_c`**: Precipitation and evaporation kinetics in the example drivers (driver-level coupling), @sec-ch10-kinetics.
+**`diff_c`**: Pointer: the chemistry step at the pin, @sec-ch10-kinetics.
 
-**`diff_P`**: Precipitation and evaporation kinetics in the example drivers (driver-level coupling), @sec-ch10-kinetics.
+**`diff_P`**: Pointer: the chemistry step at the pin, @sec-ch10-kinetics.
 
-**`diff_T`**: Precipitation and evaporation kinetics in the example drivers (driver-level coupling), @sec-ch10-kinetics.
+**`diff_T`**: Pointer: the chemistry step at the pin, @sec-ch10-kinetics.
 
 **`diffusion`**: The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
 
@@ -540,7 +554,9 @@
 
 *energy budget*, see **conservation budget, measured drift**.
 
-**energy conservation, sedimentation**: Sedimentation of condensates, @sec-ch10-sed.
+**energy conservation, budget**: Budgets and the budget series, @sec-ch10-budget.
+
+**energy conservation, sedimentation**: Sedimentation of condensates, @sec-ch08-sed.
 
 **energy conservation with gravity**: What each form conserves (summary and oracle guide), @sec-ch06-conserves.
 
@@ -640,9 +656,13 @@
 
 *face-deck harness*, see **bitwise gate**.
 
-*fall speed*, see **sedimentation**.
+*face floor counts*, see **monitor counts**.
 
-*falling condensate*, see **sedimentation**.
+**face fluxes, stage totals**: Posts: the stage totals and the four writers, @sec-ch10-posts.
+
+*fall speed*, see **sedimentation, settling flux**.
+
+*falling condensate*, see **sedimentation, settling flux**.
 
 *field registration*, see **adding an output field**.
 
@@ -682,6 +702,8 @@
 
 **flux divergence**: The finite-volume update and the flux divergence, @sec-ch04-divergence.
 
+**flux register**: Posts: the stage totals and the four writers, @sec-ch10-posts.
+
 *flux solver*, see **Riemann solver**.
 
 **fluxes across block seams**: Single-valued $x_1$ seam fluxes, @sec-ch04-seam.
@@ -689,6 +711,8 @@
 **fluxes across panel seams**: Cubed-sphere face-state seam sync, @sec-ch03-cslrsync.
 
 **fluxes across panel seams, owner copy**: Panel rotation and the seam register, @sec-ch03-seamreg.
+
+*FluxRegister*, see **flux register**.
 
 **`forcing`**: Well-balanced $x_1$ reconstruction: perturbations about a hydrostatic reference (gravity on), @sec-ch05-wbx1.
 
@@ -1048,7 +1072,7 @@
 
 *lat-lon grid*, see **spherical-polar grid**.
 
-**latent heat**: Saturation adjustment in the step, @sec-ch10-satadj.
+**latent heat**: Saturation adjustment in the step, @sec-ch08-satadj.
 
 **latent heat, temperature-dependent**: Temperature-dependent moist thermodynamics, @sec-ch02-moist-mixture.
 
@@ -1116,7 +1140,7 @@
 
 **mass conservation, why the update conserves**: Conservation laws and variables, @sec-ch02-laws; The finite-volume update and the flux divergence, @sec-ch04-divergence.
 
-**mass fraction bounds**: The tracer flux positivity limiter, @sec-ch08-theta; The passive-scalar limiter and the complement bound, @sec-ch08-scalar; Passive tracers per dry air, with an optional upper bound, @sec-ch10-tracer.
+**mass fraction bounds**: The tracer flux positivity limiter, @sec-ch08-theta; The passive-scalar limiter and the complement bound, @sec-ch08-scalar.
 
 *MASTER_PORT*, see **environment for ranks and devices**.
 
@@ -1190,7 +1214,7 @@
 
 *microphysics*, see **condensation and evaporation, rates**.
 
-**mixing ratio**: Passive tracers per dry air, with an optional upper bound, @sec-ch10-tracer.
+**mixing ratio**: The tracer flux positivity limiter, @sec-ch08-theta.
 
 *model levels*, see **vertical coordinate**.
 
@@ -1211,6 +1235,10 @@
 *moist mixture constant heat capacity*, see **equation of state, moist air**.
 
 **moist thermodynamics**: Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist.
+
+**monitor amounts**: Amounts, step fields and the stage fold, @sec-ch10-amounts.
+
+**monitor counts**: Monitor counts, minima and retry flags, @sec-ch10-counts.
 
 **MPI**: Environment parsing and process lifetime, @sec-ch12-environment. See also **communication backends**.
 
@@ -1258,17 +1286,17 @@
 
 **NCO**: Combine and inspect tools, @sec-ch14-tools. See also **output files, combining and inspecting**.
 
-**`ncycle_out`**: Step rejection for moist causes, @sec-ch10-redo.
+**`ncycle_out`**: Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle.
 
 *ncycle_out*, see **mass and energy budgets, log line**.
 
-**negative condensate, repair**: The condensate borrow, @sec-ch08-borrow; Condensate repair by parent-vapour borrow, @sec-ch10-borrow.
+**negative condensate, repair**: The condensate borrow, @sec-ch08-borrow.
 
 **negative density or pressure**: The equation-of-state limiter: two passes, floors and marks, @sec-ch08-eoslimiter.
 
 **negative density or pressure, redo**: The floor detector and the redo decision, @sec-ch08-redo.
 
-**negative vapour, column repair**: The vapour column repair, @sec-ch08-fixvapor; Column vapour and cloud repair, @sec-ch10-fixvapor.
+**negative vapour, column repair**: The vapour column repair, @sec-ch08-fixvapor.
 
 *NETCDF*, see **build options**.
 
@@ -1418,7 +1446,7 @@
 
 *PartOptions*, see **array indices of interior cells**.
 
-**passive scalars**: Transport passive scalars with dry mass, @sec-ch01-scalar; Passive tracers per dry air, with an optional upper bound, @sec-ch10-tracer.
+**passive scalars**: Transport passive scalars with dry mass, @sec-ch01-scalar.
 
 **passive scalars, positivity**: The passive-scalar limiter and the complement bound, @sec-ch08-scalar.
 
@@ -1504,7 +1532,7 @@
 
 **PPM**: PPM: accepted by the parser, throws on the first stage, @sec-ch04-ppm.
 
-**precipitation**: Precipitation and evaporation kinetics in the example drivers (driver-level coupling), @sec-ch10-kinetics; Sedimentation of condensates, @sec-ch10-sed.
+**precipitation**: Sedimentation of condensates, @sec-ch08-sed.
 
 **precision**: Expose the C++ API to Python, @sec-ch01-python.
 
@@ -1515,6 +1543,8 @@
 **precision, round-off thresholds**: Round-off thresholds for positivity events, @sec-ch08-roundoff.
 
 **`Pref`**: Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist.
+
+**prescribed faces**: Prescribed faces and their reapplication, @sec-ch10-prescribed.
 
 **`pressure-floor`**: EOS interface and dispatch, @sec-ch02-interface.
 
@@ -1648,6 +1678,8 @@
 
 *refused or failed tests*, see **capture sweep**.
 
+*register posts*, see **flux register**.
+
 *registered tests*, see **test index**.
 
 **regression test, which defect it pins**: Regression provenance, @sec-ch16-regressions.
@@ -1707,6 +1739,8 @@
 *resume a run*, see **restart**.
 
 *retry a step*, see **step rejection and redo**.
+
+**retry flags**: Monitor counts, minima and retry flags, @sec-ch10-counts.
 
 **$\rho$**: [2. State, thermodynamics and species](#sec-appa-2).
 
@@ -1790,8 +1824,6 @@
 
 **S4 table, where it is**: Launch counting and the S4 table, @sec-ch16-launches.
 
-**saturation adjustment**: Saturation adjustment in the step, @sec-ch10-satadj.
-
 **saturation adjustment, in the step**: Saturation adjustment in the step, @sec-ch08-satadj.
 
 **saturation adjustment, when in a step**: Operator-split pieces at the step boundary: saturation adjustment, chemistry and radial conduction, @sec-ch09-split.
@@ -1800,7 +1832,7 @@
 
 *saturation vapor pressure*, see **saturation vapour pressure**.
 
-**saturation vapour pressure**: Fixed-volume fixed-energy phase equilibrium, @sec-ch02-saturation; Saturation adjustment in the step, @sec-ch10-satadj.
+**saturation vapour pressure**: Fixed-volume fixed-energy phase equilibrium, @sec-ch02-saturation; Saturation adjustment in the step, @sec-ch08-satadj.
 
 **`scalar`**: Transport passive scalars with dry mass, @sec-ch01-scalar.
 
@@ -1830,13 +1862,11 @@
 
 **second-order face error, lateral faces**: The $x_2$ and $x_3$ face-flux covariance and centroid terms, @sec-ch04-fluxcov.
 
-**`sedimentation`**: Sedimentation of condensates, @sec-ch10-sed.
-
-**sedimentation**: Sedimentation of condensates, @sec-ch10-sed.
+**`sedimentation`**: Sedimentation of condensates, @sec-ch08-sed.
 
 **sedimentation, settling flux**: Sedimentation of condensates, @sec-ch08-sed.
 
-*settling*, see **sedimentation**.
+*settling*, see **sedimentation, settling flux**.
 
 *setup*, see **install**.
 
@@ -1920,6 +1950,8 @@
 
 *SSP-RK*, see **time integrator**.
 
+*stage fold*, see **monitor amounts**.
+
 **stage, single block**: Exchange before a single-block stage, @sec-ch01-block-forward.
 
 *stage weights*, see **Runge-Kutta stage, combining**.
@@ -1938,11 +1970,15 @@
 
 *step boundary*, see **operator splitting**.
 
+**step fields**: Amounts, step fields and the stage fold, @sec-ch10-amounts.
+
 **step rejection and redo**: Step acceptance and redo: six causes, one collective decision, halving up to `max_redo`, @sec-ch09-redo.
 
 **step rejection and redo, floor test**: The floor detector and the redo decision, @sec-ch08-redo.
 
-**step rejection and redo, moist causes**: Step rejection for moist causes, @sec-ch10-redo.
+**step rejection and redo, moist causes**: The floor detector and the redo decision, @sec-ch08-redo.
+
+**step rejection and redo, register rollback**: Rollback and redo, through replay, @sec-ch10-rollback.
 
 *step walk-through*, see **what happens in one step**.
 
@@ -2100,7 +2136,7 @@
 
 **tracer transport with dry mass**: Transport passive scalars with dry mass, @sec-ch01-scalar.
 
-*tracers per dry air*, see **passive scalars**.
+*tracers per dry air*, see **passive scalars, with dry-mass sources**.
 
 **`traditional`**: Coriolis force in the coordinate frame or from a Cartesian rotation vector, @sec-ch07-coriolis.
 
@@ -2154,7 +2190,7 @@
 
 *user_stage_forcings*, see **user forcing, per stage**.
 
-**`uv-solver`**: Saturation adjustment in the step, @sec-ch10-satadj.
+**`uv-solver`**: Saturation adjustment in the step, @sec-ch08-satadj.
 
 *uv-solver*, see **saturation, phase equilibrium**.
 
@@ -2232,7 +2268,7 @@
 
 **viscosity, height-dependent profile**: x1 profiles of the diffusion coefficients and the mean-of-products face coefficient, @sec-ch07-x1profile.
 
-**`vm`**: Precipitation and evaporation kinetics in the example drivers (driver-level coupling), @sec-ch10-kinetics.
+**`vm`**: Pointer: the chemistry step at the pin, @sec-ch10-kinetics.
 
 *volume coordinate*, see **reconstruction on a curved grid, radial**.
 
@@ -2254,11 +2290,19 @@
 
 **$W^{\mathrm{wallc}}_i$**: [5. Gravity, potential energy and gravity work](#sec-appa-5).
 
+**wall batch**: The wall batch: one stage's wall bookings in fixed storage, @sec-ch10-wallbatch.
+
+*wall flux*, see **prescribed faces**.
+
 **wall ghosts, isentropic (legacy)**: Legacy $x_1$ wall routine: the wall-face state copy (no switch), @sec-ch05-legacy.
 
 **wall temperature, prescribed**: Viscosity and heat conduction on the cubed sphere, @sec-ch07-csdiffusion.
 
 **`wall_velocity`**: Viscosity and heat conduction on the cubed sphere, @sec-ch07-csdiffusion.
+
+*WallBatch*, see **wall batch**.
+
+**walls, flux booked at**: Prescribed faces and their reapplication, @sec-ch10-prescribed.
 
 **warm bubble, first run**: [Install and run](#sec-preface-install).
 

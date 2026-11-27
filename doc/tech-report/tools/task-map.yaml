@@ -94,7 +94,7 @@ tasks:
 - id: Q-015
   question: 'How do I set up condensable species (NH3, H2O, NH4SH; CH4 and H2S for ice giants), and what happens to the condensate: immediate rainout, retained, or advected?'
   status: partly documented
-  dest: sec-ch10-satadj
+  dest: sec-ch08-satadj
   missing: CH4/ice-giant setup and the species declaration
   lookup_grade: PARTIAL
 - id: Q-016
@@ -314,7 +314,7 @@ tasks:
 - id: Q-053
   question: 'How is precipitation and sedimentation treated: fall speed, time-step limits? Is the mass leaving at the bottom counted in the budgets?'
   status: answered
-  dest: sec-ch10-sed
+  dest: sec-ch08-sed
   lookup_grade: FULL
 - id: Q-054
   question: Which boundary conditions are closed and which are open? Do outflow or sponge boundaries leak mass or energy, and is the leak reported?
@@ -418,7 +418,7 @@ tasks:
 - id: Q-071
   question: 'How do I test that a new condensate conserves total water (vapor + condensate) and moist energy through a phase change? What tolerance should I expect: round-off or truncation?'
   status: partly documented
-  dest: sec-ch10-satadj
+  dest: sec-ch08-satadj
   missing: a recipe for a new condensate
   lookup_grade: PARTIAL
 - id: Q-072
@@ -430,12 +430,12 @@ tasks:
 - id: Q-073
   question: 'How does condensation and evaporation work: saturation adjustment or kinetic rates? Where is it called, and how does the energy equation see the latent heat?'
   status: answered
-  dest: sec-ch10-satadj
+  dest: sec-ch08-satadj
   lookup_grade: FULL
 - id: Q-074
   question: How do I add sedimentation or precipitation for a condensate? Is it carried by the hydro flux or by a separate flux? How does it enter the time-step limit?
   status: answered
-  dest: sec-ch10-sed
+  dest: sec-ch08-sed
   lookup_grade: FULL
 - id: Q-075
   question: What is the layout of the state vector? What is the order of density, momenta, energy, vapors, condensates and passive scalars? Are condensates stored as mass fractions, mixing ratios or densities, and in which units?

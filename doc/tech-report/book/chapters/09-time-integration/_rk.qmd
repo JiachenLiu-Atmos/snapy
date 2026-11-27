@@ -269,7 +269,7 @@ assertion on the weights.
 1. **`max_redo` is not a YAML key.** pyharp's `from_yaml` never reads it
    ([`pyharp integrator.cpp:20-31`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L20-L31)), so YAML runs keep the default `max_redo` of 5
    ([`pyharp integrator.hpp:58`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.hpp#L58)); a driver sets it with
-   `op.intg().max_redo(n)` before building the block (@sec-ch10-redo).
+   `op.intg().max_redo(n)` before building the block (@sec-ch09-redo).
 2. **pyharp is not pinned by snapy's build, and its report pin is older than the code needs.** snapy's CI[^rg-9693023282ee] installs
    pyharp 2.7.17 or later, and the stage driver calls the five-argument `IntegratorImpl::forward` that writes into
    its output ({{< code src/mesh/meshblock_advance.cpp MeshBlockImpl::stage_combine >}}); the pyharp commit the report

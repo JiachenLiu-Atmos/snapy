@@ -82,7 +82,7 @@ integration:
 
 `max_redo` is not a key of the card: pyharp's `from_yaml` reads only `type`, `cfl`, `tlim`, `nlim`, `ncycle_out` and
 `verbose` ([`pyharp integrator.cpp:24-29`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L24-L29)).
-It keeps its default 5 unless set from code with `op.intg().max_redo(n)` before the block is built (@sec-ch10-redo).
+It keeps its default 5 unless set from code with `op.intg().max_redo(n)` before the block is built (@sec-ch09-redo).
 
 **What is refused, and why.** A `max_redo` key in `integration`, which stops the run at construction with
 "unknown key 'integration/max_redo'. Valid keys: implicit-scheme, implicit-advection-cfl, shear-cfl; read by pyharp:

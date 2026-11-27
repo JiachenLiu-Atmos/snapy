@@ -1,0 +1,134 @@
+## Posts: the stage totals and the four writers (`FluxRegister`) {#sec-ch10-posts}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 10.1; src/hydro/flux_register.{hpp,cpp}; src/hydro/hydro.cpp; tests/test_flux_register.cpp, all at the pin
+status: draft
+-->
+
+### Summary
+
+A stage's face fluxes live in the register as one total per active direction. The producers write those totals
+directly, and every later change goes through one of four writers: `add`, `scale`, `replace` and the private
+`overwrite_`. Only `overwrite_` books anything, and it books exactly what it changed. Every writer marks its
+direction as written, which the prescribed faces of @sec-ch10-prescribed read.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Hold the stage totals $T_d$ and the kept parts, and change them only through writers that keep the order and book the overwrites, @eq-ch10-overwrite.
+
+**Data.** In: the producers' face fluxes, $(n_{\mathrm{var}}, n_3, n_2, n_1)$ per direction, in the flux dtype. Out: the same tensors, changed in place; booked rates to the monitor.
+
+**Placement.** Every stage, inside `HydroImpl::forward` and `ScalarImpl::forward`.
+
+**Activation.** Always; a direction with one cell has no total.
+
+**Guarantee / limits.** Adds happen in call order and are never fused; an overwrite books $\sum_f A_f\,(\text{after}-\text{before})$ per row.
+
+**Evidence.** `test_flux_register.<b>` (Tests).
+:::
+
+Local symbols: $d \in \{1,2,3\}$ is the direction, $T_d$ its stage total, $f$ a face of $T_d$, $A_f$ its area and
+$r$[^rg-0cf14ab9beae] a row of the total.
+
+### Derivation
+
+None: the register discretises nothing. The one formula it implements is the booking of an overwrite. When a writer
+replaces the values of a set of faces $\mathcal F$ of $T_d$, the change of the face-integrated transfer of row $r$
+is
+
+$$
+a_r = \sum_{f\in\mathcal F} A_f\,\bigl(T_{d,r,f}^{\text{after}} - T_{d,r,f}^{\text{before}}\bigr),
+$$ {#eq-ch10-overwrite}
+
+a rate (per unit time, at the step's $\Delta t$[^rg-e08a4caa8890], before the stage weights) that the monitor turns into a step amount
+(@sec-ch10-amounts). Faces outside $\mathcal F$ contribute nothing, because there the difference is zero.
+
+### Numerical method
+
+**The totals.** `reset` allocates one zero total per active direction, shaped $(n_{\mathrm{var}}, n_3, n_2, n_1)$ in
+the flux dtype, and a direction with one cell has none ({{< code src/hydro/flux_register.cpp FluxRegister::reset overload=1 >}}).
+The hydro module resets its register with the coordinate, so the face areas $A_f$ exist for the bookings, and with
+the flux dtype of the precision policy; its `F1`, `F2`, `F3` buffers are the totals themselves
+({{< code src/hydro/hydro.cpp HydroImpl::reset >}}). The scalar module resets its own register with the FP64 policy
+({{< code src/scalar/scalar.cpp ScalarImpl::reset >}}). The first producer of a stage, the Riemann solve, writes the
+total in place through `slot` and names it with `post_slot`
+({{< code src/hydro/flux_register.cpp FluxRegister::slot >}}). A kept part, requested at reset as `"part@dim"`, is a
+second tensor of the total's shape that its producer fills ({{< code src/hydro/flux_register.cpp FluxRegister::kept >}}).
+
+**`add`** adds an increment to some rows of the total
+({{< code src/hydro/flux_register.cpp FluxRegister::add >}}). A contiguous run of rows is one in-place add on a narrow
+of the total; any other row list adds row by row. The adds run in call order and are never fused, so successive adds
+round as separate in-place additions. A kept part of the same name receives a copy of the increment. The comment at
+the add records why it is not an `index_add_`: on CUDA that kernel adds atomically, which for FP64 rows was measured
+in the code's own comment at +0.3 ms a step on one deck and +2.9 ms on another
+({{< code src/hydro/flux_register.cpp FluxRegister::add >}}).
+
+**`scale`** multiplies some rows in place by one factor for every row or one factor per row
+({{< code src/hydro/flux_register.cpp FluxRegister::scale >}}). The positivity limiter of @sec-ch08-theta is its
+caller.
+
+**`replace`** is the seam writer ({{< code src/hydro/flux_register.cpp FluxRegister::replace >}}). On the masked faces
+it writes either the mean of its own and the peer's values, the same on both sides because the sum commutes, or the
+peer's value. It does that for every kept part of the direction and then for the total, through `overwrite_`, under
+the amount name `reconcile.x1` for $x_1$[^rg-431e5643024d] or `reconcile.panel` for $x_2$ and $x_3$.
+
+**`overwrite_`** is the one write-and-book ({{< code src/hydro/flux_register.cpp FluxRegister::overwrite_ >}}).
+It takes the new values of a set of faces, or of every face, computes the difference to the values before in the wide
+dtype, writes the new values into the total and books @eq-ch10-overwrite. The weights are the face areas laid out
+like the written faces, built once per set of faces and device. With a wall batch set, the difference and its
+weights go to the batch (@sec-ch10-wallbatch); without one, the rate is booked at the call.
+
+**The written mark.** `add`, `scale` and `overwrite_` set a flag for their direction
+({{< code src/hydro/flux_register.cpp FluxRegister::add >}},
+{{< code src/hydro/flux_register.cpp FluxRegister::scale >}},
+{{< code src/hydro/flux_register.cpp FluxRegister::overwrite_ >}}), and `apply_prescribed` clears it at its end
+({{< code src/hydro/flux_register.cpp FluxRegister::apply_prescribed >}}). `written_since_prescribed` reads it
+({{< code src/hydro/flux_register.hpp FluxRegister::written_since_prescribed >}}). `replace` sets it through
+`overwrite_`.
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| the register and its writers | {{< code src/hydro/flux_register.hpp FluxRegister >}} | `FluxRegister` | |
+| totals and kept parts | {{< code src/hydro/flux_register.cpp FluxRegister::reset overload=1 >}} | `_total`, `_parts` | active direction |
+| the hydro register's request and reset | {{< code src/hydro/hydro.cpp HydroImpl::reset >}} | `RegisterRequest`, `F1` | |
+| the scalar register's reset | {{< code src/scalar/scalar.cpp ScalarImpl::reset >}} | `freg.reset` | scalars |
+| add, in call order | {{< code src/hydro/flux_register.cpp FluxRegister::add >}} | `add_` | |
+| scale | {{< code src/hydro/flux_register.cpp FluxRegister::scale >}} | `mul_` | |
+| the seam writer | {{< code src/hydro/flux_register.cpp FluxRegister::replace >}} | `SeamRule` | seams |
+| the write-and-book | {{< code src/hydro/flux_register.cpp FluxRegister::overwrite_ >}} | `delta` | |
+| the written mark | {{< code src/hydro/flux_register.hpp FluxRegister::written_since_prescribed >}} | `_written` | |
+
+: Code map of the posts. {#tbl-ch10-posts-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `test_flux_register.<b>` (`add_in_call_order_keeps_the_pin_rounding`) | two adds in order equal the in-place sequence and differ from the fused sum on the chosen operands; the kept part holds the increment | exact (`torch::equal`) | the writer promises the in-place rounding ({{< code tests/test_flux_register.cpp FluxRegister.add_in_call_order_keeps_the_pin_rounding >}}) |
+| `test_flux_register.<b>` (`scale_multiplies_the_rows_in_place`) | the scaled rows equal the reference product, other rows are untouched | exact | ({{< code tests/test_flux_register.cpp FluxRegister.scale_multiplies_the_rows_in_place >}}) |
+| `test_flux_register.<b>` (`replace_mean_gives_both_sides_the_same_faces`) | both sides of a seam hold the same faces and parts after a mean; other faces and directions are untouched | exact | the mean is symmetric ({{< code tests/test_flux_register.cpp FluxRegister.replace_mean_gives_both_sides_the_same_faces >}}) |
+| `test_prescribed_after_sources.<b>` (`the_written_mark_follows_the_writers`) | `add`, `scale` and `replace` set the mark, `apply_prescribed` clears it | pass/fail | ({{< code tests/test_prescribed_after_sources.cpp FluxRegister.the_written_mark_follows_the_writers >}}) |
+
+: Tests of the posts. {#tbl-ch10-posts-tests}
+
+All four pass at the pin, on CPU (@tbl-ch10-ctest-run).
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- `scale` and the producers' in-place writes book nothing. Only an overwrite is an amount, so a flux a limiter
+  withholds is visible in the totals and in the state, not in the monitor's amounts.
+:::
+
+1. **Measured costs are the code's comments.** The `index_add_` costs quoted in the Numerical method are
+   recorded in a comment at the pin; this chapter did not measure them.
+
+<!-- reader glossary notes -->
+[^rg-0cf14ab9beae]: $r$ — $x_1$ on a spherical-polar grid (radius) [m]
+
+[^rg-e08a4caa8890]: $\Delta t$ — the step
+
+[^rg-431e5643024d]: $x_1, x_2, x_3$ — the three coordinate directions; $x_1$ is always the vertical (radial) direction
+<!-- end reader glossary notes -->

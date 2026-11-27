@@ -11,7 +11,7 @@ status: draft
 Moist physics couples three things that can each be right or wrong on their own: the phase change that moves
 water between vapour and cloud, the repairs that keep species masses non-negative, and the transport that
 carries species and tracers through the grid. A local repair can conserve mass perfectly while the coupled
-kinetics of @sec-ch10 is wrong, so the tests must be read one contract at a time. This section collects the
+kinetics of @sec-ch10-kinetics is wrong, so the tests must be read one contract at a time. This section collects the
 tests for phase change, repair, transport, sedimentation and the collective retry, with the threshold each one
 applies.
 

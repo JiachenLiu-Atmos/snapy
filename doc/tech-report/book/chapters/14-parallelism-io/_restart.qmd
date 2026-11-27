@@ -238,7 +238,7 @@ takes a step: the test checks that the state at $t = 0$ survives a write, a bund
 process. It does not compare a resumed run with an uninterrupted one after steps. That comparison is
 `test_restart_cycle_limit`, at two ranks with one block each, to $10^{-12}$ on the printed first resumed cycle.
 The integrator's stop rule is pyharp's `IntegratorImpl::stop` (not part of snapy): it stops once the step count
-reaches a non-negative `nlim` ([`pyharp integrator.cpp:89-99`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L89-L99), `stop`), at the pyharp pin of @sec-ch10-redo.
+reaches a non-negative `nlim` ([`pyharp integrator.cpp:89-99`](https://github.com/chengcli/pyharp/blob/4721715855e937c1e8b218e964c0655f46e56e29/src/integrator/integrator.cpp#L89-L99), `stop`), at the pyharp pin of @sec-ch09-redo.
 :::
 
 ### Limits

@@ -1,0 +1,120 @@
+## Budgets and the budget series (`BudgetConsumer`, `BudgetSeries`) {#sec-ch10-budget}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md 10.7; src/diagnostics/budget.{hpp,cpp}; src/output/budget_series.{hpp,cpp}; src/mesh/meshblock_redo.cpp; tests/test_budget.{cpp,yaml} and tests/test_conservation_budget.cpp, all at the pin
+status: draft
+-->
+
+### Summary
+
+A budget output, `- {type: budget, dt: ...}`, reads the register after every accepted step and writes one record per
+interval to a NetCDF time series. A record holds, per conserved row, the domain total, its change over the interval
+and the transfer out through the domain's boundary faces, plus the monitor's counters and minima. Without sources,
+the change and the boundary transfer cancel. At the pin the budget reads the step fields and the counts; it does not
+yet read the amounts of @sec-ch10-amounts.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Per interval and row: total, change, boundary transfer, @eq-ch10-budget; summed counters and minimum minima.
+
+**Data.** In: the conserved state, the step fields $S_d$, the face areas, the solid mask, the monitor. Out: a `BudgetRecord` per interval; `<basename>.budget.nc`.
+
+**Placement.** `observe` after an accepted step, in `MeshBlockImpl::apply_redo`; `flush` at the output's cadence and on the final write.
+
+**Activation.** An output of type `budget`; it requests a step field in every active direction.
+
+**Guarantee / limits.** FP64 sums; closes on the boundary transfer to $10^{-12}$ relative in the test deck; no source, fixer or residual columns yet.
+
+**Evidence.** `test_budget.<b>`, `test_conservation_budget.<b>` (Tests).
+:::
+
+Local symbols: $Q_r$ is the interior total of row $r$, $\Delta Q_r$ its change over an interval, $B_r$ the summed
+outward transfer of row $r$ through the counted faces over the interval's steps, $\sigma_f \in \{-1,0,1\}$ the
+outward sign of face $f$.
+
+### Derivation
+
+The finite-volume update changes a cell total only by the fluxes through its faces and by sources. Summed over the
+interior, the interior faces cancel in pairs and only the boundary faces remain. Each accepted step's transfer
+through a face is its step field times its area (@eq-ch10-stepfield), so over an interval
+
+$$
+\Delta Q_r + B_r = \text{sources}_r, \qquad B_r = \sum_{\text{steps}} \sum_{d} \sum_{f} \sigma_f\,A_f\,S_{d,r,f},
+$$ {#eq-ch10-budget}
+
+where the inner sum runs over the faces the consumer counts. With no source, fixer or floor active,
+$\Delta Q_r + B_r = 0$ up to round-off. The right-hand side is what the amounts would supply; at the pin the
+consumer has no column for it.
+
+### Numerical method
+
+**The output.** `BudgetOutput::bind` requests the step field of every active direction of the hydro register
+({{< code src/output/budget_series.cpp BudgetOutput::bind >}}). After an accepted step `apply_redo` calls
+`observe` on every output ({{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::apply_redo >}}), which passes the
+register and its monitor to the consumer ({{< code src/output/budget_series.cpp BudgetOutput::observe >}}).
+
+**Observe.** The first observe starts the interval after its own step, so that step stays out
+({{< code src/diagnostics/budget.cpp BudgetConsumer::observe >}}). Every later observe adds the step's boundary
+transfer, adds the monitor's counters and takes the minimum of its minima.
+
+**The counted faces.** `boundary` builds, once, an outward weight per face, the sign times the face area, over the
+faces of the interior cells ({{< code src/diagnostics/budget.cpp BudgetConsumer::boundary >}}). A block face counts
+when a boundary function acts on it and it is not periodic: the wall, outflow and custom faces, not interior, seam
+or periodic faces ({{< code src/diagnostics/budget.cpp boundary_face >}}). With a solid, every face with exactly one
+solid neighbour counts, outward from the fluid cell, and a block face whose interior cell is solid does not. The
+transfer is the sum of the weighted step field per row, in FP64.
+
+**Flush and series.** `flush` closes the interval: the new totals, their change, the summed transfer, counters and
+minima, the time, interval and cycle ({{< code src/diagnostics/budget.cpp BudgetConsumer::flush >}}). The totals are
+the interior sums of the state times the cell volume ({{< code src/diagnostics/budget.cpp BudgetConsumer::totals >}}).
+`write_output_file` waits for the last local block, sums the blocks in order and then over the processes
+({{< code src/diagnostics/budget.cpp reduce_budget >}}), and the root process appends the record
+({{< code src/output/budget_series.cpp BudgetOutput::write_output_file >}}). The series file holds time, cycle, dt,
+interval, the row, counter and minimum names, and total, change, boundary, counter and minimum, sums as `NC_DOUBLE`
+and counts as `NC_INT64` ({{< code src/output/budget_series.hpp BudgetSeries >}}). A restart saves the open
+interval's sums as a carry and resumes them ({{< code src/diagnostics/budget.cpp BudgetConsumer::carry >}}).
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| step fields requested | {{< code src/output/budget_series.cpp BudgetOutput::bind >}} | `request_step_field` | `type: budget` |
+| the call after an accepted step | {{< code src/mesh/meshblock_redo.cpp MeshBlockImpl::apply_redo >}} | `observe` | |
+| one step into the interval | {{< code src/diagnostics/budget.cpp BudgetConsumer::observe >}} | `_pending` | |
+| the counted faces and the transfer | {{< code src/diagnostics/budget.cpp BudgetConsumer::boundary >}} | `_weight` | |
+| which block faces count | {{< code src/diagnostics/budget.cpp boundary_face >}} | `is_physical_boundary` | |
+| the record | {{< code src/diagnostics/budget.cpp BudgetConsumer::flush >}} | `BudgetRecord` | |
+| the domain sum | {{< code src/diagnostics/budget.cpp reduce_budget >}} | `reduce_budget` | |
+| the series file | {{< code src/output/budget_series.hpp BudgetSeries >}} | `append` | NETCDF |
+| the restart carry | {{< code src/diagnostics/budget.cpp BudgetConsumer::carry >}} | `BudgetCarry` | |
+
+: Code map of the budget. {#tbl-ch10-budget-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `test_budget.<b>` (`every_row_closes_on_the_boundary_transfer`) | on a two-block dry slab with an outflow $x_1$ and no source, every row of every record after the first satisfies @eq-ch10-budget with zero sources, and mass leaves | $\lvert\Delta Q_r + B_r\rvert < 10^{-12}\max(\lvert Q_r\rvert, \lvert B_r\rvert)$ | set inline ({{< code tests/test_budget.cpp Budget.every_row_closes_on_the_boundary_transfer >}}) |
+| `test_budget.<b>` (`a_restart_resumes_the_interval_from_its_carry`) | every record after a restart inside an interval equals the uninterrupted run's | exact (`torch::equal` on every field) | ({{< code tests/test_budget.cpp Budget.a_restart_resumes_the_interval_from_its_carry >}}) |
+| `test_budget.<b>` (`a_file_without_a_carry_starts_at_the_first_observe`) | a deck without a budget output writes no carry; resumed with one, its first record has an empty interval and no change, and the next record's interval is the sum of its steps and closes | exact on the empty record and the interval; $10^{-12}$ relative on the closure, as row 1 | ({{< code tests/test_budget.cpp Budget.a_file_without_a_carry_starts_at_the_first_observe >}}) |
+| `test_conservation_budget.<b>`, `test_conservation_budget_mp.<b>` | on 15 closed decks (walls, periodic $x_2$, moist, cubed sphere, rain), the domain totals of mass, energy plus potential energy, species and, where periodic, $x_2$ momentum or the axial angular momentum drift less than $4n\epsilon_{\mathrm m}$ after $n$ steps; the $x_1$ walls pass no mass | $C\,n\,\epsilon_{\mathrm m}$, $C = 4$ | set at the top of the test ({{< code tests/test_conservation_budget.cpp Budget.closes_to_round_off >}}) |
+
+: Tests of the budget. {#tbl-ch10-budget-tests}
+
+All pass at the pin, on CPU (@tbl-ch10-ctest-run). `test_conservation_budget` checks the conservation the budget
+reports on closed decks; it does not read a `BudgetRecord`.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- The budget has no source, fixer or residual columns at the pin: they are a later step of the output lane
+  (`O8-cols`; {{< code src/diagnostics/budget.hpp BudgetConsumer >}}). A run with an active source, fixer or floor
+  shows a nonzero $\Delta Q_r + B_r$ that the record does not attribute.
+- With the face-flux covariance on, its default, the energy row misses about $3\times10^{-11}$ of its total per
+  interval, because the covariance energy increment is not in the register's boundary-face fluxes. The test deck turns
+  the covariance off for that reason; the size is the comment at the head of `tests/test_budget.yaml`, not a
+  measurement of this chapter.
+:::
+
+1. **The `_cuda` entries were not run.** `test_budget_cuda` and `test_conservation_budget_cuda` exist for CUDA
+   builds; this chapter's run had none.

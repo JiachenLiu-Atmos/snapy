@@ -132,7 +132,7 @@ Failed cells are counted from a negative diagnostic, $-(100\cdot\mathrm{status}+
 of kintera's failure counter, on the cells' device with no host read (on CPU kintera also warns at once). Row 0 is a
 redo cause, read by the redo decision; rows 1 and 2 (the temperature and pressure solves of
 @sec-ch02-moist-mixture) are posted to the register's monitor as `thermo.temp_solve` and `thermo.pres_solve` and are
-not redo causes. The rejection and redo belong to @sec-ch09 and @sec-ch10.
+not redo causes. The rejection and redo belong to @sec-ch09 and @sec-ch08.
 
 In `auto` mode with disjoint vapour-cloud pairs the partition solve runs first; on failure it restores the input
 and the KKT solve runs. With non-disjoint reactions `auto` goes to KKT directly

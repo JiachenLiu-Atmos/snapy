@@ -71,7 +71,7 @@ By step 1 of @sec-ch08-theta that leaves the plain factor, $\Theta'_i = \Theta_i
 settling flux in the same cell is still relaxed.
 
 **The settling carry on a prescribed face.** A prescribed face is a face of the register whose flux the boundary
-sets, for example a wall or the face of an immersed solid (@sec-ch10, @sec-ch14). The sweep prescribes those faces
+sets, for example a wall or the face of an immersed solid (@sec-ch10-prescribed, @sec-ch11). The sweep prescribes those faces
 before the limiter runs, so the advected part of the species flux is already the prescribed value there. The settling
 buffer is the sedimentation's own, written before that, and a prescribed face can still carry a settling flux
 $F_{\mathrm{sed}}$ in it. On such a face the net species flux is the prescribed value, write it $F_{\mathrm p}$, so the
@@ -90,7 +90,7 @@ was prescribed. The carry therefore posts with the register's `add`, which marks
 was last prescribed ({{< code src/hydro/flux_register.cpp FluxRegister::add >}}), and after the implicit correction the
 stage applies the prescribed faces of $x_1$ again whenever the implicit correction ran or that mark is set
 ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). The reapplication restores the prescribed value and books
-the removed amount in the register (@sec-ch10), and clears the mark
+the removed amount in the register (@sec-ch10-prescribed), and clears the mark
 ({{< code src/hydro/flux_register.cpp FluxRegister::apply_prescribed >}}).
 
 **A worked case.** The carry test's column moves up at 2 m s$^{-1}$ with $\Delta t = \Delta x/(1\ \mathrm{m\,s^{-1}})$,
@@ -115,7 +115,7 @@ for. The energy and momentum are withheld by `withhold` ({{< code src/hydro/flux
 >}}), with the enthalpy and velocity taken from the lower or upper cell according to the sign of the part being
 withheld. They are not subtracted from a flux array in place: `post` adds $-\mathrm{d}m\,\hat h$ to the energy row and
 $-\mathrm{d}m\,\mathbf v$ to the momentum rows of the register's total under the name `positivity.carry`, so the
-register books the carried amounts (@sec-ch10). On a cubed sphere the lateral faces of a panel seam carry each donor's
+carried amounts change the register's totals; an `add` books no amount (@sec-ch10-posts). On a cubed sphere the lateral faces of a panel seam carry each donor's
 velocity as a face state, exchanged across the seam and rotated to the face's flux basis (`vface`,
 {{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}), so both blocks of a seam withhold the same momentum.
 

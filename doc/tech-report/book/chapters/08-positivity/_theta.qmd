@@ -47,8 +47,8 @@ is the dimensionless factor of cell $i$, never above 1. $u_i$, $V_i$[^rg-48d3731
 the cell volume, a face area times its normal flux, and the stage step of @sec-ch04-divergence. For the relaxation:
 $\mathrm{out}^{\mathrm d}_i$ is the dry mass leaving cell $i$ per unit time [kg s$^{-1}$], $\Theta^{\mathrm d}_i$ the
 dimensionless factor of the dry air built from it, $r^{\min}_{n,i}$ the smallest mixing ratio of species $n$ among the
-neighbours of cell $i$ [-], $\Xi_{n,i}\in[0,1]$ the repaid share, and $\Theta'_i$ the relaxed factor. The mixing ratio
-$r_{n,i} = u_i/\rho_{\mathrm d,i}$ and the dry density $\rho_{\mathrm d}$[^rg-670f2d9bf0d5] are those of @sec-appa; $u$ and $\Theta$[^rg-1bf2a8a22e0c] carry no
+neighbours of cell $i$ [-], $\Xi_{n,i}\in[0,1]$ the repaid share, and $\Theta'_i$ the relaxed factor. The mixing ratio is the
+species density per unit dry density, $r_{n,i} = u_i/\rho_{\mathrm d,i}$; it and the dry density $\rho_{\mathrm d}$[^rg-670f2d9bf0d5] are those of @sec-appa; $u$ and $\Theta$[^rg-1bf2a8a22e0c] carry no
 species index in this section, $r$[^rg-bc378f9b7a03] and $\Xi$ do.
 
 ### Derivation
@@ -241,8 +241,8 @@ sharing a face would apply different factors and conservation would fail.
 The per-face factor is `flux_positivity_factor` ({{< code src/hydro/flux_positivity.cpp flux_positivity_factor >}}),
 which selects the donor per face with a `where` on the sign of the flux. The limiter does not rewrite the fluxes
 itself: `PositivityLimiter::post_` ({{< code src/hydro/flux_positivity.cpp PositivityLimiter::post_ >}}) hands the
-factor to the block's flux register as a `scale`[^rg-5ffbb1ee9f71] of the species rows, named `positivity.withhold`, so the register
-books the withheld flux (@sec-ch10). The stage builds the inputs and calls the limiter at `PositivityLimiter`
+factor to the block's flux register as a `scale`[^rg-5ffbb1ee9f71] of the species rows, named `positivity.withhold`, so the withheld flux
+leaves the register's totals; a `scale` books no amount (@sec-ch10-posts). The stage builds the inputs and calls the limiter at `PositivityLimiter`
 ({{< code src/hydro/hydro_forward.cpp HydroImpl::forward >}}). One call runs four steps in order
 ({{< code src/hydro/flux_positivity.cpp PositivityLimiter::apply >}}): the factors, the census of the interior cells
 (below), the ghost fill of the factors, and the posts. The ghost fill is `flux_positivity_sync_theta_`
@@ -577,7 +577,7 @@ relaxation and port the plain factor only; the relaxation is covered by `relativ
 
 [^rg-8de83003300b]: $x_1, x_2, x_3$ — the three coordinate directions; $x_1$ is always the vertical (radial) direction
 
-[^rg-9d4612fa1068]: $r_n$ — mass mixing ratio of species $n$ **per unit dry mass**, $r_n = \rho_n/\rho_{\mathrm{d}}$, dimensionless [-]; used only where the code is per dry air (passive tracers, @sec-ch10-tracer). Never written $r$ without its species subscript, because $r$ alone is the radius (§1)
+[^rg-9d4612fa1068]: $r_n$ — mass mixing ratio of species $n$ **per unit dry mass**, $r_n = \rho_n/\rho_{\mathrm{d}}$, dimensionless [-]; used only where the code is per dry air (passive tracers, @sec-ch08-drycarry). Never written $r$ without its species subscript, because $r$ alone is the radius (§1)
 
 [^rg-2951cd52e369]: CPU — central processing unit
 

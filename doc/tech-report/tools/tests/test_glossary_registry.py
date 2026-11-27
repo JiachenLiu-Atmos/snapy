@@ -150,9 +150,9 @@ READER_TERMS = {'MeshBlock': 'sec-ch01-construction', 'tensor layout': 'sec-ch01
                 'grid type': 'sec-ch03-choosing',
                 'ghost exchange': 'sec-ch03-exchange', 'halo exchange': 'sec-ch03-exchange',
                 'steady state': 'sec-ch09-vic-steady',
-                'ghost zone': 'sec-ch04-framework', 'latent heat': 'sec-ch10-satadj',
+                'ghost zone': 'sec-ch04-framework', 'latent heat': 'sec-ch08-satadj',
                 'hydrostatic primitive-equation core': 'sec-ch02-pecore',
-                'mixing ratio': 'sec-ch10-tracer', 'Python bindings': 'sec-ch01-python',
+                'mixing ratio': 'sec-ch08-theta', 'Python bindings': 'sec-ch01-python',
                 'options object': 'sec-ch01-options', 'module': 'sec-ch01-options',
                 'functional': 'sec-ch01-options', 'deck': 'sec-preface-install',
                 'case': 'sec-ch01-initialization', 'restart file': 'sec-ch14-restart',
@@ -180,7 +180,7 @@ def test_reader_terms_are_defined_where_they_route(data):
     assert routes[('key', 'nghost')] == ('sec-ch04-framework', False)
     assert routes[('acronym', 'VIC')] == ('sec-ch09-vic-options', False)  # Q333 H17
     assert routes[('acronym', 'CFL')] == ('sec-ch09-cfl', False)  # Q333 H24
-    assert routes[('key', 'uv-solver')] == ('sec-ch10-satadj', False)
+    assert routes[('key', 'uv-solver')] == ('sec-ch08-satadj', False)
 
 
 def test_a_use_under_an_unlabelled_section_has_no_section(data):

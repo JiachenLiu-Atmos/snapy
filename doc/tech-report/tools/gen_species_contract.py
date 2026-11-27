@@ -184,7 +184,7 @@ def generate(report, keys=None):
 
 **A minimal input.** Follow steps 0–5 in one Python file, run from the repository root. The example adds a
 gas that no reaction names, and checks that it becomes a state row only when it declares its phase.
-Adding a condensate, which a reaction names, is @sec-ch10-satadj.
+Adding a condensate, which a reaction names, is @sec-ch08-satadj.
 
 0. Prepare a tiny column with the chemistry of `examples/bryan.yaml`, and two helpers: one builds a block from a
    species list, one runs one stage on a uniform state.
@@ -253,7 +253,7 @@ print("N6 species: H2O with phase gas adds state row", snapy.kICY)
 CI checks the contract, and the runtime test runs on a pin build.
 
 **No C++ needed.** A species is data in the card. Its thermodynamics follow from `cv_R`, `u0_R` and the
-composition; a phase change is added in the reaction list (@sec-ch10-satadj).
+composition; a phase change is added in the reaction list (@sec-ch08-satadj).
 <!-- end reader-reference: species-contract -->
 '''
 
@@ -266,7 +266,7 @@ composition; a phase change is added in the reaction list (@sec-ch10-satadj).
 **A minimal input.** Follow steps 0–5 in one Python file, run from the repository root. The example adds a
 condensate and the reaction that names it, and checks that one step's saturation adjustment moves water from
 the vapour to the condensate. Adding a gas on its own is @sec-ch02-ideal-moist; adding a passive tracer, which
-has no thermodynamics or phase change, is a name in the `scalar` block (@sec-ch01-scalar, @sec-ch10-tracer).
+has no thermodynamics or phase change, is a name in the `scalar` block (@sec-ch01-scalar, @sec-ch08-drycarry).
 
 0. Prepare a tiny column with the chemistry of `examples/bryan.yaml`, and two helpers: one builds a block from a
    species list and a reaction list, one runs one stage on a uniform state.

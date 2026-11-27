@@ -1,95 +1,95 @@
-# Moist physics coupling {#sec-ch10}
+# The flux register, monitor amounts and conservation budgets {#sec-ch10}
 
 <!-- PROVENANCE
-pin: snapy@919936da07d80a310b98ab11da184972a3203274 (chengcli/snapy, code_pin.yml); kintera@c55b13b2204997d2d09e04498558ab9495d8ee77; pyharp@4721715855e937c1e8b218e964c0655f46e56e29
-sources: OUTLINE.md ch10 (10.1-10.8; 10.4 and 10.5 merged into one scheme file, as the chapter note asks); the code at the pin
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: STRUCTURE.md section 4.1 (the chapter's order) and section 6, chapter 10 (10.1-10.7); the code and tests at the pin
 status: draft
 -->
 
-This chapter is about how phase change and condensates enter snapy's step. The equations of state and the phase
-equilibrium itself belong to @sec-ch02-saturation; this chapter starts where they are called. It covers the
-saturation adjustment's place in the step; the two causes for rejecting a step that moist physics raises; the two
-species repairs of the conserved limiter, which keep condensate and vapour non-negative without creating mass; the
-reaction kinetics that the example drivers, not the library, run between steps; passive tracers carried per unit
-dry air; and the settling of condensates. One rule runs through all of them: latent heat is never a separate term.
-It is the difference of the species reference energies, so every operator here except sedimentation writes the
-species rows only and leaves the total energy, the momentum and the dry air alone. Sedimentation moves condensate
-with its own energy and momentum. The redo machinery in general belongs to @sec-ch09-redo and the positivity
-limiter's theory to @sec-ch08.
+Every face flux of a stage goes through one object, the flux register. This chapter is about that object and what
+is read from it. A producer writes a direction's stage total in place or adds, scales and overwrites rows of it
+(@sec-ch10-posts). The boundary sets the flux of the faces it owns, and the register books what that removed
+(@sec-ch10-prescribed). The removed wall flux of a whole stage, from both the hydro and the scalar register, is
+booked in one batch (@sec-ch10-wallbatch). Booked rates and cell posts are folded over the stages into step amounts
+(@sec-ch10-amounts). A monitor beside the register counts events, such as faces a floor changed (@sec-ch10-counts).
+A rejected attempt zeroes all of that and keeps what a replayed redo needs (@sec-ch10-rollback). After a step is
+accepted, the budget output reads the register and writes the budget series (@sec-ch10-budget).
+
+The register is `FluxRegister` ({{< code src/hydro/flux_register.hpp FluxRegister >}}) with its `RegisterMonitor`
+({{< code src/hydro/flux_register.hpp RegisterMonitor >}}). A block has two: the hydro module's, whose totals are the
+module's `F1`, `F2`, `F3` buffers ({{< code src/hydro/hydro.cpp HydroImpl::reset >}}), and the scalar module's
+({{< code src/scalar/scalar.cpp ScalarImpl::reset >}}). The two share one wall batch
+({{< code src/mesh/meshblock.cpp MeshBlockImpl::reset >}}). Which faces are prescribed, and with what, is the
+boundary chapter's (@sec-ch11 in this book, chapter 14 in the V3 outline); this chapter says how the register books
+them.
 
 ```{python}
-#| label: fig-ch10-deps
-#| fig-cap: "Dependency map of the moist-coupling schemes. Solid arrows read 'requires' or 'is part of', dashed arrows 'raises a redo cause in', the dotted arrow 'needs it switched on'. The borrow and the column repair are parts of the conserved limiter, which the saturation adjustment calls first; the limiter (cause 4) and the adjustment (cause 16) feed check_redo, which the driver kinetics calls; sedimentation requires constant gravity; the tracers' upper bound needs the limiter."
-#| fig-alt: "Directed graph of nine boxes: dry-air tracers, conserved limiter, saturation adjustment, driver kinetics, parent-vapour borrow, column vapour repair, check_redo, const-gravity, sedimentation, with solid, dashed and dotted arrows."
+#| label: fig-ch10-register-order
+#| fig-cap: "The register through one stage of a step, in the order the code runs it. Every box is one call, read top to bottom; the first box runs at stage 0 only and the last after an accepted step only. The section numbers in the boxes are this chapter's; every call is cited there."
+#| fig-alt: "A column of seven boxes joined by arrows: begin the step, begin the stage, the sweeps' posts and counts, the prescribed faces, the post-implicit apply, the combine with the wall batch flush and the end of the stage, and the budget's read after the step."
 #| echo: false
-from snapy_report.ch10.figures.fig_deps import make_fig
+from snapy_report.ch10.figures.fig_register_order import make_fig
 make_fig()
 ```
 
-| scheme | switch | default | order | main test |
-|---|---|---|---|---|
-| Saturation adjustment (@sec-ch10-satadj) | reactions in the thermo | on with reactions | n/a | `test_wall_saturation` |
-| Redo causes (@sec-ch10-redo) | `max_redo`, from code only | 5 | n/a | `test_check_redo_saturation` |
-| Parent-vapour borrow (@sec-ch10-borrow) | `limiter`[^rg-8e24f1f74511] | off | n/a | `test_condensate_conservation` |
-| Column vapour repair (@sec-ch10-fixvapor) | `limiter` | off | n/a | `test_fix_vapor_deficit` |
-| Driver kinetics (@sec-ch10-kinetics) | driver | driver | 1 in time | `test_uranus_cycle1_abort` |
-| Dry-air tracers (@sec-ch10-tracer) | `scalar`[^rg-f9fa37178671] | off | as `reconstruct`[^rg-b120c62578aa] | `test_tracer_dry_convention` |
-| Sedimentation (@sec-ch10-sed) | `sedimentation`[^rg-f29580f552fb] | off | 1 in space | `test_sedimentation_guards` |
+| part | what it holds or does | code | main test |
+|---|---|---|---|
+| Posts (@sec-ch10-posts) | the stage totals $T_d$ and the kept parts; `add`, `scale`[^rg-a575aa5fdcb6], `replace`, `overwrite_` | `FluxRegister` | `test_flux_register` |
+| Prescribed faces (@sec-ch10-prescribed) | the boundary's faces set to their value, the removal booked | `FluxRegister::apply_prescribed` | `test_prescribed_after_sources` |
+| Wall batch (@sec-ch10-wallbatch) | one stage's removed wall flux, both registers, booked at the combine | `WallBatch` | `test_flux_register` |
+| Amounts (@sec-ch10-amounts) | per-stage rates and posts, folded into step amounts | `RegisterMonitor::fold_` | `test_flux_register` |
+| Monitor counts (@sec-ch10-counts) | event counts, minima and retry flags | `RegisterMonitor::count` | `test_flux_register`, `test_fp32_face_floor_counts` |
+| Rollback (@sec-ch10-rollback) | a rejected attempt leaves no amount and no count | `FluxRegister::rollback` | `test_flux_register` |
+| Budget (@sec-ch10-budget) | totals, change, boundary transfer, counts per interval | `BudgetConsumer` | `test_budget` |
 
-: The schemes of this chapter, their switches and defaults, and the test that carries each one. "Driver" means
-the scheme is in the example drivers, not in the library, and has no library switch. `limiter` defaults to
-false both in the C++ options struct and in YAML[^rg-58283354e312]. Full ctest names and tolerances are in each scheme's Tests
-layer and in @sec-ch16-ch10-tests. {#tbl-ch10-schemes}
+: The parts of the register this chapter describes, in the outline's order (STRUCTURE.md section 4.1). Full ctest
+names and tolerances are in each section's Tests layer. {#tbl-ch10-parts}
 
-| ctest name | result at the pin |
+| ctest name | result at the pin, CPU[^rg-dafd53243230] |
 |---|---|
-| `test_eos.release`, `test_scalar.release`, `test_forcing.release` | passed |
-| `test_balance_column.release` and its `_wb_ref4`, `_x1_centroid` arms | passed |
-| `test_wall_saturation.release`, `test_check_redo_parallel.release` | passed |
-| `test_condensate_conservation.release`, `test_cloud_parent_slots.release`, `test_diffusion_moist.release`, `test_two_cards_species.release` | passed |
-| `test_fix_vapor_volume.release`, `test_parentless_cloud.release`, `test_parentless_cloud_nb1.release`, `test_vapor_column_nb1.release` | passed |
-| `test_parentless_cloud_nb1_mp.release` (two processes) | passed when run alone; failed under `ctest -j4` beside another two-process test |
-| `test_sedimentation_guards.release`, `test_sedimentation_cubed_seam.release` | passed |
-| `test_uranus_cycle1_abort.release` | passed |
-| `test_fix_vapor_reports_failure_python`, `test_fix_vapor_counts_every_column_python` | passed |
-| `test_check_redo_floor_python`, `test_check_redo_saturation_python` | passed |
-| `test_tracer_dry_convention_python`, `test_stage_forcing_dry_tracer_python`, `test_dry_carry_zero_base_python`, `test_flux_positivity_cubedsphere_python` | passed |
+| `test_flux_register.release` | passed (28 cases) |
+| `test_prescribed_after_sources.release` | passed (4 cases) |
+| `test_graph_monitor_amounts.release` | passed as a ctest; its 3 cases skip without CUDA[^rg-c6350576f4f5] |
+| `test_conservation_budget.release`, `test_conservation_budget_mp.release` (three processes) | passed (14 cases; the `e2_mp` case runs in the `_mp` entry) |
+| `test_budget.release` | passed (3 cases) |
+| `test_fp32_face_floor_counts_python` | passed |
+| `test_cycle_diagnostics.release` | passed (11 cases) |
+| `test_flux_positivity_carry.release` | passed (12 cases; its 3 CUDA cases skip) |
+| `test_implicit_register_x1_off_python` | skipped by the test itself |
 
 : The ctest entries this chapter cites, run at the pin.[^ch10-ctest] {#tbl-ch10-ctest-run}
 
-[^ch10-ctest]: [sha: snapy@6fbb39750f62b83df096058a4746e77d0a634bc5; run: `ctest -R` on a Release build of
-    snapy@6fbb39750f62b83df096058a4746e77d0a634bc5,
-    CPU[^rg-dafd53243230] only (`SNAPY_BUILD_CUDA=0`), double, Intel Xeon E-2236, 6 cores; torch 2.10.0, kintera 2.6.2.dev4+g914389b40,
-    Python 3.12.10]. The build has no CUDA[^rg-c6350576f4f5], so `test_vic_moist_device_python`, `test_check_redo_saturation_cuda_python`,
-    `test_fix_vapor_reports_failure_cuda_python` and the Gloo arm `test_sedimentation_cubed_seam_gloo` are not
-    registered and were not run.
+[^ch10-ctest]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; run: `ctest -j1 -R` on these names, then each
+    gtest binary on its own for the per-case lines, on a Release build of that commit (CUDA off, NETCDF on),
+    CPU only, Apple M5 Pro (arm64), one OpenMP thread; Python 3.11.15, torch 2.10.0, numpy 2.4.6, kintera 2.6.13]. The record is
+    `src/snapy_report/ch10/evidence/logs/ctest_pin_run.log`. The build has no CUDA, so the cases that need it skip:
+    every case of `test_graph_monitor_amounts` and three of `test_flux_positivity_carry`. They were not run.
 
-{{< include 10-moist-coupling/_satadj.qmd >}}
+The chapter's derivations are bookkeeping, not discretisation. Where a section states a sum, it is the sum the
+code forms, written so the reader can check the code against it. The material the pre-V3 chapter of this number
+held, the moist physics, moved to @sec-ch08 in the V3 outline. The one part of it still without a V3 home, the
+chemistry step, keeps a short pointer here (@sec-ch10-kinetics).
 
-{{< include 10-moist-coupling/_redo.qmd >}}
+{{< include 10-moist-coupling/_posts.qmd >}}
 
-{{< include 10-moist-coupling/_borrow.qmd >}}
+{{< include 10-moist-coupling/_prescribed.qmd >}}
 
-{{< include 10-moist-coupling/_fixvapor.qmd >}}
+{{< include 10-moist-coupling/_wallbatch.qmd >}}
+
+{{< include 10-moist-coupling/_amounts.qmd >}}
+
+{{< include 10-moist-coupling/_counts.qmd >}}
+
+{{< include 10-moist-coupling/_rollback.qmd >}}
+
+{{< include 10-moist-coupling/_budget.qmd >}}
 
 {{< include 10-moist-coupling/_kinetics.qmd >}}
 
-{{< include 10-moist-coupling/_tracer.qmd >}}
-
-{{< include 10-moist-coupling/_sed.qmd >}}
-
-The limits this chapter states are collected with those of the other chapters in @sec-ch17-wrong, @sec-ch17-restricted and @sec-ch17-usability.
+The limits this chapter states are collected with those of the other chapters in @sec-ch17-wrong, @sec-ch17-restricted, @sec-ch17-usability and @sec-ch17-pending.
 
 <!-- reader glossary notes -->
-[^rg-8e24f1f74511]: limiter — whether the enclosing component enables its limiter
-
-[^rg-f9fa37178671]: scalar — passive-scalar options
-
-[^rg-b120c62578aa]: reconstruct — reconstruction options
-
-[^rg-f29580f552fb]: sedimentation — sedimentation-model options
-
-[^rg-58283354e312]: YAML — YAML Ain't Markup Language, the structured input format used for decks
+[^rg-a575aa5fdcb6]: scale — scaling in the enclosing component: a reconstruction switch or values of a thermal-transport profile
 
 [^rg-dafd53243230]: CPU — central processing unit
 
