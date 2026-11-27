@@ -55,7 +55,7 @@ names and tolerances are in each section's Tests layer. {#tbl-ch10-parts}
 | `test_fp32_face_floor_counts_python` | passed |
 | `test_cycle_diagnostics.release` | passed (11 cases) |
 | `test_flux_positivity_carry.release` | passed (12 cases; its 3 CUDA cases skip) |
-| `test_implicit_register_x1_off_python` | skipped by the test itself |
+| `test_implicit_register_x1_off_python` | skipped by the test itself (no CUDA) |
 
 : The ctest entries this chapter cites, run at the pin.[^ch10-ctest] {#tbl-ch10-ctest-run}
 
@@ -63,7 +63,8 @@ names and tolerances are in each section's Tests layer. {#tbl-ch10-parts}
     gtest binary on its own for the per-case lines, on a Release build of that commit (CUDA off, NETCDF on),
     CPU only, Apple M5 Pro (arm64), one OpenMP thread; Python 3.11.15, torch 2.10.0, numpy 2.4.6, kintera 2.6.13]. The record is
     `src/snapy_report/ch10/evidence/logs/ctest_pin_run.log`. The build has no CUDA, so the cases that need it skip:
-    every case of `test_graph_monitor_amounts` and three of `test_flux_positivity_carry`. They were not run.
+    every case of `test_graph_monitor_amounts`, three of `test_flux_positivity_carry`, and
+    `test_implicit_register_x1_off_python`, which skips itself without CUDA. They were not run.
 
 The chapter's derivations are bookkeeping, not discretisation. Where a section states a sum, it is the sum the
 code forms, written so the reader can check the code against it. The material the pre-V3 chapter of this number
