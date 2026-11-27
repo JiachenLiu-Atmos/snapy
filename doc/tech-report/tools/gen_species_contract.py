@@ -14,6 +14,7 @@ TARGETS = {
 }
 PIN = '73c45a7c8c991209924e1137992352c335575062'
 KINTERA = ('chengcli/kintera', '0429d795f79a0665afeca565e5a05c87ab4ba1e2')  # kintera v2.6.13
+CHECK_KINTERA = '[`kintera c55b13b2`](https://github.com/chengcli/kintera/commit/c55b13b2204997d2d09e04498558ab9495d8ee77)'  # func_table_check.py's own kintera: hand-written tables
 
 
 def _reader(repo, sha):
@@ -159,21 +160,24 @@ def generate(report, keys=None):
         pair, pair_cite = kin('src/vapors/vapor_functions.h',
             r'^DISPATCH_MACRO\ninline double h2o_bryan\(double T\) \{.*?\n\}\n\nDISPATCH_MACRO\n'
             r'inline double h2o_bryan_ddT\(double T\) \{.*?\n\}')
+        # the registry is spelled once (src/func_list.h); the host and device tables expand it
+        flist, flist_cite = kin('src/func_list.h', r'^#define KINTERA_FUNC1_LIST\(X\) \\\n(?:  X\([A-Za-z0-9_]+\)[ \\]*\n)+')
+        xmac, xmac_cite = kin('src/func_list.h', r'^#define KINTERA_FUNC_PTR\(f\) f,\n#define KINTERA_FUNC_NAME\(f\) #f,')
         cpu_table, cpu_table_cite = kin('src/func_table.cpp',
-            r'^user_func1 func1_table_cpu\[\] = \{\n    h2o_ideal,[^\n]+')
+            r'^user_func1 func1_table_cpu\[\] = \{KINTERA_FUNC1_LIST\(KINTERA_FUNC_PTR\)\};')
         cpu_names, cpu_names_cite = kin('src/func_table.cpp',
-            r'^std::vector<std::string> func1_names = \{\n    "h2o_ideal",[^\n]+\n    "h2o_bryan_ddT",[^\n]+')
+            r'^std::vector<std::string> func1_names = \{KINTERA_FUNC1_LIST\(KINTERA_FUNC_NAME\)\};')
         cuda_table, cuda_table_cite = kin('src/func_table.cu',
-            r'^__device__ user_func1 func1_table_cuda\[\] = \{\n    nullptr,\n    h2o_ideal,\n    h2o_ideal_ddT,\n'
-            r'    h2o_bryan,\n    h2o_bryan_ddT,')
+            r'^__device__ user_func1 func1_table_cuda\[\] = \{\n    nullptr, KINTERA_FUNC1_LIST\(KINTERA_FUNC_PTR\)\};')
         host_lookup, host_lookup_cite = kin('src/utils/user_funcs.hpp', r'      funcs\.push_back\(func_table\[id\]\);')
-        device_lookup, device_lookup_cite = kin('src/utils/user_funcs.cu', r'      h_idx\.push_back\(id \+ 1\);(?=.*?get_device_func2)')
+        device_lookup, device_lookup_cite = kin('src/utils/user_funcs.cu',
+            r'      h_idx\.push_back\(std::distance\(func_names\.begin\(\), it\) \+ 1\);')
         unknown, unknown_cite = kin('src/utils/user_funcs.hpp',
             r'      throw std::runtime_error\("Function " \+ name \+ " not registered\."\);')
-        ddt, ddt_cite = kin('src/thermo/log_svp.hpp', r'    for \(auto& name : _logsvp_ddT\) name \+= "_ddT";')
+        ddt, ddt_cite = kin('src/thermo/log_svp.cpp', r'  for \(auto& name : names_ddT\) name \+= "_ddT";')
         rebuild, rebuild_cite = kin('README.md',
             r'^# 3\. Configure and build the C\+\+ library\ncmake -B build\ncmake --build build --parallel\n.*?pip install \.')
-        formulas, formulas_cite = kin('src/func_table.cpp', r'    "h2o_ideal",[^\n]+\n[^\n]+"nh3_ideal",[^\n]+')
+        formulas, formulas_cite = flist, flist_cite
 
     KINTERA_REF = f'snapy@{sha} and kintera@{ksha}'
     vapour_py, cloud_py, reaction_py = _entry(vapour), _entry(cloud), _entry(reaction.split('\n', 1)[1])
@@ -317,8 +321,8 @@ print("N6 condensate: condensed", condensed, "kg m^-3 in one stage")
   into vapours and condensates ({nucleation_cite}). A reactant must be a gas ({reactant_cite}).
 - Entry: the condensate is a species entry of its own. A product is a condensate unless it declares
   `phase: gas` ({product_cite}), so leave the phase empty or give `liquid` or `solid`.
-- Formula: `rate-constant: {{formula: ...}}` names one of kintera's saturation functions
-  ({formulas_cite}).
+- Formula: `rate-constant: {{formula: ...}}` names one of kintera's saturation functions, the entries of
+  `KINTERA_FUNC1_LIST` ({formulas_cite}).
 - When: once per step, on the last stage, whenever the reaction list is non-empty ({gate_cite}):
 
   ```cpp
@@ -345,17 +349,21 @@ Write the pair after this generated one ({pair_cite}):
 {pair}
 ```
 
-Register both names at the same position of the CPU table and of the name list ({cpu_table_cite},
-{cpu_names_cite}):
+Add both names to `KINTERA_FUNC1_LIST`, the one list that every table expands, in order, next to the pair they
+belong with ({flist_cite}):
 
-```cpp
-{cpu_table}
-{cpu_names}
+```c
+{flist}
 ```
 
-and in the CUDA table, which starts with `nullptr`, one position further on ({cuda_table_cite}):
+The CPU pointer table and the name vector expand that list, one with `KINTERA_FUNC_PTR` and one with
+`KINTERA_FUNC_NAME` ({xmac_cite}; {cpu_table_cite}, {cpu_names_cite}), and the CUDA table expands it after a
+leading `nullptr`, one position further on ({cuda_table_cite}); none of the three is edited:
 
 ```cpp
+{xmac}
+{cpu_table}
+{cpu_names}
 {cuda_table}
 ```
 
@@ -367,7 +375,9 @@ needed. The lookup is by position: the CPU build takes `{host_lookup}` ({host_lo
 {unknown}
 ```
 
-Nothing compares the lengths of the list and the tables: on a CPU build of these files, two names added to the list
+Because the three expand one list, the name vector and both pointer tables have the same length by construction,
+and a name in the list without its function pair expands to an undefined identifier in the pointer tables, so
+they do not compile. The footnote's check shows what the one list rules out: on tables written out by hand, two names added to the name vector
 without table entries raised no error, the first resolved to the function after `h2o_bryan_ddT`, every later name
 to the one two positions on, and the last read past the end of the table and crashed.[^ch10-func-table]
 Then rebuild and reinstall kintera, so that snapy links the new table ({rebuild_cite}):
@@ -376,7 +386,8 @@ Then rebuild and reinstall kintera, so that snapy links the new table ({rebuild_
 {rebuild}
 ```
 
-[^ch10-func-table]: [sha: {KINTERA_REF}; deck: the check itself; run: `python3 src/snapy_report/ch10/checks/func_table_check.py`,
+[^ch10-func-table]: [sha: snapy@{sha}; the check builds kintera's files at {CHECK_KINTERA}, where the tables were
+    written out by hand; deck: the check itself; run: `python3 src/snapy_report/ch10/checks/func_table_check.py`,
     CPU, `c++` (GCC 11.5.0), 1 process; Python 3.11.13]. Output `func_table_check.out`, lines `[C1]`–`[C5]`; the
     crash of `[C5]` is undefined behaviour, observed as exit status -11 on this build.
 <!-- end reader-reference: condensate-contract -->
