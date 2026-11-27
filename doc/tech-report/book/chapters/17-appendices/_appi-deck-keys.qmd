@@ -193,7 +193,7 @@
 
 | key | default | read at | explained in |
 |---|---|---|---|
-| `outputs/<fid>/combine` | `true` | `combine` [`src/options/output.yaml:40`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/options/output.yaml#L40) | @sec-ch14-netcdf |
+| `outputs/<fid>/combine` | `true` | `combine` [`src/options/output.yaml:40`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/options/output.yaml#L40) | @sec-ch15-output |
 | `outputs/<fid>/double_precision` | `false` | `double_precision` [`src/options/output.yaml:22`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/options/output.yaml#L22) | @sec-ch14-netcdf |
 | `outputs/<fid>/dt` | `0.0` | `dt` [`src/options/output.yaml:16`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/options/output.yaml#L16) | @sec-ch14-restart |
 | `outputs/<fid>/include_ghost_zones` | `false` | `include_ghost_zones` [`src/options/output.yaml:20`](https://github.com/chengcli/snapy/blob/73c45a7c8c991209924e1137992352c335575062/src/options/output.yaml#L20) | @sec-ch14-netcdf |

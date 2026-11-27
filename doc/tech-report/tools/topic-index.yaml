@@ -618,6 +618,8 @@ sections:
     - restart, what it saves: [restart bundle, hydro_u_stored, restart metadata]
     - restart, schedule after resume: [file numbers after restart, schedule keys]
     - restart, refused files: [reference grid mismatch, restart metadata version]
+  sec-ch15-tools:
+    - output files, combining and inspecting: [pd-combine, pd-inspect, NCO]
 
   # Chapter 16. Known limits
   sec-ch17-wrong:

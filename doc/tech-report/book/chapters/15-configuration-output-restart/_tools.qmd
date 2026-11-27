@@ -1,0 +1,161 @@
+## Combine and inspect tools (`pd-combine`, `pd-inspect`) {#sec-ch15-tools}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (chengcli/snapy)
+sources: pyproject.toml, python/api/pd_combine.py, python/api/pd_inspect.py, tests/run_shallow_xy_decomp.py, all read at
+         the pin; the retired parallelism chapter's text of the same section at the same pin is the source of this move
+status: draft
+author: Sihe Chen
+reviewer: Linfeng Li
+-->
+
+### Summary
+
+Both are entry points of the `snapy` package (`[project.scripts]`, {{< code pyproject.toml >}}); the launcher
+`pd-run` is installed beside them as a script file (`script-files` in the same file).
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Two command-line tools: `pd-combine` joins frames in time and merges streams; `pd-inspect` lists tensors.
+
+**Data.** `pd-combine` reads combined `*.out<n>.<kkkkk>.nc` frames; `pd-inspect` reads `.part` and `.restart` files.
+
+**Placement.** After a run, from the shell; entry points of the `snapy` Python package.
+
+**Activation.** Command line. `pd-combine` needs NCO[^rg-3922de2a6527]'s `ncrcat` and `ncks` on the `PATH`.
+
+**Guarantee / limits.** Values are copied by NCO unchanged; blocks are not joined in space.
+
+**Evidence.** The Tests layer below, @tbl-ch15-tools-tests.
+:::
+
+Local symbols: none. This section uses no mathematical symbol.
+
+### Derivation
+
+There is no equation, and the tools copy values without arithmetic, so there is no round-off. Why `pd-combine` does
+not join per-block files in space, in three steps (`ParseOutputFields`,
+{{< code python/api/pd_combine.py ParseOutputFields >}}):
+
+1. *The glob.* It collects `*.out*.<5 digits>.nc`, which matches per-block files `<basename>.block<r>.out<n>.<kkkkk>.nc`
+   as well as combined frames.
+2. *The split.* It takes the last three dot-separated fields as stream, stamp and extension, and everything before
+   them as the case. For a per-block file the case is `<basename>.block<r>`.
+3. *Hence* each block is its own case, and `CombineTimeseries` concatenates that block's frames in time only.
+
+### Numerical method
+
+**`pd-combine <ids> [-d dir] [-o name] [--no-remove] [--no-merge]`.** `ParseOutputFields` globs
+`*.out*.<5 digits>.nc` in the directory and splits each name into case, stream and stamp
+(`ParseOutputFields`, {{< code python/api/pd_combine.py ParseOutputFields >}}). For each case and stream, `CombineTimeseries` runs
+`ncrcat` over the stamps into `<case>.out<n>.nc`, or renames a single stamp. Unless `--no-remove`, it then deletes the
+per-stamp files (`CombineTimeseries`, {{< code python/api/pd_combine.py CombineTimeseries >}}). Unless `--no-merge`, `CombineFields`
+appends the listed streams into the first with `ncks -A` and moves the result to `<case>-<name>.nc`
+(`CombineFields`, {{< code python/api/pd_combine.py CombineFields >}}). `main` checks that each requested id exists and also
+calls `CombineFITS` for FITS outputs ({{< code python/api/pd_combine.py main >}}).
+
+`pd-combine` does not join blocks in space. A per-block file `<basename>.block<r>.out<n>.<kkkkk>.nc` (left by
+`combine: false`) also matches the glob, with case `<basename>.block<r>`, so each block's frames are concatenated in
+time on their own. Joining blocks is done by the run itself (@sec-ch15-output).
+
+**`pd-inspect <paths>`.** For each path, `inspect_path` checks for the bundle magic. For a bundle it prints the
+tensors of every part (name, shape, dtype); otherwise it reads the file as one part
+(`inspect_path`, {{< code python/api/pd_inspect.py inspect_path >}}).
+
+### Code
+
+**A minimal input.** The ids are the positions of the outputs in the deck's `outputs:` list, counting from 0. A
+deck whose list is
+
+```yaml
+outputs:
+  - type: restart          # id 0: writes card.<5 digits>.restart, no .nc frames
+    dt: 300.
+  - type: netcdf           # id 1: card.out1.<5 digits>.nc
+    variables: [prim]
+    dt: 300.
+  - type: netcdf           # id 2: card.out2.<5 digits>.nc
+    variables: [uov]
+    dt: 300.
+```
+
+has NetCDF streams 1 and 2. `pd-combine` works on every case whose frames are in the directory it is given, and
+it stops when one of them lacks a stream that another has. So run the example in a directory of its own, not in
+`build/bin`, where the runs of [Install and run](#sec-preface-install) leave `straka_proc2.out0.*.nc`; there the
+command stops with `ncrcat: ERROR file "./card.out0.?????.nc" not found`. From `build/bin`:
+
+```bash
+mkdir -p combine-demo && cd combine-demo
+cp ../straka_proc2.yaml card.yaml      # then replace its outputs: list with the one above
+torchrun --no-python --nproc-per-node=2 --master-port=29573 ../straka.release card.yaml   # any free port
+pd-combine 1,2 -d . -o main --no-remove
+pd-inspect card.00002.restart
+```
+
+`pd-combine` joins both streams in time and merges them into one file, `card-main.nc`, keeping the per-frame files;
+`pd-inspect` lists the tensors of one restart file.
+
+**What is refused, and why.** `pd-combine` exits with "Error: output id … not found!" when a requested stream has no
+frame in the directory, before it touches any file (`main`, {{< code python/api/pd_combine.py main >}}). A missing
+`ncrcat` or `ncks` makes the NCO call fail. `pd-inspect` reads a file without the bundle magic as one part.
+
+**The excerpt.** Steps 1 and 2, in `ParseOutputFields`:
+
+```python
+files = glob(path + "/*.out*.[0-9][0-9][0-9][0-9][0-9].nc")
+for fname in files:
+    field, stamp, ext = os.path.basename(fname).split(".")[-3:]
+    case = ".".join(os.path.basename(fname).split(".")[:-3])
+```
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| entry points | {{< code pyproject.toml >}} | `pd-combine` | none |
+| file discovery | {{< code python/api/pd_combine.py ParseOutputFields >}} | `ParseOutputFields` | `-d` |
+| time concatenation | {{< code python/api/pd_combine.py CombineTimeseries >}} | `CombineTimeseries` | `--no-remove` |
+| stream merge | {{< code python/api/pd_combine.py CombineFields >}} | `CombineFields` | `--no-merge`, `-o` |
+| command line | {{< code python/api/pd_combine.py main >}} | `main` | `ids` |
+| restart and part inspection | {{< code python/api/pd_inspect.py inspect_path >}} | `inspect_path` | none |
+
+: Code map of the tools. {#tbl-ch15-tools-code}
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| none on its own | the `FULL_TESTS` decomposition runners call `pd-combine 0 -o main` | — | — |
+
+: Tests of the tools. {#tbl-ch15-tools-tests}
+
+There is no check script: the section derives nothing.[^ch15-tools-run] No ctest tests either tool on its own. The `FULL_TESTS` decomposition runners call `pd-combine 0 -o main` on each
+case: `run_shallow_splash_decomp.py` exits 125 without it, which its Gloo ctest entry counts as a failure because that
+entry sets no `SKIP_RETURN_CODE` (the `ucx_cuda` entry of the same wrapper sets it to 125,
+{{< code tests/CMakeLists.txt >}}), and `run_shallow_xy_decomp.py` fails without it
+(`pd_combine`, {{< code tests/run_shallow_xy_decomp.py main >}}). `pd-inspect` is used by no test.
+
+### Limits
+
+::: {.callout-warning title="Limits"}
+- `pd-combine` globs every matching `*.out*.nc` in the directory, leftovers included; run it in a clean directory.
+- It needs NCO on the `PATH` and deletes its inputs by default.
+- It does not join per-block files in space.
+- The time stamps are collected over every `*.out*.NNNNN.nc` file in the directory, one sorted list for all streams
+  (`ParseOutputFields`, {{< code python/api/pd_combine.py ParseOutputFields >}}). When that list has one stamp, each
+  stream is moved, not concatenated, to `<case>.out<n>.nc` relative to the working directory rather than under `-d`;
+  with `-d` other than the working directory, the field step then looks for that file under `-d` and does not find
+  it (`CombineTimeseries`, {{< code python/api/pd_combine.py CombineTimeseries >}}; `CombineFields`,
+  {{< code python/api/pd_combine.py CombineFields >}}).
+:::
+
+[^ch15-tools-run]: [sha: snapy@73c45a7c8c991209924e1137992352c335575062; deck: the `ch15-tools` card, a copy of
+    `examples/straka_proc2.yaml` with the three outputs above at `dt: 2.0` and `nlim: 20`; run: `torchrun --no-python
+    --nproc-per-node=2 --master-port=29617 straka.release card.yaml`, then `pd-inspect card.00002.restart`, on a CPU
+    Release build of the pin with NetCDF, 2 ranks; Python 3.12, torch 2.10.0, kintera 2.6.13; scope: each command
+    whole, wall time; reps: 1]. The run exited 0 in 4.15 s and left `card.00000`-`card.00002.restart`,
+    `card.final.restart` and the frames `card.out1.0000{0,1,2}.nc`, `card.out2.0000{0,1,2}.nc`; `pd-inspect`
+    exited 0 in 2.31 s and listed the two parts of the bundle, `card.block0.00002.part` and
+    `card.block1.00002.part`, seven tensors each. `pd-combine` was not run: NCO is not installed on the measuring
+    host, so its combine step has no measurement here.
+
+<!-- reader glossary notes -->
+[^rg-3922de2a6527]: NCO — NetCDF Operators
+<!-- end reader glossary notes -->

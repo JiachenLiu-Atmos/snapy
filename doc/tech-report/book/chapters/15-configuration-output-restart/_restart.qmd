@@ -120,7 +120,7 @@ the driver's `-r`/`--restart` argument (`ParseArguments`, {{< code examples/stra
 1. A relative path that does not exist is looked up under `output_dir`; the block's part is read; `hydro_u`,
    `last_time`, `last_cycle`, `file_number` and `next_time` must be present; the metadata checks run
    (invariant 4).
-2. The cycle and time are restored from the file, so a run limited by `nlim`[^rg-92bdb6d45d3b] takes no extra step.
+2. The cycle and time are restored from the file, so a run limited by `nlim` takes no extra step.
 3. The schedules are restored. When the file holds $2N$ keys the exact keys are used, else the legacy ones. An
    output that still matches its own saved slot keeps it; an output whose key matches an unclaimed slot takes
    that slot; an output with no match keeps its position when that slot is unclaimed. The file number always
@@ -263,8 +263,11 @@ on the code by rerunning the Python and gtest entries alone.
   as `precision_cases` ({{< code tests/test_fp32_restart.py precision_cases >}}) bounds it.
 - The restart writer always combines; a `combine: false` on a restart entry is overridden by
   `RestartOutput::RestartOutput` ({{< code src/output/restart.cpp RestartOutput::RestartOutput >}}).
+- A file without the bundle magic line is read whole by every block, whatever its rank, with no check of the
+  rank: `load_restart` ({{< code src/output/restart.cpp load_restart >}}) hands such a file to the tensor loader
+  as one part. That case is read from the code and has not been run.
+- The restart runners launch one process (`test_restart_resume_schedule`, the `dt_change`, `output_schedule`,
+  `key_collision` and `inplace_reorder` runners) or two (`cycle_limit`); `test_restart_multiblock` varies the blocks per process within
+  one process and never the global block count. Larger runs, and a resume under a different decomposition, are
+  not tested.
 :::
-
-<!-- reader glossary notes -->
-[^rg-92bdb6d45d3b]: nlim — maximum number of integration cycles
-<!-- end reader glossary notes -->

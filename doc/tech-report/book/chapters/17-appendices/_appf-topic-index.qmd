@@ -1256,7 +1256,7 @@
 
 **NCCL**: Communication backends: Gloo, UCX through commux, an external group, @sec-ch14-backends.
 
-**NCO**: Combine and inspect tools, @sec-ch14-tools.
+**NCO**: Combine and inspect tools, @sec-ch14-tools. See also **output files, combining and inspecting**.
 
 **`ncycle_out`**: Step rejection for moist causes, @sec-ch10-redo.
 
@@ -1362,7 +1362,7 @@
 
 *output files*, see **output**.
 
-**output files, combining and inspecting**: Combine and inspect tools, @sec-ch14-tools.
+**output files, combining and inspecting**: Combine and inspect tools, @sec-ch14-tools; Combine and inspect tools, @sec-ch15-tools.
 
 **output files, combining per-block**: NetCDF output: per-block files and the combine, @sec-ch14-netcdf.
 
