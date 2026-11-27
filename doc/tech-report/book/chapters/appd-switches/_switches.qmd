@@ -134,8 +134,9 @@ which `torchrun` sets from `--master-port`:
 `torchrun --no-python --nproc-per-node=2 --master-port=29573 ./straka.release straka_proc2.yaml`.
 
 **What is refused, and why.** For `SNAP_X1_CENTROID_EXACT` nothing in the parse refuses a value: an unrecognised
-value turns the switch on (step 3 of the Numerical method above). The parse refuses one value of `SNAP_ANOMALY`,
-and setup refuses five combinations:
+value turns the switch on (step 3 of the Numerical method above). The parse refuses every value of `SNAP_ANOMALY`
+outside its listed words (refusal 3); setup refuses three combinations (1, 2 and 4), layout construction one (5) and
+the start of the Gloo process group one (6):
 
 1. *`SNAP_X1_CENTROID_EXACT` (or `dynamics/conversion-order: 4`) with nonzero `grav1` and `nghost` below 3*: the
    resolution flag reads scan pressures three cells away, so both sides of an $x_1$ seam agree only with three
@@ -218,64 +219,70 @@ The table covers the ctest entries that set an environment variable of this appe
 of @tbl-appd-keys belong to the sections that explain those keys (@sec-ch12-flux-covariance,
 @sec-ch12-mass-covariance, @sec-ch04-conv4) and are not repeated here. The registrations set the switches and the
 backend per entry ({{< code tests/CMakeLists.txt >}}), as the entry's own environment or inside a wrapper script
-the entry runs; the three Python entries set `SNAP_X1_CENTROID_EXACT` in their own source, for a child process or
-for the script itself. Two further groups set a variable of @tbl-appd-layout only to launch the case they test, and
-the table lists them as groups: eight entries whose wrapper script or test source starts its ranks with
-`BACKEND=gloo`, and eleven Python entries that set `DEVICE` and `DEVICE_ID` to the device under test. Each row is
-one variable or one group; the test names are the registered ctest names, without the build-type suffix. The seam arms pass only on gtest's own line
-`[  PASSED  ] 1 test.`, so a skipped or empty arm fails its entry.
+the entry runs; the three Python `SNAP_X1_CENTROID_EXACT` entries and the gtest `test_process_group` set the
+variable in their own source, for a child process or in-process. Two further groups set a variable of
+@tbl-appd-layout only to launch the case they test, and the table lists them as groups: the entries whose wrapper
+script or test source starts its ranks with `BACKEND=gloo` (eight, three more in `FULL_TESTS` builds), and eleven
+Python entries that set `DEVICE` and `DEVICE_ID` to the device under test. Each row is one variable or one group;
+the test names are the registered ctest names, without the build-type suffix. The pass rule of the seam arms
+differs by arm: `seam_arm` sets `PASS_REGULAR_EXPRESSION`, so a single-process arm passes only on gtest's own line
+`[  PASSED  ] 1 test.` and a skipped or empty arm fails its entry; the CUDA arms add a `SKIP_REGULAR_EXPRESSION`
+for gtest's skipped line, so without a GPU they are reported skipped, not failed; the two-rank arm (`seam_arm_mp`)
+sets only the environment and passes on the exit status of both ranks.
 
 | test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
 |---|---|---|---|
-| `test_x1_seam_split_x1_centroid`, `test_x1_seam_split_mp_x1_centroid` (two ranks), `test_x1_seam_split_x1_centroid_cuda` (CUDA builds) | with `SNAP_X1_CENTROID_EXACT=1` the split column equals one block, across the seam and across two ranks | exact: one gtest pass line | the test registration |
+| `test_x1_seam_split_x1_centroid`, `test_x1_seam_split_mp_x1_centroid` (two ranks), `test_x1_seam_split_x1_centroid_cuda` (CUDA builds) | with `SNAP_X1_CENTROID_EXACT=1` the split column equals one block, across the seam and across two ranks | exact: one gtest pass line for the single-process arm; the exit status of both ranks for the `_mp` arm; the CUDA arm is reported skipped without a GPU | the test registrations |
 | `test_x1_seam_split_nghost_check_x1_centroid` | with `SNAP_X1_CENTROID_EXACT=1` and gravity, a block with fewer than 3 ghost cells is refused (refusal 1) | exact: throws | a guard |
 | `test_deck_x1_wiring_x1_centroid` | with `SNAP_X1_CENTROID_EXACT=1` the scalar keeps the $r^3/3$ table of a spherical-polar deck while the hydro reads plain means | per test | the test source |
 | `test_stretched_x1_ref_x1_centroid` | with `SNAP_X1_CENTROID_EXACT=1` the stretched $x_1$ reference and the balance of a Cartesian column still run | per test | the test source |
 | `test_balance_column_x1_centroid`, `test_face_floor_x1_centroid` | with `SNAP_X1_CENTROID_EXACT=1` the same balance and floor checks hold on their Cartesian columns | per test | the test sources |
-| `test_x1_centroid_rest_python` | `SNAP_X1_CENTROID_EXACT=1` in a child process: a spherical-polar column of exact $r^2$ cell averages stays at rest after one RK3 step, at $r_0 = 5$ and $1000$, explicit and implicit, full and hydrostatic-split pressure; the switch-off child keeps the imbalance, so an ignored switch fails | force imbalance $f < 10^{-10}$ with the switch; $f > 10^{-8}$ without it at $r_0 = 5$ | the test source (`TOL_ON`, `TOL_OFF`) |
-| `test_radial_order_x1_centroid_python` | `SNAP_X1_CENTROID_EXACT=1` set by the script: WENO5 and cp5 face values from plain means on a stretched spherical-polar $x_1$ keep their order over $n = 32, 64, 128$ | observed order of the last refinement $\geq 4$ (4.5 for the unswitched entry) | the test source |
+| `test_x1_centroid_rest_python`, `test_x1_centroid_rest_cuda_python` (CUDA builds) | `SNAP_X1_CENTROID_EXACT=1` in a child process: a spherical-polar column of exact $r^2$ cell averages stays at rest after one RK3 step, at $r_0 = 5$ and $1000$, explicit and implicit, full and hydrostatic-split pressure; the switch-off child keeps the imbalance, so an ignored switch fails | force imbalance $f < 10^{-10}$ with the switch; $f > 10^{-8}$ without it at $r_0 = 5$ | the test source (`TOL_ON`, `TOL_OFF`) |
+| `test_radial_order_x1_centroid_python`, `test_radial_order_x1_centroid_cuda_python` (CUDA builds) | `SNAP_X1_CENTROID_EXACT=1` set by the script: WENO5 and cp5 face values from plain means on a stretched spherical-polar $x_1$ keep their order over $n = 32, 64, 128$ | observed order of the last refinement $\geq 4$ (4.5 for the unswitched entry) | the test source |
 | `test_stencil_cache_small_block_python` | `SNAP_X1_CENTROID_EXACT=1` on spherical-polar blocks of 2 to 6 $x_1$ cells: two RK3 steps of a resting column run and stay finite, or the block is refused cleanly at setup; switch-off controls on Cartesian and spherical-polar blocks | exact: each child's exit code and last line | the test source |
-| `test_anomaly_storage_python` | `SNAP_ANOMALY=1` in a child process turns `dynamics/anomaly` on without the deck key, and an unsupported EOS refuses it (refusal 4) | exact: the child's last line, a throw | the test source |
+| `test_anomaly_storage_python`, `test_anomaly_storage_cuda_python` (CUDA builds) | `SNAP_ANOMALY=1` in a child process turns `dynamics/anomaly` on without the deck key, and an unsupported EOS refuses it (refusal 4) | exact: the child's last line, a throw | the test source |
 | `test_options_table` | the reader keeps the words of `SNAP_ANOMALY` (`on`, the empty value) and its refusal of `maybe` (refusal 3) | exact | the test source |
+| `test_process_group` | in-process `setenv`/`unsetenv`: with `BACKEND=gloo` the constructed layout reports `gloo`, and the environment overrides a deck backend while the deck value alone is ignored; with `MASTER_PORT` unset a single process gets a random port and a world size above 1 is refused (refusal 5) | exact: gtest expectations | the test source |
 | `test_diffusion_cubed_sphere_mp`, `test_conservation_budget_mp` (three ranks), `test_parentless_cloud_nb1_mp_gloo` (UCX builds) | `BACKEND=gloo`: the two- and three-rank cases on Gloo, which a UCX build would not reach by default | per test | the test sources |
 | `test_gloo_invalid_interface` | `BACKEND=gloo` with `GLOO_SOCKET_IFNAME=snapy_no_such_interface`: the two-rank launch fails instead of resolving the host (refusal 6) | exact: expected failure | the wrapper script of the registration |
 | `test_sedimentation_cubed_seam_gloo` (UCX builds) | the wrapper runs two ranks with `BACKEND=gloo` and then with `BACKEND=ucx`: both exit 0 and their result lines agree to 17 digits | exact: identical result line | the wrapper script of the registration |
 | `test_exchange_ucx` (UCX builds) | `BACKEND=ucx` with the exchange topology variables of @sec-ch12-test-environment | per test | the test source |
 | `test_exchange_ucx_cuda` (CUDA and UCX builds) | the wrapper sets `BACKEND=ucx` and `DEVICE=cuda` with the same topology variables | per test | the test source |
 | `test_diffusion_cubed_sphere_two_gpu_ucx` (CUDA and commux-CUDA builds) | `BACKEND=ucx`, `DEVICE=cuda` and an explicit `UCX_TLS=self,tcp,cuda_copy,cuda_ipc`, which the set-if-unset default of @tbl-appd-layout leaves alone | per test | the test source |
-| `test_restart_multiblock`, `test_restart_dt_change`, `test_restart_output_schedule`, `test_restart_key_collision`, `test_restart_inplace_reorder`, `test_restart_resume_schedule`, `test_netcdf_axis_attrs`, `test_exchange_decomp` | the wrapper script or the test source launches its ranks with `BACKEND=gloo`; the variable only selects the process group, and the assertions are the restart, output and decomposition checks of @sec-ch15-restart, @sec-ch15-output and @sec-ch03-layouts | per test | the test sources |
+| `test_restart_multiblock`, `test_restart_dt_change`, `test_restart_output_schedule`, `test_restart_key_collision`, `test_restart_inplace_reorder`, `test_restart_resume_schedule`, `test_netcdf_axis_attrs`, `test_exchange_decomp`; in `FULL_TESTS` builds also `test_shallow_splash_decomp` and `test_shallow_xy_decomp` (the wrapper sets `BACKEND=gloo` and `DEVICE=cpu`) and `test_shallow_splash_ucx_cuda_decomp` (`BACKEND=ucx`, `DEVICE=cuda`) | the wrapper script or the test source launches its ranks with `BACKEND=gloo`; the variable only selects the process group, and the assertions are the restart, output and decomposition checks of @sec-ch15-restart, @sec-ch15-output and @sec-ch03-layouts | per test | the test sources |
 | `test_default_execution_python`, `test_cubed_sphere_capture_python`, `test_graph_mesh_many_blocks_python`, `test_fp32_science_python`, `test_graph_outflow_refused_python`, `test_graph_stretched_x1_python`, `test_seam_rotation_cache_python`, `test_mesh_capture_moist_python`, `test_graph_capture_lifts_python`, `test_graph_implicit_dt_python`, `test_sk3_capture_moist_python` | the script sets `DEVICE` to the device under test and `DEVICE_ID=0` before it builds the mesh; nine of them need CUDA and skip with code 125 on a CPU build | per test | the test sources |
 
 : Ctest entries that set an environment variable of this appendix, at the pin. {#tbl-appd-tests}
 
 The registered names and their assertions are in @sec-appc. No check script of this report covers this appendix.
-Twelve entries of @tbl-appd-tests were run at the pin for it[^appd-run]: eleven passed, and
+The CPU entries of @tbl-appd-tests were run at the pin for it in batches, in one build without NetCDF and, for the
+entries that read NetCDF back, in one with[^appd-run]. In the first batch of twelve, eleven passed and
 `test_gloo_invalid_interface` failed for a reason that is not the interface check. Its binary compiles
 its one test only with `NETCDFOUTPUT` ({{< code tests/test_output_barrier.cpp >}}), so in a build without NetCDF
 both ranks run zero tests and exit 0, and the wrapper stops with `expected two interface errors; exit=0,
 matches=0`. In a build with NetCDF (`-DNETCDF=ON -DPNETCDF=ON`, same tree, same host) the entry passes, with
-`test_output_barrier` itself. The wrapper entry `test_sedimentation_cubed_seam_gloo` and the two `SNAP_ANOMALY`
-entries, `test_anomaly_storage_python` and `test_options_table`, passed in the same build[^appd-run], as did the three
-Python `SNAP_X1_CENTROID_EXACT` entries. Of the two launch groups, `test_exchange_decomp` and the two CPU entries of
-the `DEVICE` group passed in the same build and the nine CUDA entries skipped; the seven other `BACKEND=gloo`
-entries read back NetCDF output and failed there because none was written, and all seven passed in the build with
-NetCDF[^appd-run]. The CUDA and UCX-on-GPU arms were not run.
+`test_output_barrier` itself. In later batches of the build without NetCDF, the wrapper entry
+`test_sedimentation_cubed_seam_gloo`, the two `SNAP_ANOMALY` entries `test_anomaly_storage_python` and
+`test_options_table`, `test_process_group`, the three Python `SNAP_X1_CENTROID_EXACT` entries, `test_exchange_decomp`
+and the two CPU entries of the `DEVICE` group all passed, and the nine CUDA entries of the `DEVICE` group skipped. The
+seven other `BACKEND=gloo` entries read back NetCDF output and failed there because none was written; all seven
+passed in the build with NetCDF[^appd-run]. The CUDA, UCX-on-GPU and `FULL_TESTS` arms were not run.
 
 [^appd-run]: `ctest -j 1` on the entries by name, in a Release build at the pin configured with `cmake -DCUDA=OFF
     -DNETCDF=OFF -DPNETCDF=OFF -DUCX=ON`, kintera 2.6.13, pyharp 2.7.17, torch 2.10.0+cu128, Linux x86-64, the
-    multi-rank entries as two or three `torchrun` ranks on one host. Passed: `test_x1_seam_split_x1_centroid`,
+    multi-rank entries as two or three `torchrun` ranks on one host. First batch, passed: `test_x1_seam_split_x1_centroid`,
     `test_x1_seam_split_nghost_check_x1_centroid`, `test_x1_seam_split_mp_x1_centroid`,
     `test_deck_x1_wiring_x1_centroid`, `test_stretched_x1_ref_x1_centroid`, `test_balance_column_x1_centroid`,
-    `test_face_floor_x1_centroid`, `test_x1_centroid_rest_python`, `test_diffusion_cubed_sphere_mp`,
-    `test_conservation_budget_mp`, `test_parentless_cloud_nb1_mp_gloo`, `test_exchange_ucx`, in a second run
-    `test_sedimentation_cubed_seam_gloo`, `test_anomaly_storage_python`, `test_options_table`, and in a third run
-    `test_radial_order_x1_centroid_python`, `test_stencil_cache_small_block_python`, and in two further runs
-    `test_exchange_decomp`, `test_fp32_science_python`, `test_seam_rotation_cache_python` (the other nine `DEVICE` entries
-    skipped, code 125). Failed: `test_gloo_invalid_interface`, as described, and the seven NetCDF-writing `BACKEND=gloo`
-    entries for want of NetCDF output. In the build with NetCDF (`-DNETCDF=ON -DPNETCDF=ON`, same tree, same host), the
-    seven passed: `test_restart_multiblock`, `test_restart_dt_change`, `test_restart_output_schedule`,
-    `test_restart_key_collision`, `test_restart_inplace_reorder`, `test_netcdf_axis_attrs`, `test_restart_resume_schedule`,
-    5 s to 29 s each. One run each, one host.
+    `test_face_floor_x1_centroid`, `test_diffusion_cubed_sphere_mp`, `test_conservation_budget_mp`,
+    `test_parentless_cloud_nb1_mp_gloo`, `test_exchange_ucx`; failed: `test_gloo_invalid_interface`, as described.
+    Later batches of the same build, all passed: `test_x1_centroid_rest_python`, `test_process_group`;
+    `test_sedimentation_cubed_seam_gloo`, `test_anomaly_storage_python`, `test_options_table`;
+    `test_radial_order_x1_centroid_python`, `test_stencil_cache_small_block_python`; `test_exchange_decomp`;
+    `test_fp32_science_python`, `test_seam_rotation_cache_python` (the other nine `DEVICE` entries skipped, code 125).
+    Failed in that build for want of NetCDF output, then passed in the build with NetCDF (`-DNETCDF=ON -DPNETCDF=ON`,
+    same tree, same host), 5 s to 29 s each: `test_restart_multiblock`, `test_restart_dt_change`,
+    `test_restart_output_schedule`, `test_restart_key_collision`, `test_restart_inplace_reorder`,
+    `test_netcdf_axis_attrs`, `test_restart_resume_schedule`. One run each, one host.
 
 ### Limits
 
