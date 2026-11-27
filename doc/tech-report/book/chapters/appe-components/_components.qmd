@@ -192,7 +192,9 @@ build ([Install and run](#sec-preface-install)).
 
 **What the build refuses, and why.** In the order a configure meets them (the top-level `CMakeLists.txt`
 includes `cmake/parameters.cmake`, then runs the locators for Disort, Harp and Kintera, then includes
-`cmake/ucx.cmake`, and the sidecar check sits in `src/CMakeLists.txt`):
+`cmake/ucx.cmake`, and the sidecar check sits in `src/CMakeLists.txt`). Before all of them, an interpreter without
+torch stops at the Torch ABI probe: the top-level file imports torch to read its GLIBCXX ABI and stops with "Failed to
+detect Torch GLIBCXX ABI" ({{< code CMakeLists.txt >}}).
 
 1. *`PNETCDF=ON` without pinc.* `cmake/parameters.cmake` imports `pinc` for its header and library paths and stops
    with a message that `PNETCDF=ON` requires the Python package `pinc` in the interpreter's environment, before any
@@ -226,8 +228,8 @@ find_package(Harp REQUIRED)
 find_package(Kintera 2.6.13 REQUIRED)
 ```
 
-The first three lines are the unversioned requirements of item 2 of the refusal list above; the last is the floor
-of item 3.
+The Torch line is covered by the ABI probe that runs before the refusal list; the Disort and Harp lines are the
+unversioned requirements of item 2 of the list; the last line is the floor of item 3.
 
 | what | code link | symbol | switch |
 |---|---|---|---|
