@@ -5,7 +5,7 @@ pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: STRUCTURE.md section 6 chapter 13; src/layout/*, src/mesh/mesh.cpp, src/mesh/stage_executor.cpp, src/mesh/meshblock_exchange.cpp, src/layout/exchange.cpp
 status: draft
 author: jihenghu
-reviewer: gitlinffff
+reviewer: cshsgy
 -->
 
 A Mesh is the set of blocks that one process advances together. This chapter describes how blocks are placed and

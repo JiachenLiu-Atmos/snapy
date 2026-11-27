@@ -5,7 +5,7 @@ pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: src/layout/exchange.cpp, src/mesh/stage_executor.cpp, src/hydro/hydro.cpp, tests/test_x1_seam_split.cpp, tests/test_x1_seam_split_mp.cpp, tests/CMakeLists.txt
 status: draft
 author: jihenghu
-reviewer: gitlinffff
+reviewer: cshsgy
 -->
 
 ### Summary

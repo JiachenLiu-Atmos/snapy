@@ -5,7 +5,7 @@ pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
 sources: src/options/layout.yaml, src/layout/layout.hpp, src/layout/layout.cpp, src/layout/cubed_sphere_layout.cpp, tests/test_process_group.cpp, tests/test_local_horizontal_cells.py
 status: draft
 author: jihenghu
-reviewer: gitlinffff
+reviewer: cshsgy
 -->
 
 ### Summary
