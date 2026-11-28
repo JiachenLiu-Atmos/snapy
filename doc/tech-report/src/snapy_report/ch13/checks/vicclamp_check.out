@@ -1,3 +1,0 @@
-[C1] PASS with no clamp the cell changes are the face divergence: the meter reads 0: face transfer 0.1, residual 0.0e+00
-[C2] PASS when every species of the donor is starved, only the dry fraction moves, so each cell misses M sum(y): the meter reads sum(y) = 0.03: residual 0.030000000000000; dry clamp marks 0
-[C3] PASS the floor of the scale is the smallest normal float in float32, since 1e-300 rounds to 0 there; float64 keeps 1e-300: float32(1e-300) = 0; float32 floor 1.175494e-38

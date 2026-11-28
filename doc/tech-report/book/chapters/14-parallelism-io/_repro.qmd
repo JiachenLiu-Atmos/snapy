@@ -118,7 +118,7 @@ The rows, with the line that decides each:
 
 **A minimal input.** No option belongs to this section. To exercise the decomposition claims, configure with
 `FULL_TESTS=ON` and run the tests of @tbl-ch14-repro-claims, for example `ctest -R 'shallow_xy_decomp|restart'`; the
-fixer bound applies only to a card with `gravity-work: cell` (@sec-ch13-fixgrav).
+fixer bound applies only to a card with `gravity-work: cell` (the pre-V3 section “Gravity-work fixer budget”, which returns with the V3 chapter 10).
 
 **What is refused, and why.** Nothing is refused here; the refusals of each mechanism are in its own section.
 

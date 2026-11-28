@@ -209,12 +209,11 @@ Regenerate every figure: `python3 tools/render_figures.py` (to `build/figures/<c
 
 | figure | section file | code | data (written by) |
 |---|---|---|---|
-| `fig-ch13-cycle-line` | `13-diagnostics/_cycle.qmd` | `snapy_report/ch13/figures/fig_cycle_line.py` | - |
-| `fig-ch13-limiter-meters` | `13-diagnostics/_limiter-meters.qmd` | `snapy_report/ch13/figures/fig_limiter_meters.py`<br>`snapy_report/ch13/checks/limiter_meters_check.py` | - |
-| `fig-ch13-output-diag` | `13-diagnostics/_output-diag.qmd` | `snapy_report/ch13/figures/fig_output_diag.py` | - |
-| `fig-ch13-redo-view` | `13-diagnostics/_redo-view.qmd` | `snapy_report/ch13/figures/fig_redo_view.py` | - |
-| `fig-ch13-regression` | `13-diagnostics/_regression.qmd` | `snapy_report/ch13/figures/fig_regression_matrix.py` | - |
-| `fig-ch13-vicclamp` | `13-diagnostics/_vicclamp.qmd` | `snapy_report/ch13/figures/fig_vicclamp.py` | - |
+| `fig-ch13-exchange-cut` | `13-mesh-exchange/_cuts.qmd` | `snapy_report/ch13/figures/fig_exchange_cut.py` | - |
+| `fig-ch13-layouts` | `13-mesh-exchange/_layouts.qmd` | `snapy_report/ch03/figures/fig_layouts_morton.py` | - |
+| `fig-ch13-mesh-agree` | `13-mesh-exchange/_agree.qmd` | `snapy_report/ch13/figures/fig_mesh_agree.py` | - |
+| `fig-ch13-wait-abort` | `13-mesh-exchange/_ghost.qmd` | `snapy_report/ch13/figures/fig_wait_abort.py` | - |
+| `fig-ch13-x1split` | `13-mesh-exchange/_x1split.qmd` | `snapy_report/ch03/figures/fig_x1seams_relay.py` | - |
 
 ## ch15
 

@@ -4,6 +4,8 @@
 
 **$A_{i\pm1/2}$**: [1. Coordinates and grids](#sec-appa-1).
 
+*a Mesh whose blocks disagree*, see **Mesh runs eager, why**.
+
 *AAM closure*, see **angular momentum, axial, flux form and closure**.
 
 *AAM drift*, see **angular momentum, global axial**.
@@ -17,6 +19,8 @@
 **adding an output field**: NetCDF output: per-block files and the combine, @sec-ch14-netcdf.
 
 **agreement with a reference result**: Reading verification evidence, @sec-ch16-metrics.
+
+*align_captures*, see **CUDA graphs, several blocks**.
 
 **$\alpha_{\mathrm{adm}}$**: [8a. Radiation and the radiating boundary](#sec-appa-8a).
 
@@ -78,13 +82,17 @@
 
 **BLAS**: The notation index, @sec-appa-index.
 
+*block job failure*, see **failed block, other blocks stop waiting**.
+
 *block layout*, see **decomposition into blocks**.
 
 *block tridiagonal*, see **implicit scheme, linear system**.
 
 **`blocks_per_process`**: Advance several blocks in one process, @sec-ch01-mesh.
 
-*blocks_per_process*, see **several blocks in one process**; **several blocks per process**.
+**blocks per process**: Layouts and ranks: block, rank and panel, @sec-ch13-layouts.
+
+*blocks_per_process*, see **blocks per process**; **several blocks in one process**; **several blocks per process**.
 
 **blow-up, NaN and negative density**: Step acceptance and redo: six causes, one collective decision, halving up to `max_redo`, @sec-ch09-redo.
 
@@ -177,6 +185,8 @@
 **calling snapy from Python**: Expose the C++ API to Python, @sec-ch01-python.
 
 *capture allow-list*, see **equation of state, which can be captured**.
+
+**capture out of memory**: Exchange cuts and multi-block capture, @sec-ch13-cuts.
 
 **capture sweep**: The capture sweep, @sec-ch16-capture.
 
@@ -278,13 +288,7 @@
 
 **conservation budget, measured drift**: Invariant checks: zero in, zero out, and the global budgets, @sec-ch16-invariants.
 
-**conservation from output files**: Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle.
-
 *conservation laws*, see **equations solved**.
-
-**conservation, monitoring a run**: Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle.
-
-**conservation tests**: Mass-conservation regression checks: which test holds which total, to what tolerance, @sec-ch13-regression.
 
 *conserve-axial-momentum*, see **angular momentum, axial, flux form and closure**.
 
@@ -346,9 +350,13 @@
 
 *ctest names*, see **test index**.
 
+*cubed layout*, see **layouts, block placement**.
+
 **cubed sphere**: Gnomonic equiangular cubed sphere, @sec-ch03-gnomonic.
 
 **cubed sphere, ghost interpolation across panels**: Cross-panel ghost interpolation, @sec-ch03-csinterp.
+
+*cubed-sphere layout*, see **layouts, block placement**.
 
 **cubed sphere, seam fluxes single-valued**: Panel rotation and the seam register, @sec-ch03-seamreg.
 
@@ -366,6 +374,8 @@
 
 **CUDA graph, which tests capture**: The capture sweep, @sec-ch16-capture.
 
+**CUDA graphs, several blocks**: Exchange cuts and multi-block capture, @sec-ch13-cuts.
+
 *CUDA kernels*, see **GPU kernels, CPU and CUDA dispatch**.
 
 **curvature terms**: Geometric sources on the spherical-polar grid: placement in the stage, @sec-ch04-sphsrc.
@@ -377,8 +387,6 @@
 *custom EOS*, see **equation of state, adding**.
 
 **`cv_R`**: Ideal-moist closure and the kintera thermodynamics, @sec-ch02-ideal-moist.
-
-*cycle line*, see **mass and energy budgets, log line**.
 
 **cylindrical grid (not implemented)**: Registered stub coordinate type, @sec-ch03-cylindrical.
 
@@ -460,8 +468,6 @@
 
 **device selection, kernels**: Dispatch tensor kernels by device, @sec-ch01-dispatch.
 
-**diagnostics in output**: Output-field diagnostics: `div`, `curl`, `theta_v`, `ic_*`, paths and means on request, @sec-ch13-output-diag.
-
 **`diameter`**: Pointer: the chemistry step at the pin, @sec-ch10-kinetics.
 
 **`diff_c`**: Pointer: the chemistry step at the pin, @sec-ch10-kinetics.
@@ -492,7 +498,7 @@
 
 **`distribute`**: Advance several blocks in one process, @sec-ch01-mesh.
 
-*divergence*, see **diagnostics in output**.
+*distribute*, see **layouts, block placement**.
 
 *does the implicit correction change the steady state*, see **implicit scheme, steady state**.
 
@@ -572,8 +578,6 @@
 
 **energy equation and EOS consistency**: EOS and solver consistency, @sec-ch02-consistency.
 
-**energy fixer, budget**: Gravity-work fixer budget: the meters, the accounting and `fixgrav=`, @sec-ch13-fixgrav.
-
 **energy fixer, gravity**: Gravity-work fixer, @sec-ch06-fixer.
 
 **environment for ranks and devices**: Layout and communication environment, @sec-ch12-layout.
@@ -632,7 +636,11 @@
 
 *every YAML key*, see **deck keys, full list**.
 
+*exchange cut*, see **CUDA graphs, several blocks**.
+
 **`execution`**: Options schema and YAML keys (the deck file), @sec-ch15-options.
+
+*execution eager*, see **capture out of memory**.
 
 **execution key**: Options schema and YAML keys (the deck file), @sec-ch15-options.
 
@@ -659,6 +667,8 @@
 *face floor counts*, see **monitor counts**.
 
 **face fluxes, stage totals**: Posts: the stage totals and the four writers, @sec-ch10-posts.
+
+**failed block, other blocks stop waiting**: The ghost exchange and the same-process waits, @sec-ch13-ghost.
 
 *fall speed*, see **sedimentation, settling flux**.
 
@@ -772,6 +782,8 @@
 
 **ghost exchange between blocks**: Generic ghost exchange, @sec-ch03-exchange.
 
+**ghost exchange, several blocks in one process**: The ghost exchange and the same-process waits, @sec-ch13-ghost.
+
 **ghost exchange, single block**: Exchange before a single-block stage, @sec-ch01-block-forward.
 
 **ghost exchange, what is carried**: Sync types and the velocity frame at seams, @sec-ch03-synctype.
@@ -858,7 +870,7 @@
 
 *halo cells*, see **ghost cells, where they sit**.
 
-**halo exchange**: Generic ghost exchange, @sec-ch03-exchange. See also **ghost exchange between blocks**.
+**halo exchange**: Generic ghost exchange, @sec-ch03-exchange. See also **ghost exchange between blocks**; **ghost exchange, several blocks in one process**.
 
 **halo width**: Generic ghost exchange, @sec-ch03-exchange.
 
@@ -935,8 +947,6 @@
 **`implicit-scheme`**: YAML scheme selection and setup guards, @sec-ch12-yaml.
 
 **implicit scheme**: VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch09-vic-options; VIC block-tridiagonal assembly: the Roe-linearised flux divergence along a column, @sec-ch09-vic-assembly; Stage-weighted implicit step: the correction runs with $w_2^{(s)}\Delta t$ under rk3 and rk3s4, @sec-ch09-vic-stage; Block Thomas sweep and back substitution: one serial pass up, one down, per column, @sec-ch09-vic-sweep; LU pivot tolerance: refuse a pivot within $8N\epsilon_{\mathrm m}$ of its row, @sec-ch09-vic-pivot; VIC rejection and rollback: per-column status, per-column undo and redo cause 32, @sec-ch09-vic-reject; VIC constituent redistribution: the solved mass change as face transfers, moved donor-upwind, @sec-ch09-vic-redistribute; VIC column closure: a mirror ghost folded into the end blocks, @sec-ch09-vic-closure; What is shown about steady states with the VIC: the fixed point is the explicit one, @sec-ch09-vic-steady.
-
-**implicit scheme, clamp meter**: VIC clamp meter: how far the availability clamp broke the face telescoping, @sec-ch13-vicclamp.
 
 **implicit scheme, failure and rollback**: VIC rejection and rollback: per-column status, per-column undo and redo cause 32, @sec-ch09-vic-reject.
 
@@ -1086,9 +1096,9 @@
 
 *layout*, see **decomposition into blocks**.
 
-**LF**: The Riemann solver framework and the face-local frame, @sec-ch04-riemann.
+**layouts, block placement**: Layouts and ranks: block, rank and panel, @sec-ch13-layouts.
 
-*limcut*, see **positivity limiter, how much it acted**.
+**LF**: The Riemann solver framework and the face-local frame, @sec-ch04-riemann.
 
 **`limiter`**: YAML scheme selection and setup guards, @sec-ch12-yaml.
 
@@ -1110,7 +1120,9 @@
 
 *lmars*, see **Riemann solver, LMARS**.
 
-**log messages, rejected steps**: Redo causes and termination status: what the log says about a rejected step and the end of a run, @sec-ch13-redo-view.
+*loc_of*, see **ranks and panels of blocks**.
+
+*local_wait*, see **failed block, other blocks stop waiting**.
 
 **low Mach number**: LMARS, @sec-ch04-lmars.
 
@@ -1132,11 +1144,7 @@
 
 *main loop*, see **driver loop**.
 
-**mass and energy budgets, log line**: Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle.
-
 *mass budget*, see **conservation budget, measured drift**.
-
-**mass conservation, tests**: Mass-conservation regression checks: which test holds which total, to what tolerance, @sec-ch13-regression.
 
 **mass conservation, why the update conserves**: Conservation laws and variables, @sec-ch02-laws; The finite-volume update and the flux divergence, @sec-ch04-divergence.
 
@@ -1200,7 +1208,11 @@
 
 **MC**: PLM, the van Leer harmonic-mean slope, @sec-ch04-plm.
 
+*Mesh-agree*, see **Mesh runs eager, why**.
+
 **mesh of blocks**: Advance several blocks in one process, @sec-ch01-mesh.
+
+**Mesh runs eager, why**: Mesh-agree: a Mesh whose blocks disagree runs eager (no switch), @sec-ch13-agree.
 
 **MeshBlock**: Construct a MeshBlock and its modules, @sec-ch01-construction.
 
@@ -1254,6 +1266,8 @@
 
 **$\mu$, $\nu$**: [8. Diffusion, sedimentation, forcing](#sec-appa-8).
 
+*multi-block capture*, see **CUDA graphs, several blocks**.
+
 *multinode*, see **multiple processes, launching**.
 
 **multiple processes, launching**: Launch environment and rendezvous, @sec-ch14-launch.
@@ -1278,6 +1292,8 @@
 
 **`nb1`**: YAML scheme selection and setup guards, @sec-ch12-yaml.
 
+*nb1*, see **vertical split into blocks**.
+
 **`nb2`**: YAML scheme selection and setup guards, @sec-ch12-yaml.
 
 **`nb3`**: YAML scheme selection and setup guards, @sec-ch12-yaml.
@@ -1286,9 +1302,7 @@
 
 **NCO**: Combine and inspect tools, @sec-ch14-tools. See also **output files, combining and inspecting**.
 
-**`ncycle_out`**: Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle.
-
-*ncycle_out*, see **mass and energy budgets, log line**.
+**`ncycle_out`**: Collectives and global decisions, @sec-ch14-collectives.
 
 **negative condensate, repair**: The condensate borrow, @sec-ch08-borrow.
 
@@ -1298,11 +1312,11 @@
 
 **negative vapour, column repair**: The vapour column repair, @sec-ch08-fixvapor.
 
+*neighbor_rank*, see **ranks and panels of blocks**.
+
 *NETCDF*, see **build options**.
 
 *NetCDF output*, see **output**.
-
-*NetCDF totals*, see **conservation from output files**.
 
 *netcdf writer*, see **output files, NetCDF and PnetCDF**.
 
@@ -1420,8 +1434,6 @@
 
 *output units*, see **units, of output fields**.
 
-**output variables**: Output-field diagnostics: `div`, `curl`, `theta_v`, `ic_*`, paths and means on request, @sec-ch13-output-diag.
-
 **`outputs`**: Output writers, @sec-ch15-output.
 
 ## P {.unnumbered .unlisted}
@@ -1433,6 +1445,8 @@
 **$p_{\mathrm{sat},k}(T)$**: [2. State, thermodynamics and species](#sec-appa-2).
 
 **panel edges, ghost values**: Cross-panel ghost interpolation, @sec-ch03-csinterp.
+
+*panel_of*, see **ranks and panels of blocks**.
 
 *panel seam*, see **cubed sphere, seams between panels**.
 
@@ -1521,8 +1535,6 @@
 **positivity limiter across seams**: Donor factor across seams: raw copy, @sec-ch03-thetacopy.
 
 **positivity limiter, energy carried**: The carry of energy and momentum with withheld mass, and the settling carry on a prescribed face, @sec-ch08-carry.
-
-**positivity limiter, how much it acted**: Positivity-limiter meters: `limcut`, `thetamin`, `thetasevere`, @sec-ch13-limiter-meters.
 
 **positivity, PLM face values**: PLM, the van Leer harmonic-mean slope, @sec-ch04-plm.
 
@@ -1626,6 +1638,8 @@
 
 **ranks and GPUs, assigning**: Launch environment and rendezvous, @sec-ch14-launch.
 
+**ranks and panels of blocks**: Layouts and ranks: block, rank and panel, @sec-ch13-layouts.
+
 **`rate-constant`**: Fixed-volume fixed-energy phase equilibrium, @sec-ch02-saturation.
 
 **Rayleigh drag**: Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch07-sponge. See also **sponge layer**.
@@ -1663,8 +1677,6 @@
 *red test*, see **break test**.
 
 *redo*, see **step rejection and redo**.
-
-*redo causes*, see **log messages, rejected steps**.
 
 **refactor, checking it changes no result**: The bitwise gates, @sec-ch16-gates.
 
@@ -1800,7 +1812,7 @@
 
 *run gets slower on a finer grid*, see **time step, why it is small**.
 
-**run stopped, why**: Redo causes and termination status: what the log says about a rejected step and the end of a run, @sec-ch13-redo-view.
+**run hangs, a block failed**: The ghost exchange and the same-process waits, @sec-ch13-ghost.
 
 *Runge-Kutta*, see **time integrator**.
 
@@ -1823,6 +1835,8 @@
 **$s^{\star}_n$**: [2. State, thermodynamics and species](#sec-appa-2).
 
 **S4 table, where it is**: Launch counting and the S4 table, @sec-ch16-launches.
+
+*same-process rendezvous*, see **ghost exchange, several blocks in one process**.
 
 **saturation adjustment, in the step**: Saturation adjustment in the step, @sec-ch08-satadj.
 
@@ -1898,6 +1912,8 @@
 
 *single precision*, see **precision**.
 
+*slab layout*, see **layouts, block placement**.
+
 *slope limiter*, see **reconstruction, piecewise linear**.
 
 *smallest example*, see **first run on a laptop**.
@@ -1949,6 +1965,8 @@
 **SSP**: Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk.
 
 *SSP-RK*, see **time integrator**.
+
+*stacked blocks*, see **vertical split into blocks**.
 
 *stage fold*, see **monitor amounts**.
 
@@ -2087,8 +2105,6 @@
 **$\theta_p$**: [2. State, thermodynamics and species](#sec-appa-2).
 
 **$\theta_v$**: [2. State, thermodynamics and species](#sec-appa-2).
-
-*thetamin*, see **positivity limiter, how much it acted**.
 
 **`thickness`**: Body heating, top cooling and bottom heating, @sec-ch07-heating.
 
@@ -2252,13 +2268,13 @@
 
 **vertical coordinate, radius**: Spherical-polar metric and sources, @sec-ch03-sphpolar; Gnomonic equiangular cubed sphere, @sec-ch03-gnomonic.
 
+**vertical split into blocks**: The x1 seam split, @sec-ch13-x1split.
+
 **vertical split into several blocks**: $x_1$ seams between blocks, @sec-ch03-x1seams.
 
 *vertically implicit correction*, see **implicit scheme**.
 
 **VIC**: VIC options and activation: `implicit-scheme` 1 or 9, one block in $x_1$, @sec-ch09-vic-options. See also **implicit scheme**.
-
-*virtual potential temperature*, see **diagnostics in output**.
 
 **viscosity and heat conduction**: Isotropic viscosity and heat conduction, @sec-ch07-viscosity.
 
@@ -2271,8 +2287,6 @@
 **`vm`**: Pointer: the chemistry step at the pin, @sec-ch10-kinetics.
 
 *volume coordinate*, see **reconstruction on a curved grid, radial**.
-
-*vorticity*, see **diagnostics in output**.
 
 ## W {.unnumbered .unlisted}
 
@@ -2363,6 +2377,8 @@
 *x1-mass-covariance*, see **face averages, vertical mass flux correction**.
 
 **`x1-outer`**: Construct a MeshBlock and its modules, @sec-ch01-construction.
+
+*x1 seam split*, see **vertical split into blocks**.
 
 *x1 seams*, see **vertical split into several blocks**.
 

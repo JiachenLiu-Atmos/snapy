@@ -1,0 +1,164 @@
+## The ghost exchange and the same-process waits (`blocks_per_process`) {#sec-ch13-ghost}
+
+<!-- PROVENANCE
+pin: snapy@73c45a7c8c991209924e1137992352c335575062 (UCzhangxi/snapy v3/final)
+sources: src/mesh/meshblock_exchange.cpp, src/mesh/mesh.cpp, src/layout/layout.cpp, src/layout/layout.hpp, src/layout/exchange.cpp, tests/test_exchange.cpp, tests/test_mesh_exchange.py, tests/test_cubed_sphere_exchange.cpp, tests/test_periodic_corners.py, tests/test_mesh_block_job_failure.py
+status: draft
+author: jihenghu
+reviewer: cshsgy
+-->
+
+### Summary
+
+A ghost exchange fills each block's ghost cells from its neighbours' interior cells. Between processes the
+buffers travel through the process group. Between blocks of the same process they are handed over in memory,
+and the blocks have to meet to do it: every block's buffers must be packed before any is copied. This section
+describes those meetings. Every one of them goes through a single wait, so a block whose job fails ends the
+other blocks' waits instead of leaving them waiting for it, and the first error reaches the caller.
+
+::: {.callout-note title="At a glance"}
+**Purpose.** Pack each neighbour slab, move it (process group, or same-process rendezvous and mail), unpack it
+into the ghosts, refresh the corners; every same-process wait ends when a block job of the Mesh has failed.
+
+**Data.** In: the blocks' interior cells (conserved variables by default). Out: ghost slabs and corners.
+Same-process state: the rendezvous state, mail, x1 anchors and column boards, all keyed by the Mesh.
+
+**Placement.** At the start of every stage (`exchange_ghost_zones`), and at the seam and column exchanges
+inside the stage.
+
+**Activation.** Always on with more than one block; the same-process path when `blocks_per_process` > 1.
+
+**Guarantee / limits.** The copies are exact. A failed block job ends every same-process wait of its Mesh; the
+caller gets the first error once every job has ended.
+
+**Evidence.** @tbl-ch13-ghost-tests.
+:::
+
+What a ghost holds, the corner convention and the panel-seam interpolation are @sec-ch03; the rotation operands
+that the panel-seam reconcile applies are built once per seam side and reused every stage (@sec-ch03-seamcache).
+Here the subject is how the buffers get there when several blocks share a process, and what happens when one of
+them fails.
+
+### Derivation
+
+No equation: the exchange copies bytes and the waits are control flow. One property is stated and tested: a
+Mesh's same-process waits have exactly one place where a thread blocks, so the failure rule below holds for all
+of them. In `src/layout/layout.cpp` at the pin, `g_local_exchange_cv` is waited on once, inside `local_wait`, and
+`local_wait` has eight call sites: three in the rendezvous, two at the column board, one at the x1 anchor take,
+one at the mail post and one at the mail take.[^ghost-count]
+
+[^ghost-count]: [sha: 73c45a7c8c991209924e1137992352c335575062; deck: none (a source count); run: `grep -c "g_local_exchange_cv.wait" src/layout/layout.cpp; grep -c "local_wait(" src/layout/layout.cpp`, the source tree at the pin; torch 2.10.0+cu126, kintera 2.6.13, pyharp 2.8.1, gcc 13.3.1, nvcc 12.9, Python 3.11.13];
+    the counts are 1 and 9 (the definition and eight calls).
+
+### Numerical method
+
+**The exchange.** `MeshBlockImpl::exchange_ghost_zones` syncs the hydro's conserved variables and then the
+scalars, each as pack (`serialize`), launch, and unpack (`finalize`); `MeshImpl::exchange_ghost_zones` runs that
+on every block at once on the Mesh's worker pool. Ghost corners are then refreshed: each installed wall function
+is re-applied on the slabs the exchange owns in the other directions, so a corner matches the updated column.
+
+**The same-process meetings.** There are four kinds, each keyed first by the Mesh's id.
+
+- *The rendezvous* (`_prepare_local_exchange`): each block records an arrival event on its stream and counts
+  itself in; the last block to arrive orders its stream after every arrival, copies all the blocks' buffers,
+  records a completion event, and releases the others, who order their streams after it. A generation counter
+  separates one round from the next.
+- *Mail* (`post_to_local_block`, `take_from_local_block`): the panel-seam reconcile posts one tensor per
+  (sender, receiver, tag); a post waits until the previous message with that key was taken, a take waits until
+  it is posted. Both waits are capped at five minutes.
+- *The x1 anchor* (`pass_x1_anchor`, `take_x1_anchor`): the block above posts its face for the block below; the
+  take waits for it, capped at five minutes.
+- *The column board* (`gather_x1`): the blocks of one x1 column post their pieces and wait until all are posted.
+
+**The single wait and the failure rule.** Every one of those waits is `local_wait`. It waits on the one
+condition variable until its condition holds or, on a worker thread of a Mesh, until that Mesh's worker pool holds
+a failed job's error (`g_local_job_failed`, which reads the pool's stored error under the pool's lock). In the
+second case it throws "same-process wait left: a block job failed", so the waiting block's job ends too. The pool
+stores the first error, releases its lock and wakes every wait (`wake_local_exchanges`). When every job has
+ended it orders the caller's stream after each worker's last work, drops the Mesh's mail, x1 anchors and column
+boards (`clear_local_exchange`), which no block will take any more, and rethrows the first error. A run without
+an error does none of this. @fig-ch13-wait-abort shows the sequence.
+
+```{python}
+#| label: fig-ch13-wait-abort
+#| fig-cap: "One stage of a three-block Mesh in which block 1's job fails. Blocks 0 and 2 wait at a same-process meeting (local_wait); the pool stores block 1's error and wakes them; they leave with 'same-process wait left'; when all three jobs have ended the pool clears the Mesh's mail, anchors and boards and rethrows block 1's error to the caller."
+#| fig-alt: "Three horizontal lanes for blocks 0, 1 and 2 and a fourth for the pool; block 1 ends with a red cross, the other two lanes wait and then end; the pool lane shows store, wake, clear and rethrow."
+#| echo: false
+from snapy_report.ch13.figures.fig_wait_abort import make_fig
+make_fig()
+```
+
+### Code
+
+| what | code link | symbol | switch |
+|---|---|---|---|
+| a block's per-stage sync | {{< code src/mesh/meshblock_exchange.cpp MeshBlockImpl::exchange_ghost_zones >}} | `exchange_ghost_zones` | none |
+| all blocks of a Mesh | {{< code src/mesh/mesh.cpp MeshImpl::exchange_ghost_zones >}} | `exchange_ghost_zones` | none |
+| the rendezvous | {{< code src/layout/layout.cpp LayoutImpl::_prepare_local_exchange >}} | `_prepare_local_exchange` | `blocks_per_process` |
+| its state | {{< code src/layout/layout.cpp g_local_exchange_states >}} | `g_local_exchange_states` | none |
+| mail | {{< code src/layout/layout.cpp LayoutImpl::post_to_local_block >}}, {{< code src/layout/layout.cpp LayoutImpl::take_from_local_block >}} | `post_to_local_block`, `take_from_local_block` | none |
+| x1 anchor | {{< code src/layout/layout.cpp LayoutImpl::take_x1_anchor >}} | `take_x1_anchor` | `nb1` |
+| column board | {{< code src/layout/layout.cpp LayoutImpl::gather_x1 >}} | `gather_x1` | `nb1` |
+| the one wait | {{< code src/layout/layout.cpp local_wait >}} | `local_wait` | none |
+| the abort source | {{< code src/layout/layout.cpp g_local_job_failed >}} | `g_local_job_failed` | none |
+| wake | {{< code src/layout/layout.cpp wake_local_exchanges >}} | `wake_local_exchanges` | none |
+| clear | {{< code src/layout/layout.cpp clear_local_exchange >}} | `clear_local_exchange` | none |
+| the pool | {{< code src/mesh/mesh.cpp MeshImpl::run_block_jobs >}} | `run_block_jobs` | none |
+
+: The code of the exchange and the same-process waits. {#tbl-ch13-ghost-code}
+
+Walk-through, failure path: a block job throws; the pool's worker stores the error if it is the first, then calls
+`wake_local_exchanges`; every blocked `local_wait` of that Mesh re-checks and throws; when the last job has ended,
+the pool (in `run_block_jobs`, through its `submit`) calls `clear_local_exchange` with the Mesh's id and rethrows.
+The five-minute caps of mail and anchor are the only timeouts; a cap that passes raises its own message naming
+the blocks involved.
+
+### Tests
+
+| test (ctest name) | what it asserts | tolerance | where the tolerance comes from |
+|---|---|---|---|
+| `tests/test_exchange.cpp` (`test_exchange.release`, 2 ranks) | each ghost holds the neighbour's tagged value, hydro and scalar | `torch::isclose`, rtol $10^{-5}$, atol $10^{-8}$ (the defaults), two checks | the test source; the values are small integers plus payloads |
+| `tests/test_mesh_exchange.py` (`test_mesh_exchange_python`) | each ghost equals the neighbour's rank | exact (`==`) | the test source |
+| `tests/test_cubed_sphere_exchange.cpp` (`test_cubed_sphere_exchange.release`) | split and unsplit cubed spheres give the same coordinates, densities and ghosts | exact (`torch::equal`, nine checks) | the test source |
+| `tests/test_periodic_corners.py` (`test_periodic_corners_python`) | every corner ghost equals the global field's value there | exact (any non-zero relative difference fails) | the test source |
+| `tests/test_mesh_block_job_failure.py` (`test_mesh_block_job_failure_python`) | a capture out of memory (default and `cuda-graph`) and an eager out of memory on one block of a 24-block Mesh each reach the caller as an exception within the test's timeout, in a child process that exits normally | pass/fail | a hang is the failure being tested |
+
+: The tests of the exchange and the same-process waits. {#tbl-ch13-ghost-tests}
+
+Evidence. At the pin every test of this table passed on CUDA, and on a CPU-only build every one passed except the
+failure test, which skips there (it needs CUDA), in the by-name run of every test this chapter cites (CPU: 22 passed
+and 4 skipped of 26; CUDA: 29 of 29 passed).[^ghost-ctest] On CUDA the failure test's three cases raised as stated:
+the two capture cases with "a capture ran out of device memory; execution: eager runs this deck", the eager case
+with the plain out-of-memory error. `test_cubed_sphere_exchange` ran 9 cases on CUDA; on CPU it ran 8 and skipped its
+CUDA case. `test_periodic_corners` runs on the CPU device in both builds (its ctest entry passes no device), with 0
+wrong corner cells in every case. `test_exchange` (two ranks) and the failure test (CUDA only) are the multi-rank
+and the device-only tests of this table.
+
+[^ghost-ctest]: [sha: 73c45a7c8c991209924e1137992352c335575062; deck: the tests' own decks; run: `ctest --test-dir build/tests -j 1 -V --timeout 1200 -R '^(test_process_group\.|test_local_horizontal_cells_python$|test_exchange\.|test_mesh_exchange_python$|test_cubed_sphere_exchange\.|test_periodic_corners_python$|test_mesh_block_job_failure_python$|test_mesh_capture\.|test_mesh_capture_moist_python$|test_cubed_sphere_capture_python$|test_graph_mesh_many_blocks_python$|test_mesh_worker_streams\.|test_mesh_disagree\.|test_x1_seam_split)'`, clean CPU-only Release build, CPU, FP64, one process (two for `test_exchange` and the `_mp` entries); and the same command on a clean CUDA Release build (sm_61 code), one CUDA device, FP64 unless the test sets FP32, one process (two for `test_exchange` and the `_mp` entries); torch 2.10.0+cu126, kintera 2.6.13, pyharp 2.8.1, gcc 13.3.1, nvcc 12.9, Python 3.11.13]; logs `ctest-ch13-cpu-verbose.log` and `ctest-ch13-cuda.log`.
+
+### Limits
+
+**The rendezvous state is never erased.** The rendezvous state map ({{< code src/layout/layout.cpp g_local_exchange_states >}})
+gains one entry per Mesh and kind of exchange on first use and keeps it for the life of the process;
+`clear_local_exchange` drops mail, anchors and boards but not this map. A later Mesh cannot read a stale entry:
+each Mesh takes a new id from a process-wide counter when it is built or reset ({{< code src/mesh/mesh.cpp MeshImpl::reset >}}),
+ids are never reused, and the id leads the key. A new Mesh built after a failed one, stepped in eager and default
+execution, matched a freshly built Mesh bitwise, and 30 entries were left in the map at exit.[^ghost-stale]
+**Re-stepping the same Mesh after a failure is not supported.** With its state restored from a copy taken before
+the failed stage, the failed Mesh raised "local exchange size mismatch" in 8 of 12 runs and matched a freshly built
+Mesh bitwise in the other 4.[^ghost-restep] The cause is a hypothesis, not checked: arrival counts left in the
+rendezvous state by the blocks that left the failed round, so that the first block of the next round finds the
+count complete and copies before the others have packed. No fix for this is in the code at the pin.
+
+Other limits: the blocks of a process must run concurrently, as the Mesh's worker threads do. Blocks stepped one
+by one on one thread wait at the rendezvous or the column board, which have no cap, or fail after five minutes at
+a mail or anchor wait; the failure rule above does not apply off a Mesh's worker threads. A peer that is slower by
+more than five minutes at a mail or anchor wait fails the same way. Switch combinations are in @sec-ch12-matrix.
+
+[^ghost-stale]: [sha: 73c45a7c8c991209924e1137992352c335575062; deck: the 24-block cubed sphere of tests/test_default_execution.py, 256 x 256 cells per block for the failed Mesh; run: `python second_mesh.py tests`, clean CUDA Release build, one CUDA device, FP64, one process; torch 2.10.0+cu126, kintera 2.6.13, pyharp 2.8.1, gcc 13.3.1, nvcc 12.9, Python 3.11.13];
+    `second_mesh.py` is a script in the writer's workspace; the first Mesh is failed by capping the caching
+    allocator; the entry count is read with gdb at process exit; log `second_mesh-73c45a7c.log`.
+
+[^ghost-restep]: [sha: 73c45a7c8c991209924e1137992352c335575062; deck: as for the previous note; run: `python restep_vs_fresh.py tests`, clean CUDA Release build, one CUDA device, FP64, one process; torch 2.10.0+cu126, kintera 2.6.13, pyharp 2.8.1, gcc 13.3.1, nvcc 12.9, Python 3.11.13];
+    `restep_vs_fresh.py` is a script in the writer's workspace, run 12 times; logs `restep-73c45a7c-1.log` to
+    `restep-73c45a7c-12.log`.

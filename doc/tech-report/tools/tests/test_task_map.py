@@ -84,9 +84,9 @@ def test_every_bank_question_has_one_record_and_every_destination_resolves():
 
 
 def test_the_status_counts_are_those_of_the_lookup():
-    # answered 18, partly documented 61, undocumented 8, unsupported by the code 0, outside scope 8 (total 95)
+    # answered 18, partly documented 59, undocumented 10, unsupported by the code 0, outside scope 8 (total 95)
     assert g.counts(g.load(g.DATA.read_text())) == {
-        "answered": 18, "partly documented": 61, "undocumented": 8, "unsupported by the code": 0, "outside scope": 8}
+        "answered": 18, "partly documented": 59, "undocumented": 10, "unsupported by the code": 0, "outside scope": 8}
 
 
 def test_the_committed_appendix_g_matches_a_fresh_generation():

@@ -734,7 +734,7 @@
       "kind": "key",
       "term": "ncycle_out",
       "meaning": "number of cycles between printed cycle lines; 0 turns the line off",
-      "section": "sec-ch13-cycle",
+      "section": "sec-ch14-collectives",
       "not_defined_here": true
     },
     {

@@ -2,12 +2,12 @@
 
 | status | tasks |
 |---|---|
-| answered | 102 |
-| partly documented | 80 |
-| undocumented | 14 |
+| answered | 95 |
+| partly documented | 75 |
+| undocumented | 19 |
 | unsupported by the code | 0 |
 | outside scope | 8 |
-| total | 204 |
+| total | 197 |
 
 : Reader tasks by status. {#tbl-appg-reader-tasks}
 
@@ -97,13 +97,6 @@
 - Drive convection with bottom heating and top cooling. See Body heating, top cooling and bottom heating, @sec-ch07-heating.
 - Relax the bottom layer toward a temperature, rest and a vapour source. See Bottom relaxation of temperature, velocity and composition, @sec-ch07-relax.
 - Add Rayleigh sponge layers near the top and bottom. See Sponge layers: Rayleigh drag near the top and bottom boundaries, @sec-ch07-sponge.
-- Print the cycle-line budget every ten cycles. See Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle.
-- Turn on the limiter so the positivity meters count. See Positivity-limiter meters: `limcut`, `thetamin`, `thetasevere`, @sec-ch13-limiter-meters.
-- Run with VIC so the clamp meter is printed. See VIC clamp meter: how far the availability clamp broke the face telescoping, @sec-ch13-vicclamp.
-- Print the gravity-work fixer budget (fixgrav=). See Gravity-work fixer budget: the meters, the accounting and `fixgrav=`, @sec-ch13-fixgrav.
-- Set the stop reasons in the integration block and read the termination status. See Redo causes and termination status: what the log says about a rejected step and the end of a run, @sec-ch13-redo-view.
-- Write a NetCDF stream with diagnostics, the VIC correction and column paths. See Output-field diagnostics: `div`, `curl`, `theta_v`, `ic_*`, paths and means on request, @sec-ch13-output-diag.
-- Run the mass-conservation regression check on the two-block Straka deck. See Mass-conservation regression checks: which test holds which total, to what tolerance, @sec-ch13-regression.
 - Launch two processes with two blocks each on one node. See Launch environment and rendezvous, @sec-ch14-launch.
 - Set SyncOptions.phyid for a second sync from Python. See Exchange message matching and in-process copies, @sec-ch14-msgmatch.
 - Run four blocks in one process on one GPU. See Several blocks per process and GPU streams, @sec-ch14-bpp.
@@ -162,11 +155,8 @@
 - Understand how moist thermodynamics is closed (latent heat, condensate heat capacity, EOS consistency). See Temperature-dependent moist thermodynamics, @sec-ch02-moist-mixture.
 - Find which standard benchmarks snapy is validated on, with reference numbers. See Explicit SSP Runge-Kutta stages in Shu-Osher form, @sec-ch09-rk.
 - Compare my run with a published or analytic result and decide what counts as agreement. See Reading verification evidence, @sec-ch16-metrics.
-- Diagnose a run that stopped with negative density or NaN. See Redo causes and termination status: what the log says about a rejected step and the end of a run, @sec-ch13-redo-view.
-- Check that total mass is conserved to round-off and find the test that shows the drift. See Mass-conservation regression checks: which test holds which total, to what tolerance, @sec-ch13-regression.
 - Check free-stream preservation and exact seam fluxes on curvilinear grids. See Grids and geometry evidence, @sec-ch16-ch03-tests.
 - Check that positivity limiters and vapour fixers conserve tracer and condensate mass. See The tracer flux positivity limiter, @sec-ch08-theta.
-- See how large the limiter corrections were in a run (logged meters). See Positivity-limiter meters: `limcut`, `thetamin`, `thetasevere`, @sec-ch13-limiter-meters.
 - Find which boundaries are closed or open and whether outflow or sponges leak mass or energy. See Select outgoing acoustic and advected perturbations, @sec-ch11-outflow.
 - Understand how a run is divided among processes and GPUs. See Layouts and rank maps, @sec-ch03-layouts.
 - Find which parts of a step run on the GPU and when data moves to the host. See GPU execution, @sec-ch14-gpu.
@@ -180,7 +170,6 @@
 - Find the exact signature of a forcing call, its input shapes with ghosts and whether it updates in place. See User stage forcings: TorchScript modules called every stage, @sec-ch07-user.
 - Prototype a forcing in Python without recompiling, and know its cost against C++. See User stage forcings: TorchScript modules called every stage, @sec-ch07-user.
 - Find whether a stiff forcing can be treated implicitly. See The forcing loop: parsing, registration and the stage increment, @sec-ch07-framework.
-- Show that my forcing changes mass, momentum and energy only as intended, per step. See Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle.
 - Test that a new condensate conserves total water and moist energy through a phase change. See Saturation adjustment in the step, @sec-ch08-satadj.
 - Add a new condensate species: declare its data and saturation formula and find its state-vector row. See Saturation adjustment in the step, @sec-ch08-satadj.
 - Keep an atmosphere at rest exactly at rest at a wall: hydrostatic ghosts. See Keep wall ghosts consistent with the hydrostatic reference, @sec-ch11-wb.
@@ -197,14 +186,17 @@
 - Add a test for new code. See Build options and test registration, @sec-ch12-build.
 - Initialise the model from a sounding exported from another code. See `balance_column`: projection of ghost-free columns onto the scheme's discrete balance (C++ and Python API), @sec-ch05-balcol.
 - Reproduce a documented test case and check it against the documented result. See Reading verification evidence, @sec-ch16-metrics.
-- Check mass and energy conservation from the output files. See Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles, @sec-ch13-cycle.
 
 ## Undocumented {.unnumbered .unlisted}
 
 - Set up a problem of my own (e.g. a warm bubble in a chosen atmosphere) starting from an example. Not provided: no problem-design tutorial; only the initial-state contract exists (@sec-ch01-initialization).
 - Find how Coriolis and geometric sources interact with the well-balanced reconstruction. Not provided: no section states the interaction.
 - List the numerical dissipation of the scheme (Riemann solver, limiters) apart from physical diffusion. Not provided: no list of numerical dissipation and no physical-vs-numerical split.
+- Diagnose a run that stopped with negative density or NaN. Not provided: its answering section ("Redo causes and termination status", in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
+- Check that total mass is conserved to round-off and find the test that shows the drift. Not provided: its answering section ("Mass-conservation regression checks", in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
+- See how large the limiter corrections were in a run (logged meters). Not provided: its answering section ("Positivity-limiter meters", in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
 - Identify the latest usable checkpoint after a node or storage failure. Not provided: the book states no completeness guarantee for an interrupted write and no procedure for finding the latest usable checkpoint after a failure.
+- Show that my forcing changes mass, momentum and energy only as intended, per step. Not provided: its answering section ("Cycle-line budget", in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
 - Record what a paper needs: code version, resolved configuration, dependencies, hardware. Not provided: no publication-record checklist; output does not record a resolved configuration.
 - Compare thermodynamic constants with sources against my old model. Not provided: saturation vapour pressures not covered; deck values cited only to deck lines; cv_R=2.5 unsourced.
 - Find which results-changing fixes went into which versions. Not provided: no per-version list of results-changing fixes.
@@ -215,6 +207,7 @@
 - Relate cubed-sphere panel orientation to FV3 or MITgcm. Not provided: the panel frame is defined in @sec-ch03-gnomonic, but there is no mapping to FV3 or MITgcm panel numbering or orientation.
 - Understand the pole treatment on the spherical-polar grid. Not provided: no section treats the poles; @sec-ch03-sphpolar only requires x2 within [0, pi]; "pole" occurs once, in @sec-ch03-synctype ("away from a pole").
 - Restart a run from a NetCDF dump. Not provided: restart reads only .restart bundles (load_pt_from_bundle, @sec-ch14-restart); no reader starts a run from a NetCDF output file.
+- Check mass and energy conservation from the output files. Not provided: its answering section ("Cycle-line budget", in the pre-V3 diagnostics chapter) was removed when the V3 chapter 13 took that number; the material returns with the V3 chapter 10.
 
 ## Outside scope {.unnumbered .unlisted}
 

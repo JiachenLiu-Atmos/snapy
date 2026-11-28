@@ -1,5 +1,0 @@
-[C1] PASS a settling column with dt |v_sed| / dx = 2 on five draining cells: theta 1/2, five hits, five severe, limcut 1/2: hits 5, severe 5, thetamin 0.499999999999545, limcut 0.500000000000455
-[C2] PASS an empty cell drained by a 1e-20 face flux has theta 0 and counts as a hit, but its withheld mass is below round-off, so it is not severe: theta of that cell 0.0; hits 5, severe 4
-[C3] PASS the severe threshold is 4096 ulp of the gas mass in float64 and 64 ulp in float32: float64 9.094947e-13, float32 7.629395e-06 of the cell's gas mass
-[C4] PASS with no offered flux, thetamin stays at its initial 1, thetasevere at 0, and limcut is not printed: thetamin 1.0, severe 0, limcut None
-[C5] PASS the census runs with limiter: true, or with a face-flux covariance row in x2 or x3 (SNAP_FLUX_COVARIANCE, default on), whenever species are present: 2-D moist run, limiter false, defaults: census True; 'limiter only' disagrees with the gate on 3 of 128 cases (RED), the corrected reading on 0 (GREEN)

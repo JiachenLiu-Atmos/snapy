@@ -1,3 +1,0 @@
-{
- "eq-ch13-fixgrav-meters": "The fixer's meters: the fluid mass $M$, the unweighted mass $M_\\partial$ through the physical $x_1$ boundary faces, the mass $M_{\\mathrm{wall}}$ of the cells next to them, and the run total of deposits printed as fixgrav."
-}

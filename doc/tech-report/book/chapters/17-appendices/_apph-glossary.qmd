@@ -115,7 +115,7 @@
 - `nb1`: number of blocks along the first coordinate direction. Defined in [YAML scheme selection and setup guards (`YAML keys`)](#sec-ch12-yaml).
 - `nb2`: number of blocks along the second coordinate direction. Defined in [YAML scheme selection and setup guards (`YAML keys`)](#sec-ch12-yaml).
 - `nb3`: number of blocks along the third coordinate direction. Defined in [YAML scheme selection and setup guards (`YAML keys`)](#sec-ch12-yaml).
-- `ncycle_out`: number of cycles between printed cycle lines; 0 turns the line off. Not defined here; used in [Cycle-line budget: volume integrals of the conserved state, one line per `ncycle_out` cycles (`print_cycle_diagnostics`)](#sec-ch13-cycle).
+- `ncycle_out`: number of cycles between printed cycle lines; 0 turns the line off. Not defined here; used in [Collectives and global decisions](#sec-ch14-collectives).
 - `nghost`: number of ghost cells at each boundary. Defined in [The reconstruction framework (`dynamics/reconstruct`)](#sec-ch04-framework).
 - `nlim`: maximum number of integration cycles. Not defined here; used in [Driver loop and accepted steps (`integration:`)](#sec-ch01-driver).
 - `non-hydrostatic`: fraction of the vertical body force retained by the non-hydrostatic treatment. Defined in [Constant gravity and the cell form of the gravity work (`gravity-work: cell`)](#sec-ch06-cell).
